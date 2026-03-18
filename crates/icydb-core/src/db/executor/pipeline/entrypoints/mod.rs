@@ -21,7 +21,7 @@ use crate::{
 };
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
-    LoadExecutionMode, LoadExecutionSurface, LoadTracingMode,
+    LoadExecutionMode, LoadTracingMode,
 };
 #[cfg(test)]
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{

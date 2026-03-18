@@ -8,6 +8,7 @@ mod runtime;
 mod safety;
 
 use crate::db::executor::pipeline::contracts::PostAccessContract;
+use core::marker::PhantomData;
 
 ///
 /// PostAccessPlan
@@ -17,10 +18,14 @@ use crate::db::executor::pipeline::contracts::PostAccessContract;
 
 pub(super) struct PostAccessPlan<'a, K> {
     contract: PostAccessContract<'a, K>,
+    marker: PhantomData<K>,
 }
 
 impl<'a, K> PostAccessPlan<'a, K> {
     pub(super) const fn new(contract: PostAccessContract<'a, K>) -> Self {
-        Self { contract }
+        Self {
+            contract,
+            marker: PhantomData,
+        }
     }
 }

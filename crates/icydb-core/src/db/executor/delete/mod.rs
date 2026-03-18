@@ -14,6 +14,8 @@ use crate::{
                 commit_delete_row_ops_with_window, mutation_write_context, preflight_mutation_plan,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+            preparation::slot_map_for_entity_plan,
+            reconstruct_typed_access_plan,
             traversal::row_read_consistency_for_plan,
         },
         response::EntityResponse,
@@ -132,16 +134,21 @@ where
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
             let plan = plan.into_inner();
-            let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
+            let execution_preparation = ExecutionPreparation::from_plan(
+                E::MODEL,
+                &plan,
+                slot_map_for_entity_plan::<E>(&plan),
+            );
             preflight_mutation_plan::<E>(&plan)?;
             let ctx = mutation_write_context::<E>(&self.db)?;
+            let typed_access = reconstruct_typed_access_plan::<E>(&plan)?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);
-            record_plan_metrics(&plan.access);
+            record_plan_metrics(&typed_access);
 
             // Access phase: resolve candidate rows before delete filtering.
             let data_rows = ctx.rows_from_access_plan(
-                &plan.access,
+                &typed_access,
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
                 row_read_consistency_for_plan(&plan),

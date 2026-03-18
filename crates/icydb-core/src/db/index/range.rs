@@ -6,7 +6,6 @@
 use crate::{
     db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
     model::index::IndexModel,
-    traits::EntityKind,
     value::Value,
 };
 use std::ops::Bound;
@@ -32,13 +31,13 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
 ///
 
 #[must_use]
-pub(in crate::db) fn raw_keys_for_encoded_prefix<E: EntityKind>(
+pub(in crate::db) fn raw_keys_for_encoded_prefix(
+    index_id: &IndexId,
     index: &IndexModel,
     prefix: &[EncodedValue],
 ) -> (RawIndexKey, RawIndexKey) {
-    let index_id = IndexId::new::<E>(index);
     raw_keys_for_encoded_prefix_with_kind(
-        &index_id,
+        index_id,
         IndexKeyKind::User,
         index.fields().len(),
         prefix,
@@ -69,18 +68,17 @@ pub(in crate::db) fn raw_keys_for_encoded_prefix_with_kind(
 /// Build raw key-space bounds from pre-encoded index components.
 ///
 
-pub(in crate::db) fn raw_bounds_for_encoded_index_component_range<E: EntityKind>(
+pub(in crate::db) fn raw_bounds_for_encoded_index_component_range(
+    index_id: &IndexId,
     index: &IndexModel,
     prefix: &[EncodedValue],
     lower: &Bound<EncodedValue>,
     upper: &Bound<EncodedValue>,
 ) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
-    let index_id = IndexId::new::<E>(index);
-
     let lower_component = encoded_component_bound(lower);
     let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
-        &index_id,
+        index_id,
         index.fields().len(),
         prefix,
         &lower_component,
@@ -97,7 +95,8 @@ pub(in crate::db) fn raw_bounds_for_encoded_index_component_range<E: EntityKind>
 /// This is the semantic-to-physical lowering boundary for index-range access.
 ///
 
-pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind>(
+pub(in crate::db) fn raw_bounds_for_semantic_index_component_range(
+    index_id: &IndexId,
     index: &IndexModel,
     prefix: &[Value],
     lower: &Bound<Value>,
@@ -110,7 +109,8 @@ pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind
     let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
 
     // Phase 2: lower encoded bounds to canonical raw index-key bounds.
-    Ok(raw_bounds_for_encoded_index_component_range::<E>(
+    Ok(raw_bounds_for_encoded_index_component_range(
+        index_id,
         index,
         encoded_prefix.as_slice(),
         &encoded_lower,

@@ -59,6 +59,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "ContextInvariantEntity",
+    entity_tag = crate::testing::CONTEXT_INVARIANT_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [

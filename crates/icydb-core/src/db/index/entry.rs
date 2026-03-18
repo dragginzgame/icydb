@@ -8,7 +8,7 @@ use crate::{
         data::{StorageKey, StorageKeyEncodeError},
         index::RawIndexKey,
     },
-    traits::{EntityKind, FieldValue, Storable},
+    traits::Storable,
     value::Value,
 };
 use canic_cdk::structures::storable::Bound;
@@ -71,10 +71,10 @@ pub(crate) enum IndexEntryCorruption {
 
 impl IndexEntryCorruption {
     #[must_use]
-    pub(crate) fn missing_key(index_key: RawIndexKey, entity_key: impl FieldValue) -> Self {
+    pub(crate) fn missing_key(index_key: RawIndexKey, entity_key: StorageKey) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
-            entity_key: entity_key.to_value(),
+            entity_key: entity_key.as_value(),
         }
     }
 }
@@ -100,28 +100,28 @@ pub(crate) enum IndexEntryEncodeError {
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct IndexEntry<E: EntityKind> {
-    ids: BTreeSet<E::Key>,
+pub(crate) struct IndexEntry {
+    ids: BTreeSet<StorageKey>,
 }
 
-impl<E: EntityKind> IndexEntry<E> {
+impl IndexEntry {
     #[must_use]
-    pub(crate) fn new(id: E::Key) -> Self {
+    pub(crate) fn new(id: StorageKey) -> Self {
         let mut ids = BTreeSet::new();
         ids.insert(id);
         Self { ids }
     }
 
-    pub(crate) fn insert(&mut self, id: E::Key) {
+    pub(crate) fn insert(&mut self, id: StorageKey) {
         self.ids.insert(id);
     }
 
-    pub(crate) fn remove(&mut self, id: E::Key) {
+    pub(crate) fn remove(&mut self, id: StorageKey) {
         self.ids.remove(&id);
     }
 
     #[must_use]
-    pub(crate) fn contains(&self, id: E::Key) -> bool {
+    pub(crate) fn contains(&self, id: StorageKey) -> bool {
         self.ids.contains(&id)
     }
 
@@ -135,7 +135,7 @@ impl<E: EntityKind> IndexEntry<E> {
         self.ids.len()
     }
 
-    pub(crate) fn iter_ids(&self) -> impl Iterator<Item = E::Key> + '_ {
+    pub(crate) fn iter_ids(&self) -> impl Iterator<Item = StorageKey> + '_ {
         self.ids.iter().copied()
     }
 }
@@ -148,29 +148,21 @@ impl<E: EntityKind> IndexEntry<E> {
 pub(crate) struct RawIndexEntry(Vec<u8>);
 
 impl RawIndexEntry {
-    pub(crate) fn try_from_entry<E: EntityKind>(
-        entry: &IndexEntry<E>,
-    ) -> Result<Self, IndexEntryEncodeError> {
+    pub(crate) fn try_from_entry(entry: &IndexEntry) -> Result<Self, IndexEntryEncodeError> {
         let mut keys = Vec::with_capacity(entry.ids.len());
         for id in &entry.ids {
-            let value = id.to_value();
-            let key = StorageKey::try_from_value(&value)?;
-            keys.push(key);
+            keys.push(*id);
         }
 
         Self::try_from_keys(keys)
     }
 
-    pub(crate) fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
+    pub(crate) fn try_decode(&self) -> Result<IndexEntry, IndexEntryCorruption> {
         let storage_keys = self.decode_keys()?;
         let mut ids = BTreeSet::new();
 
         for key in storage_keys {
-            let value = key.as_value();
-            let Some(id) = <E::Key as FieldValue>::from_value(&value) else {
-                return Err(IndexEntryCorruption::InvalidKey);
-            };
-            ids.insert(id);
+            ids.insert(key);
         }
 
         if ids.is_empty() {
@@ -305,10 +297,10 @@ impl RawIndexEntry {
     }
 }
 
-impl<E: EntityKind> TryFrom<&IndexEntry<E>> for RawIndexEntry {
+impl TryFrom<&IndexEntry> for RawIndexEntry {
     type Error = IndexEntryEncodeError;
 
-    fn try_from(entry: &IndexEntry<E>) -> Result<Self, Self::Error> {
+    fn try_from(entry: &IndexEntry) -> Result<Self, Self::Error> {
         Self::try_from_entry(entry)
     }
 }

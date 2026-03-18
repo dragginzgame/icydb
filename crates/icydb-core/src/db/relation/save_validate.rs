@@ -59,19 +59,23 @@ where
     E: EntityKind + EntityValue,
 {
     // Phase 1: normalize relation key into canonical target raw-key form.
-    let raw_key =
-        build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| {
-            InternalError::relation_target_raw_key_error(
-                err,
-                E::PATH,
-                field_name,
-                relation.target_path,
-                relation.target_entity_name,
-                value,
-                "strong relation key not storage-compatible",
-                "strong relation target name invalid",
-            )
-        })?;
+    let raw_key = build_relation_target_raw_key(
+        relation.target_entity_tag,
+        relation.target_entity_name,
+        value,
+    )
+    .map_err(|err| {
+        InternalError::relation_target_raw_key_error(
+            err,
+            E::PATH,
+            field_name,
+            relation.target_path,
+            relation.target_entity_name,
+            value,
+            "strong relation key not storage-compatible",
+            "strong relation target name invalid",
+        )
+    })?;
 
     // Phase 2: resolve the target store and enforce key existence.
     let store = db

@@ -7,8 +7,8 @@ use crate::{
     db::{
         Context,
         cursor::{
-            CursorBoundary, CursorBoundarySlot, apply_order_direction, compare_boundary_slots,
-            next_cursor_for_materialized_rows,
+            CursorBoundary, CursorBoundarySlot, MaterializedCursorRow, apply_order_direction,
+            compare_boundary_slots, next_cursor_for_materialized_rows,
         },
         data::{DataKey, DataRow, RawRow},
         executor::{
@@ -18,6 +18,7 @@ use crate::{
             projection::validate_projection_over_slot_rows,
             route::access_order_satisfied_by_route_contract_for_model,
         },
+        index::IndexKey,
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
         response::EntityResponse,
@@ -42,7 +43,7 @@ where
     E: EntityKind + EntityValue,
 {
     pub(in crate::db::executor) ctx: &'a Context<'a, E>,
-    pub(in crate::db::executor) plan: &'a AccessPlannedQuery<E::Key>,
+    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
@@ -155,7 +156,7 @@ where
 
     // Apply canonical post-access phases to scanned rows and assemble the cursor page.
     fn finalize_rows_into_page(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         predicate_slots: Option<&PredicateProgram>,
         rows: &mut Vec<KernelRow>,
         continuation: ScalarContinuationBindings<'_>,
@@ -181,12 +182,14 @@ where
         )?;
 
         // Phase 3: convert kernel rows back to typed rows at the boundary.
+        let last_cursor_row = Self::resolve_last_cursor_row(plan, rows.as_slice())?;
         let mut typed_rows = Self::decode_kernel_rows(std::mem::take(rows))?;
         let next_cursor = next_cursor_for_materialized_rows(
             &plan.access,
             plan.scalar_plan().order.as_ref(),
             plan.scalar_plan().page.as_ref(),
-            typed_rows.as_slice(),
+            typed_rows.len(),
+            last_cursor_row.as_ref(),
             rows_after_cursor,
             continuation.post_access_cursor_boundary(),
             continuation.previous_index_range_anchor(),
@@ -208,12 +211,47 @@ where
 
         Context::deserialize_rows(data_rows)
     }
+
+    // Resolve the last structural cursor row before typed response decode.
+    fn resolve_last_cursor_row(
+        plan: &AccessPlannedQuery,
+        rows: &[KernelRow],
+    ) -> Result<Option<MaterializedCursorRow>, InternalError> {
+        let Some(order) = plan.scalar_plan().order.as_ref() else {
+            return Ok(None);
+        };
+        let Some(row) = rows.last() else {
+            return Ok(None);
+        };
+
+        // Phase 1: derive the structural boundary from already-materialized row slots.
+        let mut read_slot = |slot| row.slot(slot);
+        let boundary = CursorBoundary::from_slot_reader(E::MODEL, order, &mut read_slot);
+
+        // Phase 2: derive the optional raw index-range anchor once for index-range paths.
+        let index_anchor = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
+            let data_key = &row.data_row.0;
+            let mut read_slot = |slot| row.slot(slot);
+            IndexKey::new_from_slot_reader(
+                data_key.entity_tag(),
+                data_key.storage_key(),
+                E::MODEL,
+                index,
+                &mut read_slot,
+            )?
+            .map(|key| key.to_raw())
+        } else {
+            None
+        };
+
+        Ok(Some(MaterializedCursorRow::new(boundary, index_anchor)))
+    }
 }
 
 // Run canonical post-access phases over kernel rows.
-fn apply_post_access_to_kernel_rows_dyn<K>(
+fn apply_post_access_to_kernel_rows_dyn(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     rows: &mut Vec<KernelRow>,
     cursor: Option<&CursorBoundary>,
     predicate_slots: Option<&PredicateProgram>,

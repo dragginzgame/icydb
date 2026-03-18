@@ -29,6 +29,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, FieldValue},
+    types::EntityTag,
 };
 
 pub(in crate::db) use crate::db::index::{
@@ -42,14 +43,16 @@ pub(in crate::db) use boundary::{
     validate_cursor_direction, validate_cursor_window_offset,
 };
 pub(in crate::db) use continuation::{
-    IndexScanContinuationInput, effective_keep_count_for_limit, effective_page_offset_for_window,
-    next_cursor_for_materialized_rows,
+    IndexScanContinuationInput, MaterializedCursorRow, effective_keep_count_for_limit,
+    effective_page_offset_for_window, next_cursor_for_materialized_rows,
 };
 pub(crate) use error::CursorPlanError;
 pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
+#[cfg(test)]
+pub(in crate::db) use range_token::cursor_anchor_from_index_key;
 pub(in crate::db) use range_token::{
-    RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
+    RangeToken, cursor_anchor_from_raw_index_key, range_token_anchor_key,
     range_token_from_validated_cursor_anchor,
 };
 pub(in crate::db) use runtime::window_cursor_contract_for_plan;
@@ -72,24 +75,25 @@ pub(in crate::db) fn decode_optional_cursor_token(
 }
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
-pub(in crate::db) fn prepare_cursor<E: EntityKind>(
-    access: Option<ExecutableAccessPath<'_, E::Key>>,
+pub(in crate::db) fn prepare_cursor<K: FieldValue>(
+    access: Option<ExecutableAccessPath<'_, K>>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    model: &crate::model::entity::EntityModel,
     order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
     initial_offset: u32,
     cursor: Option<&[u8]>,
-) -> Result<PlannedCursor, CursorPlanError>
-where
-    E::Key: FieldValue,
-{
+) -> Result<PlannedCursor, CursorPlanError> {
     let order = validated_cursor_order(order)?;
 
-    spine::validate_planned_cursor::<E>(
+    spine::validate_planned_cursor(
         cursor,
         access,
-        E::PATH,
-        E::MODEL,
+        entity_path,
+        entity_tag,
+        model,
         order,
         continuation_signature,
         direction,
@@ -98,26 +102,26 @@ where
 }
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db) fn revalidate_cursor<E: EntityKind>(
-    access: Option<ExecutableAccessPath<'_, E::Key>>,
+pub(in crate::db) fn revalidate_cursor<K: FieldValue>(
+    access: Option<ExecutableAccessPath<'_, K>>,
+    entity_tag: EntityTag,
+    model: &crate::model::entity::EntityModel,
     order: Option<&OrderSpec>,
     direction: Direction,
     initial_offset: u32,
     cursor: PlannedCursor,
-) -> Result<PlannedCursor, CursorPlanError>
-where
-    E::Key: FieldValue,
-{
+) -> Result<PlannedCursor, CursorPlanError> {
     if cursor.is_empty() {
         return Ok(PlannedCursor::none());
     }
 
     let order = validated_cursor_order(order)?;
 
-    spine::validate_planned_cursor_state::<E>(
+    spine::validate_planned_cursor_state(
         cursor,
         access,
-        E::MODEL,
+        entity_tag,
+        model,
         order,
         direction,
         initial_offset,
@@ -229,6 +233,7 @@ fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, Curso
 
 /// Build one cursor boundary from one entity under one canonical order spec.
 #[must_use]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn cursor_boundary_from_entity<E: EntityKind + EntityValue>(
     entity: &E,
     order: &OrderSpec,

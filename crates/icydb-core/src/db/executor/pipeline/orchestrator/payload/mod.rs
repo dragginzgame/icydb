@@ -21,11 +21,13 @@ where
 {
     // Extract scalar payload at one stage boundary and classify mismatches.
     pub(in crate::db::executor::pipeline::orchestrator) fn expect_scalar_payload(
-        payload: LoadExecutionPayload<E>,
+        payload: LoadExecutionPayload,
         mismatch_message: &'static str,
     ) -> Result<CursorPage<E>, InternalError> {
         match payload {
-            LoadExecutionPayload::Scalar(page) => Ok(page),
+            LoadExecutionPayload::Scalar(page) => {
+                page.into_typed::<CursorPage<E>>(mismatch_message)
+            }
             LoadExecutionPayload::Grouped(_) => {
                 Err(crate::db::error::query_executor_invariant(mismatch_message))
             }
@@ -34,7 +36,7 @@ where
 
     // Extract grouped payload at one stage boundary and classify mismatches.
     pub(in crate::db::executor::pipeline::orchestrator) fn expect_grouped_payload(
-        payload: LoadExecutionPayload<E>,
+        payload: LoadExecutionPayload,
         mismatch_message: &'static str,
     ) -> Result<GroupedCursorPage, InternalError> {
         match payload {

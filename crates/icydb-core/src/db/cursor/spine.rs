@@ -20,7 +20,8 @@ use crate::{
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,
-    traits::{EntityKind, FieldValue},
+    traits::FieldValue,
+    types::EntityTag,
 };
 
 ///
@@ -81,10 +82,11 @@ impl<K: FieldValue> CursorPlanSurface<K> for StructuredCursorPlanSurface<'_, K> 
 
 /// Validate and materialize an executable cursor through the canonical spine.
 #[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn validate_planned_cursor<E>(
+pub(in crate::db) fn validate_planned_cursor<K>(
     cursor: Option<&[u8]>,
-    access: Option<ExecutableAccessPath<'_, E::Key>>,
+    access: Option<ExecutableAccessPath<'_, K>>,
     entity_path: &'static str,
+    entity_tag: EntityTag,
     model: &EntityModel,
     order: &OrderSpec,
     expected_signature: ContinuationSignature,
@@ -92,8 +94,7 @@ pub(in crate::db) fn validate_planned_cursor<E>(
     expected_initial_offset: u32,
 ) -> Result<PlannedCursor, CursorPlanError>
 where
-    E: EntityKind,
-    E::Key: FieldValue,
+    K: FieldValue,
 {
     let Some(cursor) = cursor else {
         return Ok(PlannedCursor::none());
@@ -107,28 +108,29 @@ where
         initial_offset: expected_initial_offset,
     };
     let token = decode_validated_cursor(cursor, entity_path, expected_signature)?;
-    validate_structured_cursor::<E, _>(
+    validate_structured_cursor(
         token.boundary().clone(),
         token.index_range_anchor().cloned(),
         token.direction(),
         token.initial_offset(),
+        entity_tag,
         &surface,
         true,
     )
 }
 
 /// Validate an executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db) fn validate_planned_cursor_state<E>(
+pub(in crate::db) fn validate_planned_cursor_state<K>(
     cursor: PlannedCursor,
-    access: Option<ExecutableAccessPath<'_, E::Key>>,
+    access: Option<ExecutableAccessPath<'_, K>>,
+    entity_tag: EntityTag,
     model: &EntityModel,
     order: &OrderSpec,
     direction: Direction,
     expected_initial_offset: u32,
 ) -> Result<PlannedCursor, CursorPlanError>
 where
-    E: EntityKind,
-    E::Key: FieldValue,
+    K: FieldValue,
 {
     if cursor.is_empty() {
         return Ok(PlannedCursor::none());
@@ -148,11 +150,12 @@ where
         .index_range_anchor()
         .map(ValidatedInEnvelopeIndexRangeCursorAnchor::as_unvalidated_anchor);
 
-    validate_structured_cursor::<E, _>(
+    validate_structured_cursor(
         boundary,
         index_range_anchor,
         direction,
         cursor.initial_offset(),
+        entity_tag,
         &surface,
         false,
     )
@@ -191,22 +194,21 @@ fn validate_cursor_signature(
 }
 
 /// Validate the canonical structured cursor payload and materialize executor state.
-fn validate_structured_cursor<E: EntityKind, S: CursorPlanSurface<E::Key>>(
+fn validate_structured_cursor<K: FieldValue, S: CursorPlanSurface<K>>(
     boundary: CursorBoundary,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
     actual_direction: Direction,
     actual_initial_offset: u32,
+    entity_tag: EntityTag,
     surface: &S,
     require_index_range_anchor: bool,
-) -> Result<PlannedCursor, CursorPlanError>
-where
-    E::Key: FieldValue,
-{
-    let validated_index_range_anchor = validate_cursor_boundary_anchor_invariants::<E, S>(
+) -> Result<PlannedCursor, CursorPlanError> {
+    let validated_index_range_anchor = validate_cursor_boundary_anchor_invariants(
         &boundary,
         index_range_anchor.as_ref(),
         actual_direction,
         actual_initial_offset,
+        entity_tag,
         surface,
         require_index_range_anchor,
     )?;
@@ -222,30 +224,29 @@ where
 ///
 /// This is the single cursor-spine boundary for direction, window-shape,
 /// boundary arity/type, and index-range anchor compatibility checks.
-fn validate_cursor_boundary_anchor_invariants<E: EntityKind, S: CursorPlanSurface<E::Key>>(
+fn validate_cursor_boundary_anchor_invariants<K: FieldValue, S: CursorPlanSurface<K>>(
     boundary: &CursorBoundary,
     index_range_anchor: Option<&IndexRangeCursorAnchor>,
     actual_direction: Direction,
     actual_initial_offset: u32,
+    entity_tag: EntityTag,
     surface: &S,
     require_index_range_anchor: bool,
-) -> Result<Option<ValidatedInEnvelopeIndexRangeCursorAnchor>, CursorPlanError>
-where
-    E::Key: FieldValue,
-{
+) -> Result<Option<ValidatedInEnvelopeIndexRangeCursorAnchor>, CursorPlanError> {
     let expected_direction = surface.direction();
     validate_cursor_direction(expected_direction, actual_direction)?;
 
     let expected_initial_offset = surface.initial_offset();
     validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
-    let validated_index_range_anchor = validate_index_range_anchor::<E>(
+    let validated_index_range_anchor = validate_index_range_anchor(
         index_range_anchor,
         surface.access(),
+        entity_tag,
         actual_direction,
         require_index_range_anchor,
     )?;
 
-    let pk_key = validate_cursor_boundary_for_order::<E::Key>(
+    let pk_key = validate_cursor_boundary_for_order::<K>(
         surface.entity_model(),
         surface.order_spec(),
         boundary,

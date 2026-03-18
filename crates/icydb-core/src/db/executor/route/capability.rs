@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
         direction::Direction,
         executor::{
             aggregate::capability::{
@@ -26,9 +25,9 @@ use crate::{
 use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
 
 /// Derive budget-safety flags for one plan at the route capability boundary.
-pub(in crate::db::executor) fn derive_budget_safety_flags_for_model<K>(
+pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
 ) -> (bool, bool, bool) {
     let logical = plan.scalar_plan();
     let has_residual_filter = logical.predicate.is_some();
@@ -48,19 +47,19 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model<K>(
 }
 
 /// Derive budget-safety flags for one plan at the route capability boundary.
-pub(in crate::db::executor) fn derive_budget_safety_flags<E, K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db::executor) fn derive_budget_safety_flags<E>(
+    plan: &AccessPlannedQuery,
 ) -> (bool, bool, bool)
 where
-    E: EntitySchema<Key = K>,
+    E: EntitySchema,
 {
     derive_budget_safety_flags_for_model(E::MODEL, plan)
 }
 
 /// Return whether one plan shape is safe for direct streaming execution.
-pub(in crate::db::executor) fn stream_order_contract_safe_for_model<K>(
+pub(in crate::db::executor) fn stream_order_contract_safe_for_model(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
 ) -> bool {
     let (has_residual_filter, _, requires_post_access_sort) =
         derive_budget_safety_flags_for_model(model, plan);
@@ -69,11 +68,9 @@ pub(in crate::db::executor) fn stream_order_contract_safe_for_model<K>(
 }
 
 /// Return whether one plan shape is safe for direct streaming execution.
-pub(in crate::db::executor) fn stream_order_contract_safe<E, K>(
-    plan: &AccessPlannedQuery<K>,
-) -> bool
+pub(in crate::db::executor) fn stream_order_contract_safe<E>(plan: &AccessPlannedQuery) -> bool
 where
-    E: EntitySchema<Key = K>,
+    E: EntitySchema,
 {
     stream_order_contract_safe_for_model(E::MODEL, plan)
 }
@@ -107,13 +104,13 @@ where
 {
     /// Derive one canonical execution capability snapshot for a plan + direction.
     pub(in crate::db::executor::route) fn derive_execution_capabilities(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         direction: Direction,
         aggregate_expr: Option<&AggregateExpr>,
     ) -> RouteCapabilities {
         let access_class = plan.access_strategy().class();
         let (has_residual_filter, _, requires_post_access_sort) =
-            derive_budget_safety_flags::<E, _>(plan);
+            derive_budget_safety_flags::<E>(plan);
         let aggregate_execution_policy = derive_aggregate_execution_policy::<E>(
             plan,
             direction,
@@ -124,11 +121,10 @@ where
         let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
         RouteCapabilities {
-            stream_order_contract_safe: stream_order_contract_safe::<E, _>(plan),
+            stream_order_contract_safe: stream_order_contract_safe::<E>(plan),
             pk_order_fast_path_eligible: Self::pk_order_stream_fast_path_shape_supported(plan),
             desc_physical_reverse_supported: Self::is_desc_physical_reverse_traversal_supported(
-                &plan.access,
-                direction,
+                plan, direction,
             ),
             count_pushdown_shape_supported: aggregate_execution_policy
                 .count_pushdown_shape_supported(),
@@ -148,14 +144,14 @@ where
 
     /// Return whether DESC physical reverse traversal is supported for this access shape.
     pub(super) fn is_desc_physical_reverse_traversal_supported(
-        access: &AccessPlan<E::Key>,
+        plan: &AccessPlannedQuery,
         direction: Direction,
     ) -> bool {
-        matches!(direction, Direction::Desc) && Self::access_supports_reverse_traversal(access)
+        matches!(direction, Direction::Desc) && Self::access_supports_reverse_traversal(plan)
     }
 
-    fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {
-        let access_strategy = access.resolve_strategy();
+    fn access_supports_reverse_traversal(plan: &AccessPlannedQuery) -> bool {
+        let access_strategy = plan.access_strategy();
 
         access_strategy.class().reverse_supported()
     }
@@ -169,9 +165,7 @@ where
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
-    pub(super) fn is_index_range_limit_pushdown_shape_supported(
-        plan: &AccessPlannedQuery<E::Key>,
-    ) -> bool {
+    pub(super) fn is_index_range_limit_pushdown_shape_supported(plan: &AccessPlannedQuery) -> bool {
         let order = plan.scalar_plan().order.as_ref();
         let order_contract_eligible = order.is_none_or(|_| {
             secondary_order_contract_is_deterministic(E::MODEL, plan.scalar_plan())

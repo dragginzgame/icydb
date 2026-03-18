@@ -972,7 +972,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         .expect("save should succeed");
     }
 
-    let mut page1_logical = AccessPlannedQuery::<Ulid>::new(
+    let mut page1_logical = AccessPlannedQuery::new_typed(
         AccessPath::KeyRange {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
@@ -1002,7 +1002,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         .next_cursor
         .as_ref()
         .expect("pk-range page1 should emit continuation cursor");
-    let mut page2_logical = AccessPlannedQuery::<Ulid>::new(
+    let mut page2_logical = AccessPlannedQuery::new_typed(
         AccessPath::KeyRange {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
@@ -1048,7 +1048,7 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
         .expect("save should succeed");
     }
 
-    let mut logical = AccessPlannedQuery::<Ulid>::new(
+    let mut logical = AccessPlannedQuery::new_typed(
         AccessPath::KeyRange {
             start: Ulid::from_u128(1),
             end: Ulid::from_u128(2),
@@ -1095,7 +1095,7 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
-        let mut logical = AccessPlannedQuery::<Ulid>::new(
+        let mut logical = AccessPlannedQuery::new_typed(
             AccessPath::KeyRange {
                 start: Ulid::from_u128(4),
                 end: Ulid::from_u128(2),

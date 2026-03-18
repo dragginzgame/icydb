@@ -7,6 +7,8 @@ mod inputs;
 mod outcomes;
 mod stream;
 
-pub(in crate::db::executor) use inputs::ExecutionInputs;
+pub(in crate::db::executor) use inputs::{
+    ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter, RuntimePageMaterializationRequest,
+};
 pub(in crate::db::executor) use outcomes::{ExecutionOutcomeMetrics, MaterializedExecutionAttempt};
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

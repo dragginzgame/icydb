@@ -21,7 +21,7 @@ use crate::{
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
     error::InternalError,
-    traits::{EntityKind, FieldValue},
+    traits::EntityKind,
 };
 
 ///
@@ -135,14 +135,11 @@ impl ScalarContinuationContext {
     /// This keeps continuation/window derivation in continuation authority so
     /// route planning consumes one pre-derived continuation contract.
     #[must_use]
-    pub(in crate::db::executor) fn route_continuation_plan<K>(
+    pub(in crate::db::executor) fn route_continuation_plan(
         &self,
-        plan: &AccessPlannedQuery<K>,
+        plan: &AccessPlannedQuery,
         continuation_policy: ContinuationPolicy,
-    ) -> RouteContinuationPlan
-    where
-        K: FieldValue + Clone,
-    {
+    ) -> RouteContinuationPlan {
         let continuation_capabilities = self.continuation_capabilities(continuation_policy);
         RouteContinuationPlan::from_scalar_access_window_plan(
             continuation_capabilities,
@@ -257,9 +254,9 @@ impl ResolvedScalarContinuationContext {
     ///
     /// Keeps scalar continuation protocol sanity checks centralized in
     /// continuation runtime so load entrypoints consume one invariant boundary.
-    pub(in crate::db::executor) fn debug_assert_route_continuation_invariants<K>(
+    pub(in crate::db::executor) fn debug_assert_route_continuation_invariants(
         &self,
-        plan: &AccessPlannedQuery<K>,
+        plan: &AccessPlannedQuery,
         projection: ScalarRouteContinuationInvariantProjection,
     ) {
         debug_assert!(
@@ -329,9 +326,9 @@ impl<'a> ScalarContinuationBindings<'a> {
 
     /// Derive effective keep count (`offset + limit`) under this continuation context.
     #[must_use]
-    pub(in crate::db::executor) fn keep_count_for_limit_window<K>(
+    pub(in crate::db::executor) fn keep_count_for_limit_window(
         &self,
-        plan: &AccessPlannedQuery<K>,
+        plan: &AccessPlannedQuery,
         limit: u32,
     ) -> usize {
         continuation_keep_count_for_limit(plan, self.continuation_applied(), limit)

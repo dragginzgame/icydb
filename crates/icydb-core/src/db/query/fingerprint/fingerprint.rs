@@ -3,16 +3,13 @@
 //! Does not own: explain projection assembly or execution-plan compilation.
 //! Boundary: stable plan identity hash surface for diagnostics/caching.
 
-use crate::{
-    db::{
-        codec::cursor::encode_cursor,
-        query::plan::AccessPlannedQuery,
-        query::{
-            explain::ExplainPlan,
-            fingerprint::{finalize_sha256_digest, hash_parts, new_plan_fingerprint_hasher_v2},
-        },
+use crate::db::{
+    codec::cursor::encode_cursor,
+    query::plan::AccessPlannedQuery,
+    query::{
+        explain::ExplainPlan,
+        fingerprint::{finalize_sha256_digest, hash_parts, new_plan_fingerprint_hasher_v2},
     },
-    traits::FieldValue,
 };
 
 ///
@@ -37,10 +34,7 @@ impl std::fmt::Display for PlanFingerprint {
     }
 }
 
-impl<K> AccessPlannedQuery<K>
-where
-    K: FieldValue,
-{
+impl AccessPlannedQuery {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
     pub(in crate::db) fn fingerprint(&self) -> PlanFingerprint {
@@ -103,7 +97,7 @@ mod tests {
     use crate::value::Value;
 
     fn fingerprint_with_projection(
-        plan: &AccessPlannedQuery<Value>,
+        plan: &AccessPlannedQuery,
         projection: &ProjectionSpec,
     ) -> super::PlanFingerprint {
         let explain = plan.explain();
@@ -118,11 +112,11 @@ mod tests {
         super::PlanFingerprint(super::super::finalize_sha256_digest(hasher))
     }
 
-    fn full_scan_query() -> AccessPlannedQuery<Value> {
+    fn full_scan_query() -> AccessPlannedQuery {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
     }
 
-    fn index_prefix_query(index: IndexModel, values: Vec<Value>) -> AccessPlannedQuery<Value> {
+    fn index_prefix_query(index: IndexModel, values: Vec<Value>) -> AccessPlannedQuery {
         AccessPlannedQuery::new(
             AccessPath::IndexPrefix { index, values },
             MissingRowPolicy::Ignore,
@@ -134,7 +128,7 @@ mod tests {
         prefix: Vec<Value>,
         lower: Bound<Value>,
         upper: Bound<Value>,
-    ) -> AccessPlannedQuery<Value> {
+    ) -> AccessPlannedQuery {
         AccessPlannedQuery::new(
             AccessPath::index_range(index, prefix, lower, upper),
             MissingRowPolicy::Ignore,
@@ -168,10 +162,10 @@ mod tests {
             FieldRef::new("id").eq(id),
         ]);
 
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -197,10 +191,10 @@ mod tests {
             FieldRef::new("other").eq(Value::Text("x".to_string())),
         ]);
 
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -221,10 +215,10 @@ mod tests {
             Value::Decimal(Decimal::new(100, 2)),
         ));
 
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -245,10 +239,10 @@ mod tests {
             vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
         ));
 
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -287,10 +281,10 @@ mod tests {
             CoercionId::Strict,
         ));
 
-        let mut plan_or_eq: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_or_eq: AccessPlannedQuery = full_scan_query();
         plan_or_eq.scalar_plan_mut().predicate = Some(predicate_or_eq);
 
-        let mut plan_in: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_in: AccessPlannedQuery = full_scan_query();
         plan_in.scalar_plan_mut().predicate = Some(predicate_in);
 
         assert_eq!(plan_or_eq.fingerprint(), plan_in.fingerprint());
@@ -316,10 +310,10 @@ mod tests {
             vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
         ));
 
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -340,10 +334,10 @@ mod tests {
             CoercionId::Strict,
         ));
 
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -368,10 +362,10 @@ mod tests {
             CoercionId::NumericWiden,
         ));
 
-        let mut strict_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut strict_plan: AccessPlannedQuery = full_scan_query();
         strict_plan.scalar_plan_mut().predicate = Some(predicate_strict);
 
-        let mut numeric_widen_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut numeric_widen_plan: AccessPlannedQuery = full_scan_query();
         numeric_widen_plan.scalar_plan_mut().predicate = Some(predicate_numeric_widen);
 
         assert_ne!(strict_plan.fingerprint(), numeric_widen_plan.fingerprint());
@@ -396,10 +390,10 @@ mod tests {
             CoercionId::NumericWiden,
         ));
 
-        let mut int_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut int_plan: AccessPlannedQuery = full_scan_query();
         int_plan.scalar_plan_mut().predicate = Some(predicate_int);
 
-        let mut decimal_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut decimal_plan: AccessPlannedQuery = full_scan_query();
         decimal_plan.scalar_plan_mut().predicate = Some(predicate_decimal);
 
         assert_eq!(int_plan.fingerprint(), decimal_plan.fingerprint());
@@ -424,10 +418,10 @@ mod tests {
             CoercionId::TextCasefold,
         ));
 
-        let mut lower_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut lower_plan: AccessPlannedQuery = full_scan_query();
         lower_plan.scalar_plan_mut().predicate = Some(predicate_lower);
 
-        let mut upper_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut upper_plan: AccessPlannedQuery = full_scan_query();
         upper_plan.scalar_plan_mut().predicate = Some(predicate_upper);
 
         assert_eq!(lower_plan.fingerprint(), upper_plan.fingerprint());
@@ -452,10 +446,10 @@ mod tests {
             CoercionId::Strict,
         ));
 
-        let mut lower_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut lower_plan: AccessPlannedQuery = full_scan_query();
         lower_plan.scalar_plan_mut().predicate = Some(predicate_lower);
 
-        let mut upper_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut upper_plan: AccessPlannedQuery = full_scan_query();
         upper_plan.scalar_plan_mut().predicate = Some(predicate_upper);
 
         assert_ne!(lower_plan.fingerprint(), upper_plan.fingerprint());
@@ -487,10 +481,10 @@ mod tests {
             CoercionId::TextCasefold,
         ));
 
-        let mut mixed_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut mixed_plan: AccessPlannedQuery = full_scan_query();
         mixed_plan.scalar_plan_mut().predicate = Some(predicate_mixed);
 
-        let mut canonical_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut canonical_plan: AccessPlannedQuery = full_scan_query();
         canonical_plan.scalar_plan_mut().predicate = Some(predicate_canonical);
 
         assert_eq!(mixed_plan.fingerprint(), canonical_plan.fingerprint());
@@ -515,10 +509,10 @@ mod tests {
             CoercionId::TextCasefold,
         ));
 
-        let mut strict_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut strict_plan: AccessPlannedQuery = full_scan_query();
         strict_plan.scalar_plan_mut().predicate = Some(predicate_strict);
 
-        let mut casefold_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut casefold_plan: AccessPlannedQuery = full_scan_query();
         casefold_plan.scalar_plan_mut().predicate = Some(predicate_casefold);
 
         assert_ne!(strict_plan.fingerprint(), casefold_plan.fingerprint());
@@ -543,10 +537,10 @@ mod tests {
             CoercionId::CollectionElement,
         ));
 
-        let mut strict_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut strict_plan: AccessPlannedQuery = full_scan_query();
         strict_plan.scalar_plan_mut().predicate = Some(predicate_strict);
 
-        let mut collection_plan: AccessPlannedQuery<Value> = full_scan_query();
+        let mut collection_plan: AccessPlannedQuery = full_scan_query();
         collection_plan.scalar_plan_mut().predicate = Some(predicate_collection_element);
 
         assert_ne!(strict_plan.fingerprint(), collection_plan.fingerprint());
@@ -564,7 +558,7 @@ mod tests {
         let access_a = build_access_plan_from_keys(&KeyAccess::Many(vec![a, b, a]));
         let access_b = build_access_plan_from_keys(&KeyAccess::Many(vec![b, a]));
 
-        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        let plan_a: AccessPlannedQuery = AccessPlannedQuery {
             logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
@@ -577,7 +571,7 @@ mod tests {
             access: access_a,
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         };
-        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        let plan_b: AccessPlannedQuery = AccessPlannedQuery {
             logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
@@ -610,9 +604,9 @@ mod tests {
             false,
         );
 
-        let plan_a: AccessPlannedQuery<Value> =
+        let plan_a: AccessPlannedQuery =
             index_prefix_query(INDEX_A, vec![Value::Text("alpha".to_string())]);
-        let plan_b: AccessPlannedQuery<Value> =
+        let plan_b: AccessPlannedQuery =
             index_prefix_query(INDEX_B, vec![Value::Text("alpha".to_string())]);
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -620,8 +614,8 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_pagination() {
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
@@ -636,8 +630,8 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_delete_limit() {
-        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_a: AccessPlannedQuery = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_a.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
         plan_b.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
         plan_a.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
@@ -648,8 +642,8 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_distinct_flag() {
-        let plan_a: AccessPlannedQuery<Value> = full_scan_query();
-        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        let plan_a: AccessPlannedQuery = full_scan_query();
+        let mut plan_b: AccessPlannedQuery = full_scan_query();
         plan_b.scalar_plan_mut().distinct = true;
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -657,7 +651,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_projection_alias_only_change_does_not_invalidate() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let numeric_projection =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
@@ -691,7 +685,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_projection_semantic_change_invalidates() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let projection_add_one =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
@@ -722,7 +716,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_literal_decimal_scale_is_canonicalized() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let decimal_one_scale_1 =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Literal(Value::Decimal(Decimal::new(10, 1))),
@@ -743,7 +737,7 @@ mod tests {
 
     #[test]
     fn fingerprint_literal_numeric_subtype_remains_significant_when_observable() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let int_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Literal(Value::Int(1)),
             alias: None,
@@ -762,7 +756,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_promotion_paths_do_not_fragment() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let int_plus_int = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Binary {
                 op: BinaryOp::Add,
@@ -800,7 +794,7 @@ mod tests {
 
     #[test]
     fn fingerprint_commutative_operand_order_remains_significant_without_ast_normalization() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let rank_plus_score = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Binary {
                 op: BinaryOp::Add,
@@ -827,7 +821,7 @@ mod tests {
 
     #[test]
     fn fingerprint_aggregate_numeric_target_field_remains_significant() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let sum_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Aggregate(sum("rank")),
             alias: None,
@@ -846,7 +840,7 @@ mod tests {
 
     #[test]
     fn fingerprint_distinct_numeric_noop_paths_stay_stable() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let sum_distinct_plus_int_zero =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
@@ -875,7 +869,7 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
-        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let plan: AccessPlannedQuery = full_scan_query();
         let fingerprint_a = plan.fingerprint();
         let fingerprint_b = plan.fingerprint();
         assert_eq!(fingerprint_a, fingerprint_b);
@@ -891,13 +885,13 @@ mod tests {
             false,
         );
 
-        let plan_a: AccessPlannedQuery<Value> = index_range_query(
+        let plan_a: AccessPlannedQuery = index_range_query(
             INDEX,
             vec![Value::Uint(7)],
             Bound::Included(Value::Uint(100)),
             Bound::Excluded(Value::Uint(200)),
         );
-        let plan_b: AccessPlannedQuery<Value> = index_range_query(
+        let plan_b: AccessPlannedQuery = index_range_query(
             INDEX,
             vec![Value::Uint(7)],
             Bound::Included(Value::Uint(100)),
@@ -917,13 +911,13 @@ mod tests {
             false,
         );
 
-        let plan_included: AccessPlannedQuery<Value> = index_range_query(
+        let plan_included: AccessPlannedQuery = index_range_query(
             INDEX,
             vec![Value::Uint(7)],
             Bound::Included(Value::Uint(100)),
             Bound::Excluded(Value::Uint(200)),
         );
-        let plan_excluded: AccessPlannedQuery<Value> = index_range_query(
+        let plan_excluded: AccessPlannedQuery = index_range_query(
             INDEX,
             vec![Value::Uint(7)],
             Bound::Excluded(Value::Uint(100)),
@@ -943,13 +937,13 @@ mod tests {
             false,
         );
 
-        let plan_low_100: AccessPlannedQuery<Value> = index_range_query(
+        let plan_low_100: AccessPlannedQuery = index_range_query(
             INDEX,
             vec![Value::Uint(7)],
             Bound::Included(Value::Uint(100)),
             Bound::Excluded(Value::Uint(200)),
         );
-        let plan_low_101: AccessPlannedQuery<Value> = index_range_query(
+        let plan_low_101: AccessPlannedQuery = index_range_query(
             INDEX,
             vec![Value::Uint(7)],
             Bound::Included(Value::Uint(101)),

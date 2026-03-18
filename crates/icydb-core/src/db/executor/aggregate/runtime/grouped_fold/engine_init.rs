@@ -6,7 +6,7 @@
 use crate::{
     db::executor::{
         aggregate::{
-            AggregateEngine, ExecutionContext,
+            ExecutionContext, GroupedAggregateEngine, box_grouped_engine,
             runtime::grouped_distinct::global_distinct_field_execution_spec,
         },
         pipeline::contracts::{GroupedRouteStage, LoadExecutor},
@@ -24,9 +24,9 @@ where
     // Build grouped aggregate engines for canonical grouped terminal projection layout.
     #[expect(clippy::type_complexity)]
     pub(super) fn build_grouped_engines(
-        route: &GroupedRouteStage<E>,
+        route: &GroupedRouteStage,
         grouped_execution_context: &ExecutionContext,
-    ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError> {
+    ) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError> {
         if global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
             .is_some()
         {
@@ -54,11 +54,11 @@ where
                     )));
                 }
 
-                Ok(grouped_execution_context.create_grouped_engine::<E>(
+                Ok(box_grouped_engine(grouped_execution_context.create_grouped_engine::<E>(
                     aggregate_expr.kind(),
                     aggregate_materialized_fold_direction(aggregate_expr.kind()),
                     aggregate_expr.is_distinct(),
-                ))
+                )))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];

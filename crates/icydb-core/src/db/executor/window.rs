@@ -59,8 +59,8 @@ pub(in crate::db) fn compute_page_keep_and_fetch_counts(offset: u32, limit: u32)
 
 impl ExecutionKernel {
     /// Build one kernel-owned window/cursor progression contract for stream reducers.
-    pub(in crate::db::executor) fn window_cursor_contract<K>(
-        plan: &AccessPlannedQuery<K>,
+    pub(in crate::db::executor) fn window_cursor_contract(
+        plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> WindowCursorContract {
         window_cursor_contract_for_plan(plan, cursor_boundary)
@@ -71,8 +71,8 @@ impl ExecutionKernel {
     /// Offset is only consumed on the first page. Any continuation cursor means
     /// the offset has already been applied and the next request uses offset `0`.
     #[must_use]
-    pub(in crate::db::executor) fn effective_page_offset<K>(
-        plan: &AccessPlannedQuery<K>,
+    pub(in crate::db::executor) fn effective_page_offset(
+        plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> u32 {
         effective_page_offset_for_window(plan, cursor_boundary.is_some())
@@ -83,8 +83,8 @@ impl ExecutionKernel {
     // full sort when only one page window (+1 to detect continuation) is
     // needed.
     #[must_use]
-    pub(in crate::db::executor) fn bounded_order_keep_count<K>(
-        plan: &AccessPlannedQuery<K>,
+    pub(in crate::db::executor) fn bounded_order_keep_count(
+        plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Option<usize> {
         let logical = plan.scalar_plan();

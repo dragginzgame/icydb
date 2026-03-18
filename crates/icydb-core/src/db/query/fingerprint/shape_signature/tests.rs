@@ -46,7 +46,7 @@ fn signature_hex(signature: ContinuationSignature) -> String {
 }
 
 fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
-    let mut plan: AccessPlannedQuery<Value> =
+    let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().predicate = Some(FieldRef::new("id").eq(Ulid::default()));
     plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -87,11 +87,11 @@ fn signature_is_deterministic_for_equivalent_predicates() {
         FieldRef::new("id").eq(id),
     ]);
 
-    let mut plan_a: AccessPlannedQuery<Value> =
+    let mut plan_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-    let mut plan_b: AccessPlannedQuery<Value> =
+    let mut plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
@@ -109,7 +109,7 @@ fn signature_is_deterministic_for_by_keys() {
     let access_a = build_access_plan_from_keys(&KeyAccess::Many(vec![a, b, a]));
     let access_b = build_access_plan_from_keys(&KeyAccess::Many(vec![b, a]));
 
-    let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan_a: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -122,7 +122,7 @@ fn signature_is_deterministic_for_by_keys() {
         access: access_a,
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
-    let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan_b: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -144,9 +144,9 @@ fn signature_is_deterministic_for_by_keys() {
 
 #[test]
 fn signature_excludes_pagination_window_state() {
-    let mut plan_a: AccessPlannedQuery<Value> =
+    let mut plan_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    let mut plan_b: AccessPlannedQuery<Value> =
+    let mut plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     plan_a.scalar_plan_mut().page = Some(PageSpec {
@@ -166,9 +166,9 @@ fn signature_excludes_pagination_window_state() {
 
 #[test]
 fn signature_changes_when_order_changes() {
-    let mut plan_a: AccessPlannedQuery<Value> =
+    let mut plan_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    let mut plan_b: AccessPlannedQuery<Value> =
+    let mut plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     plan_a.scalar_plan_mut().order = Some(OrderSpec {
@@ -186,9 +186,9 @@ fn signature_changes_when_order_changes() {
 
 #[test]
 fn signature_changes_when_order_field_set_changes() {
-    let mut plan_a: AccessPlannedQuery<Value> =
+    let mut plan_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    let mut plan_b: AccessPlannedQuery<Value> =
+    let mut plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     plan_a.scalar_plan_mut().order = Some(OrderSpec {
@@ -206,9 +206,9 @@ fn signature_changes_when_order_field_set_changes() {
 
 #[test]
 fn signature_changes_when_distinct_flag_changes() {
-    let plan_a: AccessPlannedQuery<Value> =
+    let plan_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    let mut plan_b: AccessPlannedQuery<Value> =
+    let mut plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_b.scalar_plan_mut().distinct = true;
 
@@ -220,7 +220,7 @@ fn signature_changes_when_distinct_flag_changes() {
 
 #[test]
 fn signature_changes_with_entity_path() {
-    let plan: AccessPlannedQuery<Value> =
+    let plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     assert_ne!(
@@ -377,7 +377,7 @@ fn continuation_signature_changes_when_grouped_strategy_changes() {
 
 #[test]
 fn continuation_signature_identity_projection_remains_stable() {
-    let plan: AccessPlannedQuery<Value> =
+    let plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     let explain = plan.explain();
     let identity_projection = plan.projection_spec_for_identity();
@@ -478,7 +478,7 @@ fn continuation_signature_grouped_projection_semantic_change_invalidates() {
 
 #[test]
 fn signature_changes_when_group_fields_change() {
-    let grouped_a: AccessPlannedQuery<Value> =
+    let grouped_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
@@ -492,7 +492,7 @@ fn signature_changes_when_group_fields_change() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_b: AccessPlannedQuery<Value> =
+    let grouped_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
@@ -515,7 +515,7 @@ fn signature_changes_when_group_fields_change() {
 
 #[test]
 fn signature_changes_when_group_aggregate_spec_changes() {
-    let grouped_count: AccessPlannedQuery<Value> =
+    let grouped_count: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -526,7 +526,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_max_rank: AccessPlannedQuery<Value> =
+    let grouped_max_rank: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -546,7 +546,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
 
 #[test]
 fn signature_changes_when_group_aggregate_target_field_changes() {
-    let grouped_max_rank: AccessPlannedQuery<Value> =
+    let grouped_max_rank: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -557,7 +557,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_max_score: AccessPlannedQuery<Value> =
+    let grouped_max_score: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -577,7 +577,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
 
 #[test]
 fn signature_changes_when_group_aggregate_distinct_changes() {
-    let grouped_count: AccessPlannedQuery<Value> =
+    let grouped_count: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -588,7 +588,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_count_distinct: AccessPlannedQuery<Value> =
+    let grouped_count_distinct: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -608,7 +608,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
 
 #[test]
 fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
-    let grouped_sum: AccessPlannedQuery<Value> =
+    let grouped_sum: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: Vec::new(),
@@ -619,7 +619,7 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
             });
-    let grouped_sum_distinct: AccessPlannedQuery<Value> =
+    let grouped_sum_distinct: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: Vec::new(),
@@ -639,7 +639,7 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
 
 #[test]
 fn signature_changes_when_group_field_order_changes() {
-    let grouped_ab: AccessPlannedQuery<Value> =
+    let grouped_ab: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
@@ -653,7 +653,7 @@ fn signature_changes_when_group_field_order_changes() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_ba: AccessPlannedQuery<Value> =
+    let grouped_ba: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![
@@ -676,7 +676,7 @@ fn signature_changes_when_group_field_order_changes() {
 
 #[test]
 fn signature_changes_when_group_aggregate_order_changes() {
-    let grouped_count_then_max: AccessPlannedQuery<Value> =
+    let grouped_count_then_max: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -694,7 +694,7 @@ fn signature_changes_when_group_aggregate_order_changes() {
                 ],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_max_then_count: AccessPlannedQuery<Value> =
+    let grouped_max_then_count: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -721,9 +721,9 @@ fn signature_changes_when_group_aggregate_order_changes() {
 
 #[test]
 fn signature_changes_between_scalar_and_grouped_shape() {
-    let scalar: AccessPlannedQuery<Value> =
+    let scalar: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    let grouped: AccessPlannedQuery<Value> =
+    let grouped: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -743,7 +743,7 @@ fn signature_changes_between_scalar_and_grouped_shape() {
 
 #[test]
 fn signature_changes_when_grouped_limits_change() {
-    let grouped_a: AccessPlannedQuery<Value> =
+    let grouped_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -754,7 +754,7 @@ fn signature_changes_when_grouped_limits_change() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
-    let grouped_b: AccessPlannedQuery<Value> =
+    let grouped_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -774,7 +774,7 @@ fn signature_changes_when_grouped_limits_change() {
 
 #[test]
 fn signature_changes_when_grouped_having_changes() {
-    let grouped_having_gt: AccessPlannedQuery<Value> =
+    let grouped_having_gt: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped_with_having(
                 GroupSpec {
@@ -794,7 +794,7 @@ fn signature_changes_when_grouped_having_changes() {
                     }],
                 }),
             );
-    let grouped_having_gte: AccessPlannedQuery<Value> =
+    let grouped_having_gte: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped_with_having(
                 GroupSpec {
@@ -823,7 +823,7 @@ fn signature_changes_when_grouped_having_changes() {
 
 #[test]
 fn signature_snapshot_grouped_having_shape_is_stable() {
-    let grouped_having: AccessPlannedQuery<Value> =
+    let grouped_having: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped_with_having(
                 GroupSpec {
@@ -854,7 +854,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
 
 #[test]
 fn signature_snapshot_grouped_distinct_shape_is_stable() {
-    let grouped_distinct: AccessPlannedQuery<Value> =
+    let grouped_distinct: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
@@ -876,7 +876,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
 
 #[test]
 fn signature_snapshot_global_distinct_sum_shape_is_stable() {
-    let global_distinct_sum: AccessPlannedQuery<Value> =
+    let global_distinct_sum: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: Vec::new(),
@@ -898,7 +898,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
 
 #[test]
 fn signature_snapshot_ordered_group_hint_shape_is_stable() {
-    let grouped_ordered: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let grouped_ordered: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: IndexModel::new("idx_tenant", "tests", &["tenant"], false),
             values: vec![],

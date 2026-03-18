@@ -64,7 +64,7 @@ fn build_phase_composite_plan(
         crate::db::access::AccessPath::FullScan,
         MissingRowPolicy::Ignore,
     );
-    logical_plan.access = access;
+    logical_plan.access = access.into_value_plan();
     logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![(
             order_field.to_string(),
@@ -324,7 +324,7 @@ fn aggregate_bytes_key_range_window_parity_desc() {
     seed_simple_entities(&[8_989, 8_990, 8_991, 8_992, 8_993, 8_994, 8_995]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new_typed(
         crate::db::access::AccessPath::KeyRange {
             start: Ulid::from_u128(8_990),
             end: Ulid::from_u128(8_994),
@@ -414,7 +414,7 @@ fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_pr
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let eligible_plan = || {
-        let mut logical_plan = AccessPlannedQuery::new(
+        let mut logical_plan = AccessPlannedQuery::new_typed(
             AccessPath::KeyRange {
                 start: Ulid::from_u128(9_021),
                 end: Ulid::from_u128(9_025),
@@ -432,7 +432,7 @@ fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_pr
         ExecutablePlan::<SimpleEntity>::new(logical_plan)
     };
     let ineligible_plan = || {
-        let mut logical_plan = AccessPlannedQuery::new(
+        let mut logical_plan = AccessPlannedQuery::new_typed(
             AccessPath::KeyRange {
                 start: Ulid::from_u128(9_021),
                 end: Ulid::from_u128(9_025),
@@ -1576,7 +1576,7 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
     seed_simple_entities(&[8681, 8682, 8683, 8684, 8685, 8686, 8687]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new_typed(
         crate::db::access::AccessPath::KeyRange {
             start: Ulid::from_u128(8682),
             end: Ulid::from_u128(8686),

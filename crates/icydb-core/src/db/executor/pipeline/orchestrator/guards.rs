@@ -25,7 +25,7 @@ pub(in crate::db::executor) fn load_pipeline_state_optional_slot_count_guard<E: 
         let _ = (context, access_inputs);
     }
 
-    fn consume_payload_state_shape<E: EntityKind>(state: LoadPayloadState<E>) {
+    fn consume_payload_state_shape(state: LoadPayloadState) {
         let LoadPayloadState {
             context,
             payload,
@@ -35,7 +35,7 @@ pub(in crate::db::executor) fn load_pipeline_state_optional_slot_count_guard<E: 
     }
 
     let _ = consume_access_state_shape::<E> as fn(LoadAccessState<E>);
-    let _ = consume_payload_state_shape::<E> as fn(LoadPayloadState<E>);
+    let _ = consume_payload_state_shape as fn(LoadPayloadState);
 
     0
 }

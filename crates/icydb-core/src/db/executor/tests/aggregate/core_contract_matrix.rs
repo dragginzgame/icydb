@@ -1715,13 +1715,12 @@ fn aggregate_numeric_field_avg_distinct_uses_grouped_global_distinct_path() {
         .expect("avg_distinct_by(rank) plan should build");
 
     let avg_distinct = load
-        .execute_global_distinct_field_grouped_aggregate(plan, AggregateKind::Avg, "rank")
-        .expect("avg_distinct_by(rank) should succeed")
-        .expect("avg_distinct_by(rank) should return one aggregate value");
+        .aggregate_avg_distinct_by_slot(plan, slot(&load, "rank"))
+        .expect("avg_distinct_by(rank) should succeed");
 
     assert_eq!(
         avg_distinct,
-        Value::Decimal(Decimal::from_num(15_u64).expect("expected avg decimal")),
+        Decimal::from_num(15_u64),
         "avg_distinct_by(rank) should average unique rank values only",
     );
 }
@@ -1893,31 +1892,32 @@ fn grouped_having_supported_operator_executes_through_planner_shape() {
 fn grouped_having_unsupported_operator_is_executor_invariant_only_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_1211, 7, 10), (8_1212, 7, 20), (8_1213, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
-        .into_grouped_with_having(
-            crate::db::query::plan::GroupSpec {
-                group_fields: vec![
-                    crate::db::query::plan::FieldSlot::resolve(
-                        <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
-                        "group",
-                    )
-                    .expect("group field should resolve for bypass fixture"),
-                ],
-                aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                    kind: crate::db::query::plan::AggregateKind::Count,
-                    target_field: None,
-                    distinct: false,
-                }],
-                execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
-            },
-            Some(crate::db::query::plan::GroupHavingSpec {
-                clauses: vec![crate::db::query::plan::GroupHavingClause {
-                    symbol: crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
-                    op: CompareOp::In,
-                    value: Value::List(vec![Value::Uint(1)]),
-                }],
-            }),
-        );
+    let grouped =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped_with_having(
+                crate::db::query::plan::GroupSpec {
+                    group_fields: vec![
+                        crate::db::query::plan::FieldSlot::resolve(
+                            <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                            "group",
+                        )
+                        .expect("group field should resolve for bypass fixture"),
+                    ],
+                    aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                        kind: crate::db::query::plan::AggregateKind::Count,
+                        target_field: None,
+                        distinct: false,
+                    }],
+                    execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+                },
+                Some(crate::db::query::plan::GroupHavingSpec {
+                    clauses: vec![crate::db::query::plan::GroupHavingClause {
+                        symbol: crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
+                        op: CompareOp::In,
+                        value: Value::List(vec![Value::Uint(1)]),
+                    }],
+                }),
+            );
     let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
 
     let err = load
@@ -1940,16 +1940,17 @@ fn grouped_having_unsupported_operator_is_executor_invariant_only_when_planner_i
 fn grouped_global_distinct_unsupported_kind_is_executor_invariant_only_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_1221, 7, 10), (8_1222, 7, 20), (8_1223, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
-        .into_grouped(crate::db::query::plan::GroupSpec {
-            group_fields: Vec::new(),
-            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                kind: crate::db::query::plan::AggregateKind::Exists,
-                target_field: Some("rank".to_string()),
-                distinct: true,
-            }],
-            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
-        });
+    let grouped =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(crate::db::query::plan::GroupSpec {
+                group_fields: Vec::new(),
+                aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                    kind: crate::db::query::plan::AggregateKind::Exists,
+                    target_field: Some("rank".to_string()),
+                    distinct: true,
+                }],
+                execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+            });
     let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
 
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
@@ -1980,7 +1981,7 @@ fn grouped_scalar_distinct_policy_violation_is_executor_invariant_only_when_plan
     seed_pushdown_entities(&[(8_1231, 7, 10), (8_1232, 7, 20), (8_1233, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let mut grouped =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(crate::db::query::plan::GroupSpec {
                 group_fields: vec![
                     crate::db::query::plan::FieldSlot::resolve(
@@ -2026,22 +2027,23 @@ fn grouped_scalar_distinct_policy_violation_is_executor_invariant_only_when_plan
 fn grouped_field_target_aggregate_is_executor_invariant_only_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_1241, 7, 10), (8_1242, 7, 20), (8_1243, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
-        .into_grouped(crate::db::query::plan::GroupSpec {
-            group_fields: vec![
-                crate::db::query::plan::FieldSlot::resolve(
-                    <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
-                    "group",
-                )
-                .expect("group field should resolve for bypass fixture"),
-            ],
-            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                kind: crate::db::query::plan::AggregateKind::Min,
-                target_field: Some("rank".to_string()),
-                distinct: false,
-            }],
-            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
-        });
+    let grouped =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(crate::db::query::plan::GroupSpec {
+                group_fields: vec![
+                    crate::db::query::plan::FieldSlot::resolve(
+                        <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                        "group",
+                    )
+                    .expect("group field should resolve for bypass fixture"),
+                ],
+                aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                    kind: crate::db::query::plan::AggregateKind::Min,
+                    target_field: Some("rank".to_string()),
+                    distinct: false,
+                }],
+                execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+            });
     let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
 
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {

@@ -25,7 +25,7 @@ where
     /// Try one bounded index-range fast-path stream for semantically safe plan shapes.
     pub(in crate::db::executor) fn try_execute_index_range_limit_pushdown_stream(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
         continuation: AccessScanContinuationInput<'_>,
         effective_fetch: usize,

@@ -44,8 +44,10 @@ pub(in crate::db) use guard::{
     CommitApplyGuard, CommitGuard, begin_commit, begin_commit_with_migration_state, finish_commit,
 };
 pub use hooks::EntityRuntimeHooks;
+#[cfg(debug_assertions)]
+pub(in crate::db) use hooks::debug_assert_unique_runtime_hook_tags;
 pub(in crate::db) use hooks::{
-    has_runtime_hooks, resolve_runtime_hook_by_name, resolve_runtime_hook_by_path,
+    has_runtime_hooks, resolve_runtime_hook_by_path, resolve_runtime_hook_by_tag,
 };
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{

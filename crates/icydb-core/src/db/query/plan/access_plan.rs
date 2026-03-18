@@ -14,48 +14,56 @@ use crate::db::{
     predicate::MissingRowPolicy,
     query::plan::{LoadSpec, QueryMode, ScalarPlan},
 };
+use crate::{traits::FieldValue, value::Value};
 
 ///
 /// AccessPlannedQuery
 ///
 /// Access-planned query produced after access-path selection.
-/// Binds one pure `LogicalPlan` to one chosen `AccessPlan`.
+/// Binds one pure `LogicalPlan` to one chosen structural `AccessPlan<Value>`.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AccessPlannedQuery<K> {
+pub(crate) struct AccessPlannedQuery {
     pub(crate) logical: LogicalPlan,
-    pub(crate) access: AccessPlan<K>,
+    pub(crate) access: AccessPlan<Value>,
     pub(crate) projection_selection: ProjectionSelection,
 }
 
-impl<K> AccessPlannedQuery<K> {
+impl AccessPlannedQuery {
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
-    pub(crate) const fn from_parts(logical: LogicalPlan, access: AccessPlan<K>) -> Self {
+    pub(crate) fn from_parts<K>(logical: LogicalPlan, access: AccessPlan<K>) -> Self
+    where
+        K: FieldValue,
+    {
         Self {
             logical,
-            access,
+            access: access.into_value_plan(),
             projection_selection: ProjectionSelection::All,
         }
     }
 
     /// Construct an access-planned query from logical + access + projection stages.
     #[must_use]
-    pub(crate) fn from_parts_with_projection(
+    pub(crate) fn from_parts_with_projection<K>(
         logical: LogicalPlan,
         access: AccessPlan<K>,
         projection_selection: ProjectionSelection,
-    ) -> Self {
+    ) -> Self
+    where
+        K: FieldValue,
+    {
         let mut plan = Self::from_parts(logical, access);
         plan.projection_selection = projection_selection;
 
         plan
     }
 
-    /// Decompose into logical + access stages.
+    /// Decompose the canonical structural plan into its stable planner-owned parts.
+    #[cfg(test)]
     #[must_use]
-    pub(crate) fn into_parts(self) -> (LogicalPlan, AccessPlan<K>, ProjectionSelection) {
+    pub(crate) fn into_parts(self) -> (LogicalPlan, AccessPlan<Value>, ProjectionSelection) {
         (self.logical, self.access, self.projection_selection)
     }
 
@@ -95,7 +103,7 @@ impl<K> AccessPlannedQuery<K> {
 
     /// Lower the chosen access plan into an access-owned normalized contract.
     #[must_use]
-    pub(in crate::db) fn access_strategy(&self) -> AccessStrategy<'_, K> {
+    pub(in crate::db) fn access_strategy(&self) -> AccessStrategy<'_, Value> {
         self.access.resolve_strategy()
     }
 
@@ -103,7 +111,7 @@ impl<K> AccessPlannedQuery<K> {
     ///
     /// Predicates, ordering, and pagination may be attached later.
     #[cfg(test)]
-    pub(crate) fn new(access: AccessPath<K>, consistency: MissingRowPolicy) -> Self {
+    pub(crate) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
         Self {
             logical: LogicalPlan::Scalar(ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
@@ -117,5 +125,17 @@ impl<K> AccessPlannedQuery<K> {
             access: AccessPlan::path(access),
             projection_selection: ProjectionSelection::All,
         }
+    }
+
+    /// Construct one minimal access-planned query from one typed access path.
+    ///
+    /// This is transitional boundary glue for tests and typed planner call sites
+    /// that still express primary-key access using one concrete key type.
+    #[cfg(test)]
+    pub(crate) fn new_typed<K>(access: AccessPath<K>, consistency: MissingRowPolicy) -> Self
+    where
+        K: FieldValue,
+    {
+        Self::new(access.into_value_path(), consistency)
     }
 }

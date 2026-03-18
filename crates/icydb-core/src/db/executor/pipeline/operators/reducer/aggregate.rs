@@ -6,8 +6,8 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStream,
             aggregate::{
-                AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateIngestAdapter,
-                AggregateKind, AggregateOutput, FoldControl, GroupError, execute_aggregate,
+                AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateKind,
+                AggregateOutput, FoldControl, GroupError, execute_aggregate,
             },
         },
         query::plan::AccessPlannedQuery,
@@ -43,7 +43,7 @@ impl ExecutionKernel {
     // canonical key stream. Field-target reducers stay in dedicated paths.
     pub(in crate::db::executor) fn run_streaming_aggregate_reducer<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         kind: AggregateKind,
         direction: Direction,
         mode: AggregateFoldMode,
@@ -62,12 +62,12 @@ impl ExecutionKernel {
         // through one adapter-owned ingest authority.
         let engine = AggregateEngine::new_scalar(kind, direction);
         let mut keys_scanned = 0usize;
-        let mut ingest_all = |ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+        let mut ingest_all = |execution_spec: &mut AggregateExecutionSpec<'_>,
                               engine: &mut AggregateEngine<E>|
          -> Result<(), InternalError> {
             let mut on_key = |key: &DataKey| -> Result<FoldControl, InternalError> {
-                ingest_adapter
-                    .ingest(engine, key, None)
+                engine
+                    .ingest_with_spec(execution_spec, key, None)
                     .map_err(GroupError::into_internal_error)
             };
             keys_scanned = Self::run_aggregate_key_fold(ctx, plan, mode, key_stream, &mut on_key)?;

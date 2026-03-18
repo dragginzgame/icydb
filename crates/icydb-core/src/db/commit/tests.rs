@@ -27,7 +27,7 @@ use crate::{
     },
     serialize::serialize,
     testing::test_memory,
-    traits::{EntityIdentity, EntitySchema, FieldValue, Path},
+    traits::{EntityIdentity, EntityKind, EntitySchema, FieldValue, Path},
     types::Ulid,
     value::{Value, ValueEnum},
 };
@@ -69,6 +69,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryTestEntity",
+    entity_tag = crate::testing::RECOVERY_TEST_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
@@ -224,6 +225,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryIndexedEntity",
+    entity_tag = crate::testing::RECOVERY_INDEXED_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("group", FieldKind::Uint)],
@@ -237,6 +239,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryUniqueEntity",
+    entity_tag = crate::testing::RECOVERY_UNIQUE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
@@ -250,6 +253,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryUniqueCasefoldEntity",
+    entity_tag = crate::testing::RECOVERY_UNIQUE_CASEFOLD_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
@@ -263,6 +267,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryUpperExpressionEntity",
+    entity_tag = crate::testing::RECOVERY_UPPER_EXPRESSION_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
@@ -276,6 +281,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryConditionalEntity",
+    entity_tag = crate::testing::RECOVERY_CONDITIONAL_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -293,6 +299,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryConditionalUniqueEntity",
+    entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -310,6 +317,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryConditionalUniqueCasefoldEntity",
+    entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -327,6 +335,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RecoveryConditionalUniqueEnumEntity",
+    entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENUM_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -341,6 +350,7 @@ crate::test_entity_schema! {
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_TAG,
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
@@ -348,6 +358,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryIndexedEntity::ENTITY_TAG,
         RecoveryIndexedEntity::ENTITY_NAME,
         RecoveryIndexedEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
@@ -355,6 +366,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryUniqueEntity::ENTITY_TAG,
         RecoveryUniqueEntity::ENTITY_NAME,
         RecoveryUniqueEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>,
@@ -362,6 +374,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryUniqueCasefoldEntity::ENTITY_TAG,
         RecoveryUniqueCasefoldEntity::ENTITY_NAME,
         RecoveryUniqueCasefoldEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>,
@@ -369,6 +382,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryUpperExpressionEntity::ENTITY_TAG,
         RecoveryUpperExpressionEntity::ENTITY_NAME,
         RecoveryUpperExpressionEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryUpperExpressionEntity>,
@@ -376,6 +390,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryUpperExpressionEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryConditionalEntity::ENTITY_TAG,
         RecoveryConditionalEntity::ENTITY_NAME,
         RecoveryConditionalEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>,
@@ -383,6 +398,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryConditionalEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryConditionalUniqueEntity::ENTITY_TAG,
         RecoveryConditionalUniqueEntity::ENTITY_NAME,
         RecoveryConditionalUniqueEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>,
@@ -390,6 +406,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryConditionalUniqueCasefoldEntity::ENTITY_TAG,
         RecoveryConditionalUniqueCasefoldEntity::ENTITY_NAME,
         RecoveryConditionalUniqueCasefoldEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueCasefoldEntity>,
@@ -397,6 +414,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryConditionalUniqueEnumEntity::ENTITY_TAG,
         RecoveryConditionalUniqueEnumEntity::ENTITY_NAME,
         RecoveryConditionalUniqueEnumEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEnumEntity>,
@@ -421,6 +439,7 @@ static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY
 // Intentionally miswired runtime hooks used only to verify dispatch invariants.
 static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] =
     &[EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_TAG,
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
@@ -433,6 +452,7 @@ static MISWIRED_DB: Db<RecoveryTestCanister> =
 
 static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_TAG,
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
@@ -440,6 +460,7 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_TAG,
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryIndexedEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
@@ -448,11 +469,9 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
     ),
 ];
 
-static DUPLICATE_NAME_DB: Db<RecoveryTestCanister> =
-    Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS);
-
 static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_TAG,
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
@@ -460,6 +479,7 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryIndexedEntity::ENTITY_TAG,
         RecoveryIndexedEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
@@ -470,6 +490,10 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
 
 static DUPLICATE_PATH_DB: Db<RecoveryTestCanister> =
     Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS);
+
+fn duplicate_name_db() -> Db<RecoveryTestCanister> {
+    Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS)
+}
 
 fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(RecoveryTestDataStore::PATH).map(f))
@@ -552,9 +576,13 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 entry
-                    .try_decode::<RecoveryIndexedEntity>()
+                    .try_decode()
                     .expect("index entry decode should succeed")
                     .iter_ids()
+                    .map(|storage_key| {
+                        Ulid::from_value(&storage_key.as_value())
+                            .expect("decoded index key should be a Ulid")
+                    })
                     .collect::<BTreeSet<_>>()
             })
         })
@@ -572,9 +600,13 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 entry
-                    .try_decode::<RecoveryConditionalEntity>()
+                    .try_decode()
                     .expect("conditional index entry decode should succeed")
                     .iter_ids()
+                    .map(|storage_key| {
+                        Ulid::from_value(&storage_key.as_value())
+                            .expect("decoded conditional index key should be a Ulid")
+                    })
                     .collect::<BTreeSet<_>>()
             })
         })
@@ -1785,22 +1817,48 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
 }
 
 #[test]
-fn runtime_hook_lookup_rejects_duplicate_entity_names() {
-    let Err(err) = DUPLICATE_NAME_DB.runtime_hook_for_entity_name(RecoveryTestEntity::ENTITY_NAME)
-    else {
-        panic!("duplicate entity names must fail runtime-hook lookup")
-    };
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("duplicate runtime hooks for entity name"),
-        "duplicate-name runtime-hook lookup should include invariant context: {err:?}"
-    );
-    assert!(
-        err.message.contains(RecoveryTestEntity::ENTITY_NAME),
-        "duplicate-name runtime-hook lookup should include conflicting name: {err:?}"
-    );
+fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
+    #[cfg(debug_assertions)]
+    {
+        let err = match std::panic::catch_unwind(duplicate_name_db) {
+            Ok(_) => panic!("duplicate entity tags must fail during hook table construction"),
+            Err(err) => err,
+        };
+        let message = if let Some(message) = err.downcast_ref::<&'static str>() {
+            (*message).to_string()
+        } else if let Some(message) = err.downcast_ref::<String>() {
+            message.clone()
+        } else {
+            panic!("duplicate-tag panic payload must be string-like: {err:?}");
+        };
+
+        assert!(
+            message.contains("duplicate EntityTag detected in runtime hooks"),
+            "duplicate-tag construction panic should include invariant context: {message}"
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let duplicate_name_db = duplicate_name_db();
+        let Err(err) =
+            duplicate_name_db.runtime_hook_for_entity_tag(RecoveryTestEntity::ENTITY_TAG)
+        else {
+            panic!("duplicate entity tags must fail runtime-hook lookup")
+        };
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message
+                .contains("duplicate runtime hooks for entity tag"),
+            "duplicate-tag runtime-hook lookup should include invariant context: {err:?}"
+        );
+        let expected_tag = RecoveryTestEntity::ENTITY_TAG.value().to_string();
+        assert!(
+            err.message.contains(expected_tag.as_str()),
+            "duplicate-tag runtime-hook lookup should include conflicting tag: {err:?}"
+        );
+    }
 }
 
 #[test]

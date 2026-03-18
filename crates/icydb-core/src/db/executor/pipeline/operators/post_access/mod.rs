@@ -34,7 +34,7 @@ pub(in crate::db::executor) use contracts::{PlanRow, PostAccessStats};
 
 impl ExecutionKernel {
     pub(in crate::db::executor) fn apply_delete_post_access_with_compiled_predicate<E, R, K>(
-        plan: &AccessPlannedQuery<K>,
+        plan: &AccessPlannedQuery,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
@@ -49,7 +49,7 @@ impl ExecutionKernel {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db::executor) fn budget_safety_metadata<E, K>(
-        plan: &AccessPlannedQuery<K>,
+        plan: &AccessPlannedQuery,
     ) -> BudgetSafetyMetadata
     where
         E: EntitySchema<Key = K>,
@@ -60,7 +60,7 @@ impl ExecutionKernel {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db::executor) fn is_stream_order_contract_safe<E, K>(
-        plan: &AccessPlannedQuery<K>,
+        plan: &AccessPlannedQuery,
     ) -> bool
     where
         E: EntitySchema<Key = K>,

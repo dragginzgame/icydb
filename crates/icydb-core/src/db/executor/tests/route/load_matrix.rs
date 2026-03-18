@@ -9,7 +9,8 @@ use crate::db::executor::tests::{UNIQUE_INDEX_RANGE_INDEX_MODELS, UniqueIndexRan
 
 #[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -27,7 +28,8 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
 
 #[test]
 fn route_plan_shape_descriptor_matches_route_axes() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -70,7 +72,8 @@ fn runtime_route_consumers_avoid_direct_execution_mode_field_reads() {
 
 #[test]
 fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -106,7 +109,7 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
 
 #[test]
 fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -151,7 +154,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
 
 #[test]
 fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -195,7 +198,7 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
     let limit =
         u32::try_from(fetch_cap).expect("residual pushdown fetch cap should fit within u32");
 
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -234,7 +237,7 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
 
 #[test]
 fn route_matrix_load_index_range_incompatible_order_disables_limit_pushdown() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -274,7 +277,7 @@ fn route_matrix_load_index_range_incompatible_order_disables_limit_pushdown() {
 
 #[test]
 fn route_matrix_load_index_range_missing_pk_tie_break_disables_limit_pushdown() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -314,7 +317,7 @@ fn route_matrix_load_index_range_missing_pk_tie_break_disables_limit_pushdown() 
 
 #[test]
 fn route_matrix_load_index_range_mixed_direction_disables_limit_pushdown() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -357,7 +360,8 @@ fn route_matrix_load_index_range_mixed_direction_disables_limit_pushdown() {
 
 #[test]
 fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("rank".to_string(), OrderDirection::Desc)],
     });
@@ -381,7 +385,7 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
 
 #[test]
 fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_hint() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::IndexPrefix {
             index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             values: vec![],
@@ -426,7 +430,7 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
 
 #[test]
 fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_support() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::ByKeys(vec![
             Ulid::from_u128(7203),
             Ulid::from_u128(7201),
@@ -458,7 +462,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
 #[test]
 fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let mut reverse_capable =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     reverse_capable.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -479,7 +483,7 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
         Some(5)
     );
 
-    let mut reverse_blocked = AccessPlannedQuery::new(
+    let mut reverse_blocked = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::ByKeys(vec![
             Ulid::from_u128(7_203),
             Ulid::from_u128(7_201),

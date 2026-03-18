@@ -32,8 +32,8 @@ use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
 /// and rejects only conflicting ownership.
 #[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
-    row_reader: &impl PrimaryRowReader<E>,
-    index_reader: &impl IndexEntryReader<E>,
+    row_reader: &(impl PrimaryRowReader<E> + ?Sized),
+    index_reader: &(impl IndexEntryReader<E> + ?Sized),
     index: &IndexModel,
     store: &'static LocalKey<RefCell<IndexStore>>,
     new_key: Option<&E::Key>,
@@ -73,7 +73,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         encoded_prefix.push(component.to_vec());
     }
 
-    let index_id = IndexId::new::<E>(index);
+    let index_id = IndexId::new(E::ENTITY_TAG, index.ordinal());
     let (lower, upper) = IndexKey::bounds_for_prefix(
         &index_id,
         new_index_key.component_count(),

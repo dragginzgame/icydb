@@ -46,7 +46,8 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -175,7 +176,8 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                         AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
                         AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                         AccessPlan::path(AccessPath::ByKeys(vec![id5, id6, id7, id8, id9])),
-                    ]),
+                    ])
+                    .into_value_plan(),
                     projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
                 })
             };

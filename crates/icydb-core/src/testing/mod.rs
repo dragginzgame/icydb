@@ -3,6 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+mod entity_tags;
 mod fixtures;
 
 use canic_cdk::structures::{
@@ -10,6 +11,7 @@ use canic_cdk::structures::{
     memory::{MemoryId, MemoryManager, VirtualMemory},
 };
 
+pub(crate) use entity_tags::*;
 pub(crate) use fixtures::*;
 
 pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;

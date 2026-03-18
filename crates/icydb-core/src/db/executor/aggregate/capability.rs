@@ -189,7 +189,7 @@ impl AggregateExecutionPolicy {
 
 /// Derive aggregate execution policy from one validated plan and aggregate context.
 pub(in crate::db::executor) fn derive_aggregate_execution_policy<E>(
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_expr: Option<&AggregateExpr>,
     inputs: AggregateExecutionPolicyInputs,
@@ -223,7 +223,7 @@ where
 
 /// Derive aggregate-policy field-extrema fast-path eligibility for one plan.
 pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility<E>(
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_expr: Option<&AggregateExpr>,
     extrema_kind: AggregateKind,
@@ -333,10 +333,7 @@ where
     }
 }
 
-fn field_extrema_target_has_matching_index<E>(
-    plan: &AccessPlannedQuery<E::Key>,
-    target_field: &str,
-) -> bool
+fn field_extrema_target_has_matching_index<E>(plan: &AccessPlannedQuery, target_field: &str) -> bool
 where
     E: EntityKind,
 {

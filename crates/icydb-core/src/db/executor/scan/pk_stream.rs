@@ -24,7 +24,7 @@ where
     /// Try one primary-key order fast path and return ordered keys when eligible.
     pub(in crate::db::executor) fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {

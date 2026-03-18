@@ -11,6 +11,7 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             ExecutionOptimization, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             pipeline::contracts::{FastPathKeyResult, LoadExecutor},
+            reconstruct_typed_access_plan,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -25,7 +26,7 @@ where
 {
     pub(super) fn execute_primary_key_fast_stream_route(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
@@ -33,8 +34,9 @@ where
         Self::verify_pk_stream_fast_path_access(plan)?;
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
+        let typed_access = reconstruct_typed_access_plan::<E>(plan)?;
         let access = ExecutableAccess::new(
-            &plan.access,
+            &typed_access,
             AccessStreamBindings::no_index(stream_direction),
             probe_fetch_hint,
             None,
@@ -48,14 +50,15 @@ where
 
     pub(super) fn execute_secondary_index_fast_stream_route(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: verify access-path/spec invariants for index-prefix execution.
-        let access_strategy = plan.access_strategy();
+        let typed_access = reconstruct_typed_access_plan::<E>(plan)?;
+        let access_strategy = typed_access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -98,14 +101,15 @@ where
 
     pub(super) fn execute_index_range_fast_stream_route(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
         continuation: AccessScanContinuationInput<'_>,
         effective_fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: verify access-path and executable spec materialization invariants.
-        let access_strategy = plan.access_strategy();
+        let typed_access = reconstruct_typed_access_plan::<E>(plan)?;
+        let access_strategy = typed_access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };

@@ -16,8 +16,7 @@ use crate::{
                 access::{
                     bindings::{
                         AccessScanContinuationInput, AccessSpecCursor, AccessStreamBindings,
-                        AccessStreamInputs, ExecutableAccess, IndexStreamConstraints,
-                        StreamExecutionHints,
+                        ExecutableAccess, IndexStreamConstraints, StreamExecutionHints,
                     },
                     physical,
                 },
@@ -33,6 +32,114 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+
+///
+/// TraversalInputs
+///
+/// TraversalInputs carries the structural traversal bindings needed by
+/// access-plan stream resolution.
+/// This deliberately excludes typed context so recursive traversal orchestration
+/// can stay monomorphic while physical path resolution remains in typed leaves.
+///
+
+#[derive(Clone, Copy)]
+struct TraversalInputs<'a> {
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    index_range_specs: &'a [LoweredIndexRangeSpec],
+    continuation: AccessScanContinuationInput<'a>,
+    physical_fetch_hint: Option<usize>,
+    index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'a>>,
+}
+
+impl<'a> TraversalInputs<'a> {
+    // Clone this traversal envelope with one overridden physical fetch hint.
+    const fn with_physical_fetch_hint(self, physical_fetch_hint: Option<usize>) -> Self {
+        Self {
+            physical_fetch_hint,
+            ..self
+        }
+    }
+
+    // Build one mutable spec-consumption cursor over prefix/range slices.
+    const fn spec_cursor(&self) -> AccessSpecCursor<'a> {
+        AccessSpecCursor::new(self.index_prefix_specs, self.index_range_specs)
+    }
+}
+
+///
+/// AccessTraversalRuntime
+///
+/// AccessTraversalRuntime keeps typed physical path resolution behind one
+/// execution-focused runtime boundary.
+/// Recursive access-plan traversal uses this only to resolve leaf path nodes;
+/// it must not absorb union/intersection orchestration or stream reduction.
+///
+
+trait AccessTraversalRuntime<K> {
+    /// Resolve one executable path leaf through the typed physical access boundary.
+    fn lower_path_access(
+        &self,
+        path: &ExecutableAccessPath<'_, K>,
+        inputs: TraversalInputs<'_>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>;
+}
+
+///
+/// ContextTraversalRuntime
+///
+/// ContextTraversalRuntime binds one recovered typed context to the
+/// `AccessTraversalRuntime` leaf-resolution contract.
+/// This keeps context-owned physical stream resolution typed while the parent
+/// traversal recursion stays generic only over key shape.
+///
+
+struct ContextTraversalRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    ctx: &'a Context<'ctx, E>,
+}
+
+impl<'ctx, 'a, E> ContextTraversalRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    // Build one typed traversal runtime from one recovered executor context.
+    const fn new(ctx: &'a Context<'ctx, E>) -> Self {
+        Self { ctx }
+    }
+}
+
+impl<E> AccessTraversalRuntime<E::Key> for ContextTraversalRuntime<'_, '_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn lower_path_access(
+        &self,
+        path: &ExecutableAccessPath<'_, E::Key>,
+        inputs: TraversalInputs<'_>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let constraints = IndexStreamConstraints {
+            prefixes: index_prefix_specs,
+            range: index_range_spec,
+        };
+        let hints = StreamExecutionHints {
+            physical_fetch_hint: inputs.physical_fetch_hint,
+            predicate_execution: inputs.index_predicate_execution,
+        };
+
+        self.ctx.ordered_key_stream_from_executable_access(
+            path,
+            constraints,
+            inputs.continuation,
+            hints,
+        )
+    }
+}
 
 impl<E> Context<'_, E>
 where
@@ -110,17 +217,21 @@ where
     where
         E: EntityKind,
     {
-        let inputs = AccessStreamInputs {
-            ctx: self,
+        let inputs = TraversalInputs {
             index_prefix_specs: request.bindings.index_prefix_specs,
             index_range_specs: request.bindings.index_range_specs,
             continuation: request.bindings.continuation,
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
         };
+        let runtime = ContextTraversalRuntime::new(self);
         let mut spec_cursor = inputs.spec_cursor();
-        let key_stream =
-            AccessPlanStreamResolver::produce_key_stream(&request.plan, &inputs, &mut spec_cursor)?;
+        let key_stream = AccessPlanStreamResolver::produce_key_stream(
+            &runtime,
+            &request.plan,
+            inputs,
+            &mut spec_cursor,
+        )?;
         spec_cursor.validate_consumed()?;
 
         Ok(key_stream)
@@ -161,33 +272,6 @@ where
 struct AccessPlanStreamResolver;
 
 impl AccessPlanStreamResolver {
-    // Lower one path through the canonical physical resolver boundary.
-    fn lower_path_access<E, K>(
-        path: &ExecutableAccessPath<'_, K>,
-        inputs: &AccessStreamInputs<'_, '_, E>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy,
-    {
-        let constraints = IndexStreamConstraints {
-            prefixes: index_prefix_specs,
-            range: index_range_spec,
-        };
-        let hints = StreamExecutionHints {
-            physical_fetch_hint: inputs.physical_fetch_hint,
-            predicate_execution: inputs.index_predicate_execution,
-        };
-        inputs.ctx.ordered_key_stream_from_executable_access(
-            path,
-            constraints,
-            inputs.continuation,
-            hints,
-        )
-    }
-
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment<K>(
         path: &ExecutableAccessPath<'_, K>,
@@ -208,20 +292,25 @@ impl AccessPlanStreamResolver {
     }
 
     // Collect one child key stream for each child access plan.
-    fn collect_child_key_streams<'a, E, K>(
+    fn collect_child_key_streams<'a, K>(
+        runtime: &dyn AccessTraversalRuntime<K>,
         children: &[ExecutableAccessPlan<'a, K>],
-        inputs: &AccessStreamInputs<'_, 'a, E>,
+        inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
             // Composite plans never need physical fetch-hint expansion on child lookups.
             let child_inputs = inputs.with_physical_fetch_hint(None);
-            streams.push(Self::produce_key_stream(child, &child_inputs, spec_cursor)?);
+            streams.push(Self::produce_key_stream(
+                runtime,
+                child,
+                child_inputs,
+                spec_cursor,
+            )?);
         }
 
         Ok(streams)
@@ -264,13 +353,13 @@ impl AccessPlanStreamResolver {
 
     // Build an ordered key stream for this access plan.
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
-    fn produce_key_stream<'a, E, K>(
+    fn produce_key_stream<'a, K>(
+        runtime: &dyn AccessTraversalRuntime<K>,
         access: &ExecutableAccessPlan<'a, K>,
-        inputs: &AccessStreamInputs<'_, 'a, E>,
+        inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
         match access.node() {
@@ -295,28 +384,28 @@ impl AccessPlanStreamResolver {
                 Self::validate_index_prefix_spec_alignment(path, index_prefix_specs)?;
                 validate_index_range_spec_alignment(path, index_range_spec)?;
 
-                Self::lower_path_access(path, inputs, index_prefix_specs, index_range_spec)
+                runtime.lower_path_access(path, inputs, index_prefix_specs, index_range_spec)
             }
             ExecutableAccessNode::Union(children) => {
-                Self::produce_union_key_stream(children, inputs, spec_cursor)
+                Self::produce_union_key_stream(runtime, children, inputs, spec_cursor)
             }
             ExecutableAccessNode::Intersection(children) => {
-                Self::produce_intersection_key_stream(children, inputs, spec_cursor)
+                Self::produce_intersection_key_stream(runtime, children, inputs, spec_cursor)
             }
         }
     }
 
     // Build one canonical stream for a union by pairwise-merging child streams.
-    fn produce_union_key_stream<'a, E, K>(
+    fn produce_union_key_stream<'a, K>(
+        runtime: &dyn AccessTraversalRuntime<K>,
         children: &[ExecutableAccessPlan<'a, K>],
-        inputs: &AccessStreamInputs<'_, 'a, E>,
+        inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        let streams = Self::collect_child_key_streams(children, inputs, spec_cursor)?;
+        let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
@@ -329,16 +418,16 @@ impl AccessPlanStreamResolver {
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
-    fn produce_intersection_key_stream<'a, E, K>(
+    fn produce_intersection_key_stream<'a, K>(
+        runtime: &dyn AccessTraversalRuntime<K>,
         children: &[ExecutableAccessPlan<'a, K>],
-        inputs: &AccessStreamInputs<'_, 'a, E>,
+        inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        let streams = Self::collect_child_key_streams(children, inputs, spec_cursor)?;
+        let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(Self::reduce_key_streams(streams, |left, right| {

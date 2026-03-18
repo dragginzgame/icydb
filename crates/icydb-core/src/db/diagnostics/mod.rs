@@ -9,7 +9,7 @@ mod tests;
 
 use crate::{
     db::{
-        Db, EntityName,
+        Db,
         codec::deserialize_row,
         commit::CommitRowOp,
         data::{DataKey, StorageKey},
@@ -18,6 +18,7 @@ use crate::{
     },
     error::{ErrorClass, InternalError},
     traits::CanisterKind,
+    types::EntityTag,
     value::Value,
 };
 use candid::CandidType;
@@ -592,6 +593,15 @@ pub(crate) fn storage_report<C: CanisterKind>(
     db.ensure_recovered_state()?;
     // Build name→path map once, reuse across stores.
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
+    let runtime_name_to_tag: BTreeMap<&str, EntityTag> =
+        db.runtime_entity_name_tag_pairs().into_iter().collect();
+    // Build one deterministic tag→path alias map to preserve report naming even
+    // after persisted keys move from string names to tag identities.
+    let mut tag_name_map = BTreeMap::<EntityTag, &str>::new();
+    for (entity_name, entity_tag) in runtime_name_to_tag.iter() {
+        let path_name = name_map.get(entity_name).copied().unwrap_or(*entity_name);
+        tag_name_map.entry(*entity_tag).or_insert(path_name);
+    }
     let mut data = Vec::new();
     let mut index = Vec::new();
     let mut entity_storage: Vec<EntitySnapshot> = Vec::new();
@@ -613,7 +623,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                 ));
 
                 // Track per-entity counts, memory, and min/max Keys (not DataKeys)
-                let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
+                let mut by_entity: BTreeMap<EntityTag, EntityStats> = BTreeMap::new();
 
                 for entry in store.iter() {
                     let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
@@ -624,19 +634,31 @@ pub(crate) fn storage_report<C: CanisterKind>(
                     let value_len = entry.value().len() as u64;
 
                     by_entity
-                        .entry(*dk.entity_name())
+                        .entry(dk.entity_tag())
                         .or_default()
                         .update(&dk, value_len);
                 }
 
-                for (entity_name, stats) in by_entity {
-                    let path_name = name_map
-                        .get(entity_name.as_str())
+                for (entity_tag, stats) in by_entity {
+                    let path_name = tag_name_map
+                        .get(&entity_tag)
                         .copied()
-                        .unwrap_or(entity_name.as_str());
+                        .map(str::to_string)
+                        .or_else(|| {
+                            db.runtime_hook_for_entity_tag(entity_tag)
+                                .ok()
+                                .map(|hooks| {
+                                    name_map
+                                        .get(hooks.entity_name)
+                                        .copied()
+                                        .unwrap_or(hooks.entity_name)
+                                        .to_string()
+                                })
+                        })
+                        .unwrap_or_else(|| format!("#{}", entity_tag.value()));
                     entity_storage.push(EntitySnapshot::new(
                         path.to_string(),
-                        path_name.to_string(),
+                        path_name,
                         stats.entries,
                         stats.memory_bytes,
                         stats.min_key.map(|key| key.as_value()),
@@ -744,15 +766,15 @@ fn build_integrity_report<C: CanisterKind>(db: &Db<C>) -> Result<IntegrityReport
 // Build one global map of live data keys grouped by entity across all stores.
 fn collect_global_live_keys_by_entity<C: CanisterKind>(
     db: &Db<C>,
-) -> Result<BTreeMap<EntityName, BTreeSet<StorageKey>>, InternalError> {
-    let mut keys = BTreeMap::<EntityName, BTreeSet<StorageKey>>::new();
+) -> Result<BTreeMap<EntityTag, BTreeSet<StorageKey>>, InternalError> {
+    let mut keys = BTreeMap::<EntityTag, BTreeSet<StorageKey>>::new();
 
     db.with_store_registry(|reg| {
         for (_, store_handle) in reg.iter() {
             store_handle.with_data(|data_store| {
                 for entry in data_store.iter() {
                     if let Ok(data_key) = DataKey::try_from_raw(entry.key()) {
-                        keys.entry(*data_key.entity_name())
+                        keys.entry(data_key.entity_tag())
                             .or_default()
                             .insert(data_key.storage_key());
                     }
@@ -783,8 +805,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                 continue;
             };
 
-            let entity_name = data_key.entity_name().as_str();
-            let hooks = match db.runtime_hook_for_entity_name(entity_name) {
+            let hooks = match db.runtime_hook_for_entity_tag(data_key.entity_tag()) {
                 Ok(hooks) => hooks,
                 Err(err) => {
                     classify_scan_error(err, snapshot)?;
@@ -844,7 +865,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
 // Run reverse (index -> data) integrity checks for one store.
 fn scan_store_reverse_integrity(
     store_handle: StoreHandle,
-    live_keys_by_entity: &BTreeMap<EntityName, BTreeSet<StorageKey>>,
+    live_keys_by_entity: &BTreeMap<EntityTag, BTreeSet<StorageKey>>,
     snapshot: &mut IntegrityStoreSnapshot,
 ) {
     store_handle.with_index(|index_store| {
@@ -856,10 +877,7 @@ fn scan_store_reverse_integrity(
                 continue;
             };
 
-            let Some(index_entity_name) = data_entity_name_for_index_key(&decoded_index_key) else {
-                snapshot.corrupted_index_keys = snapshot.corrupted_index_keys.saturating_add(1);
-                continue;
-            };
+            let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
 
             let Ok(indexed_primary_keys) = raw_index_entry.decode_keys() else {
                 snapshot.corrupted_index_entries =
@@ -869,7 +887,7 @@ fn scan_store_reverse_integrity(
 
             for primary_key in indexed_primary_keys {
                 let exists = live_keys_by_entity
-                    .get(&index_entity_name)
+                    .get(&index_entity_tag)
                     .is_some_and(|entity_keys| entity_keys.contains(&primary_key));
                 if !exists {
                     snapshot.orphan_index_references =
@@ -903,10 +921,6 @@ fn classify_scan_error(
 }
 
 // Parse the data-entity identity from one decoded index key.
-fn data_entity_name_for_index_key(index_key: &IndexKey) -> Option<EntityName> {
-    let full_name = index_key.index_id().0.as_str();
-    let entity_name = full_name
-        .split_once('|')
-        .map_or(full_name, |(entity, _)| entity);
-    EntityName::try_from_str(entity_name).ok()
+fn data_entity_tag_for_index_key(index_key: &IndexKey) -> EntityTag {
+    index_key.index_id().entity_tag
 }

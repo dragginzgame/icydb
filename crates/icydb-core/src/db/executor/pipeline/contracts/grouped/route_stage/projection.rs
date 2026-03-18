@@ -19,17 +19,20 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 
-impl<E> GroupedRouteStage<E>
-where
-    E: EntityKind + EntityValue,
-{
+impl GroupedRouteStage {
     /// Borrow grouped logical plan payload.
-    pub(in crate::db::executor) const fn plan(&self) -> &AccessPlannedQuery<E::Key> {
+    pub(in crate::db::executor) const fn plan(&self) -> &AccessPlannedQuery {
         &self.planner_payload.plan
+    }
+
+    /// Borrow the structural entity model for this grouped runtime shape.
+    pub(in crate::db::executor) const fn entity_model(
+        &self,
+    ) -> &'static crate::model::entity::EntityModel {
+        self.planner_payload.entity_model
     }
 
     /// Return planner-projected grouped execution configuration.

@@ -37,7 +37,7 @@ where
     }
 
     pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
@@ -83,7 +83,7 @@ where
     // Build an explicit aggregate seek contract when bounded aggregate probe
     // hints are eligible for one extrema terminal shape.
     pub(in crate::db::executor::route) fn aggregate_seek_spec(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
@@ -107,7 +107,7 @@ where
     // Field-target MAX probe hints are safe only when the chosen path guarantees
     // no duplicate target values can appear in traversal order.
     fn field_target_max_probe_shape_is_tie_free(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         aggregate: &AggregateExpr,
     ) -> bool {
         aggregate.target_field().is_some_and(|target_field| {

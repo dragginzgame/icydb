@@ -28,9 +28,9 @@ fn validated_secondary_order_for_contract<'a>(
 
 /// Derive route pushdown applicability from planner-owned logical eligibility and
 /// route-owned access capabilities. Route must not re-derive logical shape policy.
-pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract<K>(
+pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     logical_pushdown_eligibility: LogicalPushdownEligibility,
 ) -> PushdownApplicability {
     let Some(order) = validated_secondary_order_for_contract(
@@ -57,9 +57,9 @@ pub(in crate::db::executor) const fn secondary_order_contract_active(
 
 /// Return whether access traversal already satisfies the logical `ORDER BY`
 /// contract under planner-owned pushdown eligibility decisions.
-pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_model<K>(
+pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_model(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
 ) -> bool {
     let logical = plan.scalar_plan();
     let Some(order) = logical.order.as_ref() else {

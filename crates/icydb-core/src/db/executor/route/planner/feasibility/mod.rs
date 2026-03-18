@@ -39,7 +39,7 @@ where
     E: EntityKind + EntityValue,
 {
     pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stage(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
         planner_route_profile: &PlannerRouteProfile,
@@ -136,7 +136,7 @@ where
     }
 
     pub(in crate::db::executor::route::planner) fn derive_route_derivation_context(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         intent_stage: &RouteIntentStage,
         logical_pushdown_eligibility: LogicalPushdownEligibility,
         continuation: RouteContinuationPlan,

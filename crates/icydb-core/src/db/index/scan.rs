@@ -20,13 +20,14 @@ use crate::{
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::EntityKind,
+    types::EntityTag,
 };
 use std::ops::Bound;
 
 impl IndexStore {
-    pub(in crate::db) fn resolve_data_values_in_raw_range_limited<E: EntityKind>(
+    pub(in crate::db) fn resolve_data_values_in_raw_range_limited(
         &self,
+        entity: EntityTag,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         continuation: IndexScanContinuationInput<'_>,
@@ -34,7 +35,8 @@ impl IndexStore {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError> {
         self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
-            Self::decode_index_entry_and_push::<E>(
+            Self::decode_index_entry_and_push(
+                entity,
                 index,
                 raw_key,
                 value,
@@ -46,8 +48,9 @@ impl IndexStore {
         })
     }
 
-    pub(in crate::db) fn resolve_data_values_with_component_in_raw_range_limited<E: EntityKind>(
+    pub(in crate::db) fn resolve_data_values_with_component_in_raw_range_limited(
         &self,
+        entity: EntityTag,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         continuation: IndexScanContinuationInput<'_>,
@@ -56,7 +59,8 @@ impl IndexStore {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
         self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
-            Self::decode_index_entry_and_push_with_component::<E>(
+            Self::decode_index_entry_and_push_with_component(
+                entity,
                 index,
                 raw_key,
                 value,
@@ -154,7 +158,8 @@ impl IndexStore {
         decode_and_push(raw_key, value, out)
     }
 
-    fn decode_index_entry_and_push<E: EntityKind>(
+    fn decode_index_entry_and_push(
+        entity: EntityTag,
         index: &IndexModel,
         raw_key: &RawIndexKey,
         value: &StoredIndexValue,
@@ -190,7 +195,7 @@ impl IndexStore {
         }
 
         for storage_key in storage_keys {
-            out.push(DataKey::from_key::<E>(storage_key));
+            out.push(DataKey::new(entity, storage_key));
 
             if let Some(limit) = limit
                 && out.len() == limit
@@ -203,7 +208,8 @@ impl IndexStore {
     }
 
     #[expect(clippy::too_many_arguments)]
-    fn decode_index_entry_and_push_with_component<E: EntityKind>(
+    fn decode_index_entry_and_push_with_component(
+        entity: EntityTag,
         index: &IndexModel,
         raw_key: &RawIndexKey,
         value: &StoredIndexValue,
@@ -248,7 +254,7 @@ impl IndexStore {
         }
 
         for storage_key in storage_keys {
-            out.push((DataKey::from_key::<E>(storage_key), component.clone()));
+            out.push((DataKey::new(entity, storage_key), component.clone()));
 
             if let Some(limit) = limit
                 && out.len() == limit

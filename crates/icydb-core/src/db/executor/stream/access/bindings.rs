@@ -9,63 +9,13 @@ use crate::{
         cursor::IndexScanContinuationInput,
         direction::Direction,
         executor::{
-            Context, ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            LoweredKey, traversal::validate_index_range_specs_consumed,
+            ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+            traversal::validate_index_range_specs_consumed,
         },
         index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
-
-///
-/// AccessStreamInputs
-///
-/// Canonical access-stream construction inputs shared across context/composite boundaries.
-/// This bundles spec slices and traversal controls to avoid argument-order drift.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) struct AccessStreamInputs<'ctx, 'a, E: EntityKind + EntityValue> {
-    pub(in crate::db::executor) ctx: &'a Context<'ctx, E>,
-    pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
-    pub(in crate::db::executor) continuation: AccessScanContinuationInput<'a>,
-    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-    pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-}
-
-impl<'a, E> AccessStreamInputs<'_, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Clone this envelope with one overridden physical fetch hint.
-    #[must_use]
-    pub(in crate::db::executor) const fn with_physical_fetch_hint(
-        &self,
-        physical_fetch_hint: Option<usize>,
-    ) -> Self {
-        Self {
-            ctx: self.ctx,
-            index_prefix_specs: self.index_prefix_specs,
-            index_range_specs: self.index_range_specs,
-            continuation: self.continuation,
-            physical_fetch_hint,
-            index_predicate_execution: self.index_predicate_execution,
-        }
-    }
-
-    // Build one mutable spec-consumption cursor over prefix/range slices.
-    #[must_use]
-    pub(super) const fn spec_cursor(&self) -> AccessSpecCursor<'a> {
-        AccessSpecCursor {
-            index_prefix_specs: self.index_prefix_specs,
-            index_range_specs: self.index_range_specs,
-            index_prefix_offset: 0,
-            index_range_offset: 0,
-        }
-    }
-}
 
 ///
 /// AccessSpecCursor
@@ -83,6 +33,20 @@ pub(in crate::db::executor) struct AccessSpecCursor<'a> {
 }
 
 impl<'a> AccessSpecCursor<'a> {
+    /// Build one spec cursor over explicit lowered prefix/range slices.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+        index_range_specs: &'a [LoweredIndexRangeSpec],
+    ) -> Self {
+        Self {
+            index_prefix_specs,
+            index_range_specs,
+            index_prefix_offset: 0,
+            index_range_offset: 0,
+        }
+    }
+
     /// Consume the next `count` lowered index-prefix specs in traversal order.
     pub(in crate::db::executor) fn next_index_prefix_specs(
         &mut self,

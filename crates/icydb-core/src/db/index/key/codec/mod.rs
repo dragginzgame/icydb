@@ -13,7 +13,6 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         data::{StorageKey, StorageKeyDecodeError},
-        identity::IndexName,
         index::key::IndexId,
     },
 };
@@ -21,7 +20,7 @@ use bounds::{
     COMPONENT_COUNT_SIZE, INDEX_ID_SIZE, KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE,
 };
 use error::{
-    ERR_INVALID_INDEX_LENGTH, ERR_INVALID_INDEX_NAME_BYTES, ERR_INVALID_SIZE, ERR_TRAILING_BYTES,
+    ERR_INVALID_INDEX_ID_BYTES, ERR_INVALID_INDEX_LENGTH, ERR_INVALID_SIZE, ERR_TRAILING_BYTES,
 };
 use std::cmp::Ordering;
 use tuple::{
@@ -85,8 +84,7 @@ impl IndexKey {
         // Phase 2: write key kind, index id, component count, and segments.
         bytes.push(self.key_kind.tag());
 
-        let name_bytes = self.index_id.0.to_bytes();
-        bytes.extend_from_slice(&name_bytes);
+        bytes.extend_from_slice(&self.index_id.to_bytes());
 
         let component_count_u8 =
             u8::try_from(component_count).expect("component count should fit in one byte");
@@ -113,9 +111,8 @@ impl IndexKey {
         let key_kind = IndexKeyKind::from_tag(bytes[offset])?;
         offset += KEY_KIND_TAG_SIZE;
 
-        let index_name =
-            IndexName::from_bytes(&bytes[offset..offset + IndexName::STORED_SIZE_USIZE])
-                .map_err(|_| ERR_INVALID_INDEX_NAME_BYTES)?;
+        let index_id = IndexId::from_bytes(&bytes[offset..offset + INDEX_ID_SIZE])
+            .ok_or(ERR_INVALID_INDEX_ID_BYTES)?;
         offset += INDEX_ID_SIZE;
 
         let component_count = bytes[offset];
@@ -145,7 +142,7 @@ impl IndexKey {
 
         Ok(Self {
             key_kind,
-            index_id: IndexId(index_name),
+            index_id,
             components,
             primary_key: primary_key.to_vec(),
         })

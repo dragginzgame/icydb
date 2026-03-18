@@ -17,7 +17,7 @@ use crate::{
             resolve_global_distinct_field_aggregate,
         },
     },
-    traits::{EntityKey, EntityKind, EntitySchema, EntityValue},
+    traits::{EntityKind, EntitySchema, EntityValue},
     value::Value,
 };
 use std::{
@@ -26,8 +26,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-type ExecutablePlanNewFn<E> =
-    fn(crate::db::query::plan::AccessPlannedQuery<<E as EntityKey>::Key>) -> ExecutablePlan<E>;
+type ExecutablePlanNewFn<E> = fn(crate::db::query::plan::AccessPlannedQuery) -> ExecutablePlan<E>;
 type LoadExecuteFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,
@@ -78,10 +77,10 @@ type SlotMinMaxByFn<E> =
         FieldSlot,
     )
         -> Result<Option<(crate::types::Id<E>, crate::types::Id<E>)>, crate::error::InternalError>;
-type DistinctExecutionStrategyFn<K> = fn(&AccessPlannedQuery<K>) -> DistinctExecutionStrategy;
+type DistinctExecutionStrategyFn = fn(&AccessPlannedQuery) -> DistinctExecutionStrategy;
 
-fn grouped_distinct_strategy_accessor_type_check<'a, K>(
-    handoff: &'a GroupedExecutorHandoff<'a, K>,
+fn grouped_distinct_strategy_accessor_type_check<'a>(
+    handoff: &'a GroupedExecutorHandoff<'a>,
 ) -> &'a GroupedDistinctExecutionStrategy {
     handoff.distinct_execution_strategy()
 }
@@ -112,7 +111,7 @@ where
     let aggregate_nth_by_slot: SlotNthByFn<E> = LoadExecutor::<E>::aggregate_nth_by_slot;
     let aggregate_median_by_slot: SlotMedianByFn<E> = LoadExecutor::<E>::aggregate_median_by_slot;
     let aggregate_min_max_by_slot: SlotMinMaxByFn<E> = LoadExecutor::<E>::aggregate_min_max_by_slot;
-    let distinct_execution_strategy: DistinctExecutionStrategyFn<E::Key> =
+    let distinct_execution_strategy: DistinctExecutionStrategyFn =
         AccessPlannedQuery::distinct_execution_strategy;
 
     let _ = executable_new;
@@ -127,7 +126,7 @@ where
     let _ = aggregate_median_by_slot;
     let _ = aggregate_min_max_by_slot;
     let _ = distinct_execution_strategy;
-    let _ = grouped_distinct_strategy_accessor_type_check::<E::Key>;
+    let _ = grouped_distinct_strategy_accessor_type_check;
 }
 
 #[test]
@@ -423,9 +422,9 @@ fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
 #[test]
 fn grouped_and_scalar_projection_specs_share_planner_projection_boundary() {
     let model = <PlanModelEntity as EntitySchema>::MODEL;
-    let scalar: AccessPlannedQuery<Value> =
+    let scalar: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    let grouped: AccessPlannedQuery<Value> =
+    let grouped: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
             .into_grouped(GroupSpec {
                 group_fields: vec![

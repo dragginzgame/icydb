@@ -7,7 +7,8 @@ use super::*;
 
 #[test]
 fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -35,7 +36,7 @@ fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
 
 #[test]
 fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::ByKeys(vec![
             Ulid::from_u128(7303),
             Ulid::from_u128(7301),
@@ -71,7 +72,7 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
 
 #[test]
 fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -100,7 +101,7 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
 
 #[test]
 fn route_capabilities_index_range_without_order_remains_limit_pushdown_eligible() {
-    let plan = AccessPlannedQuery::new(
+    let plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -124,7 +125,7 @@ fn route_capabilities_index_range_without_order_remains_limit_pushdown_eligible(
 
 #[test]
 fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -152,7 +153,7 @@ fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape(
 
 #[test]
 fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::IndexPrefix {
             index: ROUTE_MATRIX_INDEX_MODELS[0],
             values: vec![],

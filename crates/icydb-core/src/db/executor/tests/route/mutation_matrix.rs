@@ -7,7 +7,8 @@ use super::*;
 
 #[test]
 fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
 
     let route_plan =
@@ -34,7 +35,8 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
 
 #[test]
 fn route_plan_mutation_rejects_non_delete_mode() {
-    let plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     let result = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_mutation(&plan);
     let Err(err) = result else {
         panic!("mutation route must reject non-delete plans")

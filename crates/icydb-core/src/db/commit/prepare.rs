@@ -46,12 +46,15 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     prepare_row_commit_for_entity_impl(db, op, &context, &context)
 }
 
+// Keep the full commit-preparation body out of the thin wrapper entrypoints so
+// codegen does not clone the same logic into both prepare surfaces per entity.
+#[inline(never)]
 #[expect(clippy::too_many_lines)]
 fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
-    row_reader: &impl PrimaryRowReader<E>,
-    index_reader: &impl IndexEntryReader<E>,
+    row_reader: &dyn PrimaryRowReader<E>,
+    index_reader: &dyn IndexEntryReader<E>,
 ) -> Result<PreparedRowCommitOp, InternalError> {
     // Phase 1: validate that marker metadata matches runtime entity authority.
     if op.entity_path != E::PATH {

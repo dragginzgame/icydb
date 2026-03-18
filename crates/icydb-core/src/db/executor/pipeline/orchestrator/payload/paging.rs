@@ -1,7 +1,10 @@
 use crate::{
     db::executor::pipeline::{
         contracts::LoadExecutor,
-        orchestrator::state::{LoadExecutionPayload, LoadPayloadState},
+        orchestrator::{
+            ErasedLoadPayload,
+            state::{LoadExecutionPayload, LoadPayloadState},
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -13,8 +16,8 @@ where
 {
     // Apply paging contracts over staged payload artifacts.
     pub(in crate::db::executor::pipeline::orchestrator) fn apply_paging(
-        mut state: LoadPayloadState<E>,
-    ) -> Result<LoadPayloadState<E>, InternalError> {
+        mut state: LoadPayloadState,
+    ) -> Result<LoadPayloadState, InternalError> {
         let execution_mode = state.context.mode;
         let payload = if execution_mode.scalar_rows_mode() {
             let mut page = Self::expect_scalar_payload(
@@ -23,12 +26,12 @@ where
             )?;
             // Unpaged scalar execution intentionally suppresses continuation payload.
             page.next_cursor = None;
-            LoadExecutionPayload::Scalar(page)
+            LoadExecutionPayload::Scalar(ErasedLoadPayload::new(page))
         } else if execution_mode.scalar_page_mode() {
-            LoadExecutionPayload::Scalar(Self::expect_scalar_payload(
+            LoadExecutionPayload::Scalar(ErasedLoadPayload::new(Self::expect_scalar_payload(
                 state.payload,
                 "scalar page load mode must carry scalar payload",
-            )?)
+            )?))
         } else {
             debug_assert!(
                 execution_mode.grouped_page_mode(),
@@ -46,8 +49,8 @@ where
 
     // Apply tracing contracts as a post-processing layer over staged artifacts.
     pub(in crate::db::executor::pipeline::orchestrator) const fn apply_tracing(
-        mut state: LoadPayloadState<E>,
-    ) -> LoadPayloadState<E> {
+        mut state: LoadPayloadState,
+    ) -> LoadPayloadState {
         if !state.context.mode.tracing_enabled() {
             state.trace = None;
         }

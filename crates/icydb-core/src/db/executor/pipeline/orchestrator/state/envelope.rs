@@ -26,7 +26,7 @@ pub(in crate::db::executor::pipeline::orchestrator) enum LoadPipelineState<E: En
         execution_mode: LoadExecutionMode,
     },
     Access(LoadAccessState<E>),
-    Payload(LoadPayloadState<E>),
+    Payload(LoadPayloadState),
     Surface(LoadExecutionSurface<E>),
 }
 
@@ -43,7 +43,7 @@ where
 
     // Build one payload-stage envelope from one payload-state payload.
     pub(in crate::db::executor::pipeline::orchestrator) const fn from_payload(
-        state: LoadPayloadState<E>,
+        state: LoadPayloadState,
     ) -> Self {
         Self::Payload(state)
     }
@@ -85,7 +85,7 @@ where
     pub(in crate::db::executor::pipeline::orchestrator) fn expect_payload(
         self,
         mismatch_message: &'static str,
-    ) -> Result<LoadPayloadState<E>, InternalError> {
+    ) -> Result<LoadPayloadState, InternalError> {
         match self {
             Self::Payload(state) => Ok(state),
             _ => Err(crate::db::error::query_executor_invariant(mismatch_message)),

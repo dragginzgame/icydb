@@ -1,8 +1,8 @@
 use crate::{
     db::executor::{
         ExecutablePlan, ExecutionTrace, PreparedLoadCursor,
-        pipeline::contracts::{CursorPage, GroupedCursorPage},
         pipeline::orchestrator::LoadExecutionMode,
+        pipeline::{contracts::GroupedCursorPage, orchestrator::ErasedLoadPayload},
     },
     traits::EntityKind,
 };
@@ -58,9 +58,9 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessState<E: En
 /// Carries normalized context, one required payload, and optional trace output.
 ///
 
-pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState<E: EntityKind> {
+pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState {
     pub(in crate::db::executor::pipeline::orchestrator) context: LoadExecutionContext,
-    pub(in crate::db::executor::pipeline::orchestrator) payload: LoadExecutionPayload<E>,
+    pub(in crate::db::executor::pipeline::orchestrator) payload: LoadExecutionPayload,
     pub(in crate::db::executor::pipeline::orchestrator) trace: Option<ExecutionTrace>,
 }
 
@@ -70,7 +70,7 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState<E: E
 /// Canonical payload envelope produced by one load orchestration pass.
 ///
 
-pub(in crate::db::executor::pipeline::orchestrator) enum LoadExecutionPayload<E: EntityKind> {
-    Scalar(CursorPage<E>),
+pub(in crate::db::executor::pipeline::orchestrator) enum LoadExecutionPayload {
+    Scalar(ErasedLoadPayload),
     Grouped(GroupedCursorPage),
 }

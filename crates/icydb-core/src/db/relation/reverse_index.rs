@@ -7,8 +7,7 @@ use crate::{
     db::{
         Db,
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
-        data::RawDataKey,
-        identity::{EntityName, IndexName},
+        data::{RawDataKey, StorageKey},
         index::{
             EncodedValue, IndexEntry, IndexEntryReader, IndexId, IndexKeyKind, IndexStore,
             RawIndexEntry, RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
@@ -21,53 +20,26 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, FieldValue},
     value::Value,
 };
-use canic_utils::hash::Xxh3;
 use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
-
-const REVERSE_INDEX_PREFIX: &str = "~ri";
 
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
 fn reverse_index_id_for_relation<S>(relation: StrongRelationInfo) -> Result<IndexId, InternalError>
 where
     S: EntityKind,
 {
-    let source_entity_name = EntityName::try_from_str(S::ENTITY_NAME).map_err(|err| {
+    let ordinal = u16::try_from(relation.field_index).map_err(|err| {
         InternalError::index_internal(format!(
-                "invalid source entity name while building reverse index id: source={} field={} ({err})",
-                S::PATH,
-                relation.field_name,
-            ),
-        )
-    })?;
-
-    // Hash relation identity into a bounded ASCII token so index-id fields
-    // stay within identity limits even when paths are long.
-    let mut hasher = Xxh3::with_seed(0);
-    hasher.update(S::PATH.as_bytes());
-    hasher.update(b"|");
-    hasher.update(relation.field_name.as_bytes());
-    hasher.update(b"|");
-    hasher.update(relation.target_path.as_bytes());
-    let relation_token = format!("h{:032x}", hasher.digest128());
-
-    let fields = [
-        REVERSE_INDEX_PREFIX,
-        relation.target_entity_name,
-        relation_token.as_str(),
-    ];
-    let name = IndexName::try_from_parts(&source_entity_name, &fields).map_err(|err| {
-        InternalError::index_internal(format!(
-            "reverse index id construction failed: source={} field={} target={} ({err})",
+            "reverse index ordinal overflow: source={} field={} target={} ({err})",
             S::PATH,
             relation.field_name,
             relation.target_path,
         ))
     })?;
 
-    Ok(IndexId(name))
+    Ok(IndexId::new(S::ENTITY_TAG, ordinal))
 }
 
 /// Build a reverse-index key for one target-key value.
@@ -138,11 +110,11 @@ pub(super) fn decode_reverse_entry<S>(
     relation: StrongRelationInfo,
     index_key: &RawIndexKey,
     raw_entry: &RawIndexEntry,
-) -> Result<IndexEntry<S>, InternalError>
+) -> Result<IndexEntry, InternalError>
 where
     S: EntityKind + EntityValue,
 {
-    raw_entry.try_decode::<S>().map_err(|err| {
+    raw_entry.try_decode().map_err(|err| {
         InternalError::index_corruption(format!(
             "reverse index entry corrupted: source={} field={} target={} key={:?} ({err})",
             S::PATH,
@@ -156,7 +128,7 @@ where
 /// Encode a reverse-index entry with bounded-size error mapping.
 fn encode_reverse_entry<S>(
     relation: StrongRelationInfo,
-    entry: &IndexEntry<S>,
+    entry: &IndexEntry,
 ) -> Result<RawIndexEntry, InternalError>
 where
     S: EntityKind + EntityValue,
@@ -198,7 +170,7 @@ where
 /// relation validation O(referrers) instead of O(source rows).
 pub(crate) fn prepare_reverse_relation_index_mutations_for_source<S>(
     db: &Db<S::Canister>,
-    index_reader: &impl IndexEntryReader<S>,
+    index_reader: &(impl IndexEntryReader<S> + ?Sized),
     old: Option<&S>,
     new: Option<&S>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
@@ -280,14 +252,16 @@ where
             // Apply one membership delta: remove old source membership or insert new.
             let delta_kind = if old_contains && let Some(source_key) = old_source_key {
                 if let Some(current) = entry.as_mut() {
-                    current.remove(source_key);
+                    current.remove(StorageKey::try_from_value(&source_key.to_value())?);
                 }
                 PreparedIndexDeltaKind::ReverseIndexRemove
             } else if new_contains && let Some(source_key) = new_source_key {
                 if let Some(current) = entry.as_mut() {
-                    current.insert(source_key);
+                    current.insert(StorageKey::try_from_value(&source_key.to_value())?);
                 } else {
-                    entry = Some(IndexEntry::new(source_key));
+                    entry = Some(IndexEntry::new(StorageKey::try_from_value(
+                        &source_key.to_value(),
+                    )?));
                 }
                 PreparedIndexDeltaKind::ReverseIndexInsert
             } else {

@@ -13,7 +13,7 @@ where
 {
     // Materialize one finalized response surface from staged artifacts.
     pub(in crate::db::executor::pipeline::orchestrator) fn materialize_surface(
-        state: LoadPayloadState<E>,
+        state: LoadPayloadState,
     ) -> Result<LoadExecutionSurface<E>, InternalError> {
         let execution_mode = state.context.mode;
         if execution_mode.scalar_rows_mode() {

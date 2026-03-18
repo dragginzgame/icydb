@@ -41,6 +41,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "FastStreamInvariantEntity",
+    entity_tag = crate::testing::FAST_STREAM_INVARIANT_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],

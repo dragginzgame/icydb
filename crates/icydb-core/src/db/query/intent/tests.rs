@@ -197,6 +197,7 @@ crate::test_entity_schema! {
     ident = PlanEntity,
     id = Ulid,
     entity_name = "PlanEntity",
+    entity_tag = crate::testing::PLAN_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -214,6 +215,7 @@ crate::test_entity_schema! {
     id_field = id,
     singleton = true,
     entity_name = "PlanSingleton",
+    entity_tag = crate::testing::PLAN_SINGLETON_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -228,6 +230,7 @@ crate::test_entity_schema! {
     ident = PlanNumericEntity,
     id = Ulid,
     entity_name = "PlanNumericEntity",
+    entity_tag = crate::testing::PLAN_NUMERIC_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -1151,7 +1154,7 @@ fn by_id_limit_one_without_order_simplifies_paging_shape() {
         matches!(
             plan.access,
             AccessPlan::Path(path)
-                if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == key)
+                if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == Value::Ulid(key))
         ),
         "by_id + limit(1) should keep exact ByKey access",
     );
@@ -1178,7 +1181,7 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
         matches!(
             typed_plan.access,
             AccessPlan::Path(path)
-                if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == key)
+                if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == Value::Ulid(key))
         ),
         "redundant predicate stripping must keep the exact ByKey path"
     );
@@ -1194,7 +1197,7 @@ fn singleton_only_uses_default_key() {
 
     assert!(matches!(
         plan.access,
-        AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::ByKey(Unit))
+        AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::ByKey(Value::Unit))
     ));
 }
 

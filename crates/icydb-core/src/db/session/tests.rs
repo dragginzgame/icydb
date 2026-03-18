@@ -68,6 +68,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "SessionSqlEntity",
+    entity_tag = crate::testing::SESSION_SQL_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [

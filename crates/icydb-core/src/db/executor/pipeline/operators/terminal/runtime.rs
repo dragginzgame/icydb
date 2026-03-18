@@ -17,10 +17,8 @@ use crate::{
 impl ExecutionKernel {
     // Return whether load execution can safely use the row-collector short path
     // without changing cursor/pagination/filter semantics.
-    pub(in crate::db::executor::pipeline::operators::terminal) const fn load_row_collector_short_path_eligible<
-        K,
-    >(
-        plan: &AccessPlannedQuery<K>,
+    pub(in crate::db::executor::pipeline::operators::terminal) const fn load_row_collector_short_path_eligible(
+        plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> bool {
         let logical = plan.scalar_plan();
@@ -37,7 +35,7 @@ impl ExecutionKernel {
     #[expect(clippy::type_complexity)]
     pub(in crate::db::executor::pipeline::operators::terminal) fn run_row_collector_stream<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         key_stream: &mut dyn OrderedKeyStream,
     ) -> Result<(Vec<(Id<E>, E)>, usize), InternalError>
     where

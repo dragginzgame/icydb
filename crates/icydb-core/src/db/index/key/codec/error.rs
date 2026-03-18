@@ -5,7 +5,7 @@
 
 pub(super) const ERR_INVALID_KEY_KIND: &str = "corrupted IndexKey: invalid key kind";
 pub(super) const ERR_INVALID_SIZE: &str = "corrupted IndexKey: invalid size";
-pub(super) const ERR_INVALID_INDEX_NAME_BYTES: &str = "corrupted IndexKey: invalid IndexName bytes";
+pub(super) const ERR_INVALID_INDEX_ID_BYTES: &str = "corrupted IndexKey: invalid IndexId bytes";
 pub(super) const ERR_INVALID_INDEX_LENGTH: &str = "corrupted IndexKey: invalid index length";
 pub(super) const ERR_TRAILING_BYTES: &str = "corrupted IndexKey: trailing bytes";
 pub(super) const ERR_TRUNCATED_KEY: &str = "corrupted IndexKey: truncated key";

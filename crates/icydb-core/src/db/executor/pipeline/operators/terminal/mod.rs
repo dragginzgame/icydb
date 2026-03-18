@@ -26,7 +26,7 @@ impl ExecutionKernel {
     // phases) to preserve exact behavior while proving row-only reducer wiring.
     pub(in crate::db::executor) fn try_materialize_load_via_row_collector<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
         key_stream: &mut dyn OrderedKeyStream,
     ) -> Result<Option<(CursorPage<E>, usize, usize)>, InternalError>

@@ -46,7 +46,7 @@ ident = ExplainPushdownEntity,
 #[test]
 fn explain_is_deterministic_for_same_query() {
     let predicate = FieldRef::new("id").eq(Ulid::default());
-    let mut plan: AccessPlannedQuery<Value> =
+    let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().predicate = Some(predicate);
 
@@ -66,11 +66,11 @@ fn explain_is_deterministic_for_equivalent_predicates() {
         FieldRef::new("id").eq(id),
     ]));
 
-    let mut plan_a: AccessPlannedQuery<Value> =
+    let mut plan_a: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-    let mut plan_b: AccessPlannedQuery<Value> =
+    let mut plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
@@ -85,7 +85,7 @@ fn explain_is_deterministic_for_by_keys() {
     let access_a = build_access_plan_from_keys(&KeyAccess::Many(vec![a, b, a]));
     let access_b = build_access_plan_from_keys(&KeyAccess::Many(vec![b, a]));
 
-    let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan_a: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -98,7 +98,7 @@ fn explain_is_deterministic_for_by_keys() {
         access: access_a,
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
-    let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan_b: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -127,7 +127,7 @@ fn explain_reports_deterministic_index_choice() {
     indexes.sort_by(|left, right| left.name().cmp(right.name()));
     let chosen = indexes[0];
 
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: chosen,
             values: vec![Value::Text("alpha".to_string())],
@@ -540,7 +540,7 @@ consistency=Ignore";
 
 #[test]
 fn explain_plan_canonical_json_snapshot_for_simple_shape_is_stable() {
-    let plan: AccessPlannedQuery<Value> =
+    let plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     let actual = grouped_explain_plan_json_snapshot(&plan.explain());
@@ -618,11 +618,11 @@ fn explain_global_distinct_sum_projection_is_reported() {
 
 #[test]
 fn explain_differs_for_semantic_changes() {
-    let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let plan_a: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))),
         MissingRowPolicy::Ignore,
     );
-    let plan_b: AccessPlannedQuery<Value> =
+    let plan_b: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     assert_ne!(plan_a.explain(), plan_b.explain());
@@ -631,7 +631,7 @@ fn explain_differs_for_semantic_changes() {
 #[test]
 fn explain_with_model_does_not_evaluate_order_pushdown() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
-    let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
@@ -651,7 +651,7 @@ fn explain_with_model_does_not_evaluate_order_pushdown() {
 #[test]
 fn explain_with_model_does_not_evaluate_descending_pushdown() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
-    let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
@@ -671,7 +671,7 @@ fn explain_with_model_does_not_evaluate_descending_pushdown() {
 #[test]
 fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -703,7 +703,7 @@ fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
 
 #[test]
 fn explain_without_model_reports_missing_model_context() {
-    let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
@@ -1534,7 +1534,7 @@ fn aggregate_terminal_plan_snapshot(plan: &ExplainAggregateTerminalPlan) -> Stri
 #[test]
 fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
     // Phase 1: build a deterministic index-prefix query explain payload.
-    let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
@@ -1599,7 +1599,7 @@ execution_node_json={\"node_id\":0,\"node_type\":\"AggregateSeekFirst\",\"layer\
 #[test]
 fn explain_aggregate_terminal_plan_snapshot_standard_route_is_stable() {
     // Phase 1: build a deterministic full-scan query explain payload.
-    let mut plan: AccessPlannedQuery<Value> =
+    let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],

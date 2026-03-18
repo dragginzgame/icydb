@@ -6,24 +6,16 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    db::{
-        cursor::ContinuationSignature,
-        query::plan::AccessPlannedQuery,
-        query::{
-            explain::ExplainPlan,
-            fingerprint::{
-                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
-            },
-        },
+use crate::db::{
+    cursor::ContinuationSignature,
+    query::plan::AccessPlannedQuery,
+    query::{
+        explain::ExplainPlan,
+        fingerprint::{finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1},
     },
-    traits::FieldValue,
 };
 
-impl<K> AccessPlannedQuery<K>
-where
-    K: FieldValue,
-{
+impl AccessPlannedQuery {
     /// Compute a continuation signature bound to the entity path.
     ///
     /// This is used to validate that a continuation token belongs to the
@@ -39,8 +31,8 @@ where
     }
 }
 
-fn continuation_signature_for_plan_with_projection<K: FieldValue>(
-    plan: &AccessPlannedQuery<K>,
+fn continuation_signature_for_plan_with_projection(
+    plan: &AccessPlannedQuery,
     entity_path: &'static str,
     projection: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> ContinuationSignature {

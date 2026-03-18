@@ -24,7 +24,6 @@ use crate::{
         entity::EntityModel,
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
-    traits::FieldValue,
     value::Value,
 };
 
@@ -195,13 +194,10 @@ enum CandidateEvaluation {
 ///
 
 #[must_use]
-pub(in crate::db) fn project_access_choice_explain_snapshot<K>(
+pub(in crate::db) fn project_access_choice_explain_snapshot(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) -> AccessChoiceExplainSnapshot
-where
-    K: FieldValue,
-{
+    plan: &AccessPlannedQuery,
+) -> AccessChoiceExplainSnapshot {
     // Phase 1: classify chosen access family and seed non-index fallbacks.
     let explain_access = ExplainAccessPath::from_access_plan(&plan.access);
     let (family, chosen_label, chosen_index_name, chosen_score_hint) =

@@ -36,7 +36,7 @@ where
 
 /// Validate mutation-plan executor contracts before write-phase execution.
 pub(in crate::db::executor) fn preflight_mutation_plan<E>(
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError>
 where
     E: EntityKind + EntityValue,

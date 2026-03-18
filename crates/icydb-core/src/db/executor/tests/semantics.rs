@@ -1880,7 +1880,7 @@ fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable
         "projection_coverage_flag=false".to_string(),
         "continuation_signature=6f28b609075e3776a6bf77842d95991827048fb0d2f1fa33da262a38bce3d340"
             .to_string(),
-        "index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:345:head:00001f5075736864:tail:0007000100000100),upper:included(len:4503:head:00001f5075736864:tail:ffffffffffffffff)}]".to_string(),
+        "index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:29:head:0000000000000010:tail:0007000100000100),upper:included(len:4187:head:0000000000000010:tail:ffffffffffffffff)}]".to_string(),
         "index_range_specs=[]".to_string(),
         "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(5), offset: 0 }), access: IndexPrefix { name: \"group_rank\", fields: [\"group\", \"rank\"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: Fields([ExplainOrder { field: \"rank\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }]), distinct: false, grouping: None, order_pushdown: MissingModelContext, page: Page { limit: Some(5), offset: 0 }, delete_limit: None, consistency: Ignore }".to_string(),
         format!("execution_descriptor_json={expected_descriptor_json}"),
@@ -1931,7 +1931,7 @@ fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
         "continuation_signature=8e12a2f46097653cad9d9ca37ee324e5a633c288e2665e82a335b12c1661c26f"
             .to_string(),
         "index_prefix_specs=[]".to_string(),
-        "index_range_specs=[{index:code_unique,bound_type:range,lower:included(len:342:head:00001b556e697175:tail:0000000064000100),upper:included(len:405:head:00001b556e697175:tail:ffffffffffffffff)}]".to_string(),
+        "index_range_specs=[{index:code_unique,bound_type:range,lower:included(len:26:head:0000000000000010:tail:0000000064000100),upper:included(len:89:head:0000000000000010:tail:ffffffffffffffff)}]".to_string(),
         "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(3), offset: 0 }), access: IndexRange { name: \"code_unique\", fields: [\"code\"], prefix_len: 0, prefix: [], lower: Included(Uint(100)), upper: Included(Uint(500)) }, predicate: And([Compare { field: \"code\", op: Lte, value: Uint(500), coercion: CoercionSpec { id: Strict, params: {} } }, Compare { field: \"code\", op: Gte, value: Uint(100), coercion: CoercionSpec { id: Strict, params: {} } }]), predicate_model: Some(And([Compare(ComparePredicate { field: \"code\", op: Lte, value: Uint(500), coercion: CoercionSpec { id: Strict, params: {} } }), Compare(ComparePredicate { field: \"code\", op: Gte, value: Uint(100), coercion: CoercionSpec { id: Strict, params: {} } })])), order_by: Fields([ExplainOrder { field: \"code\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }]), distinct: false, grouping: None, order_pushdown: MissingModelContext, page: Page { limit: Some(3), offset: 0 }, delete_limit: None, consistency: Ignore }".to_string(),
         format!("execution_descriptor_json={expected_descriptor_json}"),
     ]
@@ -1973,7 +1973,7 @@ fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
         "projection_coverage_flag=true".to_string(),
         "continuation_signature=1135fea1b0913c016c24038bd41769f2bc1eaa27ae9cba5511c638429caea2a1"
             .to_string(),
-        "index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:345:head:00001f5075736864:tail:0007000100000100),upper:included(len:4503:head:00001f5075736864:tail:ffffffffffffffff)}]".to_string(),
+        "index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:29:head:0000000000000010:tail:0007000100000100),upper:included(len:4187:head:0000000000000010:tail:ffffffffffffffff)}]".to_string(),
         "index_range_specs=[]".to_string(),
         "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: \"group_rank\", fields: [\"group\", \"rank\"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: HashGroup, group_fields: [ExplainGroupField { slot_index: 1, field: \"group\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }".to_string(),
         "route_execution_mode_case=AggregateGrouped".to_string(),

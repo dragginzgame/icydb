@@ -14,6 +14,7 @@ use crate::{
             ExecutionPreparation, LoadExecutor,
             aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
+            preparation::slot_map_for_entity_plan,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
                 FastPathOrder, TopNSeekSpec,
@@ -42,13 +43,14 @@ use std::{collections::BTreeMap, ops::Bound};
 
 // Assemble one canonical scalar load execution descriptor tree through route authority.
 pub(in crate::db::executor) fn assemble_load_execution_node_descriptor<E>(
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError>
 where
     E: EntityKind + EntityValue,
 {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
-    let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+    let execution_preparation =
+        ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
         LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
@@ -150,14 +152,15 @@ where
 
 /// Assemble canonical verbose diagnostics for one scalar load execution route.
 pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics<E>(
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError>
 where
     E: EntityKind + EntityValue,
     E::Key: FieldValue,
 {
     // Phase 1: build canonical route authority inputs for load mode.
-    let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+    let execution_preparation =
+        ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
         LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
@@ -243,7 +246,7 @@ where
 
 // Assemble one canonical scalar aggregate execution descriptor through route authority.
 pub(in crate::db::executor) fn assemble_aggregate_terminal_execution_descriptor<E>(
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
     aggregate: AggregateExpr,
 ) -> ExplainExecutionDescriptor
 where
@@ -253,7 +256,8 @@ where
     let projected_field = aggregate.target_field().map(str::to_string);
 
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
-    let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+    let execution_preparation =
+        ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
     let route_plan =
         LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
             plan,
@@ -366,15 +370,15 @@ fn annotate_access_root_node_properties(
 
 // Scalar-load covering projection reflects planner-side index-covering
 // existing-row eligibility under current strict predicate contracts.
-fn load_covering_scan_eligible<K>(
-    plan: &AccessPlannedQuery<K>,
+fn load_covering_scan_eligible(
+    plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
 ) -> bool {
     index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
 }
 
-fn load_covering_scan_reason<K>(
-    plan: &AccessPlannedQuery<K>,
+fn load_covering_scan_reason(
+    plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
 ) -> &'static str {
     if plan.scalar_plan().order.is_some() {
@@ -396,7 +400,7 @@ fn load_covering_scan_reason<K>(
 
 fn annotate_projection_pushdown_node_properties<E>(
     node: &mut ExplainExecutionNodeDescriptor,
-    plan: &AccessPlannedQuery<E::Key>,
+    plan: &AccessPlannedQuery,
     covering_scan: bool,
 ) where
     E: EntityKind + EntityValue,
@@ -437,13 +441,11 @@ fn projection_expr_label(expr: &Expr) -> String {
     }
 }
 
-fn annotate_access_choice_node_properties<K>(
+fn annotate_access_choice_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     model: &crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) where
-    K: FieldValue,
-{
+    plan: &AccessPlannedQuery,
+) {
     let access_choice = project_access_choice_explain_snapshot(model, plan);
     node.node_properties.insert(
         "access_choice_chosen".to_string(),
@@ -874,7 +876,7 @@ fn index_range_pushdown_predicate_text(
     }
 }
 
-fn explain_predicate_for_plan<E>(plan: &AccessPlannedQuery<E::Key>) -> Option<ExplainPredicate>
+fn explain_predicate_for_plan<E>(plan: &AccessPlannedQuery) -> Option<ExplainPredicate>
 where
     E: EntityKind,
 {
@@ -963,8 +965,8 @@ const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {
 
 // Return whether one scalar aggregate terminal can remain index-only under the
 // current plan and executor preparation contracts.
-fn aggregate_covering_projection_for_terminal<K>(
-    plan: &AccessPlannedQuery<K>,
+fn aggregate_covering_projection_for_terminal(
+    plan: &AccessPlannedQuery,
     aggregation: AggregateKind,
     execution_preparation: &ExecutionPreparation,
 ) -> bool {

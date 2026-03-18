@@ -15,7 +15,6 @@ use crate::{
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
         },
     },
-    traits::{EntityKind, FieldValue},
     value::Value,
 };
 
@@ -28,13 +27,13 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ContinuationContract<K> {
+pub(in crate::db) struct ContinuationContract {
     pub(in crate::db) shape_signature: ExecutionShapeSignature,
     pub(in crate::db) boundary_arity: usize,
     pub(in crate::db) window_size: usize,
     pub(in crate::db) order_contract: ExecutionOrderContract,
     page_limit: Option<usize>,
-    access: AccessPlan<K>,
+    access: AccessPlan<Value>,
     grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
 }
 
@@ -170,7 +169,7 @@ impl ScalarAccessWindowPlan {
     }
 }
 
-impl<K: FieldValue + Clone> ContinuationContract<K> {
+impl ContinuationContract {
     #[must_use]
     pub(in crate::db) const fn new(
         shape_signature: ExecutionShapeSignature,
@@ -178,7 +177,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         window_size: usize,
         order_contract: ExecutionOrderContract,
         page_limit: Option<usize>,
-        access: AccessPlan<K>,
+        access: AccessPlan<Value>,
         grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
     ) -> Self {
         Self {
@@ -217,7 +216,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
 
     /// Borrow planner-projected access plan used for continuation compatibility checks.
     #[must_use]
-    pub(in crate::db) const fn access_plan(&self) -> &AccessPlan<K> {
+    pub(in crate::db) const fn access_plan(&self) -> &AccessPlan<Value> {
         &self.access
     }
 
@@ -255,8 +254,11 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     }
 
     /// Validate optional cursor bytes against this immutable continuation contract.
-    pub(in crate::db) fn validate_cursor_bytes<E: EntityKind<Key = K>>(
+    pub(in crate::db) fn validate_cursor_bytes(
         &self,
+        entity_path: &'static str,
+        entity_tag: crate::types::EntityTag,
+        entity_model: &crate::model::entity::EntityModel,
         bytes: Option<&[u8]>,
     ) -> Result<CursorValidationOutcome, CursorPlanError> {
         if self.is_grouped() && bytes.is_some() {
@@ -269,9 +271,12 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             self.access_plan().resolve_strategy().as_path().cloned()
         };
 
-        crate::db::cursor::validate_cursor_compatibility::<E>(
+        crate::db::cursor::validate_cursor_compatibility(
             &self.order_contract,
             access,
+            entity_path,
+            entity_tag,
+            entity_model,
             self.continuation_signature(),
             self.expected_initial_offset(),
             bytes,
@@ -279,8 +284,11 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     }
 
     /// Validate scalar cursor bytes against this immutable continuation contract.
-    pub(in crate::db) fn prepare_scalar_cursor<E: EntityKind<Key = K>>(
+    pub(in crate::db) fn prepare_scalar_cursor(
         &self,
+        entity_path: &'static str,
+        entity_tag: crate::types::EntityTag,
+        entity_model: &crate::model::entity::EntityModel,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
         if self.is_grouped() {
@@ -289,7 +297,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             ));
         }
 
-        match self.validate_cursor_bytes::<E>(bytes)? {
+        match self.validate_cursor_bytes(entity_path, entity_tag, entity_model, bytes)? {
             CursorValidationOutcome::Scalar(cursor) => Ok(*cursor),
             CursorValidationOutcome::Grouped(_) => Err(cursor_invariant_error(
                 "grouped plans require grouped cursor preparation",
@@ -298,8 +306,9 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     }
 
     /// Validate grouped cursor bytes against this immutable continuation contract.
-    pub(in crate::db) fn prepare_grouped_cursor<E: EntityKind<Key = K>>(
+    pub(in crate::db) fn prepare_grouped_cursor(
         &self,
+        entity_path: &'static str,
         bytes: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
         if !self.is_grouped() {
@@ -308,17 +317,24 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             ));
         }
 
-        match self.validate_cursor_bytes::<E>(bytes)? {
-            CursorValidationOutcome::Grouped(cursor) => Ok(cursor),
-            CursorValidationOutcome::Scalar(_) => Err(cursor_invariant_error(
-                "grouped cursor preparation requires grouped logical plans",
-            )),
+        if bytes.is_some() {
+            self.validate_grouped_cursor_policy()?;
         }
+
+        crate::db::cursor::prepare_grouped_cursor(
+            entity_path,
+            self.order_contract.order_spec(),
+            self.continuation_signature(),
+            self.expected_initial_offset(),
+            bytes,
+        )
     }
 
     /// Revalidate scalar cursor state against this immutable continuation contract.
-    pub(in crate::db) fn revalidate_scalar_cursor<E: EntityKind<Key = K>>(
+    pub(in crate::db) fn revalidate_scalar_cursor(
         &self,
+        entity_tag: crate::types::EntityTag,
+        entity_model: &crate::model::entity::EntityModel,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
         if self.is_grouped() {
@@ -327,8 +343,10 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             ));
         }
 
-        crate::db::cursor::revalidate_cursor::<E>(
+        crate::db::cursor::revalidate_cursor(
             self.access_plan().resolve_strategy().as_path().cloned(),
+            entity_tag,
+            entity_model,
             self.order_contract.order_spec(),
             self.order_contract.direction(),
             self.expected_initial_offset(),
@@ -408,7 +426,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     }
 }
 
-impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
+impl AccessPlannedQuery {
     /// Project planner-owned scalar access-window contract.
     #[must_use]
     pub(in crate::db) fn scalar_access_window_plan(
@@ -428,7 +446,7 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
     pub(in crate::db) fn continuation_contract(
         &self,
         entity_path: &'static str,
-    ) -> Option<ContinuationContract<K>> {
+    ) -> Option<ContinuationContract> {
         if !self.scalar_plan().mode.is_load() {
             return None;
         }

@@ -8,11 +8,10 @@ use crate::{
         executor::{
             ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
-                CursorPage, ExecutionInputs, LoadExecutor, MaterializedExecutionAttempt,
-                ResolvedExecutionKeyStream,
+                CursorPage, ExecutionInputs, MaterializedExecutionAttempt,
+                ResolvedExecutionKeyStream, RuntimePageMaterializationRequest,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
-            terminal::page::PageMaterializationRequest,
         },
         index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
@@ -20,6 +19,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+use std::any::Any;
 
 ///
 /// ExecutionKernel
@@ -31,15 +31,12 @@ pub(in crate::db::executor) struct ExecutionKernel;
 
 impl ExecutionKernel {
     /// Resolve one execution key stream under kernel-owned DISTINCT decoration.
-    pub(in crate::db::executor) fn resolve_execution_key_stream<E>(
-        inputs: &ExecutionInputs<'_, E>,
+    pub(in crate::db::executor) fn resolve_execution_key_stream(
+        inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexCompilePolicy,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let resolved = LoadExecutor::<E>::resolve_execution_key_stream_without_distinct(
+    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
+        let resolved = Self::resolve_execution_key_stream_without_distinct(
             inputs,
             route_plan,
             predicate_compile_mode,
@@ -54,7 +51,7 @@ impl ExecutionKernel {
 
     /// Materialize one load execution attempt with optional residual retry.
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E>(
-        inputs: &ExecutionInputs<'_, E>,
+        inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
@@ -99,7 +96,7 @@ impl ExecutionKernel {
 
     // Materialize one typed attempt for a specific route-plan candidate.
     fn materialize_route_attempt<E>(
-        inputs: &ExecutionInputs<'_, E>,
+        inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
@@ -154,7 +151,7 @@ impl ExecutionKernel {
     // Materialize one already-resolved key stream using row-collector fast path
     // when applicable, otherwise fall back to canonical load materialization.
     fn materialize_resolved_execution_stream<E>(
-        inputs: &ExecutionInputs<'_, E>,
+        inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         resolved: &mut ResolvedExecutionKeyStream,
@@ -162,33 +159,40 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        if let Some((page, keys_scanned, post_access_rows)) =
-            Self::try_materialize_load_via_row_collector(
-                inputs.ctx(),
+        if let Some((page, keys_scanned, post_access_rows)) = inputs
+            .runtime()
+            .try_materialize_load_via_row_collector(
                 inputs.plan(),
                 continuation.post_access_cursor_boundary(),
                 resolved.key_stream_mut(),
             )?
+            .map(Self::downcast_cursor_page::<E>)
+            .transpose()?
         {
             return Ok((page, keys_scanned, post_access_rows));
         }
 
-        LoadExecutor::<E>::materialize_key_stream_into_page(PageMaterializationRequest {
-            ctx: inputs.ctx(),
-            plan: inputs.plan(),
-            predicate_slots: inputs.execution_preparation().compiled_predicate(),
-            key_stream: resolved.key_stream_mut(),
-            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-            stream_order_contract_safe: route_plan.stream_order_contract_safe(),
-            consistency: inputs.consistency(),
-            continuation,
-        })
+        let (page, keys_scanned, post_access_rows) = inputs
+            .runtime()
+            .materialize_key_stream_into_page(RuntimePageMaterializationRequest {
+                plan: inputs.plan(),
+                predicate_slots: inputs.execution_preparation().compiled_predicate(),
+                key_stream: resolved.key_stream_mut(),
+                scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+                stream_order_contract_safe: route_plan.stream_order_contract_safe(),
+                consistency: inputs.consistency(),
+                continuation,
+            })?;
+
+        let page = Self::downcast_erased_cursor_page::<E>(page)?;
+
+        Ok((page, keys_scanned, post_access_rows))
     }
 
     // Retry index-range limit pushdown when a bounded residual-filter pass may
     // have under-filled the requested page window.
-    fn index_range_limited_residual_retry_required<K>(
-        plan: &AccessPlannedQuery<K>,
+    fn index_range_limited_residual_retry_required(
+        plan: &AccessPlannedQuery,
         continuation: ScalarContinuationBindings<'_>,
         route_plan: &ExecutionPlan,
         rows_scanned: usize,
@@ -216,5 +220,28 @@ impl ExecutionKernel {
         }
 
         post_access_rows < keep_count
+    }
+
+    // Downcast one erased typed cursor page emitted by the runtime adapter.
+    fn downcast_cursor_page<E: EntityKind>(
+        erased: (Box<dyn Any>, usize, usize),
+    ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
+        let (page, keys_scanned, post_access_rows) = erased;
+        let page = Self::downcast_erased_cursor_page::<E>(page)?;
+
+        Ok((page, keys_scanned, post_access_rows))
+    }
+
+    // Downcast one erased typed cursor page emitted by the runtime adapter.
+    fn downcast_erased_cursor_page<E: EntityKind>(
+        page: Box<dyn Any>,
+    ) -> Result<CursorPage<E>, InternalError> {
+        page.downcast::<CursorPage<E>>()
+            .map(|page| *page)
+            .map_err(|_| {
+                crate::db::error::query_executor_invariant(
+                    "execution runtime returned cursor page with unexpected entity type",
+                )
+            })
     }
 }

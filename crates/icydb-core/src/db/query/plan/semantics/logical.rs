@@ -14,7 +14,6 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    traits::FieldValue,
 };
 
 impl QueryMode {
@@ -72,7 +71,7 @@ impl LogicalPlan {
     }
 }
 
-impl<K> AccessPlannedQuery<K> {
+impl AccessPlannedQuery {
     /// Borrow scalar semantic fields shared by scalar/grouped logical variants.
     #[must_use]
     pub(in crate::db) const fn scalar_plan(&self) -> &ScalarPlan {
@@ -130,10 +129,7 @@ impl<K> AccessPlannedQuery<K> {
     pub(in crate::db) fn execution_shape_signature(
         &self,
         entity_path: &'static str,
-    ) -> ExecutionShapeSignature
-    where
-        K: FieldValue,
-    {
+    ) -> ExecutionShapeSignature {
         ExecutionShapeSignature::new(self.continuation_signature(entity_path))
     }
 
@@ -171,7 +167,7 @@ fn distinct_runtime_dedup_strategy<K>(access: &AccessPlan<K>) -> Option<Distinct
     }
 }
 
-fn derive_continuation_policy_validated<K>(plan: &AccessPlannedQuery<K>) -> ContinuationPolicy {
+fn derive_continuation_policy_validated(plan: &AccessPlannedQuery) -> ContinuationPolicy {
     let is_grouped_safe = plan
         .grouped_plan()
         .is_none_or(|grouped| grouped_cursor_policy_violation(grouped, true).is_none());

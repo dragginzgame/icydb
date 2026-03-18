@@ -30,7 +30,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: GroupedPlannedCursor,
         debug: bool,
-    ) -> Result<GroupedRouteStage<E>, InternalError> {
+    ) -> Result<GroupedRouteStage, InternalError> {
         let grouped_handoff = plan.grouped_handoff()?;
         if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
             return Err(crate::db::error::query_executor_invariant(
@@ -89,6 +89,7 @@ where
         Ok(GroupedRouteStage {
             planner_payload: GroupedPlannerPayload {
                 plan,
+                entity_model: E::MODEL,
                 grouped_execution,
                 group_fields,
                 grouped_aggregate_exprs,

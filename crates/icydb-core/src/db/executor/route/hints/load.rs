@@ -23,14 +23,14 @@ where
     // Assess index-range limit pushdown once for this execution and produce
     // the bounded fetch spec when all eligibility gates pass.
     pub(in crate::db::executor::route) fn assess_index_range_limit_pushdown(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         continuation: RouteContinuationPlan,
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
         let access_window = *continuation.fetch_access_window();
         let continuation_capabilities = continuation.capabilities();
-        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
+        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E>(plan);
         capabilities
             .index_range_limit_pushdown_shape_supported
             .then_some(())?;
@@ -44,7 +44,7 @@ where
 
     // Shared load-page scan-budget hint gate.
     pub(in crate::db::executor::route) fn load_scan_budget_hint(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
@@ -62,7 +62,7 @@ where
     // Build an explicit top-N seek contract for ordered load windows when
     // route eligibility permits bounded access traversal.
     pub(in crate::db::executor::route) fn top_n_seek_spec(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<TopNSeekSpec> {
@@ -89,7 +89,7 @@ where
     // - If dedup/projection/composite semantics evolve, this gate is the first
     //   place to re-evaluate bounded-probe correctness.
     pub(in crate::db::executor::route) fn bounded_probe_hint_is_safe(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
     ) -> bool {
         let offset = usize::try_from(ExecutionKernel::effective_page_offset(plan, None))
             .unwrap_or(usize::MAX);

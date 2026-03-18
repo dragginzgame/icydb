@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::traits::FieldValueKind;
+use crate::{traits::FieldValueKind, types::EntityTag};
 
 ///
 /// FieldModel
@@ -101,6 +101,8 @@ pub enum FieldKind {
         target_path: &'static str,
         /// Stable external name used in storage keys.
         target_entity_name: &'static str,
+        /// Stable runtime identity used on hot execution paths.
+        target_entity_tag: EntityTag,
         /// Data store path where the target entity is persisted.
         target_store_path: &'static str,
         key_kind: &'static Self,

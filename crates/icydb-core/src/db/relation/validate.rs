@@ -82,7 +82,7 @@ where
 
             // Phase 2: verify each candidate source row before rejecting delete.
             for source_key in entry.iter_ids() {
-                let source_data_key = DataKey::try_new::<S>(source_key)?;
+                let source_data_key = DataKey::new(S::ENTITY_TAG, source_key);
                 let source_raw_key = source_data_key.to_raw()?;
                 let source_raw_row = source_store.with_data(|store| store.get(&source_raw_key));
 
@@ -111,7 +111,11 @@ where
                         blocked_deletes: 1,
                     });
                     return Err(crate::db::error::executor_unsupported(
-                        blocked_delete_diagnostic::<S>(relation, source_key, &target_value),
+                        blocked_delete_diagnostic::<S>(
+                            relation,
+                            source_data_key.try_key::<S>()?,
+                            &target_value,
+                        ),
                     ));
                 }
             }

@@ -171,41 +171,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
-        (|| {
-            // Phase 1: validate + stage all row ops before opening the commit window.
-            let mut span = Span::<E>::new(ExecKind::Save);
-            let ctx = mutation_write_context::<E>(&self.db)?;
-            let save_rule = SaveRule::from_mode(mode);
-            let iter = entities.into_iter();
-            let mut out = Vec::with_capacity(iter.size_hint().0);
-            let mut marker_row_ops = Vec::with_capacity(iter.size_hint().0);
-            let mut seen_row_keys = BTreeSet::<Vec<u8>>::new();
+        let entities: Vec<E> = entities.into_iter().collect();
 
-            // Validate and stage all row ops before opening the commit window.
-            for mut entity in iter {
-                self.preflight_entity(&mut entity)?;
-
-                let (marker_row_op, data_key) =
-                    Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
-                if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    return Err(crate::db::error::executor_unsupported(format!(
-                        "atomic save batch rejected duplicate key: entity={} key={data_key}",
-                        E::PATH,
-                    )));
-                }
-                marker_row_ops.push(marker_row_op);
-                out.push(entity);
-            }
-
-            if marker_row_ops.is_empty() {
-                return Ok(out);
-            }
-
-            // Phase 2: enter commit window and apply staged row ops atomically.
-            Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
-
-            Ok(out)
-        })()
+        self.save_batch_atomic_impl(SaveRule::from_mode(mode), entities)
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -266,6 +234,46 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
         self.save_batch_non_atomic(SaveMode::Replace, entities)
+    }
+
+    // Keep the atomic batch body out of the iterator-generic wrapper so mode
+    // wrappers do not each own one copy of the full staging pipeline.
+    #[inline(never)]
+    fn save_batch_atomic_impl(
+        &self,
+        save_rule: SaveRule,
+        entities: Vec<E>,
+    ) -> Result<Vec<E>, InternalError> {
+        // Phase 1: validate + stage all row ops before opening the commit window.
+        let mut span = Span::<E>::new(ExecKind::Save);
+        let ctx = mutation_write_context::<E>(&self.db)?;
+        let mut out = Vec::with_capacity(entities.len());
+        let mut marker_row_ops = Vec::with_capacity(entities.len());
+        let mut seen_row_keys = BTreeSet::<Vec<u8>>::new();
+
+        // Validate and stage all row ops before opening the commit window.
+        for mut entity in entities {
+            self.preflight_entity(&mut entity)?;
+
+            let (marker_row_op, data_key) = Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
+            if !seen_row_keys.insert(marker_row_op.key.clone()) {
+                return Err(crate::db::error::executor_unsupported(format!(
+                    "atomic save batch rejected duplicate key: entity={} key={data_key}",
+                    E::PATH,
+                )));
+            }
+            marker_row_ops.push(marker_row_op);
+            out.push(entity);
+        }
+
+        if marker_row_ops.is_empty() {
+            return Ok(out);
+        }
+
+        // Phase 2: enter commit window and apply staged row ops atomically.
+        Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
+
+        Ok(out)
     }
 
     // Build one logical row operation from the save rule and current entity.

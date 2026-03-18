@@ -51,7 +51,7 @@ crate::test_entity! {
     indexes = [&INDEX_MODEL],
 }
 
-fn load_plan(access: AccessPlan<Value>) -> AccessPlannedQuery<Value> {
+fn load_plan(access: AccessPlan<Value>) -> AccessPlannedQuery {
     load_plan_with_order_and_distinct(access, None, false)
 }
 
@@ -59,7 +59,7 @@ fn load_plan_with_order_and_distinct(
     access: AccessPlan<Value>,
     order: Option<OrderSpec>,
     distinct: bool,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     load_plan_with_order_distinct_and_limit(access, order, distinct, None)
 }
 
@@ -68,7 +68,7 @@ fn load_plan_with_order_distinct_and_limit(
     order: Option<OrderSpec>,
     distinct: bool,
     limit: Option<u32>,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -88,19 +88,19 @@ fn load_plan_with_order_distinct_and_limit(
 }
 
 fn grouped_plan(
-    base: AccessPlannedQuery<Value>,
+    base: AccessPlannedQuery,
     group_fields: Vec<&str>,
     aggregates: Vec<GroupAggregateSpec>,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     grouped_plan_with_having(base, group_fields, aggregates, None)
 }
 
 fn grouped_plan_with_having(
-    base: AccessPlannedQuery<Value>,
+    base: AccessPlannedQuery,
     group_fields: Vec<&str>,
     aggregates: Vec<GroupAggregateSpec>,
     having: Option<GroupHavingSpec>,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     base.into_grouped_with_having(
         GroupSpec {

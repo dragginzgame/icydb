@@ -9,7 +9,7 @@ use crate::{
         ResolvedComparePredicate, ResolvedPredicate, TextOp, compare_eq, compare_order,
         compare_text,
     },
-    model::entity::resolve_field_slot,
+    model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue},
     value::{TextMode, Value},
 };
@@ -31,7 +31,18 @@ impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form.
     #[must_use]
     pub(in crate::db) fn compile<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
-        let resolved = compile_predicate_program::<E>(predicate);
+        let resolved = compile_predicate_program(E::MODEL, predicate);
+
+        Self { resolved }
+    }
+
+    /// Compile a predicate into a slot-based executable form using structural model data only.
+    #[must_use]
+    pub(in crate::db) fn compile_with_model(
+        model: &'static EntityModel,
+        predicate: &PredicateExecutionModel,
+    ) -> Self {
+        let resolved = compile_predicate_program(model, predicate);
 
         Self { resolved }
     }
@@ -71,11 +82,12 @@ enum FieldPresence {
 }
 
 /// Compile field-name predicates to stable field-slot predicates once per query.
-fn compile_predicate_program<E: EntityKind>(
+fn compile_predicate_program(
+    model: &'static EntityModel,
     predicate: &PredicateExecutionModel,
 ) -> ResolvedPredicate {
-    fn resolve_field<E: EntityKind>(field_name: &str) -> Option<usize> {
-        resolve_field_slot(E::MODEL, field_name)
+    fn resolve_field(model: &'static EntityModel, field_name: &str) -> Option<usize> {
+        resolve_field_slot(model, field_name)
     }
 
     // Compile field-name predicates into slot-index predicates once per query.
@@ -85,17 +97,17 @@ fn compile_predicate_program<E: EntityKind>(
         Predicate::And(children) => ResolvedPredicate::And(
             children
                 .iter()
-                .map(compile_predicate_program::<E>)
+                .map(|child| compile_predicate_program(model, child))
                 .collect::<Vec<_>>(),
         ),
         Predicate::Or(children) => ResolvedPredicate::Or(
             children
                 .iter()
-                .map(compile_predicate_program::<E>)
+                .map(|child| compile_predicate_program(model, child))
                 .collect::<Vec<_>>(),
         ),
         Predicate::Not(inner) => {
-            ResolvedPredicate::Not(Box::new(compile_predicate_program::<E>(inner)))
+            ResolvedPredicate::Not(Box::new(compile_predicate_program(model, inner)))
         }
         Predicate::Compare(ComparePredicate {
             field,
@@ -103,32 +115,32 @@ fn compile_predicate_program<E: EntityKind>(
             value,
             coercion,
         }) => ResolvedPredicate::Compare(ResolvedComparePredicate {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
             op: *op,
             value: value.clone(),
             coercion: coercion.clone(),
         }),
         Predicate::IsNull { field } => ResolvedPredicate::IsNull {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
         },
         Predicate::IsNotNull { field } => ResolvedPredicate::IsNotNull {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
         },
         Predicate::IsMissing { field } => ResolvedPredicate::IsMissing {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
         },
         Predicate::IsEmpty { field } => ResolvedPredicate::IsEmpty {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
         },
         Predicate::IsNotEmpty { field } => ResolvedPredicate::IsNotEmpty {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
         },
         Predicate::TextContains { field, value } => ResolvedPredicate::TextContains {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
             value: value.clone(),
         },
         Predicate::TextContainsCi { field, value } => ResolvedPredicate::TextContainsCi {
-            field_slot: resolve_field::<E>(field),
+            field_slot: resolve_field(model, field),
             value: value.clone(),
         },
     }

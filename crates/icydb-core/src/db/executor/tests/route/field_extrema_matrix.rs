@@ -8,12 +8,12 @@ use super::*;
 #[test]
 fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
     let mut min_plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     min_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let mut max_plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     max_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -39,7 +39,8 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
 
 #[test]
 fn route_matrix_field_target_max_pk_shape_enables_single_step_probe_hint() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -104,7 +105,7 @@ fn route_matrix_field_extrema_reason_rejects_distinct_shape() {
 
 #[test]
 fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             ROUTE_MATRIX_INDEX_MODELS[0],
             vec![],
@@ -154,7 +155,8 @@ fn route_matrix_field_extrema_reason_rejects_offset_shape() {
 
 #[test]
 fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     let child_path = AccessPath::<Ulid>::index_range(
         ROUTE_MATRIX_INDEX_MODELS[0],
         vec![],
@@ -164,7 +166,8 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
     plan.access = AccessPlan::Union(vec![
         AccessPlan::path(child_path.clone()),
         AccessPlan::path(child_path),
-    ]);
+    ])
+    .into_value_plan();
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
@@ -189,7 +192,8 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
 
 #[test]
 fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -211,7 +215,8 @@ fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
 
 #[test]
 fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -233,7 +238,8 @@ fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
 
 #[test]
 fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -268,7 +274,8 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
 
 #[test]
 fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -306,7 +313,8 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
 
 #[test]
 fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -341,7 +349,8 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
 
 #[test]
 fn route_matrix_field_target_non_extrema_fallback_route_matches_terminal_count() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });

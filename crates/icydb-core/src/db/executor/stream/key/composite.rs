@@ -9,19 +9,19 @@ use crate::{
     db::{
         data::{DataKey, StorageKey},
         executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
-        identity::EntityName,
     },
     error::InternalError,
+    types::EntityTag,
 };
 
-type DataKeyWitness = (EntityName, StorageKey);
+type DataKeyWitness = (EntityTag, StorageKey);
 
 const fn data_key_witness(key: &DataKey) -> DataKeyWitness {
-    (*key.entity_name(), key.storage_key())
+    (key.entity_tag(), key.storage_key())
 }
 
 fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
-    witness.0 == *key.entity_name() && witness.1 == key.storage_key()
+    witness.0 == key.entity_tag() && witness.1 == key.storage_key()
 }
 
 ///

@@ -702,7 +702,15 @@ mod tests {
         where
             E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
         {
-            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            let parsed = self.parse_sql_statement(sql)?;
+            let route = parsed.route();
+            if !route.is_explain() {
+                return Err(unsupported_sql_runtime_error(
+                    "explain_sql requires an EXPLAIN statement",
+                ));
+            }
+
+            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
             match payload {
                 SqlQueryResult::Explain { explain, .. } => Ok(explain),
                 SqlQueryResult::Projection(_)
@@ -719,7 +727,15 @@ mod tests {
         where
             E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
         {
-            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            let parsed = self.parse_sql_statement(sql)?;
+            let route = parsed.route();
+            if !route.is_describe() {
+                return Err(unsupported_sql_runtime_error(
+                    "describe_sql requires a DESCRIBE statement",
+                ));
+            }
+
+            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
             match payload {
                 SqlQueryResult::Describe(description) => Ok(description),
                 SqlQueryResult::Projection(_)
@@ -736,7 +752,15 @@ mod tests {
         where
             E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
         {
-            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            let parsed = self.parse_sql_statement(sql)?;
+            let route = parsed.route();
+            if !route.is_show_indexes() {
+                return Err(unsupported_sql_runtime_error(
+                    "show_indexes_sql requires a SHOW INDEXES statement",
+                ));
+            }
+
+            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
             match payload {
                 SqlQueryResult::ShowIndexes { indexes, .. } => Ok(indexes),
                 SqlQueryResult::Projection(_)
@@ -753,7 +777,15 @@ mod tests {
         where
             E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
         {
-            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            let parsed = self.parse_sql_statement(sql)?;
+            let route = parsed.route();
+            if !route.is_show_columns() {
+                return Err(unsupported_sql_runtime_error(
+                    "show_columns_sql requires a SHOW COLUMNS statement",
+                ));
+            }
+
+            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
             match payload {
                 SqlQueryResult::ShowColumns { columns, .. } => Ok(columns),
                 SqlQueryResult::Projection(_)
@@ -797,18 +829,23 @@ mod tests {
         ]
     }
 
-    fn assert_facade_query_unsupported_runtime(err: Error) {
+    fn assert_facade_query_unsupported_runtime(err: Error, context: &str) {
         assert_eq!(
             err.kind(),
-            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: {context}",
         );
-        assert_eq!(err.origin(), ErrorOrigin::Query);
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: {context}",
+        );
     }
 
     fn assert_unsupported_sql_runtime_result<T>(result: Result<T, Error>, surface: &str) {
         match result {
             Ok(_) => panic!("unsupported SQL should fail through {surface}"),
-            Err(err) => assert_facade_query_unsupported_runtime(err),
+            Err(err) => assert_facade_query_unsupported_runtime(err, surface),
         }
     }
 

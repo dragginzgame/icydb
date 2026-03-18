@@ -15,6 +15,7 @@ use crate::{
     },
     error::InternalError,
     traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
+    types::EntityTag,
 };
 
 ///
@@ -25,6 +26,7 @@ use crate::{
 ///
 
 pub struct EntityRuntimeHooks<C: CanisterKind> {
+    pub(crate) entity_tag: EntityTag,
     pub(crate) entity_name: &'static str,
     pub(crate) entity_path: &'static str,
     pub(in crate::db) commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
@@ -37,6 +39,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     /// Build one runtime hook contract for a concrete runtime entity.
     #[must_use]
     pub(in crate::db) const fn new(
+        entity_tag: EntityTag,
         entity_name: &'static str,
         entity_path: &'static str,
         commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
@@ -44,6 +47,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
+            entity_tag,
             entity_name,
             entity_path,
             commit_schema_fingerprint,
@@ -59,6 +63,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Self::new(
+            E::ENTITY_TAG,
             <E as EntityIdentity>::ENTITY_NAME,
             E::PATH,
             commit_schema_fingerprint_for_runtime_entity::<E>,
@@ -83,21 +88,48 @@ pub(in crate::db) const fn has_runtime_hooks<C: CanisterKind>(
     !entity_runtime_hooks.is_empty()
 }
 
-/// Resolve exactly one runtime hook for a persisted entity name.
+/// Validate that each runtime hook owns one unique entity tag.
+///
+/// This runs only in debug builds at hook table construction time so duplicate
+/// registrations fail before runtime dispatch begins.
+#[must_use]
+#[cfg(debug_assertions)]
+pub(in crate::db) const fn debug_assert_unique_runtime_hook_tags<C: CanisterKind>(
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+) -> bool {
+    let mut i = 0usize;
+    while i < entity_runtime_hooks.len() {
+        let mut j = i + 1;
+        while j < entity_runtime_hooks.len() {
+            if entity_runtime_hooks[i].entity_tag.value()
+                == entity_runtime_hooks[j].entity_tag.value()
+            {
+                panic!("duplicate EntityTag detected in runtime hooks");
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+
+    true
+}
+
+/// Resolve exactly one runtime hook for a persisted `EntityTag`.
 /// Duplicate matches are treated as store invariants.
-pub(in crate::db) fn resolve_runtime_hook_by_name<'a, C: CanisterKind>(
+pub(in crate::db) fn resolve_runtime_hook_by_tag<'a, C: CanisterKind>(
     entity_runtime_hooks: &'a [EntityRuntimeHooks<C>],
-    entity_name: &str,
+    entity_tag: EntityTag,
 ) -> Result<&'a EntityRuntimeHooks<C>, InternalError> {
     let mut matched = None;
     for hooks in entity_runtime_hooks {
-        if hooks.entity_name != entity_name {
+        if hooks.entity_tag != entity_tag {
             continue;
         }
 
         if matched.is_some() {
             return Err(InternalError::store_invariant(format!(
-                "duplicate runtime hooks for entity name '{entity_name}'"
+                "duplicate runtime hooks for entity tag '{}'",
+                entity_tag.value()
             )));
         }
 
@@ -106,7 +138,8 @@ pub(in crate::db) fn resolve_runtime_hook_by_name<'a, C: CanisterKind>(
 
     matched.ok_or_else(|| {
         InternalError::store_unsupported(format!(
-            "unsupported entity name in data store: '{entity_name}'"
+            "unsupported entity tag in data store: '{}'",
+            entity_tag.value()
         ))
     })
 }

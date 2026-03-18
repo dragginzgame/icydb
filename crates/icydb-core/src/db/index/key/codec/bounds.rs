@@ -5,13 +5,16 @@
 
 use crate::{
     MAX_INDEX_FIELDS,
-    db::{data::StorageKey, identity::IndexName, index::key::codec::IndexKey},
+    db::{
+        data::StorageKey,
+        index::{IndexId, key::codec::IndexKey},
+    },
 };
 
 pub(super) const KEY_KIND_TAG_SIZE: usize = 1;
 pub(super) const COMPONENT_COUNT_SIZE: usize = 1;
 pub(super) const SEGMENT_LEN_SIZE: usize = 2;
-pub(super) const INDEX_ID_SIZE: usize = IndexName::STORED_SIZE_USIZE;
+pub(super) const INDEX_ID_SIZE: usize = IndexId::STORED_SIZE_USIZE;
 pub(super) const KEY_PREFIX_SIZE: usize = KEY_KIND_TAG_SIZE + INDEX_ID_SIZE + COMPONENT_COUNT_SIZE;
 
 #[expect(clippy::cast_possible_truncation)]

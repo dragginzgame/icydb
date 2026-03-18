@@ -133,6 +133,9 @@ pub enum IndexKeyItemsRef {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IndexModel {
+    /// Stable per-entity ordinal used for runtime index identity.
+    ordinal: u16,
+
     /// Stable index name used for diagnostics and planner identity.
     name: &'static str,
     store: &'static str,
@@ -152,7 +155,23 @@ impl IndexModel {
         fields: &'static [&'static str],
         unique: bool,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(name, store, fields, None, unique, None)
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            0, name, store, fields, None, unique, None,
+        )
+    }
+
+    /// Construct one index descriptor with one explicit stable ordinal.
+    #[must_use]
+    pub const fn new_with_ordinal(
+        ordinal: u16,
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        unique: bool,
+    ) -> Self {
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            ordinal, name, store, fields, None, unique, None,
+        )
     }
 
     /// Construct one index descriptor with an optional conditional predicate.
@@ -164,7 +183,24 @@ impl IndexModel {
         unique: bool,
         predicate: Option<&'static str>,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(name, store, fields, None, unique, predicate)
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            0, name, store, fields, None, unique, predicate,
+        )
+    }
+
+    /// Construct one index descriptor with an explicit stable ordinal and optional predicate.
+    #[must_use]
+    pub const fn new_with_ordinal_and_predicate(
+        ordinal: u16,
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        unique: bool,
+        predicate: Option<&'static str>,
+    ) -> Self {
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            ordinal, name, store, fields, None, unique, predicate,
+        )
     }
 
     /// Construct one index descriptor with explicit canonical key-item metadata.
@@ -176,7 +212,36 @@ impl IndexModel {
         key_items: &'static [IndexKeyItem],
         unique: bool,
     ) -> Self {
-        Self::new_with_key_items_and_predicate(name, store, fields, Some(key_items), unique, None)
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            0,
+            name,
+            store,
+            fields,
+            Some(key_items),
+            unique,
+            None,
+        )
+    }
+
+    /// Construct one index descriptor with an explicit stable ordinal and key-item metadata.
+    #[must_use]
+    pub const fn new_with_ordinal_and_key_items(
+        ordinal: u16,
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        key_items: &'static [IndexKeyItem],
+        unique: bool,
+    ) -> Self {
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            ordinal,
+            name,
+            store,
+            fields,
+            Some(key_items),
+            unique,
+            None,
+        )
     }
 
     /// Construct one index descriptor with explicit key-item + predicate metadata.
@@ -189,7 +254,24 @@ impl IndexModel {
         unique: bool,
         predicate: Option<&'static str>,
     ) -> Self {
+        Self::new_with_ordinal_and_key_items_and_predicate(
+            0, name, store, fields, key_items, unique, predicate,
+        )
+    }
+
+    /// Construct one index descriptor with full explicit runtime identity metadata.
+    #[must_use]
+    pub const fn new_with_ordinal_and_key_items_and_predicate(
+        ordinal: u16,
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        key_items: Option<&'static [IndexKeyItem]>,
+        unique: bool,
+        predicate: Option<&'static str>,
+    ) -> Self {
         Self {
+            ordinal,
             name,
             store,
             fields,
@@ -203,6 +285,12 @@ impl IndexModel {
     #[must_use]
     pub const fn name(&self) -> &'static str {
         self.name
+    }
+
+    /// Return the stable per-entity index ordinal.
+    #[must_use]
+    pub const fn ordinal(&self) -> u16 {
+        self.ordinal
     }
 
     /// Return the backing index store path.

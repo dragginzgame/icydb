@@ -11,7 +11,7 @@ use crate::{
     db::{
         Db,
         commit::CommitIndexOp,
-        data::{DataKey, RawRow},
+        data::{DataKey, RawRow, StorageKey},
         index::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
             canonical_index_predicate,
@@ -20,7 +20,7 @@ use crate::{
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, FieldValue},
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
@@ -136,14 +136,22 @@ pub(in crate::db) fn index_key_for_entity_with_membership<E: EntityKind + Entity
 /// infallibly after a commit marker is written.
 pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
-    row_reader: &impl PrimaryRowReader<E>,
-    index_reader: &impl IndexEntryReader<E>,
+    row_reader: &(impl PrimaryRowReader<E> + ?Sized),
+    index_reader: &(impl IndexEntryReader<E> + ?Sized),
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
     // Phase 1: derive old/new entity identities and allocate plan buffers.
     let old_entity_key = old.map(|entity| entity.id().key());
     let new_entity_key = new.map(|entity| entity.id().key());
+    let old_entity_storage_key = old_entity_key
+        .as_ref()
+        .map(|key| StorageKey::try_from_value(&key.to_value()))
+        .transpose()?;
+    let new_entity_storage_key = new_entity_key
+        .as_ref()
+        .map(|key| StorageKey::try_from_value(&key.to_value()))
+        .transpose()?;
 
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
@@ -172,7 +180,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
 
         // Prevalidate membership so commit-phase mutations cannot surface corruption.
         if let Some(old_key) = &old_key {
-            let Some(old_entity_key) = old_entity_key else {
+            let Some(old_entity_storage_key) = old_entity_storage_key else {
                 return Err(InternalError::index_internal(
                     "missing old entity key for index removal".to_string(),
                 ));
@@ -183,7 +191,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
                     index.fields().join(", "),
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_storage_key)
                 ))
             })?;
 
@@ -196,12 +204,12 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                 )));
             }
 
-            if !entry.contains(old_entity_key) {
+            if !entry.contains(old_entity_storage_key) {
                 return Err(InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
                     index.fields().join(", "),
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_storage_key)
                 )));
             }
         }
@@ -231,15 +239,16 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             unique_new_entity,
         )?;
 
-        commit_ops::build_commit_ops_for_index::<E>(
+        commit_ops::build_commit_ops_for_index(
             &mut commit_ops,
             index,
+            E::PATH,
             old_key,
             new_key,
             old_entry,
             new_entry,
-            old_entity_key,
-            new_entity_key,
+            old_entity_storage_key,
+            new_entity_storage_key,
         )?;
 
         apply.push(IndexApplyPlan { index, store });
@@ -250,11 +259,11 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
 }
 
 pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
-    index_reader: &impl IndexEntryReader<E>,
+    index_reader: &(impl IndexEntryReader<E> + ?Sized),
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     key: Option<&IndexKey>,
-) -> Result<Option<IndexEntry<E>>, InternalError> {
+) -> Result<Option<IndexEntry>, InternalError> {
     // No indexed key means no index entry to load.
     let Some(key) = key else {
         return Ok(None);

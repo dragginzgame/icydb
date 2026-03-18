@@ -677,11 +677,14 @@ mod tests {
 
     #[test]
     fn commit_marker_rejects_row_op_with_invalid_key_shape() {
+        let mut malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE];
+        malformed_key[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+
         let marker = CommitMarker {
             id: [5u8; 16],
             row_ops: vec![CommitRowOp::new(
                 "test::Entity",
-                vec![0u8; DataKey::STORED_SIZE_USIZE],
+                malformed_key,
                 Some(vec![1u8]),
                 None,
                 [0u8; 16],

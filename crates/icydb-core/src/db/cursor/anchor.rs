@@ -14,7 +14,8 @@ use crate::{
             raw_bounds_for_semantic_index_component_range,
         },
     },
-    traits::{EntityKind, FieldValue, Storable},
+    traits::{FieldValue, Storable},
+    types::EntityTag,
 };
 use std::borrow::Cow;
 
@@ -124,12 +125,13 @@ fn decode_canonical_cursor_anchor(
 }
 
 // Enforce anchor identity invariants before envelope containment checks.
-fn validate_anchor_identity<E: EntityKind>(
+fn validate_anchor_identity(
     anchor: ValidatedIdentityIndexRangeCursorAnchor,
+    entity_tag: EntityTag,
     index: &crate::model::index::IndexModel,
 ) -> Result<ValidatedIdentityIndexRangeCursorAnchor, CursorPlanError> {
     let decoded_key = anchor.decoded_key();
-    let expected_index_id = IndexId::new::<E>(index);
+    let expected_index_id = IndexId::new(entity_tag, index.ordinal());
 
     if decoded_key.index_id() != &expected_index_id {
         return Err(CursorPlanError::invalid_continuation_cursor_payload(
@@ -151,8 +153,9 @@ fn validate_anchor_identity<E: EntityKind>(
 }
 
 // Enforce envelope containment over identity-validated anchors.
-fn validate_anchor_in_envelope<E: EntityKind>(
+fn validate_anchor_in_envelope(
     anchor: ValidatedIdentityIndexRangeCursorAnchor,
+    entity_tag: EntityTag,
     index: &crate::model::index::IndexModel,
     prefix: &[crate::value::Value],
     lower: &std::ops::Bound<crate::value::Value>,
@@ -160,7 +163,7 @@ fn validate_anchor_in_envelope<E: EntityKind>(
     _direction: Direction,
 ) -> Result<ValidatedInEnvelopeIndexRangeCursorAnchor, CursorPlanError> {
     let (range_start, range_end) =
-        lower_cursor_anchor_index_range_bounds::<E>(index, prefix, lower, upper)
+        lower_cursor_anchor_index_range_bounds(entity_tag, index, prefix, lower, upper)
             .map_err(CursorPlanError::invalid_continuation_cursor_payload)?;
 
     if !KeyEnvelope::new(range_start, range_end).contains(anchor.lowered_key()) {
@@ -176,13 +179,16 @@ fn validate_anchor_in_envelope<E: EntityKind>(
 
 // Lower one semantic index-range envelope into raw bounds for cursor-anchor
 // containment checks. Cursor owns the scope-specific reason mapping.
-fn lower_cursor_anchor_index_range_bounds<E: EntityKind>(
+fn lower_cursor_anchor_index_range_bounds(
+    entity_tag: EntityTag,
     index: &crate::model::index::IndexModel,
     prefix: &[crate::value::Value],
     lower: &std::ops::Bound<crate::value::Value>,
     upper: &std::ops::Bound<crate::value::Value>,
 ) -> Result<(std::ops::Bound<RawIndexKey>, std::ops::Bound<RawIndexKey>), &'static str> {
-    raw_bounds_for_semantic_index_component_range::<E>(index, prefix, lower, upper)
+    let index_id = IndexId::new(entity_tag, index.ordinal());
+
+    raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
         .map_err(map_cursor_anchor_bound_encode_error)
 }
 
@@ -206,9 +212,10 @@ const fn map_cursor_anchor_bound_encode_error(err: IndexRangeBoundEncodeError) -
 // - This planner-layer validation checks token/envelope shape and compatibility.
 // - Store-layer lookup still performs strict continuation advancement checks.
 // - These two validations are intentionally redundant and must not be merged.
-pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
+pub(in crate::db) fn validate_index_range_anchor<K>(
     anchor: Option<&IndexRangeCursorAnchor>,
-    access: Option<&ExecutableAccessPath<'_, E::Key>>,
+    access: Option<&ExecutableAccessPath<'_, K>>,
+    entity_tag: EntityTag,
     direction: Direction,
     require_anchor: bool,
 ) -> Result<Option<ValidatedInEnvelopeIndexRangeCursorAnchor>, CursorPlanError> {
@@ -240,9 +247,10 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
 
         // Phase 1: decode and classify anchor key-space shape.
         let validated_identity =
-            validate_anchor_identity::<E>(decode_canonical_cursor_anchor(anchor)?, &index)?;
-        let validated_in_envelope = validate_anchor_in_envelope::<E>(
+            validate_anchor_identity(decode_canonical_cursor_anchor(anchor)?, entity_tag, &index)?;
+        let validated_in_envelope = validate_anchor_in_envelope(
             validated_identity,
+            entity_tag,
             &index,
             prefix,
             lower,

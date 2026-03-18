@@ -41,7 +41,8 @@ crate::test_entity! {
 
 #[test]
 fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<u64>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<u64>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(5),
         offset: 3,
@@ -56,7 +57,8 @@ fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
 
 #[test]
 fn bounded_order_keep_count_disabled_when_cursor_present() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<u64>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<u64>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(5),
         offset: 0,
@@ -72,7 +74,8 @@ fn bounded_order_keep_count_disabled_when_cursor_present() {
 
 #[test]
 fn budget_safety_metadata_marks_pk_order_plan_as_access_order_satisfied() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -97,7 +100,8 @@ fn budget_safety_metadata_marks_pk_order_plan_as_access_order_satisfied() {
 
 #[test]
 fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
-    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    let mut plan =
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -123,7 +127,7 @@ fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
 
 #[test]
 fn budget_safety_metadata_marks_secondary_index_order_plan_as_access_order_satisfied() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::IndexPrefix {
             index: BUDGET_METADATA_INDEX_MODELS[0],
             values: vec![],
@@ -153,7 +157,7 @@ fn budget_safety_metadata_marks_secondary_index_order_plan_as_access_order_satis
 
 #[test]
 fn budget_safety_metadata_marks_index_range_order_plan_as_access_order_satisfied() {
-    let mut plan = AccessPlannedQuery::new(
+    let mut plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             BUDGET_METADATA_INDEX_MODELS[0],
             vec![],
@@ -186,7 +190,7 @@ fn budget_safety_metadata_marks_index_range_order_plan_as_access_order_satisfied
 #[test]
 fn budget_safety_metadata_order_contract_stays_aligned_with_route_helper() {
     let mut unordered_plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+        AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     unordered_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
@@ -207,7 +211,7 @@ fn budget_safety_metadata_order_contract_stays_aligned_with_route_helper() {
         "full-scan ordering metadata must stay aligned with route order contract",
     );
 
-    let mut ordered_plan = AccessPlannedQuery::new(
+    let mut ordered_plan = AccessPlannedQuery::new_typed(
         AccessPath::<Ulid>::index_range(
             BUDGET_METADATA_INDEX_MODELS[0],
             vec![],

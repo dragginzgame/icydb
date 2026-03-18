@@ -11,7 +11,7 @@ use crate::{
         cursor::{ContinuationToken, IndexScanContinuationInput},
         direction::Direction,
         executor::ExecutablePlan,
-        index::{EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
+        index::{EncodedValue, IndexId, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
             explain::{ExplainAccessPath, ExplainOrderPushdown},
             plan::{
@@ -128,7 +128,12 @@ fn assert_resume_suffixes_from_tokens<E, F>(
 fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
     let encoded_prefix = [EncodedValue::try_new(Value::Uint(u64::from(group)))
         .expect("group literal should be canonically index-encodable")];
-    let (lower, upper) = raw_keys_for_encoded_prefix::<PushdownParityEntity>(
+    let index_id = IndexId::new(
+        PushdownParityEntity::ENTITY_TAG,
+        PUSHDOWN_PARITY_INDEX_MODELS[0].ordinal(),
+    );
+    let (lower, upper) = raw_keys_for_encoded_prefix(
+        &index_id,
         &PUSHDOWN_PARITY_INDEX_MODELS[0],
         encoded_prefix.as_slice(),
     );
@@ -139,7 +144,8 @@ fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
         .with_store_registry(|reg| {
             reg.try_get_store(TestDataStore::PATH).and_then(|store| {
                 store.with_index(|index_store| {
-                    index_store.resolve_data_values_in_raw_range_limited::<PushdownParityEntity>(
+                    index_store.resolve_data_values_in_raw_range_limited(
+                        PushdownParityEntity::ENTITY_TAG,
                         &PUSHDOWN_PARITY_INDEX_MODELS[0],
                         (&lower, &upper),
                         IndexScanContinuationInput::new(None, Direction::Asc),

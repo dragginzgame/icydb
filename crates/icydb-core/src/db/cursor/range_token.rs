@@ -6,7 +6,7 @@
 use crate::db::{
     access::LoweredKey,
     cursor::{IndexRangeCursorAnchor, ValidatedInEnvelopeIndexRangeCursorAnchor},
-    index::IndexKey,
+    index::{IndexKey, RawIndexKey},
 };
 
 ///
@@ -59,8 +59,17 @@ impl RangeToken {
 
 /// Build a continuation anchor from one canonical index key.
 #[must_use]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn cursor_anchor_from_index_key(index_key: &IndexKey) -> IndexRangeCursorAnchor {
     IndexRangeCursorAnchor::new(index_key.to_raw().as_bytes().to_vec())
+}
+
+/// Build a continuation anchor directly from one raw index key.
+#[must_use]
+pub(in crate::db) fn cursor_anchor_from_raw_index_key(
+    index_key: &RawIndexKey,
+) -> IndexRangeCursorAnchor {
+    IndexRangeCursorAnchor::new(index_key.as_bytes().to_vec())
 }
 
 /// Decode one continuation anchor into one executor range token.

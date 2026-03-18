@@ -8,33 +8,30 @@ use crate::{
         GroupedRow,
         executor::{
             GroupedPaginationWindow,
-            aggregate::runtime::grouped_output::project_grouped_row_from_projection,
+            aggregate::runtime::grouped_output::project_grouped_rows_from_projection,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
         },
         query::plan::expr::ProjectionSpec,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 
 // Apply grouped offset/limit over candidate rows and build grouped continuation output.
-pub(super) fn finalize_grouped_page<E>(
-    route: &GroupedRouteStage<E>,
+pub(super) fn finalize_grouped_page(
+    route: &GroupedRouteStage,
     grouped_projection_spec: &ProjectionSpec,
     grouped_candidate_rows: Vec<(Value, Vec<Value>)>,
     pagination_window: &GroupedPaginationWindow,
-) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let (page_rows, next_cursor_boundary) = finalize_grouped_page_rows(
+) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError> {
+    let (page_rows, next_cursor_boundary) =
+        finalize_grouped_page_rows(grouped_candidate_rows, pagination_window)?;
+    let page_rows = project_grouped_rows_from_projection(
         grouped_projection_spec,
         route.projection_layout(),
         route.group_fields(),
         route.grouped_aggregate_exprs(),
-        grouped_candidate_rows,
-        pagination_window,
+        page_rows,
     )?;
     let next_cursor = next_cursor_boundary
         .map(|last_group_key| route.grouped_next_cursor(last_group_key))
@@ -46,10 +43,6 @@ where
 // Apply grouped offset/limit and projection over candidate rows. Returns one
 // optional last-emitted grouped boundary key when pagination indicates has-more.
 fn finalize_grouped_page_rows(
-    grouped_projection_spec: &ProjectionSpec,
-    projection_layout: &crate::db::query::plan::PlannedProjectionLayout,
-    group_fields: &[crate::db::query::plan::FieldSlot],
-    grouped_aggregate_exprs: &[crate::db::query::builder::AggregateExpr],
     grouped_candidate_rows: Vec<(Value, Vec<Value>)>,
     pagination_window: &GroupedPaginationWindow,
 ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
@@ -81,15 +74,7 @@ fn finalize_grouped_page_rows(
             }
         };
         last_emitted_group_key = Some(emitted_group_key.clone());
-        let projected_row = project_grouped_row_from_projection(
-            grouped_projection_spec,
-            projection_layout,
-            group_fields,
-            grouped_aggregate_exprs,
-            emitted_group_key.as_slice(),
-            aggregate_values.as_slice(),
-        )?;
-        page_rows.push(projected_row);
+        page_rows.push(GroupedRow::new(emitted_group_key, aggregate_values));
         debug_assert!(
             limit.is_none_or(|bounded_limit| page_rows.len() <= bounded_limit),
             "grouped page rows must not exceed explicit page limit",

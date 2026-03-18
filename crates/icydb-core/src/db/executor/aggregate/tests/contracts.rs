@@ -41,6 +41,7 @@ crate::test_entity_schema! {
     id = u64,
     id_field = id,
     entity_name = "GroupedStateTestEntity",
+    entity_tag = crate::testing::GROUPED_STATE_TEST_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Uint)],

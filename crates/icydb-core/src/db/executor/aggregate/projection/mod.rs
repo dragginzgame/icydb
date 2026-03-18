@@ -543,7 +543,8 @@ where
             .db
             .with_store_registry(|registry| registry.try_get_store(index.store()))?;
         store.with_index(|index_store| {
-            index_store.resolve_data_values_with_component_in_raw_range_limited::<E>(
+            index_store.resolve_data_values_with_component_in_raw_range_limited(
+                E::ENTITY_TAG,
                 index,
                 bounds,
                 continuation,

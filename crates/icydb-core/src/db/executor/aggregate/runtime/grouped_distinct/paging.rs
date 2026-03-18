@@ -3,28 +3,11 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{GroupedRow, executor::pipeline::contracts::LoadExecutor},
-    traits::{EntityKind, EntityValue},
-};
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Apply grouped pagination semantics to the singleton global grouped row.
-    pub(in crate::db::executor) fn page_global_distinct_grouped_row(
-        row: GroupedRow,
-        initial_offset_for_page: usize,
-        limit: Option<usize>,
-    ) -> Vec<GroupedRow> {
-        page_global_distinct_grouped_row_for_window(row, initial_offset_for_page, limit)
-    }
-}
+use crate::db::GroupedRow;
 
 // Apply grouped pagination semantics to one singleton global DISTINCT grouped
 // row using routed grouped pagination window primitives.
-fn page_global_distinct_grouped_row_for_window(
+pub(in crate::db::executor) fn page_global_distinct_grouped_row(
     row: GroupedRow,
     initial_offset_for_page: usize,
     limit: Option<usize>,
@@ -49,7 +32,7 @@ mod tests {
     fn global_distinct_grouped_row_paging_offset_consumes_singleton_row() {
         let row = GroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
 
-        let paged = page_global_distinct_grouped_row_for_window(row, 1, Some(1));
+        let paged = page_global_distinct_grouped_row(row, 1, Some(1));
 
         assert!(
             paged.is_empty(),
@@ -61,7 +44,7 @@ mod tests {
     fn global_distinct_grouped_row_paging_zero_limit_consumes_singleton_row() {
         let row = GroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
 
-        let paged = page_global_distinct_grouped_row_for_window(row, 0, Some(0));
+        let paged = page_global_distinct_grouped_row(row, 0, Some(0));
 
         assert!(
             paged.is_empty(),
@@ -74,8 +57,8 @@ mod tests {
         let row = GroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
         let row_unbounded = row.clone();
 
-        let bounded = page_global_distinct_grouped_row_for_window(row, 0, Some(5));
-        let unbounded = page_global_distinct_grouped_row_for_window(row_unbounded, 0, None);
+        let bounded = page_global_distinct_grouped_row(row, 0, Some(5));
+        let unbounded = page_global_distinct_grouped_row(row_unbounded, 0, None);
 
         assert_eq!(
             bounded.len(),

@@ -19,7 +19,8 @@ use crate::{
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
-            validate_executor_plan,
+            preparation::slot_map_for_entity_plan,
+            reconstruct_typed_access_plan, validate_executor_plan,
         },
         numeric::{add_decimal_terms, average_decimal_terms},
         query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
@@ -28,6 +29,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Decimal,
+    value::Value,
 };
 use std::cell::RefCell;
 
@@ -97,19 +99,27 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Decimal>, InternalError> {
-        let value = self.execute_global_distinct_field_grouped_aggregate(
+        self.aggregate_numeric_distinct_by_slot(
             plan,
+            target_field,
             crate::db::query::plan::AggregateKind::Sum,
-            target_field.field(),
-        )?;
+            "SUM",
+        )
+    }
 
-        match value {
-            Some(crate::value::Value::Decimal(value)) => Ok(Some(value)),
-            Some(crate::value::Value::Null) | None => Ok(None),
-            Some(value) => Err(crate::db::error::query_executor_invariant(format!(
-                "global SUM(DISTINCT field) grouped output type mismatch: {value:?}",
-            ))),
-        }
+    /// Execute global `avg(distinct field)` through grouped zero-key execution
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn aggregate_avg_distinct_by_slot(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+    ) -> Result<Option<Decimal>, InternalError> {
+        self.aggregate_numeric_distinct_by_slot(
+            plan,
+            target_field,
+            crate::db::query::plan::AggregateKind::Avg,
+            "AVG",
+        )
     }
 
     /// Execute `avg(field)` over the effective response window using one
@@ -120,6 +130,24 @@ where
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Decimal>, InternalError> {
         self.aggregate_numeric_by_slot(plan, target_field, NumericFieldAggregateKind::Avg)
+    }
+
+    // Route one numeric DISTINCT terminal through the shared grouped global
+    // aggregate path so SUM/AVG decode semantics stay centralized.
+    fn aggregate_numeric_distinct_by_slot(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+        aggregate_kind: crate::db::query::plan::AggregateKind,
+        aggregate_name: &str,
+    ) -> Result<Option<Decimal>, InternalError> {
+        let value = self.execute_global_distinct_field_grouped_aggregate(
+            plan,
+            aggregate_kind,
+            target_field.field(),
+        )?;
+
+        decode_global_distinct_numeric_output(value, aggregate_name)
     }
 
     // Reduce one materialized response into `sum(field)` / `avg(field)` over
@@ -203,7 +231,11 @@ where
         let direction = Self::aggregate_numeric_stream_direction(&plan);
         let logical_plan = plan.into_inner();
         validate_executor_plan::<E>(&logical_plan)?;
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
+        let execution_preparation = ExecutionPreparation::from_plan(
+            E::MODEL,
+            &logical_plan,
+            slot_map_for_entity_plan::<E>(&logical_plan),
+        );
         let continuation = RefCell::new(ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
         ));
@@ -216,8 +248,9 @@ where
             }
         });
         let ctx = self.recovered_context()?;
+        let typed_access = reconstruct_typed_access_plan::<E>(&logical_plan)?;
         let access = ExecutableAccess::new(
-            &logical_plan.access,
+            &typed_access,
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
@@ -329,6 +362,22 @@ fn finalize_numeric_field_output(
     };
 
     Ok(Some(output))
+}
+
+// Decode one global grouped DISTINCT numeric terminal result from the structural
+// grouped aggregate output surface without duplicating `Value` matching at each
+// terminal callsite.
+fn decode_global_distinct_numeric_output(
+    value: Option<Value>,
+    aggregate_name: &str,
+) -> Result<Option<Decimal>, InternalError> {
+    match value {
+        Some(Value::Decimal(value)) => Ok(Some(value)),
+        Some(Value::Null) | None => Ok(None),
+        Some(value) => Err(crate::db::error::query_executor_invariant(format!(
+            "global {aggregate_name}(DISTINCT field) grouped output type mismatch: {value:?}",
+        ))),
+    }
 }
 
 // Add one decimal term to one aggregate numeric accumulator through the shared

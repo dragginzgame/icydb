@@ -45,7 +45,7 @@ fn model_with_index() -> &'static EntityModel {
     <PlanValidatePushdownEntity as EntitySchema>::MODEL
 }
 
-fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery<Value> {
+fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery {
     AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -64,14 +64,14 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlann
 fn load_union_plan(
     children: Vec<AccessPlan<Value>>,
     order: Option<OrderSpec>,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     load_plan(AccessPlan::Union(children), order)
 }
 
 fn load_intersection_plan(
     children: Vec<AccessPlan<Value>>,
     order: Option<OrderSpec>,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     load_plan(AccessPlan::Intersection(children), order)
 }
 
@@ -84,10 +84,7 @@ fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     }
 }
 
-fn load_index_prefix_plan(
-    values: Vec<Value>,
-    order: Option<OrderSpec>,
-) -> AccessPlannedQuery<Value> {
+fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery {
     load_plan(
         AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
@@ -102,7 +99,7 @@ fn load_index_range_plan(
     lower: Bound<Value>,
     upper: Bound<Value>,
     order: Option<OrderSpec>,
-) -> AccessPlannedQuery<Value> {
+) -> AccessPlannedQuery {
     load_plan(
         AccessPlan::path(AccessPath::index_range(INDEX_MODEL, prefix, lower, upper)),
         order,
@@ -111,7 +108,7 @@ fn load_index_range_plan(
 
 fn contract_pushdown_applicability(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<Value>,
+    plan: &AccessPlannedQuery,
 ) -> PushdownApplicability {
     derive_secondary_pushdown_applicability_from_contract(
         model,
@@ -125,7 +122,7 @@ fn contract_pushdown_applicability(
 fn secondary_order_pushdown_core_cases() {
     struct Case {
         name: &'static str,
-        plan: AccessPlannedQuery<Value>,
+        plan: AccessPlannedQuery,
         expected: PushdownApplicability,
     }
 
@@ -279,7 +276,7 @@ fn secondary_order_pushdown_core_cases() {
 fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
     struct Case {
         name: &'static str,
-        plan: AccessPlannedQuery<Value>,
+        plan: AccessPlannedQuery,
         expected: PushdownApplicability,
     }
 
@@ -492,7 +489,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
 fn secondary_order_pushdown_contract_cases() {
     struct Case {
         name: &'static str,
-        plan: AccessPlannedQuery<Value>,
+        plan: AccessPlannedQuery,
         expected: PushdownApplicability,
     }
 

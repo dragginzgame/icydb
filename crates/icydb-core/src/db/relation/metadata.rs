@@ -6,6 +6,7 @@
 use crate::{
     model::field::{FieldKind, RelationStrength},
     traits::EntityKind,
+    types::EntityTag,
 };
 
 ///
@@ -20,6 +21,7 @@ pub(super) struct StrongRelationInfo {
     pub(super) field_name: &'static str,
     pub(super) target_path: &'static str,
     pub(super) target_entity_name: &'static str,
+    pub(super) target_entity_tag: EntityTag,
     pub(super) target_store_path: &'static str,
 }
 
@@ -34,6 +36,7 @@ pub(super) struct StrongRelationInfo {
 pub(crate) struct StrongRelationTargetInfo {
     pub(in crate::db::relation) target_path: &'static str,
     pub(in crate::db::relation) target_entity_name: &'static str,
+    pub(in crate::db::relation) target_entity_tag: EntityTag,
     pub(in crate::db::relation) target_store_path: &'static str,
 }
 
@@ -45,6 +48,7 @@ pub(crate) const fn strong_relation_target_from_kind(
         FieldKind::Relation {
             target_path,
             target_entity_name,
+            target_entity_tag,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
@@ -52,6 +56,7 @@ pub(crate) const fn strong_relation_target_from_kind(
         | FieldKind::List(FieldKind::Relation {
             target_path,
             target_entity_name,
+            target_entity_tag,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
@@ -59,12 +64,14 @@ pub(crate) const fn strong_relation_target_from_kind(
         | FieldKind::Set(FieldKind::Relation {
             target_path,
             target_entity_name,
+            target_entity_tag,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
         }) => Some(StrongRelationTargetInfo {
             target_path,
             target_entity_name,
+            target_entity_tag: *target_entity_tag,
             target_store_path,
         }),
         _ => None,
@@ -86,6 +93,7 @@ const fn strong_relation_from_field(
         field_name,
         target_path: target.target_path,
         target_entity_name: target.target_entity_name,
+        target_entity_tag: target.target_entity_tag,
         target_store_path: target.target_store_path,
     })
 }

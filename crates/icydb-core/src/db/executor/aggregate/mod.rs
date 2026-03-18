@@ -29,8 +29,9 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
             ExecutionPreparation,
-            pipeline::contracts::{ExecutionInputs, LoadExecutor},
+            pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
+            reconstruct_typed_access_plan,
             route::aggregate_materialized_fold_direction,
             validate_executor_plan,
         },
@@ -43,10 +44,9 @@ use crate::{
 };
 
 pub(in crate::db::executor) use contracts::{
-    AggregateEngine, AggregateExecutionMode, AggregateExecutionSpec, AggregateFinalizeAdapter,
-    AggregateFoldMode, AggregateIngestAdapter, AggregateKind, AggregateOutput, ExecutionConfig,
-    ExecutionContext, FoldControl, GroupError, execute_aggregate,
-    execute_aggregate as execute_aggregate_engine,
+    AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateKind, AggregateOutput,
+    ExecutionConfig, ExecutionContext, FoldControl, GroupError, GroupedAggregateEngine,
+    box_grouped_engine, execute_aggregate, execute_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -198,6 +198,11 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
+        let slot_map = crate::db::executor::preparation::resolved_index_slots_for_access_path(
+            E::MODEL,
+            plan.access().resolve_strategy().executable(),
+        );
+
         // Move to one logical-plan spine for route derivation and capability snapshots.
         let logical_plan = plan.into_inner();
 
@@ -205,7 +210,8 @@ impl ExecutionKernel {
         // capability snapshots are always built from a validated logical plan.
         validate_executor_plan::<E>(&logical_plan)?;
 
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
+        let execution_preparation =
+            ExecutionPreparation::from_plan(E::MODEL, &logical_plan, slot_map);
 
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
@@ -306,14 +312,14 @@ impl ExecutionKernel {
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
         let mut response = response.into_iter();
-        let mut ingest_all = |ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+        let mut ingest_all = |execution_spec: &mut AggregateExecutionSpec<'_>,
                               engine: &mut AggregateEngine<E>|
          -> Result<(), InternalError> {
             for row in response.by_ref() {
                 let id = row.id();
                 let data_key = DataKey::try_new::<E>(id.key())?;
-                let fold_control = ingest_adapter
-                    .ingest(engine, &data_key, None)
+                let fold_control = engine
+                    .ingest_with_spec(execution_spec, &data_key, None)
                     .map_err(GroupError::into_internal_error)?;
                 if matches!(fold_control, FoldControl::Break) {
                     break;
@@ -381,8 +387,10 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
+        let typed_access = reconstruct_typed_access_plan::<E>(&prepared.logical_plan)?;
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &typed_access);
         let execution_inputs = ExecutionInputs::new(
-            &prepared.ctx,
+            &runtime,
             &prepared.logical_plan,
             AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),

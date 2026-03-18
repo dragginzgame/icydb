@@ -53,7 +53,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
+    pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery) -> Direction {
         ExecutionOrderContract::from_plan(
             plan.grouped_plan().is_some(),
             plan.scalar_plan().order.as_ref(),
@@ -62,7 +62,7 @@ where
     }
 
     pub(super) fn derive_aggregate_route_direction(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         aggregate: &AggregateExpr,
     ) -> Direction {
         // Aggregate direction authority flows from AggregateKind.

@@ -24,7 +24,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     model::field::FieldKind,
     testing::test_memory,
-    traits::{EntityIdentity, Path},
+    traits::{EntityIdentity, EntityKind, Path},
     types::Ulid,
 };
 use icydb_derive::FieldProjection;
@@ -69,6 +69,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "MigrationEntity",
+    entity_tag = crate::testing::MIGRATION_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("rank", FieldKind::Uint)],
@@ -79,6 +80,7 @@ crate::test_entity_schema! {
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<MigrationTestCanister>] =
     &[EntityRuntimeHooks::new(
+        MigrationEntity::ENTITY_TAG,
         MigrationEntity::ENTITY_NAME,
         MigrationEntity::PATH,
         commit_schema_fingerprint_for_entity::<MigrationEntity>,

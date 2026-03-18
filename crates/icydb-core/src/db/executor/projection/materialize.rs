@@ -65,16 +65,8 @@ pub(in crate::db::executor) fn validate_projection_over_slot_rows(
     // Phase 1: evaluate every projection expression against each row.
     for row_index in 0..row_count {
         let mut read_slot = |slot| read_slot_for_row(row_index, slot);
-        for field in projection.fields() {
-            match field {
-                ProjectionField::Scalar { expr, .. } => {
-                    let _ =
-                        eval_expr_with_slot_reader(expr, model, &mut read_slot).map_err(|err| {
-                            crate::db::error::query_invalid_logical_plan(err.to_string())
-                        })?;
-                }
-            }
-        }
+        visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |_| {})
+            .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
     }
 
     Ok(())
@@ -108,17 +100,35 @@ where
     for (id, entity) in rows {
         let mut values = Vec::with_capacity(projection.len());
         let mut read_slot = |slot| entity.get_value_by_index(slot);
-        for field in projection.fields() {
-            match field {
-                ProjectionField::Scalar { expr, .. } => {
-                    values.push(eval_expr_with_slot_reader(expr, E::MODEL, &mut read_slot)?);
-                }
-            }
-        }
+        visit_projection_values_with_slot_reader(
+            projection,
+            E::MODEL,
+            &mut read_slot,
+            &mut |value| values.push(value),
+        )?;
         projected_rows.push(ProjectedRow::new(*id, values));
     }
 
     Ok(projected_rows)
+}
+
+// Walk one projection spec through one slot-reader boundary so validation and
+// row materialization share the same expression-evaluation spine.
+fn visit_projection_values_with_slot_reader(
+    projection: &ProjectionSpec,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+    on_value: &mut dyn FnMut(Value),
+) -> Result<(), ProjectionEvalError> {
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                on_value(eval_expr_with_slot_reader(expr, model, read_slot)?);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn projection_is_model_identity_for_model(

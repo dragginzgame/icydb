@@ -11,18 +11,21 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         codec::ROW_FORMAT_VERSION_CURRENT,
-        commit::{CommitRowOp, ensure_recovered, init_commit_store_for_tests},
+        commit::{
+            CommitRowOp, ensure_recovered, init_commit_store_for_tests,
+            prepare_row_commit_for_entity,
+        },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
-        identity::{EntityName, IndexName},
         index::{IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreRegistry,
+        relation::validate_delete_strong_relations_for_source,
         schema::commit_schema_fingerprint_for_entity,
     },
     model::{field::FieldKind, index::IndexModel},
     serialize::serialize,
     testing::test_memory,
-    traits::{Path, Storable, StoreKind},
-    types::Ulid,
+    traits::{EntityKind, Path, Storable, StoreKind},
+    types::{EntityTag, Ulid},
 };
 use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
@@ -76,6 +79,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "DiagnosticsIntegrityIndexedEntity",
+    entity_tag = crate::testing::INTEGRITY_INDEXED_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
@@ -84,8 +88,49 @@ crate::test_entity_schema! {
     canister = DiagnosticsCanister,
 }
 
-static DIAGNOSTICS_INTEGRITY_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] =
-    &[EntityRuntimeHooks::for_entity::<IntegrityIndexedEntity>()];
+static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &[
+    EntityRuntimeHooks::new(
+        crate::testing::DIAGNOSTICS_SINGLE_ENTITY_TAG,
+        SINGLE_ENTITY_NAME,
+        SINGLE_ENTITY_PATH,
+        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>,
+        prepare_row_commit_for_entity::<IntegrityIndexedEntity>,
+        validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        crate::testing::DIAGNOSTICS_FIRST_ENTITY_TAG,
+        FIRST_ENTITY_NAME,
+        FIRST_ENTITY_PATH,
+        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>,
+        prepare_row_commit_for_entity::<IntegrityIndexedEntity>,
+        validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        crate::testing::DIAGNOSTICS_SECOND_ENTITY_TAG,
+        SECOND_ENTITY_NAME,
+        SECOND_ENTITY_PATH,
+        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>,
+        prepare_row_commit_for_entity::<IntegrityIndexedEntity>,
+        validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        crate::testing::DIAGNOSTICS_MINMAX_ENTITY_TAG,
+        MINMAX_ENTITY_NAME,
+        MINMAX_ENTITY_PATH,
+        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>,
+        prepare_row_commit_for_entity::<IntegrityIndexedEntity>,
+        validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        crate::testing::DIAGNOSTICS_VALID_ENTITY_TAG,
+        VALID_ENTITY_NAME,
+        VALID_ENTITY_PATH,
+        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>,
+        prepare_row_commit_for_entity::<IntegrityIndexedEntity>,
+        validate_delete_strong_relations_for_source::<IntegrityIndexedEntity>,
+    ),
+    EntityRuntimeHooks::for_entity::<IntegrityIndexedEntity>(),
+];
 
 thread_local! {
     static STORE_Z_DATA: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(153)));
@@ -104,9 +149,10 @@ thread_local! {
     };
 }
 
-static DB: Db<DiagnosticsCanister> = Db::new(&DIAGNOSTICS_REGISTRY);
+static DB: Db<DiagnosticsCanister> =
+    Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_RUNTIME_HOOKS);
 static DB_WITH_HOOKS: Db<DiagnosticsCanister> =
-    Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_INTEGRITY_HOOKS);
+    Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_RUNTIME_HOOKS);
 
 fn with_data_store_mut<R>(path: &'static str, f: impl FnOnce(&mut DataStore) -> R) -> R {
     DB.with_store_registry(|registry| {
@@ -139,9 +185,24 @@ fn reset_stores() {
     });
 }
 
+fn diagnostics_entity_tag(entity_name: &str) -> EntityTag {
+    match entity_name {
+        SINGLE_ENTITY_NAME => crate::testing::DIAGNOSTICS_SINGLE_ENTITY_TAG,
+        FIRST_ENTITY_NAME => crate::testing::DIAGNOSTICS_FIRST_ENTITY_TAG,
+        SECOND_ENTITY_NAME => crate::testing::DIAGNOSTICS_SECOND_ENTITY_TAG,
+        MINMAX_ENTITY_NAME => crate::testing::DIAGNOSTICS_MINMAX_ENTITY_TAG,
+        VALID_ENTITY_NAME => crate::testing::DIAGNOSTICS_VALID_ENTITY_TAG,
+        "diag_index_entity" | "diag_namespace_entity" => {
+            crate::testing::DIAGNOSTICS_UNKNOWN_ENTITY_TAG
+        }
+        "DiagnosticsIntegrityIndexedEntity" => IntegrityIndexedEntity::ENTITY_TAG,
+        "diag_unknown_entity" => crate::testing::DIAGNOSTICS_UNKNOWN_ENTITY_TAG,
+        _ => panic!("unknown diagnostics test entity '{entity_name}'"),
+    }
+}
+
 fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_len: usize) {
-    let entity =
-        EntityName::try_from_str(entity_name).expect("diagnostics test entity name is valid");
+    let entity = diagnostics_entity_tag(entity_name);
     let raw_key = DataKey::raw_from_parts(entity, key)
         .expect("diagnostics test data key should encode from valid parts");
     let row_bytes = vec![0xAB; row_len.max(1)];
@@ -154,13 +215,13 @@ fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_l
 
 fn insert_corrupted_data_key(path: &'static str) {
     let valid = DataKey::raw_from_parts(
-        EntityName::try_from_str(VALID_ENTITY_NAME).expect("valid test entity name"),
+        diagnostics_entity_tag(VALID_ENTITY_NAME),
         StorageKey::Int(1),
     )
     .expect("valid data key should encode");
 
     let mut corrupted_bytes = valid.as_bytes().to_vec();
-    corrupted_bytes[0] = 0;
+    corrupted_bytes[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
     let corrupted_key = <RawDataKey as Storable>::from_bytes(Cow::Owned(corrupted_bytes));
     let raw_row = RawRow::try_new(vec![0xCD]).expect("diagnostics test row should encode");
 
@@ -170,12 +231,12 @@ fn insert_corrupted_data_key(path: &'static str) {
 }
 
 fn index_id(entity_name: &str, field: &str) -> IndexId {
-    let entity =
-        EntityName::try_from_str(entity_name).expect("diagnostics test entity name is valid");
-    let name = IndexName::try_from_parts(&entity, &[field])
-        .expect("diagnostics test index name should encode");
+    let ordinal = match field {
+        "email" => 0,
+        other => panic!("diagnostics test index field missing ordinal mapping: {other}"),
+    };
 
-    IndexId(name)
+    IndexId::new(diagnostics_entity_tag(entity_name), ordinal)
 }
 
 fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexKey {

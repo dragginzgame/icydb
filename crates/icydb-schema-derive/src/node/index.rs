@@ -57,7 +57,7 @@ impl Index {
             .join("|")
     }
 
-    pub fn runtime_part(&self, entity_name: &str, store: &Path) -> TokenStream {
+    pub fn runtime_part(&self, entity_name: &str, store: &Path, ordinal: usize) -> TokenStream {
         let fields = quote_slice(&self.fields, to_str_lit);
         let key_items = quote_slice(&self.fields, |field| {
             let field = to_str_lit(field);
@@ -74,11 +74,13 @@ impl Index {
             quote! { None }
         };
         let name = LitStr::new(&self.generated_name(entity_name), Span::call_site());
+        let ordinal = u16::try_from(ordinal).expect("index ordinal should fit u16");
         let store = quote_one(store, to_path);
 
         // quote
         quote! {
-            ::icydb::model::index::IndexModel::new_with_key_items_and_predicate(
+            ::icydb::model::index::IndexModel::new_with_ordinal_and_key_items_and_predicate(
+                #ordinal,
                 #name,
                 #store,
                 #fields,

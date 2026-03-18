@@ -10,6 +10,7 @@ use crate::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
             continuation::ScalarContinuationContext,
             pipeline::contracts::LoadExecutor,
+            preparation::slot_map_for_entity_plan,
             route::{ExecutionRoutePlan, RouteIntent},
         },
         query::{
@@ -47,7 +48,7 @@ where
 
     /// Build canonical execution routing for load execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
@@ -65,7 +66,7 @@ where
 
     /// Build canonical execution routing for mutation execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_mutation(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
     ) -> Result<ExecutionPlan, InternalError> {
         if !plan.scalar_plan().mode.is_delete() {
             return Err(crate::db::error::query_executor_invariant(
@@ -81,7 +82,7 @@ where
     // Build canonical execution routing for aggregate execution.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         kind: AggregateKind,
     ) -> ExecutionPlan {
         Self::build_execution_route_plan_for_aggregate_spec(plan, aggregate_terminal_expr(kind))
@@ -90,10 +91,11 @@ where
     // Build canonical execution routing for aggregate execution via spec.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         aggregate: AggregateExpr,
     ) -> ExecutionPlan {
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+        let execution_preparation =
+            ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
 
         Self::build_execution_route_plan_for_aggregate_spec_with_preparation(
             plan,
@@ -104,7 +106,7 @@ where
 
     /// Build canonical aggregate execution routing using one precomputed preparation bundle.
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_with_preparation(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         aggregate: AggregateExpr,
         execution_preparation: &ExecutionPreparation,
     ) -> ExecutionPlan {
@@ -126,9 +128,13 @@ where
 
     /// Build canonical grouped aggregate routing from one grouped executor handoff.
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
-        grouped: GroupedExecutorHandoff<'_, E::Key>,
+        grouped: GroupedExecutorHandoff<'_>,
     ) -> ExecutionPlan {
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(grouped.base());
+        let execution_preparation = ExecutionPreparation::from_plan(
+            E::MODEL,
+            grouped.base(),
+            slot_map_for_entity_plan::<E>(grouped.base()),
+        );
         let continuation = ScalarContinuationContext::initial();
 
         Self::build_execution_route_plan(
@@ -147,7 +153,7 @@ where
 
     // Shared route gate for load + aggregate execution.
     fn build_execution_route_plan(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
@@ -171,7 +177,7 @@ where
     }
 
     // Build one planner-projected route profile from one validated access plan.
-    fn derive_planner_route_profile(plan: &AccessPlannedQuery<E::Key>) -> PlannerRouteProfile {
+    fn derive_planner_route_profile(plan: &AccessPlannedQuery) -> PlannerRouteProfile {
         plan.planner_route_profile(E::MODEL)
     }
 }

@@ -13,13 +13,14 @@ use crate::{
                 ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
             },
             expr::{FilterExpr, SortExpr},
-            intent::{QueryError, access_plan_to_entity_keys, model::QueryModel},
+            intent::{QueryError, model::QueryModel},
             plan::{AccessPlannedQuery, LoadSpec, QueryMode},
         },
     },
     traits::{EntityKind, EntityValue, SingletonEntity},
     value::Value,
 };
+use core::marker::PhantomData;
 
 ///
 /// Query
@@ -340,7 +341,7 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan()?;
         let _projection = plan.projection_spec(E::MODEL);
 
-        Ok(PlannedQuery::new(plan))
+        Ok(PlannedQuery::<E>::new(plan))
     }
 
     /// Compile this intent into query-owned handoff state.
@@ -350,18 +351,12 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan()?;
         let _projection = plan.projection_spec(E::MODEL);
 
-        Ok(CompiledQuery::new(plan))
+        Ok(CompiledQuery::<E>::new(plan))
     }
 
     // Build a logical plan for the current intent.
-    fn build_plan(&self) -> Result<AccessPlannedQuery<E::Key>, QueryError> {
-        let plan_value = self.intent.build_plan_model()?;
-        let (logical, access, projection_selection) = plan_value.into_parts();
-        let access = access_plan_to_entity_keys::<E>(E::MODEL, access)?;
-        let plan =
-            AccessPlannedQuery::from_parts_with_projection(logical, access, projection_selection);
-
-        Ok(plan)
+    fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
+        self.intent.build_plan_model()
     }
 }
 
@@ -538,13 +533,17 @@ where
 
 #[derive(Debug)]
 pub struct PlannedQuery<E: EntityKind> {
-    plan: AccessPlannedQuery<E::Key>,
+    plan: AccessPlannedQuery,
+    _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> PlannedQuery<E> {
     #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
-        Self { plan }
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery) -> Self {
+        Self {
+            plan,
+            _marker: PhantomData,
+        }
     }
 
     #[must_use]
@@ -569,13 +568,17 @@ impl<E: EntityKind> PlannedQuery<E> {
 
 #[derive(Clone, Debug)]
 pub struct CompiledQuery<E: EntityKind> {
-    plan: AccessPlannedQuery<E::Key>,
+    plan: AccessPlannedQuery,
+    _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
-        Self { plan }
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery) -> Self {
+        Self {
+            plan,
+            _marker: PhantomData,
+        }
     }
 
     #[must_use]
@@ -596,7 +599,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     }
 
     #[must_use]
-    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
+    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery {
         self.plan
     }
 }

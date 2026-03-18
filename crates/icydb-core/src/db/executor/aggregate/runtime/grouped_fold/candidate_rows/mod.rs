@@ -12,32 +12,26 @@ use crate::{
         contracts::canonical_value_compare,
         executor::{
             GroupedContinuationCapabilities, GroupedPaginationWindow,
-            aggregate::runtime::{
-                grouped_having::group_matches_having, grouped_output::aggregate_output_to_value,
-            },
-            aggregate::{AggregateEngine, AggregateExecutionMode, AggregateFinalizeAdapter},
+            aggregate::GroupedAggregateEngine,
+            aggregate::runtime::grouped_having::group_matches_having,
             pipeline::contracts::GroupedRouteStage,
         },
         query::plan::{FieldSlot, GroupHavingSpec},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 
 use crate::db::executor::aggregate::runtime::grouped_fold::candidate_rows::sink::GroupedCandidateSink;
 
 // Finalize grouped reducers into deterministic candidate rows before paging.
-pub(super) fn collect_grouped_candidate_rows<E>(
-    route: &GroupedRouteStage<E>,
-    grouped_engines: Vec<AggregateEngine<E>>,
+pub(super) fn collect_grouped_candidate_rows(
+    route: &GroupedRouteStage,
+    grouped_engines: Vec<Box<dyn GroupedAggregateEngine>>,
     aggregate_count: usize,
     max_groups_bound: usize,
     pagination_window: &GroupedPaginationWindow,
-) -> Result<Vec<(Value, Vec<Value>)>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Result<Vec<(Value, Vec<Value>)>, InternalError> {
     // Phase 1: finalize typed aggregate engines into canonical `(group_key, value)` iterators.
     let finalized_iters = finalize_grouped_iterators(grouped_engines)?;
 
@@ -54,31 +48,12 @@ where
 }
 
 // Finalize typed grouped aggregate engines into canonical iterator payloads.
-fn finalize_grouped_iterators<E>(
-    grouped_engines: Vec<AggregateEngine<E>>,
-) -> Result<Vec<std::vec::IntoIter<(Value, Value)>>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+fn finalize_grouped_iterators(
+    grouped_engines: Vec<Box<dyn GroupedAggregateEngine>>,
+) -> Result<Vec<std::vec::IntoIter<(Value, Value)>>, InternalError> {
     grouped_engines
         .into_iter()
-        .map(|engine| {
-            AggregateFinalizeAdapter::from_execution_mode(AggregateExecutionMode::Grouped)
-                .finalize(engine)?
-                .into_grouped()
-                .map(|outputs| {
-                    outputs
-                        .into_iter()
-                        .map(|output| {
-                            (
-                                output.group_key().canonical_value().clone(),
-                                aggregate_output_to_value(output.output()),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                })
-        })
+        .map(|engine| engine.finalize().map(|outputs| outputs.into_iter()))
         .collect()
 }
 

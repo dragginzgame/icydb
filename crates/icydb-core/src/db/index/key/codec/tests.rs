@@ -6,27 +6,22 @@
 use super::{KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE};
 use crate::{
     MAX_INDEX_FIELDS,
-    db::{
-        identity::{EntityName, IndexName},
-        index::{
-            IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexKey,
-            primary_key_matches_value,
-        },
+    db::index::{
+        IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexKey,
+        primary_key_matches_value,
     },
     traits::Storable,
-    types::{Decimal, Float32, Float64, Int, Principal},
+    types::{Decimal, EntityTag, Float32, Float64, Int, Principal},
     value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value, ValueEnum},
 };
 use std::{borrow::Cow, cmp::Ordering, ops::Bound as RangeBound};
 
 fn index_id() -> IndexId {
-    let entity = EntityName::try_from_str("entity").expect("entity name should parse");
-    IndexId(IndexName::try_from_parts(&entity, &["email"]).expect("index name"))
+    IndexId::new(EntityTag::new(1), 0)
 }
 
 fn other_index_id() -> IndexId {
-    let entity = EntityName::try_from_str("entity").expect("entity name should parse");
-    IndexId(IndexName::try_from_parts(&entity, &["name"]).expect("index name"))
+    IndexId::new(EntityTag::new(1), 1)
 }
 
 fn encode_component(value: &Value) -> Vec<u8> {
@@ -44,11 +39,10 @@ fn key_with(kind: IndexKeyKind, id: IndexId, components: Vec<Vec<u8>>, pk: Vec<u
 }
 
 fn expected_index_id_entity_email_bytes() -> Vec<u8> {
-    // Intentionally protocol-freezing the fixed IndexName byte layout.
-    let mut out = vec![
-        0x00, 0x0C, b'e', b'n', b't', b'i', b't', b'y', b'|', b'e', b'm', b'a', b'i', b'l',
-    ];
-    out.extend_from_slice(&[0u8; 312]);
+    // Intentionally protocol-freezing the fixed `(EntityTag, ordinal)` byte layout.
+    let mut out = Vec::new();
+    out.extend_from_slice(&1u64.to_be_bytes());
+    out.extend_from_slice(&0u16.to_be_bytes());
     out
 }
 
@@ -133,7 +127,7 @@ fn prefix_matches(candidate: &[Value], prefix: &[Value]) -> bool {
 }
 
 fn len_offset() -> usize {
-    KEY_KIND_TAG_SIZE + IndexName::STORED_SIZE_USIZE
+    KEY_KIND_TAG_SIZE + IndexId::STORED_SIZE_USIZE
 }
 
 fn first_component_len_offset() -> usize {
@@ -186,15 +180,12 @@ fn index_key_rejects_len_over_max() {
 }
 
 #[test]
-fn index_key_rejects_invalid_index_name() {
+fn index_key_accepts_max_storable_index_id() {
     let key = IndexKey::empty(&IndexId::max_storable());
-    let mut bytes = key.to_raw().as_bytes().to_vec();
-    bytes[KEY_KIND_TAG_SIZE] = 0;
-    bytes[KEY_KIND_TAG_SIZE + 1] = 0;
+    let raw = key.to_raw();
+    let decoded = IndexKey::try_from_raw(&raw).expect("fixed-width index id should decode");
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
-    let err = IndexKey::try_from_raw(&raw).expect_err("invalid index name should fail");
-    assert!(err.contains("corrupted"));
+    assert_eq!(decoded, key);
 }
 
 #[test]
@@ -318,8 +309,7 @@ fn index_key_ordering_matches_bytes() {
     }
 
     let idx_a = index_id();
-    let entity = EntityName::try_from_str("entity").expect("entity name should parse");
-    let idx_b = IndexId(IndexName::try_from_parts(&entity, &["name"]).expect("index name"));
+    let idx_b = other_index_id();
 
     let keys = vec![
         make_key(
@@ -381,14 +371,12 @@ fn index_key_decode_fuzz_roundtrip_is_canonical() {
 
 #[test]
 fn index_key_kind_is_explicit() {
-    let entity = EntityName::try_from_str("entity").expect("entity name should parse");
-
-    let user_id = IndexId(IndexName::try_from_parts(&entity, &["email"]).expect("index name"));
+    let user_id = index_id();
     let user_key = IndexKey::empty_with_kind(&user_id, IndexKeyKind::User);
     assert_eq!(user_key.to_raw().as_bytes()[0], IndexKeyKind::User as u8);
     assert!(!user_key.uses_system_namespace());
 
-    let system_id = IndexId(IndexName::try_from_parts(&entity, &["~ri"]).expect("index name"));
+    let system_id = index_id();
     let system_key = IndexKey::empty_with_kind(&system_id, IndexKeyKind::System);
     assert_eq!(
         system_key.to_raw().as_bytes()[0],
@@ -396,8 +384,7 @@ fn index_key_kind_is_explicit() {
     );
     assert!(system_key.uses_system_namespace());
 
-    let namespace_only_id =
-        IndexId(IndexName::try_from_parts(&entity, &["~ri_shadow"]).expect("index name"));
+    let namespace_only_id = other_index_id();
     let namespace_only_key = IndexKey::empty_with_kind(&namespace_only_id, IndexKeyKind::User);
     assert_eq!(
         namespace_only_key.to_raw().as_bytes()[0],

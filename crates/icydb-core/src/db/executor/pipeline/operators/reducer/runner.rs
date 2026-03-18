@@ -70,7 +70,7 @@ impl ExecutionKernel {
     // read-consistency eligibility contracts.
     pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         mode: AggregateFoldMode,
         key_stream: &mut dyn OrderedKeyStream,
         on_key: &mut dyn FnMut(&DataKey) -> Result<FoldControl, InternalError>,

@@ -39,6 +39,7 @@ use crate::{
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
+    types::EntityTag,
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
@@ -121,6 +122,11 @@ impl<C: CanisterKind> Db<C> {
         store: &'static LocalKey<StoreRegistry>,
         entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
     ) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            let _ = crate::db::commit::debug_assert_unique_runtime_hook_tags(entity_runtime_hooks);
+        }
+
         Self {
             store,
             entity_runtime_hooks,
@@ -237,13 +243,22 @@ impl<C: CanisterKind> Db<C> {
             .collect()
     }
 
-    // Resolve exactly one runtime hook for a persisted entity name.
+    /// Return deterministic `(entity_name, entity_tag)` runtime identity pairs.
+    #[must_use]
+    pub(crate) fn runtime_entity_name_tag_pairs(&self) -> Vec<(&'static str, EntityTag)> {
+        self.entity_runtime_hooks
+            .iter()
+            .map(|hooks| (hooks.entity_name, hooks.entity_tag))
+            .collect()
+    }
+
+    // Resolve exactly one runtime hook for a persisted entity tag.
     // Duplicate matches are treated as store invariants.
-    pub(crate) fn runtime_hook_for_entity_name(
+    pub(crate) fn runtime_hook_for_entity_tag(
         &self,
-        entity_name: &str,
+        entity_tag: EntityTag,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        commit::resolve_runtime_hook_by_name(self.entity_runtime_hooks, entity_name)
+        commit::resolve_runtime_hook_by_tag(self.entity_runtime_hooks, entity_tag)
     }
 
     // Resolve exactly one runtime hook for a persisted entity path.

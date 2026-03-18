@@ -3,16 +3,14 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{
-        executor::{ExecutionPlan, pipeline::grouped_runtime::GroupedExecutionContext},
-        query::plan::{
-            AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
-            GroupedExecutionConfig, PlannedProjectionLayout,
-        },
+use crate::db::{
+    executor::{ExecutionPlan, pipeline::grouped_runtime::GroupedExecutionContext},
+    query::plan::{
+        AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
+        GroupedExecutionConfig, PlannedProjectionLayout,
     },
-    traits::{EntityKind, EntityValue},
 };
+use crate::model::entity::EntityModel;
 
 ///
 /// IndexSpecBundle
@@ -35,8 +33,9 @@ pub(in crate::db::executor) struct IndexSpecBundle {
 /// ownership boundary.
 ///
 
-pub(in crate::db::executor) struct GroupedPlannerPayload<E: EntityKind + EntityValue> {
-    pub(in crate::db::executor) plan: AccessPlannedQuery<E::Key>,
+pub(in crate::db::executor) struct GroupedPlannerPayload {
+    pub(in crate::db::executor) plan: AccessPlannedQuery,
+    pub(in crate::db::executor) entity_model: &'static EntityModel,
     pub(in crate::db::executor) grouped_execution: GroupedExecutionConfig,
     pub(in crate::db::executor) group_fields: Vec<crate::db::query::plan::FieldSlot>,
     pub(in crate::db::executor) grouped_aggregate_exprs:
@@ -66,8 +65,8 @@ pub(in crate::db::executor) struct GroupedRoutePayload {
 /// execution metadata before runtime stream resolution starts.
 ///
 
-pub(in crate::db::executor) struct GroupedRouteStage<E: EntityKind + EntityValue> {
-    pub(in crate::db::executor) planner_payload: GroupedPlannerPayload<E>,
+pub(in crate::db::executor) struct GroupedRouteStage {
+    pub(in crate::db::executor) planner_payload: GroupedPlannerPayload,
     pub(in crate::db::executor) route_payload: GroupedRoutePayload,
     pub(in crate::db::executor) index_specs: IndexSpecBundle,
     pub(in crate::db::executor) execution_context: GroupedExecutionContext,

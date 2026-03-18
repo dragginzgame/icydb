@@ -1,4 +1,5 @@
 use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, QueryMode};
+use core::marker::PhantomData;
 
 ///
 /// PostAccessContract
@@ -9,14 +10,18 @@ use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, Que
 ///
 
 pub(in crate::db::executor) struct PostAccessContract<'a, K> {
-    plan: &'a AccessPlannedQuery<K>,
+    plan: &'a AccessPlannedQuery,
+    marker: PhantomData<K>,
 }
 
 impl<'a, K> PostAccessContract<'a, K> {
     /// Build a post-access contract projection from one planned access query.
     #[must_use]
-    pub(in crate::db::executor) const fn new(plan: &'a AccessPlannedQuery<K>) -> Self {
-        Self { plan }
+    pub(in crate::db::executor) const fn new(plan: &'a AccessPlannedQuery) -> Self {
+        Self {
+            plan,
+            marker: PhantomData,
+        }
     }
 
     /// Project query mode for post-access phase gating.
@@ -45,7 +50,7 @@ impl<'a, K> PostAccessContract<'a, K> {
 
     /// Borrow the planned access query for post-access runtime helpers.
     #[must_use]
-    pub(in crate::db::executor) const fn plan(&self) -> &AccessPlannedQuery<K> {
+    pub(in crate::db::executor) const fn plan(&self) -> &AccessPlannedQuery {
         self.plan
     }
 }

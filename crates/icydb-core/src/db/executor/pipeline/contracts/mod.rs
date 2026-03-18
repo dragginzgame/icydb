@@ -19,12 +19,12 @@ use crate::{
 };
 
 pub(in crate::db::executor) use execution::{
-    ExecutionInputs, ExecutionOutcomeMetrics, MaterializedExecutionAttempt,
-    ResolvedExecutionKeyStream,
+    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime, ExecutionRuntimeAdapter,
+    MaterializedExecutionAttempt, ResolvedExecutionKeyStream, RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
-    GroupedStreamStage, IndexSpecBundle,
+    GroupedRowRuntime, GroupedStreamStage, IndexSpecBundle, RowView, TypedGroupedRowRuntime,
 };
 pub(in crate::db::executor) use post_access::PostAccessContract;
 

@@ -6,7 +6,4 @@
 mod finalize;
 mod projection;
 
-pub(in crate::db::executor) use projection::{
-    aggregate_output_to_value, project_grouped_row_from_projection,
-    project_grouped_rows_from_projection,
-};
+pub(in crate::db::executor) use projection::project_grouped_rows_from_projection;

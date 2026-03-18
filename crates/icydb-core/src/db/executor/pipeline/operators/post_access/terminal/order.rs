@@ -19,16 +19,16 @@ use crate::{
 };
 
 // Return whether the resolved access stream already satisfies ORDER BY semantics.
-fn order_satisfied_by_access_path<K>(
+fn order_satisfied_by_access_path(
     model: &crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
 ) -> bool {
     access_order_satisfied_by_route_contract_for_model(model, plan)
 }
 
 // Apply ordering with bounded first-page optimization when available.
 pub(in crate::db::executor::pipeline::operators::post_access) fn apply_order_phase<E, R, K>(
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     order_spec: Option<&OrderSpec>,
     has_predicate: bool,
     rows: &mut Vec<R>,

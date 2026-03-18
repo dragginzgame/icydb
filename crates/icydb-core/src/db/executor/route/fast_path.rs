@@ -49,7 +49,7 @@ where
 {
     // Route-owned gate for PK full-scan/key-range ordered fast-path eligibility.
     pub(in crate::db::executor) fn pk_order_stream_fast_path_shape_supported(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
     ) -> bool {
         let logical = plan.scalar_plan();
         let access_strategy = plan.access_strategy();
@@ -74,7 +74,7 @@ where
 
     /// Validate routed access-path shape for PK stream fast-path execution.
     pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
         let access_strategy = plan.access_strategy();
         let access_class = access_strategy.class();

@@ -6,19 +6,15 @@ use crate::{
             KeyOrderComparator, OrderedKeyStream, VecOrderedKeyStream,
             stream::key::DistinctOrderedKeyStream,
         },
-        identity::EntityName,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    types::EntityTag,
 };
 use std::{cell::Cell, rc::Rc};
 
 fn data_key(value: u64) -> DataKey {
-    let raw = DataKey::raw_from_parts(
-        EntityName::try_from_str("kernel_distinct_tests")
-            .expect("test entity name should be valid"),
-        StorageKey::Uint(value),
-    )
-    .expect("test key encoding should succeed");
+    let raw = DataKey::raw_from_parts(EntityTag::new(1), StorageKey::Uint(value))
+        .expect("test key encoding should succeed");
 
     DataKey::try_from_raw(&raw).expect("test key decode should succeed")
 }

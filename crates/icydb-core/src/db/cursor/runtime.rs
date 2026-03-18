@@ -30,8 +30,8 @@ pub(in crate::db) struct WindowCursorContract {
 impl WindowCursorContract {
     /// Build one window contract from canonical cursor-aware plan semantics.
     #[must_use]
-    pub(in crate::db) fn from_plan<K>(
-        plan: &AccessPlannedQuery<K>,
+    pub(in crate::db) fn from_plan(
+        plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Self {
         let window_size = plan
@@ -91,8 +91,8 @@ impl WindowCursorContract {
 
 /// Build one cursor-owned window contract from canonical plan semantics.
 #[must_use]
-pub(in crate::db) fn window_cursor_contract_for_plan<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db) fn window_cursor_contract_for_plan(
+    plan: &AccessPlannedQuery,
     cursor_boundary: Option<&CursorBoundary>,
 ) -> WindowCursorContract {
     WindowCursorContract::from_plan(plan, cursor_boundary)

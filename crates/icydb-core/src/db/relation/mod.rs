@@ -16,6 +16,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
+    types::EntityTag,
     value::Value,
 };
 use std::{collections::BTreeSet, fmt::Display};
@@ -125,15 +126,16 @@ pub(crate) fn incompatible_store_error(
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
 pub(super) fn build_relation_target_raw_key(
+    target_entity_tag: EntityTag,
     target_entity_name: &str,
     value: &Value,
 ) -> Result<RawDataKey, RelationTargetRawKeyError> {
     let storage_key =
         StorageKey::try_from_value(value).map_err(RelationTargetRawKeyError::StorageKeyEncode)?;
-    let entity_name = EntityName::try_from_str(target_entity_name)
+    let _ = EntityName::try_from_str(target_entity_name)
         .map_err(RelationTargetRawKeyError::TargetEntityName)?;
 
-    DataKey::raw_from_parts(entity_name, storage_key)
+    DataKey::raw_from_parts(target_entity_tag, storage_key)
         .map_err(RelationTargetRawKeyError::StorageKeyEncode)
 }
 
@@ -170,7 +172,12 @@ fn raw_relation_target_key<S>(
 where
     S: EntityKind + EntityValue,
 {
-    build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| {
+    build_relation_target_raw_key(
+        relation.target_entity_tag,
+        relation.target_entity_name,
+        value,
+    )
+    .map_err(|err| {
         InternalError::relation_target_raw_key_error(
             err,
             S::PATH,
@@ -204,30 +211,22 @@ where
         ))
     })?;
 
-    let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
-        crate::db::error::executor_internal(format!(
-            "{}: source={} field={} target={} name={} ({err})",
-            relation_target_entity_name_message(context),
-            S::PATH,
-            relation.field_name,
-            relation.target_path,
-            relation.target_entity_name,
-        ))
-    })?;
+    let target_entity_tag = relation.target_entity_tag;
 
-    if target_data_key.entity_name() != &target_entity {
+    if target_data_key.entity_tag() != target_entity_tag {
         if matches!(mismatch_policy, RelationTargetMismatchPolicy::Skip) {
             return Ok(None);
         }
 
         return Err(InternalError::store_corruption(format!(
-            "{}: source={} field={} target={} expected={} actual={}",
+            "{}: source={} field={} target={} expected={} (tag={}) actual_tag={}",
             relation_target_entity_mismatch_message(context),
             S::PATH,
             relation.field_name,
             relation.target_path,
             relation.target_entity_name,
-            target_data_key.entity_name(),
+            target_entity_tag.value(),
+            target_data_key.entity_tag().value(),
         )));
     }
 
@@ -239,17 +238,6 @@ const fn relation_target_decode_message(context: RelationTargetDecodeContext) ->
         RelationTargetDecodeContext::DeleteValidation => "delete relation target key decode failed",
         RelationTargetDecodeContext::ReverseIndexPrepare => {
             "relation target key decode failed while preparing reverse index"
-        }
-    }
-}
-
-const fn relation_target_entity_name_message(context: RelationTargetDecodeContext) -> &'static str {
-    match context {
-        RelationTargetDecodeContext::DeleteValidation => {
-            "strong relation target entity invalid during delete validation"
-        }
-        RelationTargetDecodeContext::ReverseIndexPrepare => {
-            "relation target entity invalid while preparing reverse index"
         }
     }
 }

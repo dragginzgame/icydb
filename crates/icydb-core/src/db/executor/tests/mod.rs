@@ -127,6 +127,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "SimpleEntity",
+    entity_tag = crate::testing::SIMPLE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
@@ -159,6 +160,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "IndexedMetricsEntity",
+    entity_tag = crate::testing::INDEXED_METRICS_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -195,6 +197,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "UniqueIndexRangeEntity",
+    entity_tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -232,6 +235,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "PushdownParityEntity",
+    entity_tag = crate::testing::PUSHDOWN_PARITY_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -268,6 +272,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "TextPrefixParityEntity",
+    entity_tag = crate::testing::TEXT_PREFIX_PARITY_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -306,6 +311,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "ExpressionCasefoldParityEntity",
+    entity_tag = crate::testing::EXPRESSION_CASEFOLD_PARITY_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -345,6 +351,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "ExpressionUpperParityEntity",
+    entity_tag = crate::testing::EXPRESSION_UPPER_PARITY_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -373,6 +380,7 @@ crate::test_entity_schema! {
     id_field = id,
     singleton = true,
     entity_name = "SingletonUnitEntity",
+    entity_tag = crate::testing::SINGLETON_UNIT_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Unit), ("label", FieldKind::Text)],
@@ -401,6 +409,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "PhaseEntity",
+    entity_tag = crate::testing::PHASE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -433,6 +442,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "TemporalBoundaryEntity",
+    entity_tag = crate::testing::TEMPORAL_BOUNDARY_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -502,6 +512,7 @@ thread_local! {
 
 static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &[
     EntityRuntimeHooks::new(
+        RelationTargetEntity::ENTITY_TAG,
         RelationTargetEntity::ENTITY_NAME,
         RelationTargetEntity::PATH,
         commit_schema_fingerprint_for_entity::<RelationTargetEntity>,
@@ -509,6 +520,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
+        RelationSourceEntity::ENTITY_TAG,
         RelationSourceEntity::ENTITY_NAME,
         RelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<RelationSourceEntity>,
@@ -516,6 +528,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        WeakSingleRelationSourceEntity::ENTITY_TAG,
         WeakSingleRelationSourceEntity::ENTITY_NAME,
         WeakSingleRelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<WeakSingleRelationSourceEntity>,
@@ -523,6 +536,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        WeakOptionalRelationSourceEntity::ENTITY_TAG,
         WeakOptionalRelationSourceEntity::ENTITY_NAME,
         WeakOptionalRelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<WeakOptionalRelationSourceEntity>,
@@ -530,6 +544,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        WeakListRelationSourceEntity::ENTITY_TAG,
         WeakListRelationSourceEntity::ENTITY_NAME,
         WeakListRelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<WeakListRelationSourceEntity>,
@@ -555,6 +570,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RelationTargetEntity",
+    entity_tag = crate::testing::RELATION_TARGET_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
@@ -578,6 +594,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "RelationSourceEntity",
+    entity_tag = crate::testing::RELATION_SOURCE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -587,6 +604,7 @@ crate::test_entity_schema! {
             FieldKind::Relation {
                 target_path: RelationTargetEntity::PATH,
                 target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_entity_tag: RelationTargetEntity::ENTITY_TAG,
                 target_store_path: RelationTargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
                 strength: RelationStrength::Strong,
@@ -613,6 +631,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "WeakSingleRelationSourceEntity",
+    entity_tag = crate::testing::WEAK_SINGLE_RELATION_SOURCE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -622,6 +641,7 @@ crate::test_entity_schema! {
             FieldKind::Relation {
                 target_path: RelationTargetEntity::PATH,
                 target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_entity_tag: RelationTargetEntity::ENTITY_TAG,
                 target_store_path: RelationTargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
                 strength: RelationStrength::Weak,
@@ -648,6 +668,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "WeakOptionalRelationSourceEntity",
+    entity_tag = crate::testing::WEAK_OPTIONAL_RELATION_SOURCE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [
@@ -657,6 +678,7 @@ crate::test_entity_schema! {
             FieldKind::Relation {
                 target_path: RelationTargetEntity::PATH,
                 target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_entity_tag: RelationTargetEntity::ENTITY_TAG,
                 target_store_path: RelationTargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
                 strength: RelationStrength::Weak,
@@ -681,6 +703,7 @@ struct WeakListRelationSourceEntity {
 static REL_WEAK_LIST_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: RelationTargetEntity::PATH,
     target_entity_name: RelationTargetEntity::ENTITY_NAME,
+    target_entity_tag: RelationTargetEntity::ENTITY_TAG,
     target_store_path: RelationTargetStore::PATH,
     key_kind: &FieldKind::Ulid,
     strength: RelationStrength::Weak,
@@ -691,6 +714,7 @@ crate::test_entity_schema! {
     id = Ulid,
     id_field = id,
     entity_name = "WeakListRelationSourceEntity",
+    entity_tag = crate::testing::WEAK_LIST_RELATION_SOURCE_ENTITY_TAG,
     primary_key = "id",
     pk_index = 0,
     fields = [

@@ -79,7 +79,7 @@ fn build_scalar_limit_plan(
             }),
             consistency: MissingRowPolicy::Ignore,
         }),
-        access,
+        access: access.into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     })
 }

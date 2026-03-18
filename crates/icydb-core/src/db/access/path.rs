@@ -3,7 +3,7 @@
 //! Does not own: path validation or canonicalization policy.
 //! Boundary: used by access-plan construction and executor interpretation.
 
-use crate::{model::index::IndexModel, value::Value};
+use crate::{model::index::IndexModel, traits::FieldValue, value::Value};
 use std::ops::Bound;
 
 ///
@@ -260,5 +260,18 @@ impl<K> AccessPath<K> {
             Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
             Self::FullScan => Ok(AccessPath::FullScan),
         }
+    }
+}
+
+impl<K> AccessPath<K>
+where
+    K: FieldValue,
+{
+    /// Convert one typed access path into the canonical structural `Value` form.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn into_value_path(self) -> AccessPath<Value> {
+        self.map_keys(|key| Ok::<Value, core::convert::Infallible>(key.to_value()))
+            .expect("field value conversion is infallible")
     }
 }

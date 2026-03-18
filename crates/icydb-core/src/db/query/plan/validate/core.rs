@@ -24,7 +24,6 @@ use crate::{
         schema::{SchemaInfo, validate},
     },
     model::entity::EntityModel,
-    value::Value,
 };
 
 /// Validate a logical plan with model-level key values.
@@ -38,7 +37,7 @@ use crate::{
 pub(crate) fn validate_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &AccessPlannedQuery<Value>,
+    plan: &AccessPlannedQuery,
 ) -> Result<(), PlanError> {
     let logical = plan.scalar_plan();
     let projection = plan.projection_spec(model);
@@ -67,7 +66,7 @@ pub(crate) fn validate_query_semantics(
 pub(crate) fn validate_group_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &AccessPlannedQuery<Value>,
+    plan: &AccessPlannedQuery,
 ) -> Result<(), PlanError> {
     let (logical, group, having) = match &plan.logical {
         LogicalPlan::Grouped(grouped) => (&grouped.scalar, &grouped.group, grouped.having.as_ref()),
@@ -97,17 +96,17 @@ pub(crate) fn validate_group_query_semantics(
 }
 
 // Shared logical plan validation core owned by planner semantics.
-fn validate_plan_core<K, FOrder, FAccess>(
+fn validate_plan_core<FOrder, FAccess>(
     schema: &SchemaInfo,
     model: &EntityModel,
     logical: &ScalarPlan,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     validate_order_fn: FOrder,
     validate_access_fn: FAccess,
 ) -> Result<(), PlanError>
 where
     FOrder: Fn(&SchemaInfo, &OrderSpec) -> Result<(), PlanError>,
-    FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery<K>) -> Result<(), PlanError>,
+    FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery) -> Result<(), PlanError>,
 {
     if let Some(predicate) = &logical.predicate {
         validate(schema, predicate)?;

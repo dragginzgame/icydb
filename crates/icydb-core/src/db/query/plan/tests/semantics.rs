@@ -87,7 +87,7 @@ fn plan_rejects_unorderable_field() {
     let model = <PlanValidateListEntity as EntitySchema>::MODEL;
 
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -115,7 +115,7 @@ fn plan_rejects_unorderable_field() {
 fn plan_rejects_duplicate_non_primary_order_field() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -151,7 +151,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
 fn plan_rejects_index_prefix_too_long() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -180,7 +180,7 @@ fn plan_rejects_index_prefix_too_long() {
 fn plan_rejects_empty_index_prefix() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -209,7 +209,7 @@ fn plan_rejects_empty_index_prefix() {
 fn plan_accepts_model_based_validation() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -230,7 +230,7 @@ fn plan_accepts_model_based_validation() {
 fn plan_rejects_empty_order_spec() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -256,7 +256,7 @@ fn plan_rejects_empty_order_spec() {
 fn delete_limit_requires_order() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
             predicate: None,
@@ -281,7 +281,7 @@ fn delete_limit_requires_order() {
 
 #[test]
 fn scalar_shorthand_helpers_remain_explicit_without_deref() {
-    let mut plan: AccessPlannedQuery<Value> =
+    let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     assert!(
@@ -302,7 +302,7 @@ fn scalar_shorthand_helpers_remain_explicit_without_deref() {
 
 #[test]
 fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
-    let mut path_plan: AccessPlannedQuery<Value> =
+    let mut path_plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     path_plan.scalar_mut().distinct = true;
     assert_eq!(
@@ -311,7 +311,7 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
         "duplicate-safe single-path DISTINCT should lower to no-op strategy",
     );
 
-    let mut composite_plan: AccessPlannedQuery<Value> =
+    let mut composite_plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     composite_plan.access = AccessPlan::Union(vec![
         AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1)))),
@@ -346,7 +346,7 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
 fn delete_plan_rejects_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
             predicate: None,
@@ -378,7 +378,7 @@ fn delete_plan_rejects_pagination() {
 fn load_plan_rejects_delete_limit() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -407,7 +407,7 @@ fn load_plan_rejects_delete_limit() {
 fn plan_rejects_unordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -437,7 +437,7 @@ fn plan_rejects_unordered_pagination() {
 fn plan_rejects_limit_without_order() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -496,7 +496,7 @@ fn continuation_cursor_paging_requires_order_and_limit() {
 fn plan_accepts_ordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -578,7 +578,7 @@ fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
 fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -606,7 +606,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
 fn plan_rejects_map_field_predicates_during_planning_validation() {
     let model = <PlanValidateMapEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(

@@ -39,21 +39,21 @@ pub(in crate::db::executor) enum FastStreamRouteKind {
 /// Route-specific stream binding payload consumed by shared fast-stream dispatch.
 ///
 
-pub(in crate::db::executor) enum FastStreamRouteRequest<'a, K> {
+pub(in crate::db::executor) enum FastStreamRouteRequest<'a> {
     PrimaryKey {
-        plan: &'a AccessPlannedQuery<K>,
+        plan: &'a AccessPlannedQuery,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
     },
     SecondaryIndex {
-        plan: &'a AccessPlannedQuery<K>,
+        plan: &'a AccessPlannedQuery,
         index_prefix_spec: Option<&'a LoweredIndexPrefixSpec>,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     },
     IndexRangeLimitPushdown {
-        plan: &'a AccessPlannedQuery<K>,
+        plan: &'a AccessPlannedQuery,
         index_range_spec: Option<&'a LoweredIndexRangeSpec>,
         continuation: AccessScanContinuationInput<'a>,
         effective_fetch: usize,
@@ -69,7 +69,7 @@ where
     pub(in crate::db::executor) fn execute_fast_stream_route(
         ctx: &Context<'_, E>,
         route_kind: FastStreamRouteKind,
-        request: FastStreamRouteRequest<'_, E::Key>,
+        request: FastStreamRouteRequest<'_>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         match (route_kind, request) {
             (

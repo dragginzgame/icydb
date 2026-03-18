@@ -554,9 +554,9 @@ fn hash_explain_field(
     }
 }
 
-fn hash_planned_query_field<K: FieldValue>(
+fn hash_planned_query_field(
     hasher: &mut Sha256,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     field: ExplainHashField,
     entity_path: Option<&str>,
     projection: Option<&ProjectionSpec>,
@@ -589,18 +589,18 @@ fn hash_planned_query_field<K: FieldValue>(
 }
 
 /// Hash a planner-owned query with an explicit semantic projection section.
-pub(in crate::db::query) fn hash_planned_query_profile_with_projection<K: FieldValue>(
+pub(in crate::db::query) fn hash_planned_query_profile_with_projection(
     hasher: &mut Sha256,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     profile: ExplainHashProfile<'_>,
     projection: &ProjectionSpec,
 ) {
     hash_planned_query_profile_internal(hasher, plan, profile, Some(projection));
 }
 
-fn hash_planned_query_profile_internal<K: FieldValue>(
+fn hash_planned_query_profile_internal(
     hasher: &mut Sha256,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     profile: ExplainHashProfile<'_>,
     projection: Option<&ProjectionSpec>,
 ) {
@@ -780,9 +780,9 @@ fn hash_grouping_shape_v1(
     }
 }
 
-fn hash_grouping_shape_v1_from_plan<K: FieldValue>(
+fn hash_grouping_shape_v1_from_plan(
     hasher: &mut Sha256,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     include_group_strategy: bool,
 ) {
     let Some(grouped) = plan.grouped_plan() else {
@@ -836,10 +836,10 @@ fn hash_projection_spec_v1(
     hash_grouping_shape_v1(hasher, grouping, include_group_strategy);
 }
 
-fn hash_projection_spec_v1_for_plan<K: FieldValue>(
+fn hash_projection_spec_v1_for_plan(
     hasher: &mut Sha256,
     projection: Option<&ProjectionSpec>,
-    plan: &AccessPlannedQuery<K>,
+    plan: &AccessPlannedQuery,
     include_group_strategy: bool,
 ) {
     if let Some(projection) = projection {

@@ -7,7 +7,6 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         data::StorageKey,
-        identity::{EntityName, IndexName},
         index::{
             derive_index_expression_value,
             key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
@@ -15,10 +14,11 @@ use crate::{
     },
     error::InternalError,
     model::{
-        entity::resolve_field_slot,
+        entity::{EntityModel, resolve_field_slot},
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     traits::{EntityKind, EntityValue, FieldValue},
+    types::EntityTag,
     value::Value,
 };
 use std::ops::Bound;
@@ -39,24 +39,26 @@ fn value_for_expression(
     })
 }
 
-fn index_component_value<E: EntityKind + EntityValue>(
-    entity: &E,
+fn index_component_value_from_slot_reader<F>(
+    entity_model: &EntityModel,
     index: &IndexModel,
     key_item: IndexKeyItem,
-) -> Result<Option<Value>, InternalError> {
+    read_slot: &mut F,
+) -> Result<Option<Value>, InternalError>
+where
+    F: FnMut(usize) -> Option<Value>,
+{
     let field = key_item.field();
-    let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
+    let Some(field_index) = resolve_field_slot(entity_model, field) else {
         return Err(InternalError::index_invariant(format!(
-            "index key item field missing on entity model: {} ({})",
-            E::PATH,
+            "index key item field missing on entity model: {}",
             field
         )));
     };
 
-    let Some(source) = entity.get_value_by_index(field_index) else {
+    let Some(source) = read_slot(field_index) else {
         return Err(InternalError::index_invariant(format!(
-            "index key item field missing on lookup entity: {} ({})",
-            E::PATH,
+            "index key item field missing on lookup row: {}",
             field
         )));
     };
@@ -67,31 +69,19 @@ fn index_component_value<E: EntityKind + EntityValue>(
     }
 }
 
-impl IndexId {
-    /// Build an index id from static entity metadata.
-    ///
-    /// This is the canonical constructor. All invariants are expected
-    /// to hold for schema-defined indexes. Any violation is a programmer
-    /// or schema error and will panic.
-    #[must_use]
-    pub(crate) fn new<E: EntityKind>(index: &IndexModel) -> Self {
-        let entity = EntityName::try_from_str(E::ENTITY_NAME)
-            .expect("EntityKind::ENTITY_NAME must be a valid EntityName");
-
-        let name = IndexName::try_from_parts(&entity, index.fields())
-            .expect("IndexModel must define a valid IndexName");
-
-        Self(name)
-    }
-}
-
 impl IndexKey {
-    /// Build an index key; returns `Ok(None)` when indexed values are non-indexable.
-    /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
-    pub(crate) fn new<E: EntityKind + EntityValue>(
-        entity: &E,
+    /// Build an index key from one structural row slot reader plus runtime identity.
+    /// Returns `Ok(None)` when indexed values are non-indexable.
+    pub(crate) fn new_from_slot_reader<F>(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        entity_model: &EntityModel,
         index: &IndexModel,
-    ) -> Result<Option<Self>, InternalError> {
+        read_slot: &mut F,
+    ) -> Result<Option<Self>, InternalError>
+    where
+        F: FnMut(usize) -> Option<Value>,
+    {
         // Phase 1: validate declared index shape and collect encoded components.
         let index_component_count = match index.key_items() {
             IndexKeyItemsRef::Fields(fields) => fields.len(),
@@ -113,7 +103,13 @@ impl IndexKey {
             IndexKeyItemsRef::Fields(fields) => {
                 for &field in fields {
                     let key_item = IndexKeyItem::Field(field);
-                    let Some(value) = index_component_value(entity, index, key_item)? else {
+                    let Some(value) = index_component_value_from_slot_reader(
+                        entity_model,
+                        index,
+                        key_item,
+                        read_slot,
+                    )?
+                    else {
                         return Ok(None);
                     };
                     let encoded = match EncodedValue::try_from_ref(&value) {
@@ -142,7 +138,13 @@ impl IndexKey {
             }
             IndexKeyItemsRef::Items(items) => {
                 for &key_item in items {
-                    let Some(value) = index_component_value(entity, index, key_item)? else {
+                    let Some(value) = index_component_value_from_slot_reader(
+                        entity_model,
+                        index,
+                        key_item,
+                        read_slot,
+                    )?
+                    else {
                         return Ok(None);
                     };
                     let encoded = match EncodedValue::try_from_ref(&value) {
@@ -171,17 +173,28 @@ impl IndexKey {
             }
         }
 
-        // Phase 3: encode primary key payload and assemble full key.
-        let entity_key_value = entity.id().key().to_value();
-        let storage_key = StorageKey::try_from_value(&entity_key_value)?;
+        // Phase 3: encode the already-materialized primary key and assemble the full key.
         let primary_key = storage_key.to_bytes()?.to_vec();
 
         Ok(Some(Self {
             key_kind: IndexKeyKind::User,
-            index_id: IndexId::new::<E>(index),
+            index_id: IndexId::new(entity_tag, index.ordinal()),
             components,
             primary_key,
         }))
+    }
+
+    /// Build an index key; returns `Ok(None)` when indexed values are non-indexable.
+    /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
+    pub(crate) fn new<E: EntityKind + EntityValue>(
+        entity: &E,
+        index: &IndexModel,
+    ) -> Result<Option<Self>, InternalError> {
+        let entity_key_value = entity.id().key().to_value();
+        let storage_key = StorageKey::try_from_value(&entity_key_value)?;
+        let mut read_slot = |slot| entity.get_value_by_index(slot);
+
+        Self::new_from_slot_reader(E::ENTITY_TAG, storage_key, E::MODEL, index, &mut read_slot)
     }
 
     #[cfg(test)]

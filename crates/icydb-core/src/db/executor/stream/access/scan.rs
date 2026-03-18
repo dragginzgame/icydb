@@ -194,7 +194,8 @@ impl IndexScan {
             .db
             .with_store_registry(|registry| registry.try_get_store(store_path))?;
         let keys = store.with_index(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited::<E>(
+            index_store.resolve_data_values_in_raw_range_limited(
+                E::ENTITY_TAG,
                 index,
                 (lower, upper),
                 continuation,

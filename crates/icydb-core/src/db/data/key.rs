@@ -11,15 +11,16 @@
 //! Boundary: data::store persists `RawDataKey`; higher layers use `DataKey`.
 
 use crate::{
-    db::identity::{EntityName, IdentityDecodeError},
     error::InternalError,
     traits::{EntityKind, FieldValue, Storable},
+    types::EntityTag,
     value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
 };
 use canic_cdk::structures::storable::Bound;
 use std::{
     borrow::Cow,
     fmt::{self, Display},
+    mem::size_of,
 };
 use thiserror::Error as ThisError;
 
@@ -70,9 +71,6 @@ impl From<StorageKeyDecodeError> for KeyDecodeError {
 
 #[derive(Debug, ThisError)]
 pub(crate) enum DataKeyDecodeError {
-    #[error("invalid entity name")]
-    Entity(#[from] IdentityDecodeError),
-
     #[error("invalid primary key")]
     Key(#[from] KeyDecodeError),
 }
@@ -83,14 +81,18 @@ pub(crate) enum DataKeyDecodeError {
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct DataKey {
-    entity: EntityName,
+    entity: EntityTag,
     key: StorageKey,
 }
 
 impl DataKey {
+    /// `EntityTag` binary-width contract for on-disk key framing.
+    pub(crate) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
+    pub(crate) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
+
     /// Fixed on-disk size in bytes (stable, protocol-level)
     pub(crate) const STORED_SIZE_BYTES: u64 =
-        EntityName::STORED_SIZE_BYTES + StorageKey::STORED_SIZE_BYTES;
+        Self::ENTITY_TAG_SIZE_BYTES + StorageKey::STORED_SIZE_BYTES;
 
     /// Fixed in-memory size (for buffers and arrays only)
     pub(crate) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
@@ -98,6 +100,12 @@ impl DataKey {
     // ------------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------------
+
+    /// Construct from runtime identity and key payload.
+    #[must_use]
+    pub(crate) const fn new(entity: EntityTag, key: StorageKey) -> Self {
+        Self { entity, key }
+    }
 
     /// Construct using compile-time entity metadata.
     ///
@@ -109,10 +117,7 @@ impl DataKey {
         let value = key.to_value();
         let key = StorageKey::try_from_value(&value)?;
 
-        Ok(Self {
-            entity: Self::entity_for::<E>(),
-            key,
-        })
+        Ok(Self::new(E::ENTITY_TAG, key))
     }
 
     /// Decode a raw entity key from this data key.
@@ -123,11 +128,12 @@ impl DataKey {
     where
         E: EntityKind,
     {
-        let expected = Self::entity_for::<E>();
+        let expected = E::ENTITY_TAG;
         if self.entity != expected {
             return Err(InternalError::store_corruption(format!(
                 "data key entity mismatch: expected {}, found {}",
-                expected, self.entity
+                expected.value(),
+                self.entity.value()
             )));
         }
 
@@ -139,44 +145,30 @@ impl DataKey {
         })
     }
 
-    /// Construct a DataKey from a raw StorageKey using entity metadata.
     #[must_use]
-    pub(crate) fn from_key<E: EntityKind>(key: StorageKey) -> Self {
-        Self {
-            entity: Self::entity_for::<E>(),
-            key,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn lower_bound<E>() -> Self
+    pub(crate) const fn lower_bound<E>() -> Self
     where
         E: EntityKind,
     {
-        Self {
-            entity: Self::entity_for::<E>(),
-            key: StorageKey::MIN,
-        }
+        Self::lower_bound_for(E::ENTITY_TAG)
     }
 
     #[must_use]
-    pub(crate) fn upper_bound<E>() -> Self
+    pub(crate) const fn upper_bound<E>() -> Self
     where
         E: EntityKind,
     {
-        Self {
-            entity: Self::entity_for::<E>(),
-            key: StorageKey::upper_bound(),
-        }
+        Self::upper_bound_for(E::ENTITY_TAG)
     }
 
-    fn entity_for<E: EntityKind>() -> EntityName {
-        // INVARIANT:
-        // `E::ENTITY_NAME` is compile-time schema/codegen metadata. Runtime
-        // user input cannot influence this value.
-        // A failure here is an internal model/codegen contract break.
-        EntityName::try_from_str(E::ENTITY_NAME)
-            .expect("invariant violation: invalid E::ENTITY_NAME (schema/codegen contract broken)")
+    #[must_use]
+    pub(crate) const fn lower_bound_for(entity: EntityTag) -> Self {
+        Self::new(entity, StorageKey::MIN)
+    }
+
+    #[must_use]
+    pub(crate) const fn upper_bound_for(entity: EntityTag) -> Self {
+        Self::new(entity, StorageKey::upper_bound())
     }
 
     // ------------------------------------------------------------------
@@ -184,8 +176,8 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub(crate) const fn entity_name(&self) -> &EntityName {
-        &self.entity
+    pub(crate) const fn entity_tag(&self) -> EntityTag {
+        self.entity
     }
 
     #[must_use]
@@ -203,7 +195,7 @@ impl DataKey {
     #[cfg(test)]
     fn max_storable() -> Self {
         Self {
-            entity: EntityName::max_storable(),
+            entity: EntityTag::new(u64::MAX),
             key: StorageKey::max_storable(),
         }
     }
@@ -225,14 +217,14 @@ impl DataKey {
 
     /// Encode into fixed-size on-disk representation, returning storage-key encode errors directly.
     pub(crate) fn to_raw_storage_key_error(&self) -> Result<RawDataKey, StorageKeyEncodeError> {
-        // Phase 1: copy entity identity bytes into the fixed prefix.
+        // Phase 1: encode fixed-width big-endian entity tag identity prefix.
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
-        let entity_bytes = self.entity.to_bytes();
-        buf[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
+        let entity_bytes = self.entity.value().to_be_bytes();
+        buf[..Self::ENTITY_TAG_SIZE_USIZE].copy_from_slice(&entity_bytes);
 
         // Phase 2: encode the scalar storage key and copy into fixed suffix.
         let key_bytes = self.key.to_bytes()?;
-        let key_offset = EntityName::STORED_SIZE_USIZE;
+        let key_offset = Self::ENTITY_TAG_SIZE_USIZE;
         buf[key_offset..key_offset + StorageKey::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
 
         Ok(RawDataKey(buf))
@@ -240,20 +232,22 @@ impl DataKey {
 
     /// Encode a raw data key from validated entity + storage-key parts.
     pub(crate) fn raw_from_parts(
-        entity: EntityName,
+        entity: EntityTag,
         key: StorageKey,
     ) -> Result<RawDataKey, StorageKeyEncodeError> {
-        Self { entity, key }.to_raw_storage_key_error()
+        Self::new(entity, key).to_raw_storage_key_error()
     }
 
     pub(crate) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
         let bytes = &raw.0;
 
-        // Phase 1: decode fixed-size entity identity prefix.
-        let entity = EntityName::from_bytes(&bytes[..EntityName::STORED_SIZE_USIZE])?;
+        // Phase 1: decode fixed-size big-endian entity tag identity prefix.
+        let mut tag_bytes = [0u8; Self::ENTITY_TAG_SIZE_USIZE];
+        tag_bytes.copy_from_slice(&bytes[..Self::ENTITY_TAG_SIZE_USIZE]);
+        let entity = EntityTag::new(u64::from_be_bytes(tag_bytes));
 
         // Phase 2: decode fixed-size storage-key suffix.
-        let key = StorageKey::try_from_bytes(&bytes[EntityName::STORED_SIZE_USIZE..])
+        let key = StorageKey::try_from_bytes(&bytes[Self::ENTITY_TAG_SIZE_USIZE..])
             .map_err(KeyDecodeError::from)?;
 
         Ok(Self { entity, key })
@@ -262,7 +256,7 @@ impl DataKey {
 
 impl Display for DataKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{} ({})", self.entity, self.key)
+        write!(f, "#{} ({})", self.entity.value(), self.key)
     }
 }
 
@@ -333,18 +327,17 @@ mod tests {
     #[test]
     fn data_key_golden_snapshot_entity_and_storage_key_layout_is_stable() {
         let key = DataKey {
-            entity: EntityName::try_from_str("alpha").expect("entity name should parse"),
+            entity: EntityTag::new(5),
             key: StorageKey::Int(-1),
         };
         let raw = key.to_raw().expect("data key should encode");
 
         // Freeze the on-disk wire contract:
-        // [EntityName(1+64)] + [StorageKey(64)].
+        // [EntityTag(u64, big-endian)] + [StorageKey(64)].
         let mut expected = [0u8; DataKey::STORED_SIZE_USIZE];
-        expected[0] = 5;
-        expected[1..6].copy_from_slice(b"alpha");
+        expected[..DataKey::ENTITY_TAG_SIZE_USIZE].copy_from_slice(&5u64.to_be_bytes());
 
-        let storage_offset = EntityName::STORED_SIZE_USIZE;
+        let storage_offset = DataKey::ENTITY_TAG_SIZE_USIZE;
         expected[storage_offset] = 1; // StorageKey::TAG_INT
         expected[storage_offset + 1..storage_offset + 9]
             .copy_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_be_bytes());
@@ -360,19 +353,19 @@ mod tests {
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
             DataKey {
-                entity: EntityName::try_from_str("a").unwrap(),
+                entity: EntityTag::new(1),
                 key: StorageKey::Int(0),
             },
             DataKey {
-                entity: EntityName::try_from_str("aa").unwrap(),
+                entity: EntityTag::new(1),
                 key: StorageKey::Int(0),
             },
             DataKey {
-                entity: EntityName::try_from_str("b").unwrap(),
+                entity: EntityTag::new(2),
                 key: StorageKey::Int(0),
             },
             DataKey {
-                entity: EntityName::try_from_str("a").unwrap(),
+                entity: EntityTag::new(1),
                 key: StorageKey::Uint(1),
             },
         ];
@@ -392,16 +385,18 @@ mod tests {
     }
 
     #[test]
-    fn data_key_rejects_corrupt_entity() {
+    fn data_key_entity_tag_roundtrip_is_big_endian() {
         let mut raw = DataKey::max_storable().to_raw().unwrap();
-        raw.0[0] = 0;
-        assert!(DataKey::try_from_raw(&raw).is_err());
+        raw.0[..DataKey::ENTITY_TAG_SIZE_USIZE]
+            .copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
+        let decoded = DataKey::try_from_raw(&raw).expect("entity tag bytes should decode");
+        assert_eq!(decoded.entity_tag().value(), 0x0102_0304_0506_0708u64);
     }
 
     #[test]
     fn data_key_rejects_corrupt_key() {
         let mut raw = DataKey::max_storable().to_raw().unwrap();
-        let off = EntityName::STORED_SIZE_USIZE;
+        let off = DataKey::ENTITY_TAG_SIZE_USIZE;
         raw.0[off] = 0xFF;
         assert!(DataKey::try_from_raw(&raw).is_err());
     }

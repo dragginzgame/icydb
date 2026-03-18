@@ -43,8 +43,8 @@ pub(in crate::db) struct CoveringProjectionContext {
 /// existing-row semantics under the current planner + predicate-compile
 /// contracts.
 #[must_use]
-pub(in crate::db) fn index_covering_existing_rows_terminal_eligible<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
+    plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
 ) -> bool {
     if plan.scalar_plan().order.is_some() {
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn index_covering_existing_rows_terminal_requires_index_shape() {
-        let plan = AccessPlannedQuery::<u64>::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+        let plan = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
 
         assert!(
             !super::index_covering_existing_rows_terminal_eligible(&plan, true),
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn index_covering_existing_rows_terminal_requires_no_order() {
-        let mut plan = AccessPlannedQuery::<u64>::new(
+        let mut plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: crate::model::index::IndexModel::new(
                     "idx",
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn index_covering_existing_rows_terminal_accepts_unordered_no_predicate() {
-        let plan = AccessPlannedQuery::<u64>::new(
+        let plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: crate::model::index::IndexModel::new(
                     "idx",
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn index_covering_existing_rows_terminal_requires_strict_predicate_when_residual_present() {
-        let mut plan = AccessPlannedQuery::<u64>::new(
+        let mut plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: crate::model::index::IndexModel::new(
                     "idx",
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn covering_projection_context_accepts_suffix_index_order() {
-        let mut plan = AccessPlannedQuery::<u64>::new(
+        let mut plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: crate::model::index::IndexModel::new(
                     "idx",
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn covering_projection_context_accepts_primary_key_order() {
-        let mut plan = AccessPlannedQuery::<u64>::new(
+        let mut plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: crate::model::index::IndexModel::new(
                     "idx",
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn covering_projection_context_rejects_mixed_order_directions() {
-        let mut plan = AccessPlannedQuery::<u64>::new(
+        let mut plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: crate::model::index::IndexModel::new(
                     "idx",
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn covering_projection_context_rejects_range_full_order_contract() {
-        let mut plan = AccessPlannedQuery::<u64>::new(
+        let mut plan = AccessPlannedQuery::new(
             AccessPath::index_range(
                 crate::model::index::IndexModel::new(
                     "idx",

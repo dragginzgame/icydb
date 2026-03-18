@@ -20,8 +20,8 @@ use crate::{
 
 /// Derive row-read missing-row policy for one executor-consumed logical plan.
 #[must_use]
-pub(in crate::db::executor) const fn row_read_consistency_for_plan<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db::executor) const fn row_read_consistency_for_plan(
+    plan: &AccessPlannedQuery,
 ) -> MissingRowPolicy {
     plan.scalar_plan().consistency
 }

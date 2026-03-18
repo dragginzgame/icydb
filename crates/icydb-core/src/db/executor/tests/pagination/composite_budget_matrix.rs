@@ -42,7 +42,8 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
@@ -101,7 +102,8 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
@@ -163,7 +165,8 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
@@ -221,7 +224,8 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
@@ -284,7 +288,8 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
@@ -360,7 +365,8 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 AccessPlan::path(AccessPath::ByKeys(vec![id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id7, id8])),
             ]),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
@@ -419,7 +425,8 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     });
     let fallback_plan = ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
@@ -443,7 +450,8 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-        ]),
+        ])
+        .into_value_plan(),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     });
 
@@ -527,7 +535,8 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };

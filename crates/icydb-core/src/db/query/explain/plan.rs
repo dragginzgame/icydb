@@ -503,10 +503,7 @@ pub enum ExplainDeleteLimit {
     Limit { max_rows: u32 },
 }
 
-impl<K> AccessPlannedQuery<K>
-where
-    K: FieldValue,
-{
+impl AccessPlannedQuery {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
     #[cfg(test)]

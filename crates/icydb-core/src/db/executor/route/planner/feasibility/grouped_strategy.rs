@@ -31,8 +31,8 @@ impl GroupedOrderedEligibility {
 }
 
 // Derive one grouped ordered-strategy eligibility matrix snapshot.
-const fn derive_grouped_ordered_eligibility<K>(
-    _plan: &AccessPlannedQuery<K>,
+const fn derive_grouped_ordered_eligibility(
+    _plan: &AccessPlannedQuery,
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
@@ -58,8 +58,8 @@ const fn grouped_execution_strategy_for_plan_hint(
 }
 
 #[must_use]
-pub(super) const fn grouped_execution_strategy_for_runtime<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(super) const fn grouped_execution_strategy_for_runtime(
+    plan: &AccessPlannedQuery,
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,

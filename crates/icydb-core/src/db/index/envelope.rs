@@ -152,7 +152,6 @@ mod tests {
     use crate::{
         db::{
             direction::Direction,
-            identity::{EntityName, IndexName},
             index::{
                 EncodedValue, RawIndexKey, envelope_is_empty,
                 key::{IndexId, IndexKeyKind},
@@ -290,12 +289,7 @@ mod tests {
     }
 
     fn property_index_id() -> IndexId {
-        let entity = EntityName::try_from_str("continuation_property")
-            .expect("property test entity name should parse");
-        IndexId(
-            IndexName::try_from_parts(&entity, &["f0", "f1", "f2"])
-                .expect("property test index name should parse"),
-        )
+        IndexId::new(crate::types::EntityTag::new(0xC01A_71C0_0000_0001), 0)
     }
 
     // Build one canonical raw index key from semantic composite components.

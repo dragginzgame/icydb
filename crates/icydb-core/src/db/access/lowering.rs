@@ -12,7 +12,7 @@ use crate::{
         },
         direction::Direction,
         index::{
-            EncodedValue, IndexRangeBoundEncodeError, RawIndexKey,
+            EncodedValue, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
             raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
         },
     },
@@ -271,7 +271,9 @@ fn lower_index_range_bounds_for_scope<E: EntityKind>(
     upper: &Bound<Value>,
     scope: LoweredIndexNotIndexableReasonScope,
 ) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), &'static str> {
-    raw_bounds_for_semantic_index_component_range::<E>(index, prefix, lower, upper)
+    let index_id = IndexId::new(E::ENTITY_TAG, index.ordinal());
+
+    raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
         .map_err(|err| map_index_range_not_indexable_reason(scope, err))
 }
 
@@ -322,7 +324,9 @@ fn lower_index_prefix_values_for_specs<E: EntityKind>(
     let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
         crate::db::error::query_executor_invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE)
     })?;
-    let (lower, upper) = raw_keys_for_encoded_prefix::<E>(&index, prefix_components.as_slice());
+    let index_id = IndexId::new(E::ENTITY_TAG, index.ordinal());
+    let (lower, upper) =
+        raw_keys_for_encoded_prefix(&index_id, &index, prefix_components.as_slice());
     specs.push(LoweredIndexPrefixSpec::new(
         index,
         Bound::Included(lower),

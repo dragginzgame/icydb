@@ -582,9 +582,9 @@ mod tests {
             Ordering::Equal
         );
 
-        let included_plan: AccessPlannedQuery<Value> =
+        let included_plan: AccessPlannedQuery =
             AccessPlannedQuery::new(included, MissingRowPolicy::Ignore);
-        let excluded_plan: AccessPlannedQuery<Value> =
+        let excluded_plan: AccessPlannedQuery =
             AccessPlannedQuery::new(excluded, MissingRowPolicy::Ignore);
         assert_ne!(included_plan.fingerprint(), excluded_plan.fingerprint());
     }
@@ -609,10 +609,8 @@ mod tests {
             Ordering::Equal
         );
 
-        let plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(path_a, MissingRowPolicy::Ignore);
-        let plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(path_b, MissingRowPolicy::Ignore);
+        let plan_a: AccessPlannedQuery = AccessPlannedQuery::new(path_a, MissingRowPolicy::Ignore);
+        let plan_b: AccessPlannedQuery = AccessPlannedQuery::new(path_b, MissingRowPolicy::Ignore);
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
 

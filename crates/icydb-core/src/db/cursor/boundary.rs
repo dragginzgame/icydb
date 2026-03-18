@@ -40,30 +40,62 @@ pub(crate) struct CursorBoundary {
 }
 
 impl CursorBoundary {
+    /// Build one cursor boundary from one structural slot reader using canonical
+    /// order fields.
+    #[must_use]
+    pub(in crate::db) fn from_slot_reader<F>(
+        model: &EntityModel,
+        order: &OrderSpec,
+        read_slot: &mut F,
+    ) -> Self
+    where
+        F: FnMut(usize) -> Option<Value>,
+    {
+        Self {
+            slots: boundary_slots_from_slot_reader(model, order, read_slot),
+        }
+    }
+
     /// Build one cursor boundary from one entity using canonical order fields.
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) fn from_ordered_entity<E: EntityKind + EntityValue>(
         entity: &E,
         order: &OrderSpec,
     ) -> Self {
-        Self {
-            slots: boundary_slots_from_entity(entity, order),
-        }
+        let mut read_slot = |slot| entity.get_value_by_index(slot);
+
+        Self::from_slot_reader(E::MODEL, order, &mut read_slot)
     }
 }
 
 /// Build boundary slots from one entity using canonical order fields.
 #[must_use]
+#[allow(dead_code)]
 pub(in crate::db) fn boundary_slots_from_entity<E: EntityKind + EntityValue>(
     entity: &E,
     order: &OrderSpec,
 ) -> Vec<CursorBoundarySlot> {
+    let mut read_slot = |slot| entity.get_value_by_index(slot);
+
+    boundary_slots_from_slot_reader(E::MODEL, order, &mut read_slot)
+}
+
+/// Build boundary slots from one structural slot reader using canonical order fields.
+#[must_use]
+pub(in crate::db) fn boundary_slots_from_slot_reader<F>(
+    model: &EntityModel,
+    order: &OrderSpec,
+    read_slot: &mut F,
+) -> Vec<CursorBoundarySlot>
+where
+    F: FnMut(usize) -> Option<Value>,
+{
     order
         .fields
         .iter()
         .map(|(field, _)| {
-            let value = resolve_field_slot(E::MODEL, field)
-                .and_then(|slot| entity.get_value_by_index(slot));
+            let value = resolve_field_slot(model, field).and_then(&mut *read_slot);
 
             match value {
                 Some(value) => CursorBoundarySlot::Present(value),

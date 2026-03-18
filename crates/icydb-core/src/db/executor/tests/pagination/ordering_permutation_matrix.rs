@@ -334,7 +334,8 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -358,7 +359,8 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
                 AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -429,7 +431,8 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -453,7 +456,8 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -522,7 +526,8 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -549,7 +554,8 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -618,7 +624,8 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -645,7 +652,8 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
-            ]),
+            ])
+            .into_value_plan(),
             projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
@@ -734,7 +742,8 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
-                ]),
+                ])
+                .into_value_plan(),
                 projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
@@ -761,7 +770,8 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
-                ]),
+                ])
+                .into_value_plan(),
                 projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
@@ -858,7 +868,8 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                     ])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
-                ]),
+                ])
+                .into_value_plan(),
                 projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
@@ -887,7 +898,8 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                     AccessPlan::path(AccessPath::ByKeys(vec![
                         id1, id2, id3, id4, id5, id6, id7, id8,
                     ])),
-                ]),
+                ])
+                .into_value_plan(),
                 projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
@@ -923,7 +935,7 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
     seed_unique_index_range_rows(&rows);
 
     let mut logical_plan = AccessPlannedQuery::new(
-        AccessPath::<Ulid>::IndexPrefix {
+        AccessPath::IndexPrefix {
             index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             values: vec![Value::Uint(20)],
         },
@@ -966,7 +978,7 @@ fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
     seed_unique_index_range_rows(&rows);
 
     let mut logical_plan = AccessPlannedQuery::new(
-        AccessPath::<Ulid>::IndexPrefix {
+        AccessPath::IndexPrefix {
             index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             values: vec![Value::Uint(20)],
         },

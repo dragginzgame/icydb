@@ -55,8 +55,8 @@ impl PlannedProjectionLayout {
 ///
 
 #[derive(Clone)]
-pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
-    base: &'a AccessPlannedQuery<K>,
+pub(in crate::db) struct GroupedExecutorHandoff<'a> {
+    base: &'a AccessPlannedQuery,
     group_fields: &'a [FieldSlot],
     aggregate_exprs: Vec<AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
@@ -67,10 +67,10 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     execution: GroupedExecutionConfig,
 }
 
-impl<'a, K> GroupedExecutorHandoff<'a, K> {
+impl<'a> GroupedExecutorHandoff<'a> {
     /// Borrow the grouped query base plan.
     #[must_use]
-    pub(in crate::db) const fn base(&self) -> &'a AccessPlannedQuery<K> {
+    pub(in crate::db) const fn base(&self) -> &'a AccessPlannedQuery {
         self.base
     }
 
@@ -135,9 +135,9 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
 }
 
 /// Build one grouped executor handoff from one grouped logical plan.
-pub(in crate::db) fn grouped_executor_handoff<K>(
-    plan: &AccessPlannedQuery<K>,
-) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
+pub(in crate::db) fn grouped_executor_handoff(
+    plan: &AccessPlannedQuery,
+) -> Result<GroupedExecutorHandoff<'_>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
         return Err(crate::db::error::planner_invariant(

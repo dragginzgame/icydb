@@ -335,6 +335,7 @@ macro_rules! test_entity_schema {
         ident = $entity:ident,
         id = $id_ty:ty,
         entity_name = $entity_name:expr,
+        entity_tag = $entity_tag:expr,
         primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
@@ -358,8 +359,7 @@ macro_rules! test_entity_schema {
         }
 
         impl $crate::traits::EntityKind for $entity {
-            const ENTITY_TAG: $crate::types::EntityTag =
-                $crate::types::EntityTag::from_entity_name($entity_name);
+            const ENTITY_TAG: $crate::types::EntityTag = $entity_tag;
         }
     };
     (
@@ -367,6 +367,7 @@ macro_rules! test_entity_schema {
         id = $id_ty:ty,
         id_field = $id_field:ident,
         entity_name = $entity_name:expr,
+        entity_tag = $entity_tag:expr,
         primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
@@ -378,6 +379,7 @@ macro_rules! test_entity_schema {
             ident = $entity,
             id = $id_ty,
             entity_name = $entity_name,
+            entity_tag = $entity_tag,
             primary_key = $primary_key,
             pk_index = $pk_index,
             fields = [ $( ($field_name, $field_kind) ),+ ],
@@ -398,6 +400,7 @@ macro_rules! test_entity_schema {
         id_field = $id_field:ident,
         singleton = true,
         entity_name = $entity_name:expr,
+        entity_tag = $entity_tag:expr,
         primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
@@ -410,6 +413,7 @@ macro_rules! test_entity_schema {
             id = $id_ty,
             id_field = $id_field,
             entity_name = $entity_name,
+            entity_tag = $entity_tag,
             primary_key = $primary_key,
             pk_index = $pk_index,
             fields = [ $( ($field_name, $field_kind) ),+ ],

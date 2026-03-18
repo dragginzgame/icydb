@@ -12,7 +12,9 @@ use crate::{
         executor::ExecutableAccessPath,
         query::plan::{ExecutionOrderContract, ExecutionOrdering},
     },
-    traits::{EntityKind, FieldValue},
+    model::entity::EntityModel,
+    traits::FieldValue,
+    types::EntityTag,
 };
 
 ///
@@ -29,16 +31,16 @@ pub(in crate::db) enum CursorValidationOutcome {
 
 /// Validate optional cursor bytes for one planned query mode and return typed
 /// cursor state without leaking token payload details across boundaries.
-pub(in crate::db) fn validate_cursor_compatibility<E: EntityKind>(
+pub(in crate::db) fn validate_cursor_compatibility<K: FieldValue>(
     contract: &ExecutionOrderContract,
-    access: Option<ExecutableAccessPath<'_, E::Key>>,
+    access: Option<ExecutableAccessPath<'_, K>>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    entity_model: &EntityModel,
     continuation_signature: ContinuationSignature,
     initial_offset: u32,
     cursor: Option<&[u8]>,
-) -> Result<CursorValidationOutcome, CursorPlanError>
-where
-    E::Key: FieldValue,
-{
+) -> Result<CursorValidationOutcome, CursorPlanError> {
     match contract.ordering() {
         ExecutionOrdering::PrimaryKey => {
             if cursor.is_some() || contract.supports_cursor() {
@@ -52,8 +54,11 @@ where
             )))
         }
         ExecutionOrdering::Explicit(order) => {
-            let scalar = prepare_cursor::<E>(
+            let scalar = prepare_cursor(
                 access,
+                entity_path,
+                entity_tag,
+                entity_model,
                 Some(order),
                 contract.direction(),
                 continuation_signature,
@@ -65,7 +70,7 @@ where
         }
         ExecutionOrdering::Grouped(order) => {
             let grouped = prepare_grouped_cursor(
-                E::PATH,
+                entity_path,
                 order.as_ref(),
                 continuation_signature,
                 initial_offset,

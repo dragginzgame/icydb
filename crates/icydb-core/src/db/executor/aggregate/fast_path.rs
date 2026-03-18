@@ -16,6 +16,7 @@ use crate::{
                 contracts::{FastPathKeyResult, LoadExecutor},
                 operators::decorate_key_stream_for_plan,
             },
+            reconstruct_typed_access_plan,
             route::{
                 FastPathOrder, RoutedKeyStreamRequest, derive_budget_safety_flags,
                 ensure_index_range_aggregate_fast_path_specs,
@@ -46,7 +47,7 @@ impl ExecutionKernel {
     /// Resolve one routed stream request and fold one aggregate terminal from it.
     pub(in crate::db::executor) fn fold_aggregate_from_routed_stream_request<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
@@ -224,7 +225,7 @@ impl ExecutionKernel {
     // fold one aggregate terminal while preserving fast-path scan accounting.
     fn fold_aggregate_from_fast_path_result<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
@@ -253,7 +254,7 @@ impl ExecutionKernel {
     // one shared stream-construction path.
     fn try_execute_primary_key_access_aggregate<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
@@ -261,7 +262,8 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let access_strategy = plan.access_strategy();
+        let access = reconstruct_typed_access_plan::<E>(plan)?;
+        let access_strategy = access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -272,7 +274,7 @@ impl ExecutionKernel {
         if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
-        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
+        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E>(plan);
         if has_residual_filter {
             return Ok(None);
         }
@@ -344,7 +346,7 @@ impl ExecutionKernel {
     // This keeps canonical stream semantics while avoiding generic route assembly.
     fn try_execute_primary_scan_aggregate<E>(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
         kind: AggregateKind,
@@ -353,7 +355,8 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let access_strategy = plan.access_strategy();
+        let access = reconstruct_typed_access_plan::<E>(plan)?;
+        let access_strategy = access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -423,8 +426,9 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
+        let typed_access = reconstruct_typed_access_plan::<E>(inputs.logical_plan)?;
         let access = ExecutableAccess::new(
-            &inputs.logical_plan.access,
+            &typed_access,
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
                 inputs.index_range_specs,

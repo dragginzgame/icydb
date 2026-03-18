@@ -6,11 +6,12 @@
 use crate::{
     db::{
         commit::CommitIndexOp,
+        data::StorageKey,
         index::{IndexEntry, IndexEntryEncodeError, IndexKey, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::{EntityKind, Storable},
+    traits::Storable,
 };
 use std::collections::BTreeMap;
 
@@ -23,18 +24,19 @@ use std::collections::BTreeMap;
 /// Correctly handles old/new key overlap and guarantees that
 /// apply-time mutations cannot fail except by invariant violation.
 #[expect(clippy::too_many_arguments)]
-pub(super) fn build_commit_ops_for_index<E: EntityKind>(
+pub(super) fn build_commit_ops_for_index(
     commit_ops: &mut Vec<CommitIndexOp>,
     index: &'static IndexModel,
+    entity_path: &str,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
-    old_entry: Option<IndexEntry<E>>,
-    new_entry: Option<IndexEntry<E>>,
-    old_entity_key: Option<E::Key>,
-    new_entity_key: Option<E::Key>,
+    old_entry: Option<IndexEntry>,
+    new_entry: Option<IndexEntry>,
+    old_entity_key: Option<StorageKey>,
+    new_entity_key: Option<StorageKey>,
 ) -> Result<(), InternalError> {
     // Phase 1: model old/new membership transitions in memory.
-    let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry<E>>> = BTreeMap::new();
+    let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry>> = BTreeMap::new();
     let fields = index.fields().join(", ");
 
     // Removal phase.
@@ -81,21 +83,17 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
                 IndexEntryEncodeError::TooManyKeys { keys } => {
                     InternalError::index_unsupported(format!(
                         "index entry exceeds max keys: {} ({}) -> {} keys",
-                        E::PATH,
-                        fields,
-                        keys
+                        entity_path, fields, keys
                     ))
                 }
                 IndexEntryEncodeError::DuplicateKey => InternalError::index_invariant(format!(
                     "index entry unexpectedly contains duplicate keys: {} ({})",
-                    E::PATH,
-                    fields
+                    entity_path, fields
                 )),
                 IndexEntryEncodeError::KeyEncoding(err) => {
                     InternalError::index_unsupported(format!(
                         "index entry key encoding failed: {} ({}) -> {err}",
-                        E::PATH,
-                        fields
+                        entity_path, fields
                     ))
                 }
             })?;
@@ -115,12 +113,12 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
 }
 
 /// Derive one insertion baseline entry under old/new key overlap semantics.
-fn derive_initial_entry_for_insert<E: EntityKind>(
-    touched: &mut BTreeMap<RawIndexKey, Option<IndexEntry<E>>>,
+fn derive_initial_entry_for_insert(
+    touched: &mut BTreeMap<RawIndexKey, Option<IndexEntry>>,
     raw_key: &RawIndexKey,
-    new_entry: Option<IndexEntry<E>>,
-    new_entity_key: E::Key,
-) -> IndexEntry<E> {
+    new_entry: Option<IndexEntry>,
+    new_entity_key: StorageKey,
+) -> IndexEntry {
     if let Some(existing) = touched.remove(raw_key) {
         return existing.unwrap_or_else(|| IndexEntry::new(new_entity_key));
     }

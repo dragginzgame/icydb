@@ -8,14 +8,65 @@ use crate::{
         cursor::GroupedPlannedCursor,
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
-            pipeline::contracts::{GroupedCursorPage, LoadExecutor},
-            pipeline::entrypoints::{LoadExecutionMode, LoadExecutionSurface, LoadTracingMode},
+            pipeline::contracts::{
+                GroupedCursorPage, GroupedFoldStage, GroupedRouteStage, GroupedStreamStage,
+                LoadExecutor,
+            },
+            pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
+            pipeline::orchestrator::ErasedLoadExecutionSurface,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
         },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+
+///
+/// GroupedPathRuntime
+///
+/// GroupedPathRuntime isolates the typed grouped execution leaves behind one
+/// object-safe runtime boundary.
+/// Shared grouped entrypoint orchestration stays monomorphic by driving this
+/// trait instead of inlining entity-typed build/fold/finalize logic.
+///
+
+trait GroupedPathRuntime {
+    /// Build one grouped execution stream for an already resolved route.
+    fn build_grouped_stream<'a>(
+        &'a self,
+        route: &GroupedRouteStage,
+    ) -> Result<GroupedStreamStage<'a>, InternalError>;
+
+    /// Execute grouped fold mechanics over one resolved grouped stream.
+    fn execute_group_fold_stage(
+        &self,
+        route: &GroupedRouteStage,
+        stream: GroupedStreamStage<'_>,
+    ) -> Result<GroupedFoldStage, InternalError>;
+
+    /// Finalize grouped output payloads and observability after fold completion.
+    fn finalize_grouped_output(
+        &self,
+        route: GroupedRouteStage,
+        folded: GroupedFoldStage,
+        execution_time_micros: u64,
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>);
+}
+
+// Execute one fully resolved grouped route through the canonical grouped
+// runtime spine. The grouped route/stream/page contracts are already structural,
+// so this orchestration can stay monomorphic.
+fn execute_grouped_route_path(
+    runtime: &dyn GroupedPathRuntime,
+    route: GroupedRouteStage,
+) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+    let execution_started_at = start_execution_timer();
+    let stream = runtime.build_grouped_stream(&route)?;
+    let folded = runtime.execute_group_fold_stage(&route, stream)?;
+    let execution_time_micros = elapsed_execution_micros(execution_started_at);
+
+    Ok(runtime.finalize_grouped_output(route, folded, execution_time_micros))
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -27,7 +78,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: LoadCursorInput,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        let surface = self.execute_load(
+        let surface = self.execute_load_erased(
             plan,
             cursor,
             LoadExecutionMode::grouped_paged(LoadTracingMode::Enabled),
@@ -46,28 +97,49 @@ where
         plan: ExecutablePlan<E>,
         cursor: GroupedPlannedCursor,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        let execution_started_at = start_execution_timer();
         let route = Self::resolve_grouped_route(plan, cursor, self.debug)?;
-        let stream = self.build_grouped_stream(&route)?;
-        let folded = Self::execute_group_fold_stage(&route, stream)?;
-        let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
-        Ok(Self::finalize_grouped_output(
-            route,
-            folded,
-            execution_time_micros,
-        ))
+        execute_grouped_route_path(self, route)
     }
 
     // Project one traced grouped load surface and classify shape mismatches.
     fn expect_grouped_traced_surface(
-        surface: LoadExecutionSurface<E>,
+        surface: ErasedLoadExecutionSurface,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
         match surface {
-            LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
+            ErasedLoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
             _ => Err(crate::db::error::query_executor_invariant(
                 "grouped traced entrypoint must produce grouped traced page surface",
             )),
         }
+    }
+}
+
+impl<E> GroupedPathRuntime for LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn build_grouped_stream<'a>(
+        &'a self,
+        route: &GroupedRouteStage,
+    ) -> Result<GroupedStreamStage<'a>, InternalError> {
+        LoadExecutor::<E>::build_grouped_stream(self, route)
+    }
+
+    fn execute_group_fold_stage(
+        &self,
+        route: &GroupedRouteStage,
+        stream: GroupedStreamStage<'_>,
+    ) -> Result<GroupedFoldStage, InternalError> {
+        LoadExecutor::<E>::execute_group_fold_stage(self, route, stream)
+    }
+
+    fn finalize_grouped_output(
+        &self,
+        route: GroupedRouteStage,
+        folded: GroupedFoldStage,
+        execution_time_micros: u64,
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
+        LoadExecutor::<E>::finalize_grouped_output(self, route, folded, execution_time_micros)
     }
 }

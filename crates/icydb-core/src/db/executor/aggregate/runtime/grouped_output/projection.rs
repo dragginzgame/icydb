@@ -6,14 +6,13 @@
 use crate::{
     db::{
         GroupedRow,
-        executor::{aggregate::AggregateOutput, projection::*},
+        executor::projection::*,
         query::{
             builder::AggregateExpr,
             plan::{FieldSlot, PlannedProjectionLayout, expr::ProjectionSpec},
         },
     },
     error::InternalError,
-    traits::EntityKind,
     value::Value,
 };
 
@@ -43,7 +42,7 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
 
 // Evaluate one grouped projection expression row and convert it into grouped
 // `(group_key, aggregate_values)` payload vectors.
-pub(in crate::db::executor) fn project_grouped_row_from_projection(
+fn project_grouped_row_from_projection(
     projection: &ProjectionSpec,
     projection_layout: &PlannedProjectionLayout,
     group_fields: &[FieldSlot],
@@ -63,30 +62,16 @@ pub(in crate::db::executor) fn project_grouped_row_from_projection(
                 "grouped projection evaluation failed: {err}",
             ))
         })?;
-
-    let mut projected_group_key =
-        Vec::with_capacity(projection_layout.group_field_positions().len());
-    for position in projection_layout.group_field_positions() {
-        let Some(value) = projected_values.get(*position) else {
-            return Err(crate::db::error::query_executor_invariant(format!(
-                "grouped projection layout group-field position out of bounds: position={position}, projected_len={}",
-                projected_values.len()
-            )));
-        };
-        projected_group_key.push(value.clone());
-    }
-
-    let mut projected_aggregate_values =
-        Vec::with_capacity(projection_layout.aggregate_positions().len());
-    for position in projection_layout.aggregate_positions() {
-        let Some(value) = projected_values.get(*position) else {
-            return Err(crate::db::error::query_executor_invariant(format!(
-                "grouped projection layout aggregate position out of bounds: position={position}, projected_len={}",
-                projected_values.len()
-            )));
-        };
-        projected_aggregate_values.push(value.clone());
-    }
+    let projected_group_key = projected_values_for_positions(
+        projected_values.as_slice(),
+        projection_layout.group_field_positions(),
+        "group-field",
+    )?;
+    let projected_aggregate_values = projected_values_for_positions(
+        projected_values.as_slice(),
+        projection_layout.aggregate_positions(),
+        "aggregate",
+    )?;
 
     Ok(GroupedRow::new(
         projected_group_key,
@@ -94,17 +79,23 @@ pub(in crate::db::executor) fn project_grouped_row_from_projection(
     ))
 }
 
-// Convert one aggregate output payload into grouped response value payload.
-pub(in crate::db::executor) fn aggregate_output_to_value<E: EntityKind>(
-    output: &AggregateOutput<E>,
-) -> Value {
-    match output {
-        AggregateOutput::Count(value) => Value::Uint(u64::from(*value)),
-        AggregateOutput::Sum(value) => value.map_or(Value::Null, Value::Decimal),
-        AggregateOutput::Exists(value) => Value::Bool(*value),
-        AggregateOutput::Min(value)
-        | AggregateOutput::Max(value)
-        | AggregateOutput::First(value)
-        | AggregateOutput::Last(value) => value.map_or(Value::Null, Value::from),
+// Project one stable set of row positions into one cloned value vector. Grouped
+// output layout splitting reuses this for both grouped-key and aggregate payloads.
+fn projected_values_for_positions(
+    projected_values: &[Value],
+    positions: &[usize],
+    position_kind: &str,
+) -> Result<Vec<Value>, InternalError> {
+    let mut values = Vec::with_capacity(positions.len());
+    for position in positions {
+        let Some(value) = projected_values.get(*position) else {
+            return Err(crate::db::error::query_executor_invariant(format!(
+                "grouped projection layout {position_kind} position out of bounds: position={position}, projected_len={}",
+                projected_values.len()
+            )));
+        };
+        values.push(value.clone());
     }
+
+    Ok(values)
 }

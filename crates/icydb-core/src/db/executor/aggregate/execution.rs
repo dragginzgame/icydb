@@ -29,7 +29,7 @@ use crate::{
 pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue>
 {
     pub(in crate::db::executor) ctx: &'exec Context<'ctx, E>,
-    pub(in crate::db::executor) logical_plan: &'exec AccessPlannedQuery<E::Key>,
+    pub(in crate::db::executor) logical_plan: &'exec AccessPlannedQuery,
     pub(in crate::db::executor) route_plan: &'exec ExecutionPlan,
     pub(in crate::db::executor) index_prefix_specs: &'exec [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) index_range_specs: &'exec [LoweredIndexRangeSpec],
@@ -77,7 +77,7 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
     E: EntityKind + EntityValue,
 > {
     pub(in crate::db::executor) ctx: Context<'ctx, E>,
-    pub(in crate::db::executor) logical_plan: AccessPlannedQuery<E::Key>,
+    pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
 }

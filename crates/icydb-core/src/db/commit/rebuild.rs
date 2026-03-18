@@ -98,7 +98,7 @@ fn rebuild_secondary_indexes_in_place(
                     "startup index rebuild failed: invalid data key in store '{store_path}' ({err})"
                 ))
             })?;
-            let hooks = db.runtime_hook_for_entity_name(data_key.entity_name().as_str())?;
+            let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;
             let row_op = CommitRowOp::new(
                 hooks.entity_path,
                 raw_key.as_bytes().to_vec(),

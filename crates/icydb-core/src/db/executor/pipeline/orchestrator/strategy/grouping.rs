@@ -4,7 +4,8 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionTrace, PreparedLoadCursor, ResolvedScalarContinuationContext,
             pipeline::{
-                contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
+                contracts::{GroupedCursorPage, LoadExecutor},
+                orchestrator::ErasedLoadPayload,
                 orchestrator::state::{
                     LoadAccessInputs, LoadAccessState, LoadExecutionContext, LoadExecutionPayload,
                     LoadPayloadState,
@@ -15,7 +16,6 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-use std::any::Any;
 
 ///
 /// ExecutionMode
@@ -28,150 +28,25 @@ enum ExecutionMode {
 }
 
 ///
-/// ExecutionLane
-///
-/// Runtime lane classification used by non-generic kernel orchestration.
-///
-
-enum ExecutionLane {
-    Scalar,
-    Grouped,
-}
-
-///
-/// ExecCtx
-///
-/// Immutable kernel execution context built once from staged access inputs.
-/// Keeps lane classification in one authority before kernel dispatch starts.
-///
-
-struct ExecCtx<E: EntityKind> {
-    context: LoadExecutionContext,
-    plan: ExecutablePlan<E>,
-    mode: ExecutionMode,
-}
-
-impl<E> ExecCtx<E>
-where
-    E: EntityKind,
-{
-    // Build one kernel execution context from one staged access-state envelope.
-    fn from_access_state(state: LoadAccessState<E>) -> Self {
-        let LoadAccessState {
-            context,
-            access_inputs,
-        } = state;
-        let LoadAccessInputs { plan, cursor } = access_inputs;
-        let mode = match cursor {
-            PreparedLoadCursor::Scalar(resolved_continuation) => {
-                ExecutionMode::Scalar(*resolved_continuation)
-            }
-            PreparedLoadCursor::Grouped(cursor) => ExecutionMode::Grouped(cursor),
-        };
-
-        Self {
-            context,
-            plan,
-            mode,
-        }
-    }
-}
-
-///
-/// KernelOps
-///
-/// Lane-specific kernel operations built once from typed executor inputs.
-/// Holds leaf call targets for scalar and grouped execution.
-///
-
-struct KernelOps {
-    execute_scalar: Option<KernelOp>,
-    execute_grouped: Option<KernelOp>,
-}
-
-impl KernelOps {
-    // Build lane operations for scalar execution.
-    const fn scalar(execute_scalar: KernelOp) -> Self {
-        Self {
-            execute_scalar: Some(execute_scalar),
-            execute_grouped: None,
-        }
-    }
-
-    // Build lane operations for grouped execution.
-    const fn grouped(execute_grouped: KernelOp) -> Self {
-        Self {
-            execute_scalar: None,
-            execute_grouped: Some(execute_grouped),
-        }
-    }
-}
-
-///
 /// ExecutionSpec
 ///
 /// Non-generic kernel descriptor consumed by canonical kernel orchestration.
-/// Captures lane mode and pre-bound lane operations.
+/// Captures one pre-bound lane operation with no typed closure capture.
 ///
 
 struct ExecutionSpec {
-    mode: ExecutionLane,
-    ops: KernelOps,
+    op: Box<dyn KernelOp>,
 }
 
 impl ExecutionSpec {
     // Build one scalar execution descriptor.
-    const fn scalar(execute_scalar: KernelOp) -> Self {
-        Self {
-            mode: ExecutionLane::Scalar,
-            ops: KernelOps::scalar(execute_scalar),
-        }
+    fn scalar(op: impl KernelOp + 'static) -> Self {
+        Self { op: Box::new(op) }
     }
 
     // Build one grouped execution descriptor.
-    const fn grouped(execute_grouped: KernelOp) -> Self {
-        Self {
-            mode: ExecutionLane::Grouped,
-            ops: KernelOps::grouped(execute_grouped),
-        }
-    }
-}
-
-///
-/// ErasedScalarPage
-///
-/// Type-erased scalar cursor page container for non-generic kernel dispatch.
-/// Re-materialized into `CursorPage<E>` at the typed payload boundary.
-///
-
-struct ErasedScalarPage {
-    page: Box<dyn Any>,
-}
-
-impl ErasedScalarPage {
-    // Erase one typed scalar cursor page.
-    fn new<E>(page: CursorPage<E>) -> Self
-    where
-        E: EntityKind,
-    {
-        Self {
-            page: Box::new(page),
-        }
-    }
-
-    // Recover one typed scalar cursor page and classify type drift.
-    fn into_typed<E>(self) -> Result<CursorPage<E>, InternalError>
-    where
-        E: EntityKind,
-    {
-        self.page
-            .downcast::<CursorPage<E>>()
-            .map(|page| *page)
-            .map_err(|_| {
-                crate::db::error::query_executor_invariant(
-                    "kernel scalar payload type must match load executor entity type",
-                )
-            })
+    fn grouped(op: impl KernelOp + 'static) -> Self {
+        Self { op: Box::new(op) }
     }
 }
 
@@ -182,7 +57,7 @@ impl ErasedScalarPage {
 ///
 
 enum KernelPayload {
-    Scalar(ErasedScalarPage),
+    Scalar(ErasedLoadPayload),
     Grouped(GroupedCursorPage),
 }
 
@@ -214,177 +89,203 @@ struct KernelState {
 ///
 /// KernelOp
 ///
-/// Erased lane operation descriptor backed by one function pointer and one
-/// boxed typed data payload. Keeps orchestration non-generic without closure
-/// captures.
+/// Monomorphic kernel operation trait used by the non-generic orchestration
+/// layer. Typed entity work stays confined to the boxed leaf adapters.
 ///
 
-struct KernelOp {
-    func: fn(&mut dyn Any) -> Result<KernelDispatchOutput, InternalError>,
-    data: Box<dyn Any>,
-}
-
-impl KernelOp {
-    // Build one erased scalar operation descriptor.
-    fn scalar<E>(data: ScalarKernelOpData<E>) -> Self
-    where
-        E: EntityKind + EntityValue,
-    {
-        Self {
-            func: execute_scalar_kernel_operation::<E>,
-            data: Box::new(data),
-        }
-    }
-
-    // Build one erased grouped operation descriptor.
-    fn grouped<E>(data: GroupedKernelOpData<E>) -> Self
-    where
-        E: EntityKind + EntityValue,
-    {
-        Self {
-            func: execute_grouped_kernel_operation::<E>,
-            data: Box::new(data),
-        }
-    }
-
-    // Execute one erased operation with its typed data payload.
-    fn run(mut self) -> Result<KernelDispatchOutput, InternalError> {
-        (self.func)(self.data.as_mut())
-    }
+trait KernelOp {
+    // Execute one pre-bound kernel lane operation exactly once.
+    fn execute(
+        self: Box<Self>,
+        context: &mut LoadExecutionContext,
+    ) -> Result<KernelDispatchOutput, InternalError>;
 }
 
 ///
-/// ScalarKernelOpData
+/// ScalarKernelOp
 ///
-/// Typed scalar operation payload bound once at descriptor construction.
-/// Stores all entity-specific data consumed by scalar leaf execution.
+/// Non-generic scalar kernel operation shell bound once at descriptor
+/// construction. Typed executor/plan state is owned by one leaf runtime
+/// adapter so the runtime op type itself stays monomorphic.
 ///
 
-struct ScalarKernelOpData<E>
-where
-    E: EntityKind + EntityValue,
-{
-    executor: *const LoadExecutor<E>,
-    plan: Option<ExecutablePlan<E>>,
-    resolved_continuation: Option<ResolvedScalarContinuationContext>,
+struct ScalarKernelOp {
+    runtime: Box<dyn ScalarKernelRuntime>,
+    resolved_continuation: ResolvedScalarContinuationContext,
     scalar_rows_mode: bool,
 }
 
 ///
-/// GroupedKernelOpData
+/// GroupedKernelOp
 ///
-/// Typed grouped operation payload bound once at descriptor construction.
-/// Stores all entity-specific data consumed by grouped leaf execution.
+/// Non-generic grouped kernel operation shell bound once at descriptor
+/// construction. Typed executor/plan state is owned by one leaf runtime
+/// adapter so the runtime op type itself stays monomorphic.
 ///
 
-struct GroupedKernelOpData<E>
+struct GroupedKernelOp {
+    runtime: Box<dyn GroupedKernelRuntime>,
+    cursor: GroupedPlannedCursor,
+}
+
+///
+/// ScalarKernelRuntime
+///
+/// Typed scalar execution leaf adapter resolved once before runtime
+/// orchestration starts. This keeps entity-specific execution off the
+/// non-generic kernel op type while preserving the existing scalar behavior.
+///
+
+trait ScalarKernelRuntime {
+    // Execute one typed scalar leaf and return one type-erased scalar payload.
+    fn execute_scalar(
+        self: Box<Self>,
+        resolved_continuation: ResolvedScalarContinuationContext,
+        scalar_rows_mode: bool,
+    ) -> Result<KernelDispatchOutput, InternalError>;
+}
+
+///
+/// GroupedKernelRuntime
+///
+/// Typed grouped execution leaf adapter resolved once before runtime
+/// orchestration starts. This keeps entity-specific execution off the
+/// non-generic kernel op type while preserving the existing grouped behavior.
+///
+
+trait GroupedKernelRuntime {
+    // Execute one typed grouped leaf and return one grouped payload.
+    fn execute_grouped(
+        self: Box<Self>,
+        cursor: GroupedPlannedCursor,
+    ) -> Result<KernelDispatchOutput, InternalError>;
+}
+
+///
+/// ScalarKernelRuntimeAdapter
+///
+/// Typed scalar leaf adapter holding the exact executor and plan required for
+/// scalar execution. This type is generic, but it stays behind one trait
+/// object resolved before non-generic runtime orchestration begins.
+///
+
+struct ScalarKernelRuntimeAdapter<E>
 where
     E: EntityKind + EntityValue,
 {
-    executor: *const LoadExecutor<E>,
-    plan: Option<ExecutablePlan<E>>,
-    cursor: Option<GroupedPlannedCursor>,
+    executor: LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
 }
 
-// Execute one typed scalar leaf operation from erased operation data.
-fn execute_scalar_kernel_operation<E>(
-    data: &mut dyn Any,
-) -> Result<KernelDispatchOutput, InternalError>
+///
+/// GroupedKernelRuntimeAdapter
+///
+/// Typed grouped leaf adapter holding the exact executor and plan required for
+/// grouped execution. This type is generic, but it stays behind one trait
+/// object resolved before non-generic runtime orchestration begins.
+///
+
+struct GroupedKernelRuntimeAdapter<E>
 where
     E: EntityKind + EntityValue,
 {
-    let Some(data) = data.downcast_mut::<ScalarKernelOpData<E>>() else {
-        return Err(crate::db::error::query_executor_invariant(
-            "scalar kernel operation data must match executor entity type",
-        ));
-    };
-    let Some(plan) = data.plan.take() else {
-        return Err(crate::db::error::query_executor_invariant(
-            "scalar kernel operation plan must be present before dispatch",
-        ));
-    };
-    let Some(resolved_continuation) = data.resolved_continuation.take() else {
-        return Err(crate::db::error::query_executor_invariant(
-            "scalar kernel continuation must be present before dispatch",
-        ));
-    };
-    // SAFETY: the pointer is created from `&self` in `build_execution_spec` and
-    // this operation executes synchronously before `apply_grouping_projection`
-    // returns, so the referenced executor outlives this dereference.
-    let executor = unsafe { &*data.executor };
-    let (page, trace) =
-        executor.execute_scalar_path(plan, resolved_continuation, data.scalar_rows_mode)?;
-
-    Ok(KernelDispatchOutput {
-        payload: KernelPayload::Scalar(ErasedScalarPage::new(page)),
-        trace,
-    })
+    executor: LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
 }
 
-// Execute one typed grouped leaf operation from erased operation data.
-fn execute_grouped_kernel_operation<E>(
-    data: &mut dyn Any,
-) -> Result<KernelDispatchOutput, InternalError>
+// Split one typed access-state envelope into shared execution context and one
+// lane-specific execution mode before non-generic kernel dispatch starts.
+fn split_access_state<E>(
+    state: LoadAccessState<E>,
+) -> (LoadExecutionContext, ExecutablePlan<E>, ExecutionMode)
+where
+    E: EntityKind,
+{
+    let LoadAccessState {
+        context,
+        access_inputs,
+    } = state;
+    let LoadAccessInputs { plan, cursor } = access_inputs;
+    let mode = match cursor {
+        PreparedLoadCursor::Scalar(resolved_continuation) => {
+            ExecutionMode::Scalar(*resolved_continuation)
+        }
+        PreparedLoadCursor::Grouped(cursor) => ExecutionMode::Grouped(cursor),
+    };
+
+    (context, plan, mode)
+}
+
+impl<E> ScalarKernelRuntime for ScalarKernelRuntimeAdapter<E>
 where
     E: EntityKind + EntityValue,
 {
-    let Some(data) = data.downcast_mut::<GroupedKernelOpData<E>>() else {
-        return Err(crate::db::error::query_executor_invariant(
-            "grouped kernel operation data must match executor entity type",
-        ));
-    };
-    let Some(plan) = data.plan.take() else {
-        return Err(crate::db::error::query_executor_invariant(
-            "grouped kernel operation plan must be present before dispatch",
-        ));
-    };
-    let Some(cursor) = data.cursor.take() else {
-        return Err(crate::db::error::query_executor_invariant(
-            "grouped kernel cursor must be present before dispatch",
-        ));
-    };
-    // SAFETY: the pointer is created from `&self` in `build_execution_spec` and
-    // this operation executes synchronously before `apply_grouping_projection`
-    // returns, so the referenced executor outlives this dereference.
-    let executor = unsafe { &*data.executor };
-    let (page, trace) = executor.execute_grouped_path(plan, cursor)?;
+    fn execute_scalar(
+        self: Box<Self>,
+        resolved_continuation: ResolvedScalarContinuationContext,
+        scalar_rows_mode: bool,
+    ) -> Result<KernelDispatchOutput, InternalError> {
+        let Self { executor, plan } = *self;
+        let (page, trace) =
+            executor.execute_scalar_path(plan, resolved_continuation, scalar_rows_mode)?;
 
-    Ok(KernelDispatchOutput {
-        payload: KernelPayload::Grouped(page),
-        trace,
-    })
+        Ok(KernelDispatchOutput {
+            payload: KernelPayload::Scalar(ErasedLoadPayload::new(page)),
+            trace,
+        })
+    }
 }
 
-// Execute one canonical kernel dispatch over one runtime execution mode.
+impl<E> GroupedKernelRuntime for GroupedKernelRuntimeAdapter<E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn execute_grouped(
+        self: Box<Self>,
+        cursor: GroupedPlannedCursor,
+    ) -> Result<KernelDispatchOutput, InternalError> {
+        let Self { executor, plan } = *self;
+        let (page, trace) = executor.execute_grouped_path(plan, cursor)?;
+
+        Ok(KernelDispatchOutput {
+            payload: KernelPayload::Grouped(page),
+            trace,
+        })
+    }
+}
+
+impl KernelOp for ScalarKernelOp {
+    fn execute(
+        self: Box<Self>,
+        _context: &mut LoadExecutionContext,
+    ) -> Result<KernelDispatchOutput, InternalError> {
+        let Self {
+            runtime,
+            resolved_continuation,
+            scalar_rows_mode,
+        } = *self;
+
+        runtime.execute_scalar(resolved_continuation, scalar_rows_mode)
+    }
+}
+
+impl KernelOp for GroupedKernelOp {
+    fn execute(
+        self: Box<Self>,
+        _context: &mut LoadExecutionContext,
+    ) -> Result<KernelDispatchOutput, InternalError> {
+        let Self { runtime, cursor } = *self;
+
+        runtime.execute_grouped(cursor)
+    }
+}
+
+// Execute one canonical kernel dispatch over one runtime execution descriptor.
 fn execute_kernel(
-    context: LoadExecutionContext,
+    mut context: LoadExecutionContext,
     spec: ExecutionSpec,
 ) -> Result<KernelState, InternalError> {
-    let ExecutionSpec { mode, ops } = spec;
-    let KernelOps {
-        execute_scalar,
-        execute_grouped,
-    } = ops;
-
-    // Dispatch by lane mode and enforce descriptor integrity.
-    let output = match mode {
-        ExecutionLane::Scalar => {
-            let Some(execute_scalar) = execute_scalar else {
-                return Err(crate::db::error::query_executor_invariant(
-                    "scalar execution mode requires a scalar kernel operation",
-                ));
-            };
-            execute_scalar.run()?
-        }
-        ExecutionLane::Grouped => {
-            let Some(execute_grouped) = execute_grouped else {
-                return Err(crate::db::error::query_executor_invariant(
-                    "grouped execution mode requires a grouped kernel operation",
-                ));
-            };
-            execute_grouped.run()?
-        }
-    };
+    let output = spec.op.execute(&mut context)?;
 
     Ok(KernelState {
         context,
@@ -397,22 +298,25 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Clone one executor handle without carrying any typed plan/cursor state.
+    fn clone_runtime_handle(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            debug: self.debug,
+        }
+    }
+
     // Apply grouping/projection contracts over staged payload artifacts.
     pub(in crate::db::executor::pipeline::orchestrator) fn apply_grouping_projection(
         &self,
         state: LoadAccessState<E>,
-    ) -> Result<LoadPayloadState<E>, InternalError> {
-        let ctx = ExecCtx::from_access_state(state);
-        let ExecCtx {
-            context,
-            plan,
-            mode,
-        } = ctx;
+    ) -> Result<LoadPayloadState, InternalError> {
+        let (context, plan, mode) = split_access_state(state);
         let scalar_rows_mode = context.mode.scalar_rows_mode();
         let spec = self.build_execution_spec(plan, mode, scalar_rows_mode);
         let kernel_state = execute_kernel(context, spec)?;
 
-        Self::materialize_payload_state(kernel_state)
+        Ok(Self::materialize_payload_state(kernel_state))
     }
 
     // Build one non-generic kernel descriptor from one typed execution context.
@@ -424,43 +328,45 @@ where
     ) -> ExecutionSpec {
         match mode {
             ExecutionMode::Scalar(resolved_continuation) => {
-                let execute_scalar = KernelOp::scalar(ScalarKernelOpData {
-                    executor: self,
-                    plan: Some(plan),
-                    resolved_continuation: Some(resolved_continuation),
+                let op = ScalarKernelOp {
+                    runtime: Box::new(ScalarKernelRuntimeAdapter {
+                        executor: self.clone_runtime_handle(),
+                        plan,
+                    }),
+                    resolved_continuation,
                     scalar_rows_mode,
-                });
-                ExecutionSpec::scalar(execute_scalar)
+                };
+                ExecutionSpec::scalar(op)
             }
             ExecutionMode::Grouped(cursor) => {
-                let execute_grouped = KernelOp::grouped(GroupedKernelOpData {
-                    executor: self,
-                    plan: Some(plan),
-                    cursor: Some(cursor),
-                });
-                ExecutionSpec::grouped(execute_grouped)
+                let op = GroupedKernelOp {
+                    runtime: Box::new(GroupedKernelRuntimeAdapter {
+                        executor: self.clone_runtime_handle(),
+                        plan,
+                    }),
+                    cursor,
+                };
+                ExecutionSpec::grouped(op)
             }
         }
     }
 
     // Re-materialize one typed payload state from one non-generic kernel state.
-    fn materialize_payload_state(
-        kernel_state: KernelState,
-    ) -> Result<LoadPayloadState<E>, InternalError> {
+    fn materialize_payload_state(kernel_state: KernelState) -> LoadPayloadState {
         let KernelState {
             context,
             payload,
             trace,
         } = kernel_state;
         let payload = match payload {
-            KernelPayload::Scalar(page) => LoadExecutionPayload::Scalar(page.into_typed::<E>()?),
+            KernelPayload::Scalar(page) => LoadExecutionPayload::Scalar(page),
             KernelPayload::Grouped(page) => LoadExecutionPayload::Grouped(page),
         };
 
-        Ok(LoadPayloadState {
+        LoadPayloadState {
             context,
             payload,
             trace,
-        })
+        }
     }
 }

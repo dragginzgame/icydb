@@ -327,6 +327,21 @@ where
         })
     }
 
+    /// Execute and return the average of distinct `field` values.
+    pub fn avg_distinct_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.session
+                .execute_load_query_with(self.query(), move |load, plan| {
+                    load.aggregate_avg_distinct_by_slot(plan, target_slot)
+                })
+        })
+    }
+
     /// Execute and return the median id by `field` using deterministic ordering
     /// `(field asc, primary key asc)`.
     ///

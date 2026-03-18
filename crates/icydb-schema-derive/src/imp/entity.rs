@@ -38,7 +38,8 @@ impl Imp<Entity> for EntityKindTrait {
         let indexes = node
             .indexes
             .iter()
-            .map(|index| index.runtime_part(&resolved_entity_name, store))
+            .enumerate()
+            .map(|(ordinal, index)| index.runtime_part(&resolved_entity_name, store, ordinal))
             .collect::<Vec<_>>();
 
         let ident = node.def.ident();
@@ -76,10 +77,26 @@ impl Imp<Entity> for EntityKindTrait {
             })
             .to_token_stream();
 
+        let generated_tag_tokens = quote! {
+            impl #ident {
+                #[doc(hidden)]
+                pub const __ENTITY_TAG_CONST: ::icydb::types::EntityTag = {
+                    const RAW_ENTITY_TAG: u64 = #entity_tag;
+
+                    // Generated entity tags are compile-time storage identities.
+                    // Construction is kept local to codegen so runtime code cannot
+                    // synthesize fresh tags through the public API surface.
+                    unsafe {
+                        ::core::mem::transmute::<u64, ::icydb::types::EntityTag>(RAW_ENTITY_TAG)
+                    }
+                };
+            }
+        };
+
         let kind_tokens = Implementor::new(&node.def, TraitKind::EntityKind)
             .set_tokens(quote! {
                 const ENTITY_TAG: ::icydb::types::EntityTag =
-                    ::icydb::types::EntityTag(#entity_tag);
+                    Self::__ENTITY_TAG_CONST;
             })
             .to_token_stream();
 
@@ -88,6 +105,7 @@ impl Imp<Entity> for EntityKindTrait {
         tokens.extend(identity_tokens);
         tokens.extend(schema_tokens);
         tokens.extend(placement_tokens);
+        tokens.extend(generated_tag_tokens);
         tokens.extend(kind_tokens);
         tokens.extend(quote! {
             #(#relation_key_type_assertions)*

@@ -265,7 +265,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Build a model-level logical plan using Value-based access keys.
     pub(in crate::db::query::intent) fn build_plan_model(
         &self,
-    ) -> Result<AccessPlannedQuery<Value>, QueryError> {
+    ) -> Result<AccessPlannedQuery, QueryError> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.intent.validate_policy_shape()?;
@@ -349,8 +349,12 @@ fn strip_redundant_primary_key_equality_predicate_for_by_key_access(
 // Collapse `LIMIT 1` pagination overhead when access is already one exact
 // primary-key lookup and no offset is requested.
 #[expect(clippy::redundant_closure_for_method_calls)]
-fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery<Value>) {
-    if !plan.access.as_path().is_some_and(|path| path.is_by_key()) {
+fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
+    if !plan
+        .access
+        .as_path()
+        .is_some_and(|path: &crate::db::access::AccessPath<Value>| path.is_by_key())
+    {
         return;
     }
 

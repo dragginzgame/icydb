@@ -18,7 +18,7 @@ impl<K> PostAccessPlan<'_, K> {
         E: EntitySchema<Key = K>,
     {
         let (has_residual_filter, access_order_satisfied_by_path, requires_post_access_sort) =
-            derive_budget_safety_flags::<E, _>(self.contract.plan());
+            derive_budget_safety_flags::<E>(self.contract.plan());
 
         BudgetSafetyMetadata {
             has_residual_filter,
@@ -38,6 +38,6 @@ impl<K> PostAccessPlan<'_, K> {
     where
         E: EntitySchema<Key = K>,
     {
-        stream_order_contract_safe::<E, _>(self.contract.plan())
+        stream_order_contract_safe::<E>(self.contract.plan())
     }
 }

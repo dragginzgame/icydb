@@ -8,19 +8,17 @@ use crate::{
         access::{AccessPlan, LoweredKey},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, continuation_advanced,
-            cursor_anchor_from_index_key, cursor_boundary_from_entity, resume_bounds_from_refs,
+            cursor_anchor_from_raw_index_key, resume_bounds_from_refs,
             validate_index_scan_continuation_advancement,
             validate_index_scan_continuation_envelope,
         },
         direction::Direction,
-        index::{IndexKey, RawIndexKey},
+        index::RawIndexKey,
         query::plan::{
             AccessPlannedQuery, OrderSpec, PageSpec, effective_offset_for_cursor_window,
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
-    types::Id,
 };
 use std::ops::Bound;
 
@@ -75,29 +73,54 @@ impl<'a> IndexScanContinuationInput<'a> {
     }
 }
 
+///
+/// MaterializedCursorRow
+///
+/// Structural continuation-row envelope produced after post-access ordering and
+/// cursor filtering. Carries the exact boundary payload and optional index-range
+/// anchor key needed to mint the next continuation token without typed entities.
+///
+#[derive(Clone, Debug)]
+pub(in crate::db) struct MaterializedCursorRow {
+    boundary: CursorBoundary,
+    index_anchor: Option<RawIndexKey>,
+}
+
+impl MaterializedCursorRow {
+    /// Build one structural continuation row from resolved boundary data.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        boundary: CursorBoundary,
+        index_anchor: Option<RawIndexKey>,
+    ) -> Self {
+        Self {
+            boundary,
+            index_anchor,
+        }
+    }
+}
+
 /// Derive the next continuation token from one post-access materialized page.
 #[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn next_cursor_for_materialized_rows<E>(
-    access: &AccessPlan<E::Key>,
+pub(in crate::db) fn next_cursor_for_materialized_rows<K>(
+    access: &AccessPlan<K>,
     order: Option<&OrderSpec>,
     page: Option<&PageSpec>,
-    rows: &[(Id<E>, E)],
+    rows_len: usize,
+    last_row: Option<&MaterializedCursorRow>,
     rows_after_cursor: usize,
     cursor_boundary: Option<&CursorBoundary>,
     previous_index_range_anchor: Option<&LoweredKey>,
     direction: Direction,
     signature: ContinuationSignature,
-) -> Result<Option<ContinuationToken>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Result<Option<ContinuationToken>, InternalError> {
     let Some(page) = page else {
         return Ok(None);
     };
     let Some(limit) = page.limit else {
         return Ok(None);
     };
-    if rows.is_empty() {
+    if rows_len == 0 {
         return Ok(None);
     }
 
@@ -109,11 +132,11 @@ where
         return Ok(None);
     }
 
-    let Some((_, last_entity)) = rows.last() else {
+    let Some(last_row) = last_row else {
         return Ok(None);
     };
 
-    let Some(order) = order else {
+    let Some(_order) = order else {
         return Err(crate::db::error::cursor_invariant(
             crate::db::error::executor_invariant_message(
                 "cannot build continuation cursor without ordering",
@@ -121,11 +144,10 @@ where
         ));
     };
 
-    next_cursor_for_entity(
+    next_cursor_for_row(
         access,
-        order,
         page.offset,
-        last_entity,
+        last_row,
         direction,
         signature,
         previous_index_range_anchor,
@@ -135,8 +157,8 @@ where
 
 /// Derive the effective pagination offset for one plan under cursor-window semantics.
 #[must_use]
-pub(in crate::db) fn effective_page_offset_for_window<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db) fn effective_page_offset_for_window(
+    plan: &AccessPlannedQuery,
     cursor_boundary_present: bool,
 ) -> u32 {
     let window_size = plan
@@ -150,8 +172,8 @@ pub(in crate::db) fn effective_page_offset_for_window<K>(
 
 /// Derive the effective keep-count (`offset + limit`) for one plan and limit.
 #[must_use]
-pub(in crate::db) fn effective_keep_count_for_limit<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db) fn effective_keep_count_for_limit(
+    plan: &AccessPlannedQuery,
     cursor_boundary_present: bool,
     limit: u32,
 ) -> usize {
@@ -162,28 +184,25 @@ pub(in crate::db) fn effective_keep_count_for_limit<K>(
         .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
 }
 
-fn next_cursor_for_entity<E>(
-    access: &AccessPlan<E::Key>,
-    order: &OrderSpec,
+fn next_cursor_for_row<K>(
+    access: &AccessPlan<K>,
     initial_offset: u32,
-    entity: &E,
+    row: &MaterializedCursorRow,
     direction: Direction,
     signature: ContinuationSignature,
     previous_index_range_anchor: Option<&LoweredKey>,
-) -> Result<ContinuationToken, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let boundary = cursor_boundary_from_entity(entity, order);
-    let token = if let Some((index, _, _, _)) = access.as_index_range_path() {
-        let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                "cursor row is not indexable for planned index-range access",
-            ))
-        })?;
-        let last_emitted_raw_key = index_key.to_raw();
+) -> Result<ContinuationToken, InternalError> {
+    let boundary = row.boundary.clone();
+    let token = if let Some((_index, _, _, _)) = access.as_index_range_path() {
+        let Some(last_emitted_raw_key) = row.index_anchor.as_ref() else {
+            return Err(crate::db::error::cursor_invariant(
+                crate::db::error::executor_invariant_message(
+                    "cursor row is not indexable for planned index-range access",
+                ),
+            ));
+        };
         let advanced = previous_index_range_anchor.is_none_or(|previous_anchor_raw_key| {
-            continuation_advanced(direction, &last_emitted_raw_key, previous_anchor_raw_key)
+            continuation_advanced(direction, last_emitted_raw_key, previous_anchor_raw_key)
         });
         if !advanced {
             return Err(crate::db::error::cursor_invariant(
@@ -200,7 +219,7 @@ where
         ContinuationToken::new_index_range_with_direction(
             signature,
             boundary,
-            cursor_anchor_from_index_key(&index_key),
+            cursor_anchor_from_raw_index_key(last_emitted_raw_key),
             direction,
             initial_offset,
         )

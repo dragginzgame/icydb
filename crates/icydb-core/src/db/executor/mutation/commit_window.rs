@@ -21,7 +21,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, FieldValue},
 };
 use std::{cell::RefCell, collections::BTreeMap, ops::Bound, ptr, thread::LocalKey};
 
@@ -176,7 +176,7 @@ where
 
         let mut out = Vec::new();
         for (_, raw_entry) in effective_entries {
-            let entry = raw_entry.try_decode::<E>().map_err(|err| {
+            let entry = raw_entry.try_decode().map_err(|err| {
                 InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
@@ -186,6 +186,16 @@ where
             })?;
 
             for key in entry.iter_ids() {
+                let value = key.as_value();
+                let Some(key) = <E::Key as FieldValue>::from_value(&value) else {
+                    return Err(InternalError::index_plan_index_corruption(format!(
+                        "index corrupted: {} ({}) -> invalid key {:?}",
+                        E::PATH,
+                        index.fields().join(", "),
+                        value
+                    )));
+                };
+
                 out.push(key);
                 if out.len() >= limit {
                     return Ok(out);

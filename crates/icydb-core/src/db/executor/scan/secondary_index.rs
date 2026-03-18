@@ -26,7 +26,7 @@ where
     /// Try one secondary-index order fast path and return ordered keys when eligible.
     pub(in crate::db::executor) fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
+        plan: &AccessPlannedQuery,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,

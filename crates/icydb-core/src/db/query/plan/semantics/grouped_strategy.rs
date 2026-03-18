@@ -22,8 +22,8 @@ pub(crate) enum GroupedPlanStrategyHint {
 
 /// Project one grouped execution strategy hint from one access-planned query.
 #[must_use]
-pub(in crate::db) fn grouped_plan_strategy_hint<K>(
-    plan: &AccessPlannedQuery<K>,
+pub(in crate::db) fn grouped_plan_strategy_hint(
+    plan: &AccessPlannedQuery,
 ) -> Option<GroupedPlanStrategyHint> {
     let grouped = plan.grouped_plan()?;
     if grouped.scalar.distinct {

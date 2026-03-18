@@ -405,7 +405,8 @@ where
         limit: usize,
     ) -> Result<Vec<E::Key>, InternalError> {
         let data_keys = store.with_borrow(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited::<E>(
+            index_store.resolve_data_values_in_raw_range_limited(
+                E::ENTITY_TAG,
                 index,
                 bounds,
                 IndexScanContinuationInput::new(None, Direction::Asc),

@@ -5,13 +5,13 @@
 
 use crate::{
     db::{
-        executor::ExecutableAccessPlan,
+        executor::{ExecutableAccessPlan, reconstruct_typed_access_plan},
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
     },
-    model::entity::resolve_field_slot,
-    traits::{EntityKind, EntityValue},
+    model::entity::{EntityModel, resolve_field_slot},
+    traits::EntityKind,
 };
 
 ///
@@ -31,22 +31,19 @@ pub(in crate::db::executor) struct ExecutionPreparation {
 impl ExecutionPreparation {
     /// Build execution preparation once for one validated access-planned query.
     #[must_use]
-    pub(in crate::db::executor) fn for_plan<E>(plan: &AccessPlannedQuery<E::Key>) -> Self
-    where
-        E: EntityKind + EntityValue,
-    {
+    pub(in crate::db::executor) fn from_plan(
+        model: &'static EntityModel,
+        plan: &AccessPlannedQuery,
+        slot_map: Option<Vec<usize>>,
+    ) -> Self {
         // Phase 1: Compile the row-predicate once from logical plan semantics.
         let compiled_predicate = plan
             .scalar_plan()
             .predicate
             .as_ref()
-            .map(PredicateProgram::compile::<E>);
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
 
-        // Phase 2: Resolve access-path slot mapping used by index predicate compilation.
-        let access_strategy = plan.access_strategy();
-        let slot_map = resolved_index_slots_for_access_path::<E>(access_strategy.executable());
-
-        // Phase 3: Build strict index predicate program only when both inputs exist.
+        // Phase 2: Build strict index predicate program only when both inputs exist.
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
             (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
                 compiled_predicate.resolved(),
@@ -79,22 +76,34 @@ impl ExecutionPreparation {
     }
 }
 
-// Resolve index field slots from a single-path index access shape.
-fn resolved_index_slots_for_access_path<E>(
-    access: &ExecutableAccessPlan<'_, E::Key>,
-) -> Option<Vec<usize>>
-where
-    E: EntityKind + EntityValue,
-{
+/// Resolve index field slots from a single-path index access shape using structural model data.
+pub(in crate::db::executor) fn resolved_index_slots_for_access_path<K>(
+    model: &'static EntityModel,
+    access: &ExecutableAccessPlan<'_, K>,
+) -> Option<Vec<usize>> {
     let path = access.as_path()?;
     let path_capabilities = path.capabilities();
     let index_fields = path_capabilities.index_fields_for_slot_map()?;
 
     let mut slots = Vec::with_capacity(index_fields.len());
     for field_name in index_fields {
-        let slot = resolve_field_slot(E::MODEL, field_name)?;
+        let slot = resolve_field_slot(model, field_name)?;
         slots.push(slot);
     }
 
     Some(slots)
+}
+
+/// Resolve one structural slot map for one entity-bound plan at the execution boundary.
+pub(in crate::db::executor) fn slot_map_for_entity_plan<E>(
+    plan: &AccessPlannedQuery,
+) -> Option<Vec<usize>>
+where
+    E: EntityKind,
+{
+    reconstruct_typed_access_plan::<E>(plan)
+        .ok()
+        .and_then(|access| {
+            resolved_index_slots_for_access_path(E::MODEL, access.resolve_strategy().executable())
+        })
 }

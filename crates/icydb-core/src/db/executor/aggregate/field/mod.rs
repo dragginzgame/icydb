@@ -192,10 +192,19 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_plan
 }
 
 /// Resolve one aggregate target field into a stable projection slot.
+#[cfg(test)]
 pub(in crate::db::executor) fn resolve_any_aggregate_target_slot<E: EntityKind>(
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(E::MODEL, target_field) else {
+    resolve_any_aggregate_target_slot_with_model(E::MODEL, target_field)
+}
+
+/// Resolve one aggregate target field into a stable projection slot using structural model data.
+pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_with_model(
+    model: &'static EntityModel,
+    target_field: &str,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let Some((index, field)) = field_model_with_index(model, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
@@ -232,10 +241,19 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_sl
 }
 
 /// Resolve one numeric aggregate target field into a stable projection slot.
+#[cfg(test)]
 pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot<E: EntityKind>(
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(E::MODEL, target_field) else {
+    resolve_numeric_aggregate_target_slot_with_model(E::MODEL, target_field)
+}
+
+/// Resolve one numeric aggregate target field into a stable projection slot using structural model data.
+pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_with_model(
+    model: &'static EntityModel,
+    target_field: &str,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let Some((index, field)) = field_model_with_index(model, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
@@ -289,7 +307,18 @@ pub(in crate::db::executor) fn extract_orderable_field_value<E: EntityKind + Ent
     target_field: &str,
     field_slot: FieldSlot,
 ) -> Result<Value, AggregateFieldValueError> {
-    let Some(value) = entity.get_value_by_index(field_slot.index) else {
+    extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |index| {
+        entity.get_value_by_index(index)
+    })
+}
+
+/// Extract one field value from a slot reader and enforce the declared runtime field kind.
+pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
+    target_field: &str,
+    field_slot: FieldSlot,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> Result<Value, AggregateFieldValueError> {
+    let Some(value) = read_slot(field_slot.index) else {
         return Err(AggregateFieldValueError::MissingFieldValue {
             field: target_field.to_string(),
         });
@@ -311,7 +340,19 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal<E: EntityKind + Ent
     target_field: &str,
     field_slot: FieldSlot,
 ) -> Result<Decimal, AggregateFieldValueError> {
-    let value = extract_orderable_field_value(entity, target_field, field_slot)?;
+    extract_numeric_field_decimal_with_slot_reader(target_field, field_slot, &mut |index| {
+        entity.get_value_by_index(index)
+    })
+}
+
+/// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
+pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
+    target_field: &str,
+    field_slot: FieldSlot,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> Result<Decimal, AggregateFieldValueError> {
+    let value =
+        extract_orderable_field_value_with_slot_reader(target_field, field_slot, read_slot)?;
     let Some(decimal) = coerce_numeric_decimal(&value) else {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),
