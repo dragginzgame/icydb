@@ -9,72 +9,71 @@
 // This module must remain execution-agnostic.
 // No imports from executor load/kernel/route are allowed.
 
-use crate::{
-    traits::EntityKind,
-    types::{Decimal, Id},
-};
+use crate::{types::Decimal, value::StorageKey};
 
 pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
 ///
-/// AggregateOutput
+/// ScalarAggregateOutput
 ///
-/// Internal aggregate terminal result container shared by aggregate routing and fold execution.
+/// Structural scalar aggregate terminal result shared by scalar aggregate
+/// routing and fold execution.
 ///
 
-pub(in crate::db::executor) enum AggregateOutput<E: EntityKind> {
+pub(in crate::db::executor) enum ScalarAggregateOutput {
     Count(u32),
     /// Numeric SUM/AVG execution finalizes through dedicated numeric paths,
-    /// but zero-window aggregate contracts still use this shared payload.
+    /// but zero-window scalar aggregate contracts still use this shared payload.
     #[expect(
         dead_code,
-        reason = "numeric zero-window aggregate contracts still share AggregateOutput"
+        reason = "numeric zero-window aggregate contracts still share ScalarAggregateOutput"
     )]
     Sum(Option<Decimal>),
     Exists(bool),
-    Min(Option<Id<E>>),
-    Max(Option<Id<E>>),
-    First(Option<Id<E>>),
-    Last(Option<Id<E>>),
+    Min(Option<StorageKey>),
+    Max(Option<StorageKey>),
+    First(Option<StorageKey>),
+    Last(Option<StorageKey>),
 }
 
 impl AggregateKind {
-    /// Build the canonical empty-window aggregate output for this terminal kind.
+    /// Build the canonical empty-window scalar aggregate output for this terminal kind.
     #[must_use]
-    pub(in crate::db::executor) const fn zero_output<E: EntityKind>(self) -> AggregateOutput<E> {
+    pub(in crate::db::executor) const fn zero_output(self) -> ScalarAggregateOutput {
         match self {
-            Self::Count => AggregateOutput::Count(0),
-            Self::Sum | Self::Avg => AggregateOutput::Sum(None),
-            Self::Exists => AggregateOutput::Exists(false),
-            Self::Min => AggregateOutput::Min(None),
-            Self::Max => AggregateOutput::Max(None),
-            Self::First => AggregateOutput::First(None),
-            Self::Last => AggregateOutput::Last(None),
+            Self::Count => ScalarAggregateOutput::Count(0),
+            Self::Sum | Self::Avg => ScalarAggregateOutput::Sum(None),
+            Self::Exists => ScalarAggregateOutput::Exists(false),
+            Self::Min => ScalarAggregateOutput::Min(None),
+            Self::Max => ScalarAggregateOutput::Max(None),
+            Self::First => ScalarAggregateOutput::First(None),
+            Self::Last => ScalarAggregateOutput::Last(None),
         }
     }
 
-    /// Build an extrema output payload when this kind is MIN or MAX.
+    /// Build a structural extrema output payload when this kind is MIN or MAX.
     #[must_use]
-    pub(in crate::db::executor) const fn extrema_output<E: EntityKind>(
+    pub(in crate::db::executor) const fn extrema_output(
         self,
-        id: Option<Id<E>>,
-    ) -> Option<AggregateOutput<E>> {
+        key: Option<StorageKey>,
+    ) -> Option<ScalarAggregateOutput> {
         match self {
-            Self::Min => Some(AggregateOutput::Min(id)),
-            Self::Max => Some(AggregateOutput::Max(id)),
+            Self::Min => Some(ScalarAggregateOutput::Min(key)),
+            Self::Max => Some(ScalarAggregateOutput::Max(key)),
             Self::Count | Self::Sum | Self::Avg | Self::Exists | Self::First | Self::Last => None,
         }
     }
 
-    /// Return true when this kind/output pair is an unresolved extrema result.
+    /// Return true when this kind/output pair is an unresolved structural extrema result.
     #[must_use]
-    pub(in crate::db::executor) const fn is_unresolved_extrema_output<E: EntityKind>(
+    pub(in crate::db::executor) const fn is_unresolved_extrema_output(
         self,
-        output: &AggregateOutput<E>,
+        output: &ScalarAggregateOutput,
     ) -> bool {
         matches!(
             (self, output),
-            (Self::Min, AggregateOutput::Min(None)) | (Self::Max, AggregateOutput::Max(None))
+            (Self::Min, ScalarAggregateOutput::Min(None))
+                | (Self::Max, ScalarAggregateOutput::Max(None))
         )
     }
 }

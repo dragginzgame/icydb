@@ -6,8 +6,8 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStream,
             aggregate::{
-                AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, FoldControl,
-                execute_aggregate,
+                AggregateFoldMode, AggregateKind, FoldControl, ScalarAggregateEngine,
+                ScalarAggregateOutput, execute_scalar_aggregate,
             },
         },
         query::plan::AccessPlannedQuery,
@@ -48,7 +48,7 @@ impl ExecutionKernel {
         direction: Direction,
         mode: AggregateFoldMode,
         key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError>
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -60,16 +60,16 @@ impl ExecutionKernel {
 
         // Build one scalar aggregate reducer engine and fold all eligible keys
         // through one adapter-owned ingest authority.
-        let engine = AggregateEngine::new_scalar(kind, direction);
+        let engine = ScalarAggregateEngine::new_scalar(kind, direction);
         let mut keys_scanned = 0usize;
-        let mut ingest_all = |engine: &mut AggregateEngine<E>| -> Result<(), InternalError> {
+        let mut ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
             let mut on_key =
                 |key: &DataKey| -> Result<FoldControl, InternalError> { engine.ingest(key) };
             keys_scanned = Self::run_aggregate_key_fold(ctx, plan, mode, key_stream, &mut on_key)?;
 
             Ok(())
         };
-        let aggregate_output = execute_aggregate(engine, &mut ingest_all)?;
+        let aggregate_output = execute_scalar_aggregate(engine, &mut ingest_all)?;
 
         Ok((aggregate_output, keys_scanned))
     }

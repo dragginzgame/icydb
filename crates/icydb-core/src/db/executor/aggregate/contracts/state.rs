@@ -11,14 +11,13 @@ use crate::{
             aggregate::contracts::{
                 error::GroupError,
                 grouped::ExecutionContext,
-                spec::{AggregateKind, AggregateOutput},
+                spec::{AggregateKind, ScalarAggregateOutput},
             },
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
         },
     },
     error::InternalError,
-    traits::EntityKind,
-    types::{Decimal, Id},
+    types::Decimal,
     value::{StorageKey, Value},
 };
 
@@ -33,14 +32,14 @@ pub(in crate::db::executor) enum FoldControl {
 }
 
 ///
-/// TerminalUpdateDispatch
+/// ScalarTerminalUpdateDispatch
 ///
 /// Pre-resolved scalar terminal update dispatch selected once from aggregate
 /// kind so scalar reducer loops do not branch on aggregate kind per row.
 ///
 
-type TerminalUpdateDispatch<E> =
-    fn(&mut TerminalAggregateState<E>, Option<Id<E>>) -> Result<FoldControl, InternalError>;
+type ScalarTerminalUpdateDispatch =
+    fn(&mut ScalarTerminalAggregateState, Option<StorageKey>) -> Result<FoldControl, InternalError>;
 
 ///
 /// GroupedTerminalUpdateDispatch
@@ -55,24 +54,24 @@ type GroupedTerminalUpdateDispatch = fn(
 ) -> Result<FoldControl, InternalError>;
 
 ///
-/// AggregateReducerState
+/// ScalarAggregateReducerState
 ///
 /// Shared scalar aggregate terminal reducer state used by streaming and
 /// fast-path aggregate execution so scalar terminal update semantics stay
 /// centralized.
 ///
 
-pub(in crate::db::executor) enum AggregateReducerState<E: EntityKind> {
+pub(in crate::db::executor) enum ScalarAggregateReducerState {
     Count(u32),
     Sum(Option<Decimal>),
     Exists(bool),
-    Min(Option<Id<E>>),
-    Max(Option<Id<E>>),
-    First(Option<Id<E>>),
-    Last(Option<Id<E>>),
+    Min(Option<StorageKey>),
+    Max(Option<StorageKey>),
+    First(Option<StorageKey>),
+    Last(Option<StorageKey>),
 }
 
-impl<E: EntityKind> AggregateReducerState<E> {
+impl ScalarAggregateReducerState {
     /// Build the initial scalar reducer state for one aggregate terminal.
     #[must_use]
     pub(in crate::db::executor) const fn for_kind(kind: AggregateKind) -> Self {
@@ -114,15 +113,15 @@ impl<E: EntityKind> AggregateReducerState<E> {
     }
 
     // Apply one MIN reducer update.
-    fn update_min_value(&mut self, id: Id<E>) -> Result<(), InternalError> {
+    fn update_min_value(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
-            Self::Min(min_id) => {
-                let replace = match min_id.as_ref() {
-                    Some(current) => id < *current,
+            Self::Min(min_key) => {
+                let replace = match min_key.as_ref() {
+                    Some(current) => key < *current,
                     None => true,
                 };
                 if replace {
-                    *min_id = Some(id);
+                    *min_key = Some(key);
                 }
 
                 Ok(())
@@ -134,15 +133,15 @@ impl<E: EntityKind> AggregateReducerState<E> {
     }
 
     // Apply one MAX reducer update.
-    fn update_max_value(&mut self, id: Id<E>) -> Result<(), InternalError> {
+    fn update_max_value(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
-            Self::Max(max_id) => {
-                let replace = match max_id.as_ref() {
-                    Some(current) => id > *current,
+            Self::Max(max_key) => {
+                let replace = match max_key.as_ref() {
+                    Some(current) => key > *current,
                     None => true,
                 };
                 if replace {
-                    *max_id = Some(id);
+                    *max_key = Some(key);
                 }
 
                 Ok(())
@@ -154,10 +153,10 @@ impl<E: EntityKind> AggregateReducerState<E> {
     }
 
     // Apply one FIRST reducer update.
-    fn set_first(&mut self, id: Id<E>) -> Result<(), InternalError> {
+    fn set_first(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
-            Self::First(first_id) => {
-                *first_id = Some(id);
+            Self::First(first_key) => {
+                *first_key = Some(key);
                 Ok(())
             }
             _ => Err(crate::db::error::query_executor_invariant(
@@ -167,10 +166,10 @@ impl<E: EntityKind> AggregateReducerState<E> {
     }
 
     // Apply one LAST reducer update.
-    fn set_last(&mut self, id: Id<E>) -> Result<(), InternalError> {
+    fn set_last(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
-            Self::Last(last_id) => {
-                *last_id = Some(id);
+            Self::Last(last_key) => {
+                *last_key = Some(key);
                 Ok(())
             }
             _ => Err(crate::db::error::query_executor_invariant(
@@ -179,17 +178,17 @@ impl<E: EntityKind> AggregateReducerState<E> {
         }
     }
 
-    /// Convert reducer state into the scalar aggregate terminal output payload.
+    /// Convert reducer state into the structural scalar aggregate terminal output payload.
     #[must_use]
-    pub(in crate::db::executor) const fn into_output(self) -> AggregateOutput<E> {
+    pub(in crate::db::executor) const fn into_output(self) -> ScalarAggregateOutput {
         match self {
-            Self::Count(value) => AggregateOutput::Count(value),
-            Self::Sum(value) => AggregateOutput::Sum(value),
-            Self::Exists(value) => AggregateOutput::Exists(value),
-            Self::Min(value) => AggregateOutput::Min(value),
-            Self::Max(value) => AggregateOutput::Max(value),
-            Self::First(value) => AggregateOutput::First(value),
-            Self::Last(value) => AggregateOutput::Last(value),
+            Self::Count(value) => ScalarAggregateOutput::Count(value),
+            Self::Sum(value) => ScalarAggregateOutput::Sum(value),
+            Self::Exists(value) => ScalarAggregateOutput::Exists(value),
+            Self::Min(value) => ScalarAggregateOutput::Min(value),
+            Self::Max(value) => ScalarAggregateOutput::Max(value),
+            Self::First(value) => ScalarAggregateOutput::First(value),
+            Self::Last(value) => ScalarAggregateOutput::Last(value),
         }
     }
 }
@@ -334,39 +333,39 @@ impl GroupedAggregateReducerState {
 }
 
 ///
-/// AggregateState
+/// ScalarAggregateState
 ///
 /// Canonical scalar aggregate state-machine contract consumed by kernel
 /// reducer orchestration. Implementations must keep transitions deterministic
 /// and emit scalar terminal outputs using the shared aggregate output taxonomy.
 ///
 
-pub(in crate::db::executor) trait AggregateState<E: EntityKind> {
+pub(in crate::db::executor) trait ScalarAggregateState {
     /// Apply one candidate data key to this aggregate state machine.
     fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError>;
 
     /// Finalize this aggregate state into one terminal output payload.
-    fn finalize(self) -> AggregateOutput<E>;
+    fn finalize(self) -> ScalarAggregateOutput;
 }
 
 ///
-/// TerminalAggregateState
+/// ScalarTerminalAggregateState
 ///
-/// TerminalAggregateState binds one scalar aggregate kind + direction to one
+/// ScalarTerminalAggregateState binds one scalar aggregate kind + direction to one
 /// reducer state machine so key-stream execution can use a single canonical
 /// update pipeline across COUNT/EXISTS/MIN/MAX/FIRST/LAST terminals.
 ///
 
-pub(in crate::db::executor) struct TerminalAggregateState<E: EntityKind> {
+pub(in crate::db::executor) struct ScalarTerminalAggregateState {
     direction: Direction,
     distinct: bool,
     distinct_keys: Option<GroupKeySet>,
-    requires_decoded_id: bool,
-    terminal_update_dispatch: TerminalUpdateDispatch<E>,
-    reducer: AggregateReducerState<E>,
+    requires_storage_key: bool,
+    terminal_update_dispatch: ScalarTerminalUpdateDispatch,
+    reducer: ScalarAggregateReducerState,
 }
 
-impl<E: EntityKind> AggregateState<E> for TerminalAggregateState<E> {
+impl ScalarAggregateState for ScalarTerminalAggregateState {
     fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
         if self.distinct && !record_distinct_key(self.distinct_keys.as_mut(), key)? {
             return Ok(FoldControl::Continue);
@@ -375,7 +374,7 @@ impl<E: EntityKind> AggregateState<E> for TerminalAggregateState<E> {
         self.apply_terminal_update(key)
     }
 
-    fn finalize(self) -> AggregateOutput<E> {
+    fn finalize(self) -> ScalarAggregateOutput {
         self.reducer.into_output()
     }
 }
@@ -552,12 +551,12 @@ pub(in crate::db::executor) struct AggregateStateFactory;
 impl AggregateStateFactory {
     /// Build one scalar terminal aggregate state machine for kernel reducers.
     #[must_use]
-    pub(in crate::db::executor) const fn create_terminal<E: EntityKind>(
+    pub(in crate::db::executor) const fn create_scalar_terminal(
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
-    ) -> TerminalAggregateState<E> {
-        TerminalAggregateState {
+    ) -> ScalarTerminalAggregateState {
+        ScalarTerminalAggregateState {
             direction,
             distinct,
             distinct_keys: if distinct {
@@ -565,10 +564,10 @@ impl AggregateStateFactory {
             } else {
                 None
             },
-            requires_decoded_id: kind.requires_decoded_id(),
+            requires_storage_key: kind.requires_decoded_id(),
             terminal_update_dispatch:
-                TerminalAggregateState::<E>::terminal_update_dispatch_for_kind(kind),
-            reducer: AggregateReducerState::for_kind(kind),
+                ScalarTerminalAggregateState::terminal_update_dispatch_for_kind(kind),
+            reducer: ScalarAggregateReducerState::for_kind(kind),
         }
     }
 
@@ -597,9 +596,11 @@ impl AggregateStateFactory {
     }
 }
 
-impl<E: EntityKind> TerminalAggregateState<E> {
+impl ScalarTerminalAggregateState {
     // Resolve one scalar terminal update dispatch function from one aggregate kind.
-    const fn terminal_update_dispatch_for_kind(kind: AggregateKind) -> TerminalUpdateDispatch<E> {
+    const fn terminal_update_dispatch_for_kind(
+        kind: AggregateKind,
+    ) -> ScalarTerminalUpdateDispatch {
         match kind {
             AggregateKind::Count => Self::apply_count,
             AggregateKind::Sum => Self::apply_sum_unsupported,
@@ -614,24 +615,24 @@ impl<E: EntityKind> TerminalAggregateState<E> {
 
     // Dispatch one scalar terminal aggregate update by kind at one canonical boundary.
     fn apply_terminal_update(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
-        let id = if self.requires_decoded_id {
-            Some(Id::from_key(key.try_key::<E>()?))
+        let storage_key = if self.requires_storage_key {
+            Some(key.storage_key())
         } else {
             None
         };
 
-        (self.terminal_update_dispatch)(self, id)
+        (self.terminal_update_dispatch)(self, storage_key)
     }
 
     // Apply one COUNT scalar terminal update.
-    fn apply_count(&mut self, _id: Option<Id<E>>) -> Result<FoldControl, InternalError> {
+    fn apply_count(&mut self, _key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         self.reducer.increment_count()?;
 
         Ok(FoldControl::Continue)
     }
 
     // Apply one EXISTS scalar terminal update.
-    fn apply_exists(&mut self, _id: Option<Id<E>>) -> Result<FoldControl, InternalError> {
+    fn apply_exists(&mut self, _key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         self.reducer.set_exists_true()?;
 
         Ok(FoldControl::Break)
@@ -640,7 +641,7 @@ impl<E: EntityKind> TerminalAggregateState<E> {
     // Reject SUM through scalar key-based reducer paths.
     fn apply_sum_unsupported(
         _state: &mut Self,
-        _id: Option<Id<E>>,
+        _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
         Err(crate::db::error::query_executor_invariant(
             "aggregate reducer SUM requires field-target execution path",
@@ -648,13 +649,13 @@ impl<E: EntityKind> TerminalAggregateState<E> {
     }
 
     // Apply one MIN scalar terminal update.
-    fn apply_min(&mut self, id: Option<Id<E>>) -> Result<FoldControl, InternalError> {
-        let Some(id) = id else {
+    fn apply_min(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+        let Some(key) = key else {
             return Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer MIN update requires decoded id",
+                "aggregate reducer MIN update requires storage key",
             ));
         };
-        self.reducer.update_min_value(id)?;
+        self.reducer.update_min_value(key)?;
 
         Ok(if self.direction == Direction::Asc {
             FoldControl::Break
@@ -664,13 +665,13 @@ impl<E: EntityKind> TerminalAggregateState<E> {
     }
 
     // Apply one MAX scalar terminal update.
-    fn apply_max(&mut self, id: Option<Id<E>>) -> Result<FoldControl, InternalError> {
-        let Some(id) = id else {
+    fn apply_max(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+        let Some(key) = key else {
             return Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer MAX update requires decoded id",
+                "aggregate reducer MAX update requires storage key",
             ));
         };
-        self.reducer.update_max_value(id)?;
+        self.reducer.update_max_value(key)?;
 
         Ok(if self.direction == Direction::Desc {
             FoldControl::Break
@@ -680,25 +681,25 @@ impl<E: EntityKind> TerminalAggregateState<E> {
     }
 
     // Apply one FIRST scalar terminal update.
-    fn apply_first(&mut self, id: Option<Id<E>>) -> Result<FoldControl, InternalError> {
-        let Some(id) = id else {
+    fn apply_first(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+        let Some(key) = key else {
             return Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer FIRST update requires decoded id",
+                "aggregate reducer FIRST update requires storage key",
             ));
         };
-        self.reducer.set_first(id)?;
+        self.reducer.set_first(key)?;
 
         Ok(FoldControl::Break)
     }
 
     // Apply one LAST scalar terminal update.
-    fn apply_last(&mut self, id: Option<Id<E>>) -> Result<FoldControl, InternalError> {
-        let Some(id) = id else {
+    fn apply_last(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+        let Some(key) = key else {
             return Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer LAST update requires decoded id",
+                "aggregate reducer LAST update requires storage key",
             ));
         };
-        self.reducer.set_last(id)?;
+        self.reducer.set_last(key)?;
 
         Ok(FoldControl::Continue)
     }
@@ -706,7 +707,7 @@ impl<E: EntityKind> TerminalAggregateState<E> {
     // Reject AVG through scalar key-based reducer paths.
     fn apply_avg_unsupported(
         _state: &mut Self,
-        _id: Option<Id<E>>,
+        _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
         Err(crate::db::error::query_executor_invariant(
             "aggregate reducer AVG requires field-target execution path",

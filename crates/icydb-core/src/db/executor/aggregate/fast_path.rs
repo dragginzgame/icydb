@@ -10,7 +10,7 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
             aggregate::{
-                AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
+                AggregateFastPathInputs, AggregateFoldMode, AggregateKind, ScalarAggregateOutput,
             },
             pipeline::{
                 contracts::{FastPathKeyResult, LoadExecutor},
@@ -52,7 +52,7 @@ impl ExecutionKernel {
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
         stream_request: RoutedKeyStreamRequest<'_, E::Key>,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError>
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -72,7 +72,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn try_fold_secondary_index_aggregate<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
         probe_fetch_hint: Option<usize>,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -170,7 +170,7 @@ impl ExecutionKernel {
     fn try_execute_verified_aggregate_fast_path<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
         verified_route: VerifiedAggregateFastPathRoute,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -199,7 +199,7 @@ impl ExecutionKernel {
     /// Attempt aggregate fast-path execution through route-owned fast-path order.
     pub(in crate::db::executor) fn try_fast_path_aggregate<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -230,7 +230,7 @@ impl ExecutionKernel {
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
         mut fast: FastPathKeyResult,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError>
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -258,7 +258,7 @@ impl ExecutionKernel {
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -301,7 +301,7 @@ impl ExecutionKernel {
     // canonical secondary ordering is pushdown-eligible.
     fn try_execute_index_prefix_aggregate<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -351,7 +351,7 @@ impl ExecutionKernel {
         physical_fetch_hint: Option<usize>,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -388,7 +388,7 @@ impl ExecutionKernel {
     // This reuses canonical range traversal while preserving one fold engine.
     fn try_execute_index_range_aggregate<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -422,7 +422,7 @@ impl ExecutionKernel {
     // reusing canonical composite stream production.
     fn try_execute_composite_aggregate<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -462,26 +462,20 @@ impl ExecutionKernel {
     }
 
     // Return the aggregate terminal value for an empty effective output window.
-    const fn aggregate_zero_window_result<E>(kind: AggregateKind) -> AggregateOutput<E>
-    where
-        E: EntityKind + EntityValue,
-    {
+    const fn aggregate_zero_window_result(kind: AggregateKind) -> ScalarAggregateOutput {
         kind.zero_output()
     }
 
     // Ignore can skip stale leading index entries. If a bounded Min/Max
     // probe returns None exactly at the fetch boundary, the outcome is
     // inconclusive and must retry unbounded.
-    const fn secondary_extrema_probe_requires_fallback<E>(
+    const fn secondary_extrema_probe_requires_fallback(
         consistency: MissingRowPolicy,
         kind: AggregateKind,
         probe_fetch_hint: Option<usize>,
-        probe_output: &AggregateOutput<E>,
+        probe_output: &ScalarAggregateOutput,
         probe_rows_scanned: usize,
-    ) -> bool
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> bool {
         if !matches!(consistency, MissingRowPolicy::Ignore) {
             return false;
         }

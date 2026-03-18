@@ -61,7 +61,7 @@ rustup toolchain install nightly
 rustup target add wasm32-unknown-unknown
 
 # dfx
-sh -ci "$(curl -fsSL https://smartcontracts.org/install.sh)"
+sh -ci "$(curl -fsSL https://internetcomputer.org/install.sh)"
 source ~/.profile
 
 # bin
@@ -69,7 +69,7 @@ mkdir -p $HOME/bin
 
 # didc
 # https://github.com/dfinity/candid/releases/
-wget https://github.com/dfinity/candid/releases/download/2024-05-14/didc-linux64
+wget https://github.com/dfinity/candid/releases/download/2025-12-18/didc-linux64
 mv -f ./didc-linux64 $HOME/bin/didc
 chmod +x $HOME/bin/didc
 

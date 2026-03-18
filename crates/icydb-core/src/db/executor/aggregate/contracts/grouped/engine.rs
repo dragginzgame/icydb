@@ -12,23 +12,22 @@ use crate::{
             aggregate::contracts::{
                 error::GroupError,
                 grouped::ExecutionContext,
-                spec::{AggregateKind, AggregateOutput},
+                spec::{AggregateKind, ScalarAggregateOutput},
                 state::{
-                    AggregateState, AggregateStateFactory, FoldControl,
-                    GroupedTerminalAggregateState, TerminalAggregateState,
+                    AggregateStateFactory, FoldControl, GroupedTerminalAggregateState,
+                    ScalarAggregateState, ScalarTerminalAggregateState,
                 },
             },
             group::{GroupKey, StableHash, canonical_group_key_equals},
         },
     },
     error::InternalError,
-    traits::EntityKind,
     value::Value,
 };
 use std::collections::BTreeMap;
 
-type AggregateIngestAllFn<'f, E> =
-    dyn FnMut(&mut AggregateEngine<E>) -> Result<(), InternalError> + 'f;
+type ScalarAggregateIngestAllFn<'f> =
+    dyn FnMut(&mut ScalarAggregateEngine) -> Result<(), InternalError> + 'f;
 
 ///
 /// GroupedAggregateOutput
@@ -274,17 +273,17 @@ impl GroupedAggregateEngine for GroupedAggregateState {
 }
 
 ///
-/// AggregateEngine
+/// ScalarAggregateEngine
 ///
-/// AggregateEngine is the scalar aggregate reducer engine shared by scalar
+/// ScalarAggregateEngine is the structural scalar aggregate reducer engine shared by scalar
 /// aggregate execution spines.
 ///
 
-pub(in crate::db::executor) struct AggregateEngine<E: EntityKind> {
-    state: TerminalAggregateState<E>,
+pub(in crate::db::executor) struct ScalarAggregateEngine {
+    state: ScalarTerminalAggregateState,
 }
 
-impl<E: EntityKind> AggregateEngine<E> {
+impl ScalarAggregateEngine {
     /// Build one scalar aggregate engine.
     #[must_use]
     pub(in crate::db::executor) const fn new_scalar(
@@ -292,7 +291,7 @@ impl<E: EntityKind> AggregateEngine<E> {
         direction: Direction,
     ) -> Self {
         Self {
-            state: AggregateStateFactory::create_terminal(kind, direction, false),
+            state: AggregateStateFactory::create_scalar_terminal(kind, direction, false),
         }
     }
 
@@ -306,7 +305,7 @@ impl<E: EntityKind> AggregateEngine<E> {
 
     /// Finalize this scalar aggregate engine into one terminal output payload.
     #[must_use]
-    pub(in crate::db::executor) fn finalize(self) -> AggregateOutput<E> {
+    pub(in crate::db::executor) fn finalize(self) -> ScalarAggregateOutput {
         self.state.finalize()
     }
 }
@@ -314,10 +313,10 @@ impl<E: EntityKind> AggregateEngine<E> {
 // Execute one scalar aggregate engine through one canonical ingest/finalize authority.
 // The caller supplies loop/key ingestion behavior while this boundary owns the
 // terminal finalize projection.
-pub(in crate::db::executor) fn execute_aggregate<E: EntityKind>(
-    mut engine: AggregateEngine<E>,
-    ingest_all: &mut AggregateIngestAllFn<'_, E>,
-) -> Result<AggregateOutput<E>, InternalError> {
+pub(in crate::db::executor) fn execute_scalar_aggregate(
+    mut engine: ScalarAggregateEngine,
+    ingest_all: &mut ScalarAggregateIngestAllFn<'_>,
+) -> Result<ScalarAggregateOutput, InternalError> {
     ingest_all(&mut engine)?;
 
     Ok(engine.finalize())

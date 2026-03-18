@@ -47,9 +47,9 @@ pub(in crate::db::executor) use capability::{
     field_target_is_tie_free_probe_target_for_model,
 };
 pub(in crate::db::executor) use contracts::{
-    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, ExecutionConfig,
-    ExecutionContext, FoldControl, GroupError, GroupedAggregateEngine, execute_aggregate,
-    execute_aggregate as execute_aggregate_engine,
+    AggregateFoldMode, AggregateKind, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
+    GroupedAggregateEngine, ScalarAggregateEngine, ScalarAggregateOutput, execute_scalar_aggregate,
+    execute_scalar_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -87,7 +87,7 @@ enum AggregateReducerDispatch<'a> {
 // expectation until reducer migration shrinks the enum payload.
 #[expect(clippy::large_enum_variant)]
 enum AggregateReducerSelection<E: EntityKind + EntityValue> {
-    Completed(AggregateOutput<E>),
+    Completed(ScalarAggregateOutput),
     Streaming(ExecutablePlan<E>),
 }
 
@@ -115,7 +115,7 @@ where
 pub(in crate::db::executor) fn aggregate_zero_output_if_window_empty<E>(
     plan: &ExecutablePlan<E>,
     kind: AggregateKind,
-) -> Option<AggregateOutput<E>>
+) -> Option<ScalarAggregateOutput>
 where
     E: EntityKind,
 {
@@ -279,7 +279,7 @@ impl ExecutionKernel {
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
         aggregate: &AggregateExpr,
-    ) -> Result<AggregateOutput<E>, InternalError>
+    ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -308,7 +308,7 @@ impl ExecutionKernel {
     fn aggregate_from_materialized<E>(
         response: EntityResponse<E>,
         kind: AggregateKind,
-    ) -> Result<AggregateOutput<E>, InternalError>
+    ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -317,7 +317,7 @@ impl ExecutionKernel {
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
         let mut response = response.into_iter();
-        let mut ingest_all = |engine: &mut AggregateEngine<E>| -> Result<(), InternalError> {
+        let mut ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
             for row in response.by_ref() {
                 let id = row.id();
                 let data_key = DataKey::try_new::<E>(id.key())?;
@@ -331,7 +331,7 @@ impl ExecutionKernel {
         };
 
         execute_aggregate_engine(
-            AggregateEngine::new_scalar(kind, direction),
+            ScalarAggregateEngine::new_scalar(kind, direction),
             &mut ingest_all,
         )
     }
@@ -342,7 +342,7 @@ impl ExecutionKernel {
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
         aggregate: AggregateExpr,
-    ) -> Result<AggregateOutput<E>, InternalError>
+    ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -431,7 +431,7 @@ impl ExecutionKernel {
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
         aggregate: AggregateExpr,
-    ) -> Result<AggregateOutput<E>, InternalError>
+    ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {

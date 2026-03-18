@@ -16,7 +16,7 @@ use crate::{
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
                 resolve_orderable_aggregate_target_slot,
             },
-            aggregate::{AggregateKind, AggregateOutput, PreparedAggregateStreamingInputs},
+            aggregate::{AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput},
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::record_rows_scanned,
             route::aggregate_extrema_direction,
@@ -27,7 +27,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    types::Id,
+    value::StorageKey,
 };
 use std::cmp::Ordering;
 
@@ -39,7 +39,7 @@ impl ExecutionKernel {
         kind: AggregateKind,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<AggregateOutput<E>, InternalError>
+    ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -54,7 +54,7 @@ impl ExecutionKernel {
             )
         })?;
 
-        let mut selected: Option<(Id<E>, E)> = None;
+        let mut selected: Option<(StorageKey, E)> = None;
         for row in response {
             let (id, entity) = row.into_parts();
             let should_replace = match selected.as_ref() {
@@ -72,13 +72,13 @@ impl ExecutionKernel {
                 None => true,
             };
             if should_replace {
-                selected = Some((id, entity));
+                selected = Some((storage_key_from_entity_id(id)?, entity));
             }
         }
 
-        let selected_id = selected.map(|(id, _)| id);
+        let selected_key = selected.map(|(key, _)| key);
 
-        kind.extrema_output(selected_id).ok_or_else(|| {
+        kind.extrema_output(selected_key).ok_or_else(|| {
             crate::db::error::query_executor_invariant(
                 "materialized field-extrema reduction reached non-extrema terminal",
             )
@@ -94,7 +94,7 @@ impl ExecutionKernel {
         target_field: &str,
         direction: Direction,
         route_plan: &crate::db::executor::ExecutionPlan,
-    ) -> Result<AggregateOutput<E>, InternalError>
+    ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -173,7 +173,7 @@ impl ExecutionKernel {
         target_field: &str,
         field_slot: FieldSlot,
         kind: AggregateKind,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError>
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -215,16 +215,13 @@ impl ExecutionKernel {
     // Ignore can skip stale leading index entries. If a bounded field-extrema
     // probe returns None exactly at the fetch boundary, the outcome is
     // inconclusive and must retry unbounded.
-    const fn field_extrema_probe_requires_fallback<E>(
+    const fn field_extrema_probe_requires_fallback(
         consistency: MissingRowPolicy,
         kind: AggregateKind,
         probe_fetch_hint: Option<usize>,
-        probe_output: &AggregateOutput<E>,
+        probe_output: &ScalarAggregateOutput,
         probe_rows_scanned: usize,
-    ) -> bool
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> bool {
         if !matches!(consistency, MissingRowPolicy::Ignore) {
             return false;
         }
@@ -257,7 +254,7 @@ where
         field_slot: FieldSlot,
         kind: AggregateKind,
         direction: Direction,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         if direction != Self::field_extrema_aggregate_direction(kind)? {
             return Err(crate::db::error::query_executor_invariant(
                 "field-extrema fold direction must match aggregate terminal semantics",
@@ -265,7 +262,7 @@ where
         }
 
         let mut keys_scanned = 0usize;
-        let mut selected: Option<(Id<E>, E)> = None;
+        let mut selected: Option<(StorageKey, E)> = None;
         let mut pre_key = || KeyStreamLoopControl::Emit;
         let mut on_key =
             |data_key: DataKey, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
@@ -273,7 +270,7 @@ where
                 let Some(entity) = entity else {
                     return Ok(KeyStreamLoopControl::Emit);
                 };
-                let id = Id::from_key(data_key.try_key::<E>()?);
+                let key = data_key.storage_key();
                 let selected_was_empty = selected.is_none();
                 let candidate_replaces = match selected.as_ref() {
                     Some((_, current)) => {
@@ -290,7 +287,7 @@ where
                     None => true,
                 };
                 if candidate_replaces {
-                    selected = Some((id, entity));
+                    selected = Some((key, entity));
                     if selected_was_empty && matches!(kind, AggregateKind::Min) {
                         // MIN(field) under ascending index-leading traversal is resolved
                         // by the first in-window existing row.
@@ -318,8 +315,8 @@ where
             };
         Self::drive_field_entity_stream(ctx, consistency, key_stream, &mut pre_key, &mut on_key)?;
 
-        let selected_id = selected.map(|(id, _)| id);
-        let output = kind.extrema_output(selected_id).ok_or_else(|| {
+        let selected_key = selected.map(|(key, _)| key);
+        let output = kind.extrema_output(selected_key).ok_or_else(|| {
             crate::db::error::query_executor_invariant(
                 "field-extrema fold reached non-extrema terminal",
             )
@@ -327,4 +324,12 @@ where
 
         Ok((output, keys_scanned))
     }
+}
+
+// Convert one typed entity id into the structural storage-key surface used by scalar kernels.
+fn storage_key_from_entity_id<E>(id: crate::types::Id<E>) -> Result<StorageKey, InternalError>
+where
+    E: EntityKind,
+{
+    StorageKey::try_from_value(&id.as_value()).map_err(InternalError::from)
 }

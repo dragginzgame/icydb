@@ -18,7 +18,7 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter,
             aggregate::{
-                AggregateKind, AggregateOutput,
+                AggregateKind, ScalarAggregateOutput,
                 field::{
                     FieldSlot, extract_orderable_field_value,
                     resolve_any_aggregate_target_slot_from_planner_slot,
@@ -244,23 +244,23 @@ where
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
         let consistency = plan.consistency();
-        let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
-            ExecutionKernel::execute_aggregate_spec(
-                self,
-                plan,
-                terminal_expr_for_kind(terminal_kind),
-            )?
+        let (ScalarAggregateOutput::First(selected_key)
+        | ScalarAggregateOutput::Last(selected_key)) = ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            terminal_expr_for_kind(terminal_kind),
+        )?
         else {
             return Err(crate::db::error::query_executor_invariant(
                 "terminal value projection result kind mismatch",
             ));
         };
-        let Some(selected_id) = selected_id else {
+        let Some(selected_key) = selected_key else {
             return Ok(None);
         };
 
         let ctx = self.recovered_context()?;
-        let key = DataKey::try_new::<E>(selected_id.key())?;
+        let key = DataKey::new(E::ENTITY_TAG, selected_key);
         let Some(entity) = Self::read_entity_for_field_extrema(&ctx, consistency, &key)? else {
             return Ok(None);
         };

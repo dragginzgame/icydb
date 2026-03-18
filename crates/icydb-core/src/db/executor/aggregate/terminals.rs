@@ -11,7 +11,7 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
             ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             aggregate::{
-                AggregateFoldMode, AggregateKind, AggregateOutput,
+                AggregateFoldMode, AggregateKind, ScalarAggregateOutput,
                 aggregate_zero_output_if_window_empty,
                 field::resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
@@ -26,8 +26,9 @@ use crate::{
         query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, FieldValue},
     types::Id,
+    value::StorageKey,
 };
 use std::ops::Bound;
 
@@ -246,7 +247,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
         request: AggregateTerminalRequest,
-    ) -> Result<AggregateOutput<E>, InternalError> {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         let kind = request.kind();
         if let Some(aggregate_output) = aggregate_zero_output_if_window_empty(&plan, kind) {
             return Ok(aggregate_output);
@@ -268,7 +269,7 @@ where
     fn execute_count_terminal_request(
         &self,
         plan: ExecutablePlan<E>,
-    ) -> Result<AggregateOutput<E>, InternalError> {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         if let Some(contract) = Self::derive_count_terminal_fast_path_contract(&plan) {
             let count = match contract {
                 CountTerminalFastPathContract::PrimaryKeyCardinality => {
@@ -291,7 +292,7 @@ where
                 }
             };
 
-            return Ok(AggregateOutput::Count(count));
+            return Ok(ScalarAggregateOutput::Count(count));
         }
 
         ExecutionKernel::execute_aggregate_spec(
@@ -305,7 +306,7 @@ where
     fn execute_exists_terminal_request(
         &self,
         plan: ExecutablePlan<E>,
-    ) -> Result<AggregateOutput<E>, InternalError> {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         if let Some(contract) = Self::derive_exists_terminal_fast_path_contract(&plan) {
             let exists = match contract {
                 ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
@@ -316,7 +317,7 @@ where
                 }
             };
 
-            return Ok(AggregateOutput::Exists(exists));
+            return Ok(ScalarAggregateOutput::Exists(exists));
         }
 
         ExecutionKernel::execute_aggregate_spec(
@@ -331,7 +332,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
-    ) -> Result<AggregateOutput<E>, InternalError> {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         if !matches!(
             kind,
             AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last
@@ -350,7 +351,7 @@ where
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
         target_field: PlannedFieldSlot,
-    ) -> Result<AggregateOutput<E>, InternalError> {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
 
@@ -369,37 +370,39 @@ where
 
     // Decode COUNT outputs while preserving call-site mismatch context.
     fn expect_count_output(
-        aggregate_output: AggregateOutput<E>,
+        aggregate_output: ScalarAggregateOutput,
         mismatch_context: &'static str,
     ) -> Result<u32, InternalError> {
         match aggregate_output {
-            AggregateOutput::Count(value) => Ok(value),
+            ScalarAggregateOutput::Count(value) => Ok(value),
             _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
         }
     }
 
     // Decode EXISTS outputs while preserving call-site mismatch context.
     fn expect_exists_output(
-        aggregate_output: AggregateOutput<E>,
+        aggregate_output: ScalarAggregateOutput,
         mismatch_context: &'static str,
     ) -> Result<bool, InternalError> {
         match aggregate_output {
-            AggregateOutput::Exists(value) => Ok(value),
+            ScalarAggregateOutput::Exists(value) => Ok(value),
             _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
         }
     }
 
     // Decode id-returning aggregate outputs for MIN/MAX/FIRST/LAST terminals.
     fn expect_optional_id_terminal_output(
-        aggregate_output: AggregateOutput<E>,
+        aggregate_output: ScalarAggregateOutput,
         kind: AggregateKind,
         mismatch_context: &'static str,
     ) -> Result<Option<Id<E>>, InternalError> {
         match (kind, aggregate_output) {
-            (AggregateKind::Min, AggregateOutput::Min(value))
-            | (AggregateKind::Max, AggregateOutput::Max(value))
-            | (AggregateKind::First, AggregateOutput::First(value))
-            | (AggregateKind::Last, AggregateOutput::Last(value)) => Ok(value),
+            (AggregateKind::Min, ScalarAggregateOutput::Min(value))
+            | (AggregateKind::Max, ScalarAggregateOutput::Max(value))
+            | (AggregateKind::First, ScalarAggregateOutput::First(value))
+            | (AggregateKind::Last, ScalarAggregateOutput::Last(value)) => {
+                value.map(Self::decode_storage_key_to_id).transpose()
+            }
             _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
         }
     }
@@ -410,7 +413,7 @@ where
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
         direction: Direction,
-    ) -> Result<AggregateOutput<E>, InternalError> {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         // Phase 1: collect lowered index specs before consuming the executable plan.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
@@ -455,6 +458,18 @@ where
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
+    }
+
+    // Re-enter typed identity only at the terminal API boundary.
+    fn decode_storage_key_to_id(key: StorageKey) -> Result<Id<E>, InternalError> {
+        let value = key.as_value();
+        let decoded = <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
+            InternalError::store_corruption(format!(
+                "scalar aggregate output primary key decode failed: {value:?}"
+            ))
+        })?;
+
+        Ok(Id::from_key(decoded))
     }
 
     // Resolve COUNT for PK full-scan/key-range shapes from store cardinality
