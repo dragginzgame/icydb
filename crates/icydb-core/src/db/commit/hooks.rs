@@ -116,10 +116,10 @@ pub(in crate::db) const fn debug_assert_unique_runtime_hook_tags<C: CanisterKind
 
 /// Resolve exactly one runtime hook for a persisted `EntityTag`.
 /// Duplicate matches are treated as store invariants.
-pub(in crate::db) fn resolve_runtime_hook_by_tag<'a, C: CanisterKind>(
-    entity_runtime_hooks: &'a [EntityRuntimeHooks<C>],
+pub(in crate::db) fn resolve_runtime_hook_by_tag<C: CanisterKind>(
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
     entity_tag: EntityTag,
-) -> Result<&'a EntityRuntimeHooks<C>, InternalError> {
+) -> Result<&EntityRuntimeHooks<C>, InternalError> {
     let mut matched = None;
     for hooks in entity_runtime_hooks {
         if hooks.entity_tag != entity_tag {

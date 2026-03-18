@@ -28,7 +28,6 @@ fn encode_component(value: &Value) -> Vec<u8> {
     super::super::ordered::encode_canonical_index_component(value).expect("component should encode")
 }
 
-#[expect(clippy::large_types_passed_by_value)]
 fn key_with(kind: IndexKeyKind, id: IndexId, components: Vec<Vec<u8>>, pk: Vec<u8>) -> IndexKey {
     IndexKey {
         key_kind: kind,

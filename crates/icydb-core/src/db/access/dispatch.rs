@@ -128,26 +128,16 @@ pub(in crate::db) fn dispatch_access_plan<K>(plan: &AccessPlan<K>) -> AccessPlan
 pub(in crate::db) enum ExecutableAccessPathDispatch<'a, K> {
     ByKey(&'a K),
     ByKeys(&'a [K]),
-    KeyRange {
-        start: &'a K,
-        end: &'a K,
-    },
-    IndexPrefix {
-        index: Option<IndexModel>,
-    },
-    IndexMultiLookup {
-        index: Option<IndexModel>,
-        value_count: usize,
-    },
-    IndexRange {
-        index: Option<IndexModel>,
-    },
+    KeyRange { start: &'a K, end: &'a K },
+    IndexPrefix,
+    IndexMultiLookup { value_count: usize },
+    IndexRange,
     FullScan,
 }
 
 /// Dispatch one executable access path through the canonical borrowed payload surface.
 #[must_use]
-pub(in crate::db) fn dispatch_executable_access_path<'a, K>(
+pub(in crate::db) const fn dispatch_executable_access_path<'a, K>(
     path: &'a ExecutableAccessPath<'a, K>,
 ) -> ExecutableAccessPathDispatch<'a, K> {
     match path.payload() {
@@ -156,18 +146,13 @@ pub(in crate::db) fn dispatch_executable_access_path<'a, K>(
         ExecutionPathPayload::KeyRange { start, end } => {
             ExecutableAccessPathDispatch::KeyRange { start, end }
         }
-        ExecutionPathPayload::IndexPrefix => ExecutableAccessPathDispatch::IndexPrefix {
-            index: path.index_prefix_details().map(|(index, _)| index),
-        },
+        ExecutionPathPayload::IndexPrefix => ExecutableAccessPathDispatch::IndexPrefix,
         ExecutionPathPayload::IndexMultiLookup { value_count } => {
             ExecutableAccessPathDispatch::IndexMultiLookup {
-                index: path.index_prefix_details().map(|(index, _)| index),
                 value_count: *value_count,
             }
         }
-        ExecutionPathPayload::IndexRange { .. } => ExecutableAccessPathDispatch::IndexRange {
-            index: path.index_range_details().map(|(index, _)| index),
-        },
+        ExecutionPathPayload::IndexRange { .. } => ExecutableAccessPathDispatch::IndexRange,
         ExecutionPathPayload::FullScan => ExecutableAccessPathDispatch::FullScan,
     }
 }

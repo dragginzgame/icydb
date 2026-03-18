@@ -252,9 +252,9 @@ where
         let ctx = self.executor.db.recovered_context::<E>()?;
         let runtime = ExecutionRuntimeAdapter::new(&ctx, self.typed_access);
         let execution_preparation = ExecutionPreparation::from_plan(
-            runtime.model(),
+            E::MODEL,
             plan,
-            runtime.slot_map().map(|slots| slots.to_vec()),
+            runtime.slot_map().map(<[usize]>::to_vec),
         );
         let direction = route_plan.direction();
         let continuation_bindings = resolved_continuation.bindings(direction);

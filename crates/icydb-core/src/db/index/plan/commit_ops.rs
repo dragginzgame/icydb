@@ -82,20 +82,15 @@ pub(super) fn build_commit_ops_for_index(
             let raw = RawIndexEntry::try_from(&entry).map_err(|err| match err {
                 IndexEntryEncodeError::TooManyKeys { keys } => {
                     InternalError::index_unsupported(format!(
-                        "index entry exceeds max keys: {} ({}) -> {} keys",
-                        entity_path, fields, keys
+                        "index entry exceeds max keys: {entity_path} ({fields}) -> {keys} keys",
                     ))
                 }
                 IndexEntryEncodeError::DuplicateKey => InternalError::index_invariant(format!(
-                    "index entry unexpectedly contains duplicate keys: {} ({})",
-                    entity_path, fields
+                    "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
                 )),
-                IndexEntryEncodeError::KeyEncoding(err) => {
-                    InternalError::index_unsupported(format!(
-                        "index entry key encoding failed: {} ({}) -> {err}",
-                        entity_path, fields
-                    ))
-                }
+                IndexEntryEncodeError::KeyEncoding(err) => InternalError::index_unsupported(
+                    format!("index entry key encoding failed: {entity_path} ({fields}) -> {err}",),
+                ),
             })?;
             Some(raw.into_bytes())
         } else {

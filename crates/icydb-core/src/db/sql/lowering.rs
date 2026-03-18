@@ -301,7 +301,7 @@ fn lower_prepared_statement<E: EntityKind>(
         SqlStatement::Delete(statement) => Ok(SqlCommand::Query(lower_delete_prepared::<E>(
             statement,
             consistency,
-        )?)),
+        ))),
         SqlStatement::Explain(statement) => lower_explain_prepared::<E>(statement, consistency),
         SqlStatement::Describe(_) => Ok(SqlCommand::DescribeEntity),
         SqlStatement::ShowIndexes(_) => Ok(SqlCommand::ShowIndexesEntity),
@@ -322,7 +322,7 @@ fn lower_explain_prepared<E: EntityKind>(
         }
         SqlExplainTarget::Delete(delete_statement) => Ok(SqlCommand::Explain {
             mode,
-            query: lower_delete_prepared::<E>(delete_statement, consistency)?,
+            query: lower_delete_prepared::<E>(delete_statement, consistency),
         }),
     }
 }
@@ -739,7 +739,7 @@ fn resolve_having_aggregate_index(
 fn lower_delete_prepared<E: EntityKind>(
     statement: SqlDeleteStatement,
     consistency: MissingRowPolicy,
-) -> Result<Query<E>, SqlLoweringError> {
+) -> Query<E> {
     let SqlDeleteStatement {
         predicate,
         order_by,
@@ -756,7 +756,7 @@ fn lower_delete_prepared<E: EntityKind>(
         query = query.limit(limit);
     }
 
-    Ok(query)
+    query
 }
 
 fn apply_order_terms<E: EntityKind>(

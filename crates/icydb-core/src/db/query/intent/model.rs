@@ -348,7 +348,6 @@ fn strip_redundant_primary_key_equality_predicate_for_by_key_access(
 
 // Collapse `LIMIT 1` pagination overhead when access is already one exact
 // primary-key lookup and no offset is requested.
-#[expect(clippy::redundant_closure_for_method_calls)]
 fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
     if !plan
         .access

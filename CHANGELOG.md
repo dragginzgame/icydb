@@ -5,9 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.58.x] - Unreleased - Placeholder
+## [0.58.x] - 2026-03-18 - Runtime Size-Reduction Closeout
 
-- `0.58.0` placeholder entry reserved for the upcoming demonomorphization-focused runtime size-reduction line; final scope will be documented at release.
+- `0.58.0` completes the runtime size-reduction line by removing the highest-value generic orchestration and adapter duplication, flattening structural execution boundaries around entity tags and cursor/index identity, and closing the line once the remaining binary size was confirmed to come from typed execution kernels rather than more safe local cleanup.
 
 See detailed breakdown:
 [docs/changelog/0.58.md](docs/changelog/0.58.md)

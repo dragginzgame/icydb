@@ -260,11 +260,8 @@ fn apply_post_access_to_kernel_rows_dyn(
     let logical = plan.scalar_plan();
 
     // Phase 1: predicate filtering.
-    let mut filtered = false;
-    if logical.predicate.is_some() {
-        if predicate_preapplied {
-            filtered = true;
-        } else {
+    let filtered = if logical.predicate.is_some() {
+        if !predicate_preapplied {
             let Some(predicate_program) = predicate_slots else {
                 return Err(crate::db::error::query_executor_invariant(
                     "post-access filtering requires precompiled predicate slots",
@@ -273,12 +270,14 @@ fn apply_post_access_to_kernel_rows_dyn(
 
             rows.retain(|row| {
                 let mut read_slot = |slot| row.slot(slot);
-
                 predicate_program.eval_with_slot_reader(&mut read_slot)
             });
-            filtered = true;
         }
-    }
+
+        true
+    } else {
+        false
+    };
 
     // Phase 2: ordering.
     let mut ordered = false;

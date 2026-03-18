@@ -27,6 +27,9 @@ use std::collections::BTreeMap;
 
 use crate::db::executor::aggregate::contracts::grouped::context::ExecutionContext;
 
+type AggregateIngestAllFn<'a, 'f, E> = dyn FnMut(&mut AggregateExecutionSpec<'a>, &mut AggregateEngine<E>) -> Result<(), InternalError>
+    + 'f;
+
 ///
 /// GroupedAggregateOutput
 ///
@@ -340,7 +343,7 @@ pub(in crate::db::executor) struct AggregateExecutionSpec<'a> {
     grouped_execution_context: Option<&'a mut ExecutionContext>,
 }
 
-impl<'a> AggregateExecutionSpec<'a> {
+impl AggregateExecutionSpec<'_> {
     /// Build one scalar aggregate execution spec.
     #[must_use]
     pub(in crate::db::executor) const fn scalar() -> Self {
@@ -385,23 +388,19 @@ impl<E: EntityKind> AggregateEngine<E> {
         group_key: &GroupKey,
     ) -> Result<FoldControl, GroupError> {
         match self {
-            AggregateEngine::Grouped(state) => {
-                state.apply_borrowed(group_key, data_key, execution_context)
-            }
-            AggregateEngine::Scalar(_) => Err(AggregateEngine::<E>::mode_mismatch_error(
-                AggregateExecutionMode::Grouped,
-            )),
+            Self::Grouped(state) => state.apply_borrowed(group_key, data_key, execution_context),
+            Self::Scalar(_) => Err(Self::mode_mismatch_error(AggregateExecutionMode::Grouped)),
         }
     }
 
     fn finalize_grouped_values(self) -> Result<Vec<(Value, Value)>, InternalError> {
         match self {
-            AggregateEngine::Grouped(state) => Ok(state
+            Self::Grouped(state) => Ok(state
                 .finalize()
                 .into_iter()
                 .map(GroupedAggregateOutput::into_value_pair)
                 .collect()),
-            AggregateEngine::Scalar(_) => Err(crate::db::error::query_executor_invariant(
+            Self::Scalar(_) => Err(crate::db::error::query_executor_invariant(
                 "grouped aggregate finalize reached scalar aggregate engine",
             )),
         }
@@ -426,12 +425,10 @@ impl<E: EntityKind> AggregateEngine<E> {
                 }
 
                 match self {
-                    AggregateEngine::Scalar(state) => {
-                        state.apply(data_key).map_err(GroupError::from)
+                    Self::Scalar(state) => state.apply(data_key).map_err(GroupError::from),
+                    Self::Grouped(_) => {
+                        Err(Self::mode_mismatch_error(AggregateExecutionMode::Scalar))
                     }
-                    AggregateEngine::Grouped(_) => Err(AggregateEngine::<E>::mode_mismatch_error(
-                        AggregateExecutionMode::Scalar,
-                    )),
                 }
             }
             AggregateExecutionMode::Grouped => {
@@ -445,12 +442,12 @@ impl<E: EntityKind> AggregateEngine<E> {
                 let execution_context = execution_spec.grouped_execution_context_mut()?;
 
                 match self {
-                    AggregateEngine::Grouped(state) => {
+                    Self::Grouped(state) => {
                         state.apply_borrowed(group_key, data_key, execution_context)
                     }
-                    AggregateEngine::Scalar(_) => Err(AggregateEngine::<E>::mode_mismatch_error(
-                        AggregateExecutionMode::Grouped,
-                    )),
+                    Self::Scalar(_) => {
+                        Err(Self::mode_mismatch_error(AggregateExecutionMode::Grouped))
+                    }
                 }
             }
         }
@@ -464,18 +461,14 @@ impl<E: EntityKind> AggregateEngine<E> {
     ) -> Result<AggregateFinalizeOutput<E>, InternalError> {
         match mode {
             AggregateExecutionMode::Scalar => match self {
-                AggregateEngine::Scalar(state) => {
-                    Ok(AggregateFinalizeOutput::Scalar(state.finalize()))
-                }
-                AggregateEngine::Grouped(_) => Err(crate::db::error::query_executor_invariant(
+                Self::Scalar(state) => Ok(AggregateFinalizeOutput::Scalar(state.finalize())),
+                Self::Grouped(_) => Err(crate::db::error::query_executor_invariant(
                     "scalar aggregate finalize reached grouped aggregate engine",
                 )),
             },
             AggregateExecutionMode::Grouped => match self {
-                AggregateEngine::Grouped(state) => {
-                    Ok(AggregateFinalizeOutput::Grouped(state.finalize()))
-                }
-                AggregateEngine::Scalar(_) => Err(crate::db::error::query_executor_invariant(
+                Self::Grouped(state) => Ok(AggregateFinalizeOutput::Grouped(state.finalize())),
+                Self::Scalar(_) => Err(crate::db::error::query_executor_invariant(
                     "grouped aggregate finalize reached scalar aggregate engine",
                 )),
             },
@@ -516,10 +509,7 @@ impl<E: EntityKind> AggregateFinalizeOutput<E> {
 pub(in crate::db::executor) fn execute_aggregate<'a, E: EntityKind>(
     mut engine: AggregateEngine<E>,
     mut execution_spec: AggregateExecutionSpec<'a>,
-    ingest_all: &mut dyn FnMut(
-        &mut AggregateExecutionSpec<'a>,
-        &mut AggregateEngine<E>,
-    ) -> Result<(), InternalError>,
+    ingest_all: &mut AggregateIngestAllFn<'a, '_, E>,
 ) -> Result<AggregateFinalizeOutput<E>, InternalError> {
     let execution_mode = execution_spec.mode();
     ingest_all(&mut execution_spec, &mut engine)?;

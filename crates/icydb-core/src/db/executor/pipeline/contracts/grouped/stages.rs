@@ -132,7 +132,7 @@ where
         Self { ctx }
     }
 
-    fn decode_row_view(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
+    fn decode_row_view(key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
         let (_, entity) = Context::<E>::deserialize_row((key.clone(), row))?;
         let mut slots = Vec::with_capacity(E::MODEL.fields.len());
         for index in 0..E::MODEL.fields.len() {
@@ -156,10 +156,10 @@ where
             MissingRowPolicy::Error => {
                 let row = self.ctx.read_strict(key)?;
 
-                Ok(Some(self.decode_row_view(key, row)?))
+                Ok(Some(Self::decode_row_view(key, row)?))
             }
             MissingRowPolicy::Ignore => match self.ctx.read(key) {
-                Ok(row) => Ok(Some(self.decode_row_view(key, row)?)),
+                Ok(row) => Ok(Some(Self::decode_row_view(key, row)?)),
                 Err(err) if err.is_not_found() => Ok(None),
                 Err(err) => Err(err),
             },

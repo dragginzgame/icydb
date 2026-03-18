@@ -51,15 +51,13 @@ where
     let field = key_item.field();
     let Some(field_index) = resolve_field_slot(entity_model, field) else {
         return Err(InternalError::index_invariant(format!(
-            "index key item field missing on entity model: {}",
-            field
+            "index key item field missing on entity model: {field}",
         )));
     };
 
     let Some(source) = read_slot(field_index) else {
         return Err(InternalError::index_invariant(format!(
-            "index key item field missing on lookup row: {}",
-            field
+            "index key item field missing on lookup row: {field}",
         )));
     };
 

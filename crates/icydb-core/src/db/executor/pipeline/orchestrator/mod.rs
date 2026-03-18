@@ -152,7 +152,7 @@ fn apply_runtime_paging(
 }
 
 // Apply tracing contracts over generic-free runtime payload artifacts.
-fn apply_runtime_tracing(mut state: RuntimePayloadState) -> RuntimePayloadState {
+const fn apply_runtime_tracing(mut state: RuntimePayloadState) -> RuntimePayloadState {
     if !state.context.mode.tracing_enabled() {
         state.trace = None;
     }
@@ -295,8 +295,7 @@ where
                     "load execution runtime received executable plan with unexpected entity type",
                 )
             })?;
-        let access_state =
-            LoadExecutor::<E>::build_execution_context(plan, cursor, execution_mode)?;
+        let access_state = Self::build_execution_context(plan, cursor, execution_mode)?;
         let crate::db::executor::pipeline::orchestrator::state::LoadAccessState {
             context,
             access_inputs,
@@ -335,7 +334,7 @@ where
                 cursor,
             },
         };
-        let payload_state = LoadExecutor::<E>::apply_grouping_projection(self, access_state)?;
+        let payload_state = Self::apply_grouping_projection(self, access_state)?;
         let crate::db::executor::pipeline::orchestrator::state::LoadPayloadState {
             context,
             payload,

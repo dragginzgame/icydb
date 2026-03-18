@@ -44,6 +44,8 @@ use crate::{
     value::Value,
 };
 
+type GroupedEngineBatch = (Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>);
+
 ///
 /// GroupedFoldRuntimeHooks
 ///
@@ -59,7 +61,7 @@ pub(in crate::db::executor) trait GroupedFoldRuntimeHooks {
         &self,
         route: &GroupedRouteStage,
         grouped_execution_context: &ExecutionContext,
-    ) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError>;
+    ) -> Result<GroupedEngineBatch, InternalError>;
 
     /// Record the implicit singleton group for grouped global DISTINCT execution.
     fn record_implicit_single_group(
@@ -234,8 +236,8 @@ where
         build_grouped_stream_with_runtime(
             route,
             &runtime,
-            runtime.model(),
-            runtime.slot_map().map(|slots| slots.to_vec()),
+            E::MODEL,
+            runtime.slot_map().map(<[usize]>::to_vec),
             Box::new(TypedGroupedRowRuntime::new(row_ctx)),
         )
     }
@@ -259,7 +261,7 @@ where
         route: &GroupedRouteStage,
         grouped_execution_context: &ExecutionContext,
     ) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError> {
-        LoadExecutor::<E>::build_grouped_engines(route, grouped_execution_context)
+        Self::build_grouped_engines(route, grouped_execution_context)
     }
 
     fn record_implicit_single_group(

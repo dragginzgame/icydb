@@ -19,10 +19,11 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
 };
 use std::any::Any;
+
+type ErasedRowCollectorPayload = (Box<dyn Any>, usize, usize);
 
 ///
 /// RuntimePageMaterializationRequest
@@ -92,13 +93,13 @@ pub(in crate::db::executor) trait ExecutionRuntime {
         plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
         key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<Option<(Box<dyn Any>, usize, usize)>, InternalError>;
+    ) -> Result<Option<ErasedRowCollectorPayload>, InternalError>;
 
     /// Materialize one ordered key stream into one erased typed page payload.
     fn materialize_key_stream_into_page(
         &self,
         request: RuntimePageMaterializationRequest<'_>,
-    ) -> Result<(Box<dyn Any>, usize, usize), InternalError>;
+    ) -> Result<ErasedRowCollectorPayload, InternalError>;
 }
 
 ///
@@ -136,12 +137,6 @@ where
             access,
             slot_map,
         }
-    }
-
-    /// Borrow the structural entity model used by this typed adapter.
-    #[must_use]
-    pub(in crate::db::executor) fn model(&self) -> &'static EntityModel {
-        E::MODEL
     }
 
     /// Borrow the precomputed slot map for this typed adapter.

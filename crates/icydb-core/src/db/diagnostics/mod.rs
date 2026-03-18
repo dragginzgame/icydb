@@ -598,7 +598,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
     // Build one deterministic tag→path alias map to preserve report naming even
     // after persisted keys move from string names to tag identities.
     let mut tag_name_map = BTreeMap::<EntityTag, &str>::new();
-    for (entity_name, entity_tag) in runtime_name_to_tag.iter() {
+    for (entity_name, entity_tag) in &runtime_name_to_tag {
         let path_name = name_map.get(entity_name).copied().unwrap_or(*entity_name);
         tag_name_map.entry(*entity_tag).or_insert(path_name);
     }
@@ -921,6 +921,6 @@ fn classify_scan_error(
 }
 
 // Parse the data-entity identity from one decoded index key.
-fn data_entity_tag_for_index_key(index_key: &IndexKey) -> EntityTag {
+const fn data_entity_tag_for_index_key(index_key: &IndexKey) -> EntityTag {
     index_key.index_id().entity_tag
 }

@@ -103,7 +103,7 @@ impl GlobalDistinctFieldAggregateDispatcher {
                 return Err(AggregateFieldValueError::FieldValueTypeMismatch {
                     field: self.field_name.to_string(),
                     kind: self.field_slot.kind,
-                    value: Box::new(distinct_value.clone()),
+                    value: Box::new(distinct_value),
                 });
             };
 
@@ -116,11 +116,6 @@ impl GlobalDistinctFieldAggregateDispatcher {
     }
 }
 
-type DistinctApplyDispatch =
-    fn(&mut GlobalDistinctFieldAccumulator, Option<Decimal>) -> Result<(), InternalError>;
-
-type DistinctFinalizeDispatch = fn(GlobalDistinctFieldAccumulator) -> Result<Value, InternalError>;
-
 ///
 /// DistinctReducerSpec
 ///
@@ -129,8 +124,8 @@ type DistinctFinalizeDispatch = fn(GlobalDistinctFieldAccumulator) -> Result<Val
 ///
 
 struct DistinctReducerSpec {
-    apply_dispatch: DistinctApplyDispatch,
-    finalize_dispatch: DistinctFinalizeDispatch,
+    apply_mode: DistinctApplyMode,
+    finalize_mode: DistinctFinalizeMode,
 }
 
 impl DistinctReducerSpec {
@@ -138,19 +133,45 @@ impl DistinctReducerSpec {
     const fn from_kind(reducer_kind: GlobalDistinctFieldAggregateKind) -> Self {
         match reducer_kind {
             GlobalDistinctFieldAggregateKind::Count => Self {
-                apply_dispatch: GlobalDistinctFieldAccumulator::apply_count,
-                finalize_dispatch: GlobalDistinctFieldAccumulator::finalize_count,
+                apply_mode: DistinctApplyMode::Count,
+                finalize_mode: DistinctFinalizeMode::Count,
             },
             GlobalDistinctFieldAggregateKind::Sum => Self {
-                apply_dispatch: GlobalDistinctFieldAccumulator::apply_numeric,
-                finalize_dispatch: GlobalDistinctFieldAccumulator::finalize_sum,
+                apply_mode: DistinctApplyMode::Numeric,
+                finalize_mode: DistinctFinalizeMode::Sum,
             },
             GlobalDistinctFieldAggregateKind::Avg => Self {
-                apply_dispatch: GlobalDistinctFieldAccumulator::apply_numeric,
-                finalize_dispatch: GlobalDistinctFieldAccumulator::finalize_avg,
+                apply_mode: DistinctApplyMode::Numeric,
+                finalize_mode: DistinctFinalizeMode::Avg,
             },
         }
     }
+}
+
+///
+/// DistinctApplyMode
+///
+/// DistinctApplyMode resolves grouped DISTINCT ingest behavior once so COUNT
+/// can remain infallible while SUM and AVG keep the numeric validation path.
+///
+
+enum DistinctApplyMode {
+    Count,
+    Numeric,
+}
+
+///
+/// DistinctFinalizeMode
+///
+/// DistinctFinalizeMode resolves grouped DISTINCT finalization once so the
+/// runtime can keep infallible reducers infallible and isolate the error-
+/// producing AVG path to a single branch.
+///
+
+enum DistinctFinalizeMode {
+    Count,
+    Sum,
+    Avg,
 }
 
 ///
@@ -164,8 +185,8 @@ struct GlobalDistinctFieldAccumulator {
     distinct_count: u64,
     numeric_sum: Decimal,
     saw_numeric_value: bool,
-    apply_dispatch: DistinctApplyDispatch,
-    finalize_dispatch: DistinctFinalizeDispatch,
+    apply_mode: DistinctApplyMode,
+    finalize_mode: DistinctFinalizeMode,
 }
 
 impl GlobalDistinctFieldAccumulator {
@@ -175,8 +196,8 @@ impl GlobalDistinctFieldAccumulator {
             distinct_count: 0,
             numeric_sum: Decimal::ZERO,
             saw_numeric_value: false,
-            apply_dispatch: reducer_spec.apply_dispatch,
-            finalize_dispatch: reducer_spec.finalize_dispatch,
+            apply_mode: reducer_spec.apply_mode,
+            finalize_mode: reducer_spec.finalize_mode,
         }
     }
 
@@ -186,23 +207,24 @@ impl GlobalDistinctFieldAccumulator {
         numeric_value: Option<Decimal>,
     ) -> Result<(), InternalError> {
         self.distinct_count = self.distinct_count.saturating_add(1);
-        (self.apply_dispatch)(self, numeric_value)
+
+        match self.apply_mode {
+            DistinctApplyMode::Count => Ok(()),
+            DistinctApplyMode::Numeric => Self::apply_numeric(self, numeric_value),
+        }
     }
 
     // Finalize the reducer state into one grouped aggregate output value.
     fn finalize(self) -> Result<Value, InternalError> {
-        (self.finalize_dispatch)(self)
-    }
-
-    fn apply_count(
-        _state: &mut GlobalDistinctFieldAccumulator,
-        _numeric_value: Option<Decimal>,
-    ) -> Result<(), InternalError> {
-        Ok(())
+        match self.finalize_mode {
+            DistinctFinalizeMode::Count => Ok(Self::finalize_count(self)),
+            DistinctFinalizeMode::Sum => Ok(Self::finalize_sum(self)),
+            DistinctFinalizeMode::Avg => Self::finalize_avg(self),
+        }
     }
 
     fn apply_numeric(
-        state: &mut GlobalDistinctFieldAccumulator,
+        state: &mut Self,
         numeric_value: Option<Decimal>,
     ) -> Result<(), InternalError> {
         let Some(numeric_value) = numeric_value else {
@@ -219,18 +241,18 @@ impl GlobalDistinctFieldAccumulator {
         Ok(())
     }
 
-    fn finalize_count(state: GlobalDistinctFieldAccumulator) -> Result<Value, InternalError> {
-        Ok(Value::Uint(state.distinct_count))
+    const fn finalize_count(state: Self) -> Value {
+        Value::Uint(state.distinct_count)
     }
 
-    fn finalize_sum(state: GlobalDistinctFieldAccumulator) -> Result<Value, InternalError> {
-        Ok(state
+    fn finalize_sum(state: Self) -> Value {
+        state
             .saw_numeric_value
             .then_some(state.numeric_sum)
-            .map_or(Value::Null, Value::Decimal))
+            .map_or(Value::Null, Value::Decimal)
     }
 
-    fn finalize_avg(state: GlobalDistinctFieldAccumulator) -> Result<Value, InternalError> {
+    fn finalize_avg(state: Self) -> Result<Value, InternalError> {
         if !state.saw_numeric_value || state.distinct_count == 0 {
             return Ok(Value::Null);
         }
@@ -248,6 +270,7 @@ impl GlobalDistinctFieldAccumulator {
 
 // Execute one global DISTINCT grouped field aggregate over one structural key
 // stream and emit the singleton grouped row expected by grouped DISTINCT routing.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     consistency: MissingRowPolicy,
     row_runtime: &dyn GroupedRowRuntime,

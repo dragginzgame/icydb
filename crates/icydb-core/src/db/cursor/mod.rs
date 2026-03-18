@@ -75,6 +75,7 @@ pub(in crate::db) fn decode_optional_cursor_token(
 }
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn prepare_cursor<K: FieldValue>(
     access: Option<ExecutableAccessPath<'_, K>>,
     entity_path: &'static str,

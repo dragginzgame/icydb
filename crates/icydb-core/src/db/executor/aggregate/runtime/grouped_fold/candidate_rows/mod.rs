@@ -53,7 +53,7 @@ fn finalize_grouped_iterators(
 ) -> Result<Vec<std::vec::IntoIter<(Value, Value)>>, InternalError> {
     grouped_engines
         .into_iter()
-        .map(|engine| engine.finalize().map(|outputs| outputs.into_iter()))
+        .map(|engine| engine.finalize().map(std::iter::IntoIterator::into_iter))
         .collect()
 }
 

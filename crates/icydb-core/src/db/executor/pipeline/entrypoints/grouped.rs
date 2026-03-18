@@ -123,7 +123,7 @@ where
         &'a self,
         route: &GroupedRouteStage,
     ) -> Result<GroupedStreamStage<'a>, InternalError> {
-        LoadExecutor::<E>::build_grouped_stream(self, route)
+        Self::build_grouped_stream(self, route)
     }
 
     fn execute_group_fold_stage(
@@ -131,7 +131,7 @@ where
         route: &GroupedRouteStage,
         stream: GroupedStreamStage<'_>,
     ) -> Result<GroupedFoldStage, InternalError> {
-        LoadExecutor::<E>::execute_group_fold_stage(self, route, stream)
+        Self::execute_group_fold_stage(self, route, stream)
     }
 
     fn finalize_grouped_output(
@@ -140,6 +140,6 @@ where
         folded: GroupedFoldStage,
         execution_time_micros: u64,
     ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-        LoadExecutor::<E>::finalize_grouped_output(self, route, folded, execution_time_micros)
+        Self::finalize_grouped_output(self, route, folded, execution_time_micros)
     }
 }

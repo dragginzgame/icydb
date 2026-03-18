@@ -337,7 +337,7 @@ impl<E: EntityKind> TerminalAggregateState<E> {
 
     // Reject SUM through key-based reducer paths.
     fn apply_sum_unsupported_for_mode(
-        &mut self,
+        _state: &mut Self,
         _mode: AggregateTerminalMode,
         _id: Option<Id<E>>,
     ) -> Result<FoldControl, InternalError> {
@@ -432,7 +432,7 @@ impl<E: EntityKind> TerminalAggregateState<E> {
 
     // Reject AVG through key-based reducer paths.
     fn apply_avg_unsupported_for_mode(
-        &mut self,
+        _state: &mut Self,
         _mode: AggregateTerminalMode,
         _id: Option<Id<E>>,
     ) -> Result<FoldControl, InternalError> {

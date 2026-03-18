@@ -299,9 +299,9 @@ where
     E: EntityKind + EntityValue,
 {
     // Clone one executor handle without carrying any typed plan/cursor state.
-    fn clone_runtime_handle(&self) -> Self {
+    const fn clone_runtime_handle(&self) -> Self {
         Self {
-            db: self.db.clone(),
+            db: self.db,
             debug: self.debug,
         }
     }

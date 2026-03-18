@@ -7,6 +7,7 @@ use crate::prelude::*;
 pub struct EntityKindTrait {}
 
 impl Imp<Entity> for EntityKindTrait {
+    #[expect(clippy::too_many_lines)]
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let store = &node.store;
 
@@ -82,13 +83,7 @@ impl Imp<Entity> for EntityKindTrait {
                 #[doc(hidden)]
                 pub const __ENTITY_TAG_CONST: ::icydb::types::EntityTag = {
                     const RAW_ENTITY_TAG: u64 = #entity_tag;
-
-                    // Generated entity tags are compile-time storage identities.
-                    // Construction is kept local to codegen so runtime code cannot
-                    // synthesize fresh tags through the public API surface.
-                    unsafe {
-                        ::core::mem::transmute::<u64, ::icydb::types::EntityTag>(RAW_ENTITY_TAG)
-                    }
+                    ::icydb::types::EntityTag::new(RAW_ENTITY_TAG)
                 };
             }
         };

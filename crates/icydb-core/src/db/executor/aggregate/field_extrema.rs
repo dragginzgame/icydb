@@ -181,9 +181,9 @@ impl ExecutionKernel {
         let typed_access = reconstruct_typed_access_plan::<E>(&prepared.logical_plan)?;
         let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &typed_access);
         let execution_preparation = ExecutionPreparation::from_plan(
-            runtime.model(),
+            E::MODEL,
             &prepared.logical_plan,
-            runtime.slot_map().map(|slots| slots.to_vec()),
+            runtime.slot_map().map(<[usize]>::to_vec),
         );
         let execution_inputs = ExecutionInputs::new(
             &runtime,

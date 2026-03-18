@@ -31,6 +31,7 @@ pub(in crate::db) enum CursorValidationOutcome {
 
 /// Validate optional cursor bytes for one planned query mode and return typed
 /// cursor state without leaking token payload details across boundaries.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn validate_cursor_compatibility<K: FieldValue>(
     contract: &ExecutionOrderContract,
     access: Option<ExecutableAccessPath<'_, K>>,

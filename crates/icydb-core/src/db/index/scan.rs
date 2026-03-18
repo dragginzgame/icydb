@@ -48,6 +48,7 @@ impl IndexStore {
         })
     }
 
+    #[expect(clippy::too_many_arguments)]
     pub(in crate::db) fn resolve_data_values_with_component_in_raw_range_limited(
         &self,
         entity: EntityTag,
@@ -158,6 +159,7 @@ impl IndexStore {
         decode_and_push(raw_key, value, out)
     }
 
+    #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push(
         entity: EntityTag,
         index: &IndexModel,

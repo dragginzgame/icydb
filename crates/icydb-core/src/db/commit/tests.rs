@@ -1820,9 +1820,8 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
 fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
     #[cfg(debug_assertions)]
     {
-        let err = match std::panic::catch_unwind(duplicate_name_db) {
-            Ok(_) => panic!("duplicate entity tags must fail during hook table construction"),
-            Err(err) => err,
+        let Err(err) = std::panic::catch_unwind(duplicate_name_db) else {
+            panic!("duplicate entity tags must fail during hook table construction");
         };
         let message = if let Some(message) = err.downcast_ref::<&'static str>() {
             (*message).to_string()

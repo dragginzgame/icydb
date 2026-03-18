@@ -263,7 +263,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
 
                 /// Return this route's primary-key field name.
                 #[must_use]
-                pub fn primary_key_field(self) -> &'static str {
+                pub const fn primary_key_field(self) -> &'static str {
                     self.descriptor.schema.primary_key().name()
                 }
 
@@ -309,10 +309,8 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 let parsed = db().parse_sql_statement(sql_trimmed)?;
                 let statement = parsed.route().clone();
                 match statement {
-                    statement @ ::icydb::db::SqlStatementRoute::Query { .. } => {
-                        query_lane_result_for_statement(sql_trimmed, &parsed, &statement)
-                    }
-                    statement @ ::icydb::db::SqlStatementRoute::Explain { .. } => {
+                    statement @ (::icydb::db::SqlStatementRoute::Query { .. }
+                    | ::icydb::db::SqlStatementRoute::Explain { .. }) => {
                         query_lane_result_for_statement(sql_trimmed, &parsed, &statement)
                     }
                     statement @ ::icydb::db::SqlStatementRoute::Describe { .. } => {
@@ -325,7 +323,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                         show_columns_result_for_statement(&statement)
                     }
                     ::icydb::db::SqlStatementRoute::ShowEntities => {
-                        show_entities_result_for_statement()
+                        Ok(show_entities_result_for_statement())
                     }
                 }
             }
@@ -379,10 +377,10 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 })
             }
 
-            fn show_entities_result_for_statement() -> Result<SqlQueryResult, Error> {
+            fn show_entities_result_for_statement() -> SqlQueryResult {
                 let entities = db().show_entities();
 
-                Ok(SqlQueryResult::ShowEntities { entities })
+                SqlQueryResult::ShowEntities { entities }
             }
 
             fn unsupported_sql_entity_error(entity_name: &str) -> Error {

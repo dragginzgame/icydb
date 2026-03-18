@@ -18,7 +18,6 @@ use crate::{
         index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
-    model::index::IndexModel,
     traits::{EntityKind, EntityValue},
 };
 
@@ -56,126 +55,111 @@ where
     pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
-impl<K> ExecutableAccessPath<'_, K> {
-    // Physical access lowering for one executable access path.
-    // All store/index traversal must route through `PrimaryScan`/`IndexScan`.
-    /// Build an ordered key stream for this access path.
-    pub(super) fn resolve_physical_key_stream<E>(
+///
+/// PhysicalStreamBindings
+///
+/// Structural physical-resolution inputs shared by all entity-specific
+/// resolvers.
+/// This excludes the typed executor context so the outer dispatch body can
+/// collapse to one key-shape-specific implementation.
+///
+
+#[derive(Clone, Copy)]
+struct PhysicalStreamBindings<'a> {
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    index_range_spec: Option<&'a LoweredIndexRangeSpec>,
+    continuation: AccessScanContinuationInput<'a>,
+    physical_fetch_hint: Option<usize>,
+    index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+}
+
+///
+/// PhysicalAccessRuntime
+///
+/// Execution-focused leaf runtime for one typed physical access context.
+/// The outer physical-path dispatcher uses this only for concrete scan and
+/// key-lowering leaves; it must not absorb match orchestration or ordering
+/// normalization.
+///
+
+trait PhysicalAccessRuntime<K> {
+    fn resolve_by_key(&self, key: K) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+    fn resolve_by_keys(&self, keys: &[K]) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+    fn resolve_key_range(
         &self,
-        request: PhysicalStreamRequest<'_, '_, E>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
-        let PhysicalStreamRequest {
-            ctx,
-            index_prefix_specs,
-            index_range_spec,
-            continuation,
-            physical_fetch_hint,
-            index_predicate_execution,
-        } = request;
-
-        // Only apply bounded physical scans where key-stream semantics remain
-        // equivalent without requiring full-set normalization.
-        let primary_scan_fetch_hint = if self.capabilities().supports_primary_scan_fetch_hint() {
-            physical_fetch_hint
-        } else {
-            None
-        };
-
-        // Resolve candidate keys and track explicit ordering state.
-        let (mut candidates, key_order_state) = match dispatch_executable_access_path(self) {
-            ExecutableAccessPathDispatch::ByKey(key) => Self::resolve_by_key::<E>(*key)?,
-            ExecutableAccessPathDispatch::ByKeys(keys) => Self::resolve_by_keys::<E>(keys)?,
-            ExecutableAccessPathDispatch::KeyRange { start, end } => Self::resolve_key_range::<E>(
-                ctx,
-                *start,
-                *end,
-                continuation.direction(),
-                primary_scan_fetch_hint,
-            )?,
-            ExecutableAccessPathDispatch::FullScan => Self::resolve_full_scan::<E>(
-                ctx,
-                continuation.direction(),
-                primary_scan_fetch_hint,
-            )?,
-            ExecutableAccessPathDispatch::IndexPrefix { index } => Self::resolve_index_prefix::<E>(
-                ctx,
-                index,
-                index_prefix_specs,
-                continuation.direction(),
-                physical_fetch_hint,
-                index_predicate_execution,
-            )?,
-            ExecutableAccessPathDispatch::IndexMultiLookup { index, value_count } => {
-                Self::resolve_index_multi_lookup::<E>(
-                    ctx,
-                    index,
-                    index_prefix_specs,
-                    value_count,
-                    continuation.direction(),
-                    index_predicate_execution,
-                )?
-            }
-            ExecutableAccessPathDispatch::IndexRange { index, .. } => {
-                Self::resolve_index_range::<E>(
-                    ctx,
-                    index,
-                    index_range_spec,
-                    continuation.index_scan_continuation(),
-                    physical_fetch_hint,
-                    index_predicate_execution,
-                )?
-            }
-        };
-
-        Self::normalize_ordered_keys(&mut candidates, continuation.direction(), key_order_state);
-
-        Ok(Box::new(VecOrderedKeyStream::new(candidates)))
-    }
-
-    // Normalize key ordering according to explicit resolver output state.
-    fn normalize_ordered_keys(
-        keys: &mut [DataKey],
+        start: K,
+        end: K,
         direction: Direction,
-        key_order_state: KeyOrderState,
-    ) {
-        match key_order_state {
-            KeyOrderState::FinalOrder => {}
-            KeyOrderState::AscendingSorted => {
-                if matches!(direction, Direction::Desc) {
-                    keys.reverse();
-                }
-            }
-            KeyOrderState::Unordered => {
-                keys.sort_unstable();
-                if matches!(direction, Direction::Desc) {
-                    keys.reverse();
-                }
-            }
-        }
-    }
+        primary_scan_fetch_hint: Option<usize>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+    fn resolve_full_scan(
+        &self,
+        direction: Direction,
+        primary_scan_fetch_hint: Option<usize>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+    fn resolve_index_prefix(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        direction: Direction,
+        index_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+    fn resolve_index_multi_lookup(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        value_count: usize,
+        direction: Direction,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+    fn resolve_index_range(
+        &self,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+        continuation: IndexScanContinuationInput<'_>,
+        index_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
+}
 
-    // Resolve one direct primary-key lookup.
-    fn resolve_by_key<E>(key: K) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+///
+/// ContextPhysicalAccessRuntime
+///
+/// Typed physical scan/runtime adapter bound to one recovered executor
+/// context.
+/// This keeps store and index leaves specialized while the parent access-path
+/// match and ordering logic stay outside the entity-type implementation body.
+///
+
+struct ContextPhysicalAccessRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    ctx: &'a Context<'ctx, E>,
+}
+
+impl<'ctx, 'a, E> ContextPhysicalAccessRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    const fn new(ctx: &'a Context<'ctx, E>) -> Self {
+        Self { ctx }
+    }
+}
+
+impl<E> PhysicalAccessRuntime<E::Key> for ContextPhysicalAccessRuntime<'_, '_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn resolve_by_key(&self, key: E::Key) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         Ok((
             vec![Context::<E>::data_key_from_key(key)?],
             KeyOrderState::FinalOrder,
         ))
     }
 
-    // Resolve one `ByKeys` shape with canonical deduplication.
-    fn resolve_by_keys<E>(keys: &[K]) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+    fn resolve_by_keys(
+        &self,
+        keys: &[E::Key],
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let keys = Context::<E>::dedup_keys(keys.to_vec())
             .into_iter()
             .map(Context::<E>::data_key_from_key)
@@ -184,21 +168,17 @@ impl<K> ExecutableAccessPath<'_, K> {
         Ok((keys, KeyOrderState::AscendingSorted))
     }
 
-    // Resolve one primary-key range traversal.
-    fn resolve_key_range<E>(
-        ctx: &Context<'_, E>,
-        start: K,
-        end: K,
+    fn resolve_key_range(
+        &self,
+        start: E::Key,
+        end: E::Key,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let start = Context::<E>::data_key_from_key(start)?;
         let end = Context::<E>::data_key_from_key(end)?;
-        let keys = PrimaryScan::range::<E>(ctx, &start, &end, direction, primary_scan_fetch_hint)?;
+        let keys =
+            PrimaryScan::range::<E>(self.ctx, &start, &end, direction, primary_scan_fetch_hint)?;
         let key_order_state = if primary_scan_fetch_hint.is_some() {
             KeyOrderState::FinalOrder
         } else {
@@ -208,19 +188,15 @@ impl<K> ExecutableAccessPath<'_, K> {
         Ok((keys, key_order_state))
     }
 
-    // Resolve one full primary-key scan traversal.
-    fn resolve_full_scan<E>(
-        ctx: &Context<'_, E>,
+    fn resolve_full_scan(
+        &self,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let start = DataKey::lower_bound::<E>();
         let end = DataKey::upper_bound::<E>();
-        let keys = PrimaryScan::range::<E>(ctx, &start, &end, direction, primary_scan_fetch_hint)?;
+        let keys =
+            PrimaryScan::range::<E>(self.ctx, &start, &end, direction, primary_scan_fetch_hint)?;
         let key_order_state = if primary_scan_fetch_hint.is_some() {
             KeyOrderState::FinalOrder
         } else {
@@ -230,19 +206,13 @@ impl<K> ExecutableAccessPath<'_, K> {
         Ok((keys, key_order_state))
     }
 
-    // Resolve one index-prefix traversal using a pre-lowered index-prefix spec.
-    fn resolve_index_prefix<E>(
-        ctx: &Context<'_, E>,
-        _index: Option<IndexModel>,
+    fn resolve_index_prefix(
+        &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let [spec] = index_prefix_specs else {
             return Err(crate::db::error::query_executor_invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
@@ -250,9 +220,13 @@ impl<K> ExecutableAccessPath<'_, K> {
         };
 
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
-        let keys =
-            IndexScan::prefix::<E>(ctx, spec, direction, fetch_limit, index_predicate_execution)?;
-
+        let keys = IndexScan::prefix::<E>(
+            self.ctx,
+            spec,
+            direction,
+            fetch_limit,
+            index_predicate_execution,
+        )?;
         let key_order_state = if index_fetch_hint.is_some() {
             KeyOrderState::FinalOrder
         } else {
@@ -262,20 +236,13 @@ impl<K> ExecutableAccessPath<'_, K> {
         Ok((keys, key_order_state))
     }
 
-    // Resolve one index multi-lookup traversal by scanning each pre-lowered
-    // one-field index-prefix bucket and unioning emitted keys.
-    fn resolve_index_multi_lookup<E>(
-        ctx: &Context<'_, E>,
-        _index: Option<IndexModel>,
+    fn resolve_index_multi_lookup(
+        &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         value_count: usize,
         direction: Direction,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         if index_prefix_specs.len() != value_count {
             return Err(crate::db::error::query_executor_invariant(
                 "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
@@ -285,7 +252,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         let mut keys = Vec::new();
         for spec in index_prefix_specs {
             keys.extend(IndexScan::prefix::<E>(
-                ctx,
+                self.ctx,
                 spec,
                 direction,
                 usize::MAX,
@@ -298,30 +265,22 @@ impl<K> ExecutableAccessPath<'_, K> {
         Ok((keys, KeyOrderState::AscendingSorted))
     }
 
-    // Resolve one index-range traversal using a pre-lowered index-range spec.
-    fn resolve_index_range<E>(
-        ctx: &Context<'_, E>,
-        _index: Option<IndexModel>,
+    fn resolve_index_range(
+        &self,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
         continuation: IndexScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let spec = require_index_range_spec(index_range_spec)?;
-
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let keys = IndexScan::range::<E>(
-            ctx,
+            self.ctx,
             spec,
             continuation,
             fetch_limit,
             index_predicate_execution,
         )?;
-
         let key_order_state = if index_fetch_hint.is_some() {
             KeyOrderState::FinalOrder
         } else {
@@ -329,5 +288,110 @@ impl<K> ExecutableAccessPath<'_, K> {
         };
 
         Ok((keys, key_order_state))
+    }
+}
+
+// Normalize key ordering according to explicit resolver output state.
+fn normalize_ordered_keys(
+    keys: &mut [DataKey],
+    direction: Direction,
+    key_order_state: KeyOrderState,
+) {
+    match key_order_state {
+        KeyOrderState::FinalOrder => {}
+        KeyOrderState::AscendingSorted => {
+            if matches!(direction, Direction::Desc) {
+                keys.reverse();
+            }
+        }
+        KeyOrderState::Unordered => {
+            keys.sort_unstable();
+            if matches!(direction, Direction::Desc) {
+                keys.reverse();
+            }
+        }
+    }
+}
+
+// Resolve one physical access path by dispatching only the coarse path shape
+// through the runtime leaf boundary.
+fn resolve_physical_key_stream<K>(
+    path: &ExecutableAccessPath<'_, K>,
+    request: PhysicalStreamBindings<'_>,
+    runtime: &dyn PhysicalAccessRuntime<K>,
+) -> Result<OrderedKeyStreamBox, InternalError>
+where
+    K: Copy + Ord,
+{
+    let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
+        request.physical_fetch_hint
+    } else {
+        None
+    };
+
+    let (mut candidates, key_order_state) = match dispatch_executable_access_path(path) {
+        ExecutableAccessPathDispatch::ByKey(key) => runtime.resolve_by_key(*key)?,
+        ExecutableAccessPathDispatch::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
+        ExecutableAccessPathDispatch::KeyRange { start, end } => runtime.resolve_key_range(
+            *start,
+            *end,
+            request.continuation.direction(),
+            primary_scan_fetch_hint,
+        )?,
+        ExecutableAccessPathDispatch::FullScan => {
+            runtime.resolve_full_scan(request.continuation.direction(), primary_scan_fetch_hint)?
+        }
+        ExecutableAccessPathDispatch::IndexPrefix { .. } => runtime.resolve_index_prefix(
+            request.index_prefix_specs,
+            request.continuation.direction(),
+            request.physical_fetch_hint,
+            request.index_predicate_execution,
+        )?,
+        ExecutableAccessPathDispatch::IndexMultiLookup { value_count, .. } => runtime
+            .resolve_index_multi_lookup(
+                request.index_prefix_specs,
+                value_count,
+                request.continuation.direction(),
+                request.index_predicate_execution,
+            )?,
+        ExecutableAccessPathDispatch::IndexRange { .. } => runtime.resolve_index_range(
+            request.index_range_spec,
+            request.continuation.index_scan_continuation(),
+            request.physical_fetch_hint,
+            request.index_predicate_execution,
+        )?,
+    };
+
+    normalize_ordered_keys(
+        &mut candidates,
+        request.continuation.direction(),
+        key_order_state,
+    );
+
+    Ok(Box::new(VecOrderedKeyStream::new(candidates)))
+}
+
+impl<K> ExecutableAccessPath<'_, K> {
+    // Physical access lowering for one executable access path.
+    // All store/index traversal must route through `PrimaryScan`/`IndexScan`.
+    /// Build an ordered key stream for this access path.
+    pub(super) fn resolve_physical_key_stream<E>(
+        &self,
+        request: PhysicalStreamRequest<'_, '_, E>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy + Ord,
+    {
+        let runtime = ContextPhysicalAccessRuntime::new(request.ctx);
+        let bindings = PhysicalStreamBindings {
+            index_prefix_specs: request.index_prefix_specs,
+            index_range_spec: request.index_range_spec,
+            continuation: request.continuation,
+            physical_fetch_hint: request.physical_fetch_hint,
+            index_predicate_execution: request.index_predicate_execution,
+        };
+
+        resolve_physical_key_stream(self, bindings, &runtime)
     }
 }
