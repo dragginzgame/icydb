@@ -18,7 +18,6 @@ use crate::{
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
             preparation::slot_map_for_entity_plan,
-            reconstruct_typed_access_plan,
             route::{CountTerminalFastPathContract, ExistsTerminalFastPathContract},
             validate_executor_plan,
         },
@@ -415,7 +414,7 @@ where
         // Phase 1: collect lowered index specs before consuming the executable plan.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_inner();
+        let (logical_plan, typed_access) = plan.into_plan_and_access();
         validate_executor_plan::<E>(&logical_plan)?;
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
@@ -432,7 +431,6 @@ where
 
         // Phase 2: resolve the access key stream directly from index-backed bindings.
         let ctx = self.recovered_context()?;
-        let typed_access = reconstruct_typed_access_plan::<E>(&logical_plan)?;
         let access = ExecutableAccess::new(
             &typed_access,
             AccessStreamBindings::new(

@@ -36,6 +36,45 @@ pub(in crate::db::executor) use guards::{
 };
 
 ///
+/// ErasedExecutablePlan
+///
+/// ErasedExecutablePlan is the single orchestrator-owned wrapper for typed
+/// executable-plan erasure across the monomorphic load entrypoint boundary.
+/// It keeps raw `Any` plan transport localized so orchestrator stages do not
+/// depend on open-coded downcasts.
+///
+
+struct ErasedExecutablePlan {
+    plan: Box<dyn Any>,
+}
+
+impl ErasedExecutablePlan {
+    // Erase one typed executable plan at the entrypoint boundary.
+    fn new<E>(plan: ExecutablePlan<E>) -> Self
+    where
+        E: EntityKind + 'static,
+    {
+        Self {
+            plan: Box::new(plan),
+        }
+    }
+
+    // Recover one typed executable plan at the orchestrator leaf boundary.
+    fn into_typed<E>(
+        self,
+        mismatch_message: &'static str,
+    ) -> Result<ExecutablePlan<E>, InternalError>
+    where
+        E: EntityKind + 'static,
+    {
+        self.plan
+            .downcast::<ExecutablePlan<E>>()
+            .map(|plan| *plan)
+            .map_err(|_| crate::db::error::query_executor_invariant(mismatch_message))
+    }
+}
+
+///
 /// RuntimeAccessState
 ///
 /// RuntimeAccessState is the generic-free access-stage envelope used by the
@@ -46,7 +85,7 @@ pub(in crate::db::executor) use guards::{
 
 struct RuntimeAccessState {
     context: LoadExecutionContext,
-    plan: Box<dyn Any>,
+    plan: ErasedExecutablePlan,
     cursor: PreparedLoadCursor,
 }
 
@@ -88,7 +127,7 @@ trait LoadExecutionRuntime {
     /// Resolve one erased executable plan plus cursor input into access-stage state.
     fn build_runtime_access_state(
         &self,
-        plan: Box<dyn Any>,
+        plan: ErasedExecutablePlan,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<RuntimeAccessState, InternalError>;
@@ -103,7 +142,7 @@ trait LoadExecutionRuntime {
 // Execute one canonical load pipeline over generic-free entrypoint state.
 fn execute_load_with_runtime(
     runtime: &dyn LoadExecutionRuntime,
-    plan: Box<dyn Any>,
+    plan: ErasedExecutablePlan,
     cursor: LoadCursorInput,
     execution_mode: LoadExecutionMode,
 ) -> Result<ErasedLoadExecutionSurface, InternalError> {
@@ -217,7 +256,12 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<ErasedLoadExecutionSurface, InternalError> {
-        execute_load_with_runtime(self, Box::new(plan), cursor, execution_mode)
+        execute_load_with_runtime(
+            self,
+            ErasedExecutablePlan::new(plan),
+            cursor,
+            execution_mode,
+        )
     }
 
     // B1 dynamic load entrypoint:
@@ -283,18 +327,13 @@ where
 {
     fn build_runtime_access_state(
         &self,
-        plan: Box<dyn Any>,
+        plan: ErasedExecutablePlan,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<RuntimeAccessState, InternalError> {
-        let plan = plan
-            .downcast::<ExecutablePlan<E>>()
-            .map(|plan| *plan)
-            .map_err(|_| {
-                crate::db::error::query_executor_invariant(
-                    "load execution runtime received executable plan with unexpected entity type",
-                )
-            })?;
+        let plan = plan.into_typed(
+            "load execution runtime received executable plan with unexpected entity type",
+        )?;
         let access_state = Self::build_execution_context(plan, cursor, execution_mode)?;
         let crate::db::executor::pipeline::orchestrator::state::LoadAccessState {
             context,
@@ -305,7 +344,7 @@ where
 
         Ok(RuntimeAccessState {
             context,
-            plan: Box::new(plan),
+            plan: ErasedExecutablePlan::new(plan),
             cursor,
         })
     }
@@ -319,14 +358,9 @@ where
             plan,
             cursor,
         } = state;
-        let plan = plan
-            .downcast::<ExecutablePlan<E>>()
-            .map(|plan| *plan)
-            .map_err(|_| {
-                crate::db::error::query_executor_invariant(
-                    "load runtime payload stage received executable plan with unexpected entity type",
-                )
-            })?;
+        let plan = plan.into_typed(
+            "load runtime payload stage received executable plan with unexpected entity type",
+        )?;
         let access_state = crate::db::executor::pipeline::orchestrator::state::LoadAccessState {
             context,
             access_inputs: crate::db::executor::pipeline::orchestrator::state::LoadAccessInputs {

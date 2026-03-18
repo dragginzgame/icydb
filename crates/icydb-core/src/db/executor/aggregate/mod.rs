@@ -31,7 +31,6 @@ use crate::{
             ExecutionPreparation,
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
-            reconstruct_typed_access_plan,
             route::aggregate_materialized_fold_direction,
             validate_executor_plan,
         },
@@ -250,8 +249,9 @@ impl ExecutionKernel {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
 
-        // Move into logical + compiled predicate state.
-        let logical_plan = plan.into_inner();
+        // Move into logical + typed access state together so aggregate paths
+        // do not reconstruct typed access after consuming `ExecutablePlan`.
+        let (logical_plan, typed_access) = plan.into_plan_and_access();
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan::<E>(&logical_plan)?;
@@ -263,6 +263,7 @@ impl ExecutionKernel {
         Ok(PreparedAggregateStreamingInputs {
             ctx,
             logical_plan,
+            typed_access,
             index_prefix_specs,
             index_range_specs,
         })
@@ -387,8 +388,7 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let typed_access = reconstruct_typed_access_plan::<E>(&prepared.logical_plan)?;
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &typed_access);
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access);
         let execution_inputs = ExecutionInputs::new(
             &runtime,
             &prepared.logical_plan,

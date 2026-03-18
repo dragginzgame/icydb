@@ -537,6 +537,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan
     }
 
+    /// Split the executable plan into the canonical structural plan plus the
+    /// already-derived typed access sidecar.
+    ///
+    /// Callers that still need typed access after consuming `ExecutablePlan`
+    /// must prefer this helper over reconstructing from the structural plan.
+    pub(in crate::db) fn into_plan_and_access(self) -> (AccessPlannedQuery, AccessPlan<E::Key>) {
+        (self.plan, self.sidecar.access)
+    }
+
     /// Build grouped executor handoff from this executable plan using one
     /// canonical executor-boundary validation pass.
     pub(in crate::db) fn grouped_handoff(

@@ -14,8 +14,8 @@ use crate::{
             ExecutionPreparation, ExecutionTrace, ResolvedScalarContinuationContext,
             ScalarRouteContinuationInvariantProjection,
             pipeline::contracts::{
-                CursorPage, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                LoadExecutor,
+                CursorPage, ErasedCursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
+                ExecutionRuntimeAdapter, LoadExecutor,
             },
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
@@ -28,7 +28,6 @@ use crate::{
     metrics::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
 };
-use std::any::Any;
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
 
@@ -57,7 +56,7 @@ trait ScalarPathRuntime {
         index_range_specs: &[crate::db::executor::LoweredIndexRangeSpec],
         route_plan: &ExecutionPlan,
         resolved_continuation: &ResolvedScalarContinuationContext,
-    ) -> Result<(Box<dyn Any>, ExecutionOutcomeMetrics), InternalError>;
+    ) -> Result<(ErasedCursorPage, ExecutionOutcomeMetrics), InternalError>;
 }
 
 ///
@@ -103,7 +102,7 @@ where
 ///
 
 struct ScalarPathExecution {
-    page: Box<dyn Any>,
+    page: ErasedCursorPage,
     metrics: ExecutionOutcomeMetrics,
     trace: Option<ExecutionTrace>,
     execution_time_micros: u64,
@@ -169,15 +168,9 @@ fn execute_scalar_route_path(
 
 // Downcast one erased scalar page emitted by the scalar runtime boundary.
 fn downcast_scalar_cursor_page<E: EntityKind>(
-    page: Box<dyn Any>,
+    page: ErasedCursorPage,
 ) -> Result<CursorPage<E>, InternalError> {
-    page.downcast::<CursorPage<E>>()
-        .map(|page| *page)
-        .map_err(|_| {
-            crate::db::error::query_executor_invariant(
-                "scalar runtime returned cursor page with unexpected entity type",
-            )
-        })
+    page.into_typed("scalar runtime returned cursor page with unexpected entity type")
 }
 
 impl<E> LoadExecutor<E>
@@ -246,7 +239,7 @@ where
         index_range_specs: &[crate::db::executor::LoweredIndexRangeSpec],
         route_plan: &ExecutionPlan,
         resolved_continuation: &ResolvedScalarContinuationContext,
-    ) -> Result<(Box<dyn Any>, ExecutionOutcomeMetrics), InternalError> {
+    ) -> Result<(ErasedCursorPage, ExecutionOutcomeMetrics), InternalError> {
         // Phase 1: recover typed execution helpers once for this scalar attempt.
         validate_executor_plan::<E>(plan)?;
         let ctx = self.executor.db.recovered_context::<E>()?;
@@ -279,6 +272,6 @@ where
         )?;
         let (page, metrics) = materialized.into_page_and_metrics();
 
-        Ok((Box::new(page), metrics))
+        Ok((ErasedCursorPage::new(page), metrics))
     }
 }

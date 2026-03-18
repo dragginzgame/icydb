@@ -15,7 +15,6 @@ use crate::{
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
             preparation::slot_map_for_entity_plan,
-            reconstruct_typed_access_plan,
             traversal::row_read_consistency_for_plan,
         },
         response::EntityResponse,
@@ -133,7 +132,7 @@ where
             // Phase 1: preflight plan + context setup before any commit-window work.
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
-            let plan = plan.into_inner();
+            let (plan, typed_access) = plan.into_plan_and_access();
             let execution_preparation = ExecutionPreparation::from_plan(
                 E::MODEL,
                 &plan,
@@ -141,7 +140,6 @@ where
             );
             preflight_mutation_plan::<E>(&plan)?;
             let ctx = mutation_write_context::<E>(&self.db)?;
-            let typed_access = reconstruct_typed_access_plan::<E>(&plan)?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);
             record_plan_metrics(&typed_access);

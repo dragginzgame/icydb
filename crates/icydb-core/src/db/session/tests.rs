@@ -150,7 +150,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
             | SqlDispatchResult::ShowIndexes(_)
             | SqlDispatchResult::ShowColumns(_)
             | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "sql_projection_columns only supports SELECT statements",
+                "sql_projection_columns only supports row-producing SELECT or DELETE statements",
             )),
         }
     }
@@ -168,7 +168,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
             | SqlDispatchResult::ShowIndexes(_)
             | SqlDispatchResult::ShowColumns(_)
             | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "execute_sql_projection only supports SELECT statements",
+                "execute_sql_projection only supports row-producing SELECT or DELETE statements",
             )),
         }
     }
@@ -1418,22 +1418,18 @@ fn sql_projection_columns_select_star_returns_entity_model_order() {
 }
 
 #[test]
-fn sql_projection_columns_rejects_delete_statements() {
+fn sql_projection_columns_delete_returns_entity_model_order() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
+    let columns = session
         .sql_projection_columns::<SessionSqlEntity>("DELETE FROM SessionSqlEntity WHERE age > 10")
-        .expect_err("delete SQL should be rejected for projection-column derivation");
+        .expect("delete SQL columns should derive from full entity row shape");
 
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "projection column derivation should reject non-SELECT SQL",
+    assert_eq!(
+        columns,
+        vec!["id".to_string(), "name".to_string(), "age".to_string()],
+        "delete SQL should project full entity columns in model order",
     );
 }
 
@@ -1621,24 +1617,41 @@ fn execute_sql_projection_select_field_list_honors_order_limit_offset_window() {
 }
 
 #[test]
-fn execute_sql_projection_rejects_delete_statements() {
+fn execute_sql_projection_delete_returns_deleted_rows() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("projection-delete-a", 10_u64),
+            ("projection-delete-b", 20_u64),
+            ("projection-delete-c", 30_u64),
+        ],
+    );
+
+    let projection = session
         .execute_sql_projection::<SessionSqlEntity>(
             "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
         )
-        .expect_err("projection SQL execution should reject delete statements");
+        .expect("projection SQL execution should support delete statements");
+    let rows = projection.rows();
 
     assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
-        ),
-        "projection SQL delete usage should fail as unsupported",
+        rows.len() == 1,
+        "delete projection should return exactly one deleted row",
+    );
+    assert!(
+        matches!(rows[0].values().first(), Some(Value::Ulid(_))),
+        "delete projection should expose the deleted row id in the first projected column",
+    );
+    assert_eq!(
+        &rows[0].values()[1..],
+        &[
+            Value::Text("projection-delete-a".to_string()),
+            Value::Uint(10)
+        ],
+        "delete projection should return the deleted entity fields in declared model order",
     );
 }
 

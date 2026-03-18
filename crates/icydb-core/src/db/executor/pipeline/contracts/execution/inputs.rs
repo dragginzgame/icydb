@@ -23,7 +23,47 @@ use crate::{
 };
 use std::any::Any;
 
-type ErasedRowCollectorPayload = (Box<dyn Any>, usize, usize);
+type ErasedRowCollectorPayload = (ErasedCursorPage, usize, usize);
+
+///
+/// ErasedCursorPage
+///
+/// ErasedCursorPage is the single executor-owned wrapper for typed cursor-page
+/// erasure across monomorphic execution boundaries.
+/// It keeps raw `Any` payload handling localized so shared orchestration code
+/// does not traffic in open-coded trait-object downcasts.
+///
+
+pub(in crate::db::executor) struct ErasedCursorPage {
+    page: Box<dyn Any>,
+}
+
+impl ErasedCursorPage {
+    /// Erase one typed cursor page at the runtime boundary.
+    #[must_use]
+    pub(in crate::db::executor) fn new<T>(page: T) -> Self
+    where
+        T: 'static,
+    {
+        Self {
+            page: Box::new(page),
+        }
+    }
+
+    /// Recover one typed cursor page at the typed execution boundary.
+    pub(in crate::db::executor) fn into_typed<T>(
+        self,
+        mismatch_message: &'static str,
+    ) -> Result<T, InternalError>
+    where
+        T: 'static,
+    {
+        self.page
+            .downcast::<T>()
+            .map(|page| *page)
+            .map_err(|_| crate::db::error::query_executor_invariant(mismatch_message))
+    }
+}
 
 ///
 /// RuntimePageMaterializationRequest
@@ -224,7 +264,7 @@ where
         plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
         key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<Option<(Box<dyn Any>, usize, usize)>, InternalError> {
+    ) -> Result<Option<ErasedRowCollectorPayload>, InternalError> {
         Ok(
             ExecutionKernel::try_materialize_load_via_row_collector::<E>(
                 self.ctx,
@@ -233,11 +273,7 @@ where
                 key_stream,
             )?
             .map(|(page, keys_scanned, post_access_rows)| {
-                (
-                    Box::new(page) as Box<dyn Any>,
-                    keys_scanned,
-                    post_access_rows,
-                )
+                (ErasedCursorPage::new(page), keys_scanned, post_access_rows)
             }),
         )
     }
@@ -245,7 +281,7 @@ where
     fn materialize_key_stream_into_page(
         &self,
         request: RuntimePageMaterializationRequest<'_>,
-    ) -> Result<(Box<dyn Any>, usize, usize), InternalError> {
+    ) -> Result<ErasedRowCollectorPayload, InternalError> {
         let (page, keys_scanned, post_access_rows) =
             LoadExecutor::<E>::materialize_key_stream_into_page(PageMaterializationRequest {
                 ctx: self.ctx,
@@ -258,11 +294,7 @@ where
                 continuation: request.continuation,
             })?;
 
-        Ok((
-            Box::new(page) as Box<dyn Any>,
-            keys_scanned,
-            post_access_rows,
-        ))
+        Ok((ErasedCursorPage::new(page), keys_scanned, post_access_rows))
     }
 }
 

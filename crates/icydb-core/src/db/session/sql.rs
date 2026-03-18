@@ -1,7 +1,8 @@
 use crate::{
     db::{
         DbSession, EntityFieldDescription, EntityResponse, EntitySchemaDescription,
-        MissingRowPolicy, PagedGroupedExecutionWithTrace, ProjectionResponse, Query, QueryError,
+        MissingRowPolicy, PagedGroupedExecutionWithTrace, ProjectedRow, ProjectionResponse, Query,
+        QueryError,
         query::{
             builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
             intent::IntentError,
@@ -380,6 +381,38 @@ fn projection_labels_from_query<E: EntityKind>(
     Ok(labels)
 }
 
+// Derive canonical full-entity projection labels in declared model order.
+fn projection_labels_from_entity_model<E: EntityKind>() -> Vec<String> {
+    E::MODEL
+        .fields
+        .iter()
+        .map(|field| field.name.to_string())
+        .collect()
+}
+
+// Rebind one materialized entity response to a projection response in declared
+// model field order so unified SQL dispatch can surface DELETE row payloads
+// through the same row-oriented result contract as SELECT.
+fn projection_from_entity_response<E>(response: EntityResponse<E>) -> ProjectionResponse<E>
+where
+    E: EntityKind + EntityValue,
+{
+    let projected = response
+        .rows()
+        .into_iter()
+        .map(|row| {
+            let (id, entity) = row.into_parts();
+            let values = (0..E::MODEL.fields.len())
+                .map(|index| entity.get_value_by_index(index).unwrap_or(Value::Null))
+                .collect();
+
+            ProjectedRow::new(id, values)
+        })
+        .collect();
+
+    ProjectionResponse::new(projected)
+}
+
 impl<C: CanisterKind> DbSession<C> {
     // Execute one lowered query/explain SQL command and reject non-query lanes.
     fn execute_sql_dispatch_query_lane_from_command<E>(
@@ -410,11 +443,16 @@ impl<C: CanisterKind> DbSession<C> {
                             projection,
                         })
                     }
-                    QueryMode::Delete(_) => Err(QueryError::execute(InternalError::classified(
-                        ErrorClass::Unsupported,
-                        ErrorOrigin::Query,
-                        "execute_sql_projection only supports SELECT statements",
-                    ))),
+                    QueryMode::Delete(_) => {
+                        let columns = projection_labels_from_entity_model::<E>();
+                        let deleted = self.execute_query(&query)?;
+                        let projection = projection_from_entity_response(deleted);
+
+                        Ok(SqlDispatchResult::Projection {
+                            columns,
+                            projection,
+                        })
+                    }
                 }
             }
             SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {

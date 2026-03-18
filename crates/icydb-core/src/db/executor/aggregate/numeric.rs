@@ -20,7 +20,7 @@ use crate::{
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
             preparation::slot_map_for_entity_plan,
-            reconstruct_typed_access_plan, validate_executor_plan,
+            validate_executor_plan,
         },
         numeric::{add_decimal_terms, average_decimal_terms},
         query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
@@ -229,7 +229,7 @@ where
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let consistency = plan.consistency();
         let direction = Self::aggregate_numeric_stream_direction(&plan);
-        let logical_plan = plan.into_inner();
+        let (logical_plan, typed_access) = plan.into_plan_and_access();
         validate_executor_plan::<E>(&logical_plan)?;
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
@@ -248,7 +248,6 @@ where
             }
         });
         let ctx = self.recovered_context()?;
-        let typed_access = reconstruct_typed_access_plan::<E>(&logical_plan)?;
         let access = ExecutableAccess::new(
             &typed_access,
             AccessStreamBindings::new(

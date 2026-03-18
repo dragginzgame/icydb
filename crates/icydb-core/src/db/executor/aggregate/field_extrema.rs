@@ -19,7 +19,6 @@ use crate::{
             aggregate::{AggregateKind, AggregateOutput, PreparedAggregateStreamingInputs},
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::record_rows_scanned,
-            reconstruct_typed_access_plan,
             route::aggregate_extrema_direction,
         },
         index::IndexCompilePolicy,
@@ -178,8 +177,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let typed_access = reconstruct_typed_access_plan::<E>(&prepared.logical_plan)?;
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &typed_access);
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access);
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
             &prepared.logical_plan,

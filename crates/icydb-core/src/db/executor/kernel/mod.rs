@@ -8,7 +8,7 @@ use crate::{
         executor::{
             ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
-                CursorPage, ExecutionInputs, MaterializedExecutionAttempt,
+                CursorPage, ErasedCursorPage, ExecutionInputs, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream, RuntimePageMaterializationRequest,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
@@ -19,7 +19,6 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-use std::any::Any;
 
 ///
 /// ExecutionKernel
@@ -224,7 +223,7 @@ impl ExecutionKernel {
 
     // Downcast one erased typed cursor page emitted by the runtime adapter.
     fn downcast_cursor_page<E: EntityKind>(
-        erased: (Box<dyn Any>, usize, usize),
+        erased: (ErasedCursorPage, usize, usize),
     ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
         let (page, keys_scanned, post_access_rows) = erased;
         let page = Self::downcast_erased_cursor_page::<E>(page)?;
@@ -234,14 +233,8 @@ impl ExecutionKernel {
 
     // Downcast one erased typed cursor page emitted by the runtime adapter.
     fn downcast_erased_cursor_page<E: EntityKind>(
-        page: Box<dyn Any>,
+        page: ErasedCursorPage,
     ) -> Result<CursorPage<E>, InternalError> {
-        page.downcast::<CursorPage<E>>()
-            .map(|page| *page)
-            .map_err(|_| {
-                crate::db::error::query_executor_invariant(
-                    "execution runtime returned cursor page with unexpected entity type",
-                )
-            })
+        page.into_typed("execution runtime returned cursor page with unexpected entity type")
     }
 }
