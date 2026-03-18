@@ -52,7 +52,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
         let mut cache_guard = cache
             .lock()
-            .expect("schema cache lock should not be poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let entry = cache_guard.entry(E::PATH).or_insert_with(|| {
             SchemaInfo::from_entity_model(E::MODEL)

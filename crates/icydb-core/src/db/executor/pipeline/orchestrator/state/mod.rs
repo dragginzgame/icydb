@@ -1,12 +1,11 @@
 //! Module: db::executor::pipeline::orchestrator::state
-//! Responsibility: owns context artifacts and pipeline envelope state contracts.
-//! Does not own: stage orchestration mechanics or terminal materialization logic.
-//! Boundary: exports context + envelope seams for orchestrator stage execution.
+//! Responsibility: owns context artifacts and payload state contracts for load
+//! runtime orchestration.
+//! Does not own: terminal materialization logic or strategy dispatch.
+//! Boundary: exports the runtime state seams shared by the monomorphic load path.
 
 mod context;
-mod envelope;
 
 pub(super) use context::{
     LoadAccessInputs, LoadAccessState, LoadExecutionContext, LoadExecutionPayload, LoadPayloadState,
 };
-pub(super) use envelope::LoadPipelineState;

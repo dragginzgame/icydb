@@ -56,7 +56,7 @@ where
 
     // Execute one scalar load plan with optional cursor input.
     // Retained as a direct scalar pagination adapter for executor-level tests.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(in crate::db) fn execute_paged_with_cursor(
         &self,
         plan: ExecutablePlan<E>,

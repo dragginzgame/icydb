@@ -24,7 +24,6 @@ pub(in crate::db::executor) use execution::{
 };
 // Keep this symbol on the route boundary so compile-fail privacy tests fail on
 // module visibility, not unresolved-symbol drift.
-#[allow(unused_imports)]
 pub(in crate::db::executor) use execution::GroupedRouteObservability;
 #[cfg(test)]
 pub(in crate::db::executor) use shape::MUTATION_FAST_PATH_ORDER;

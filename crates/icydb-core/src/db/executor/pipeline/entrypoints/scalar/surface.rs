@@ -34,6 +34,7 @@ where
     }
 
     // Execute one paged scalar load and materialize page output.
+    #[cfg(test)]
     pub(in crate::db::executor) fn execute_load_scalar_page(
         &self,
         plan: ExecutablePlan<E>,
@@ -82,6 +83,7 @@ where
     }
 
     // Project one paged scalar load surface and classify shape mismatches.
+    #[cfg(test)]
     fn expect_scalar_page_surface(
         surface: ErasedLoadExecutionSurface,
     ) -> Result<CursorPage<E>, InternalError> {

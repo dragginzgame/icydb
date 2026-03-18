@@ -20,6 +20,8 @@ mod validation;
 
 pub(crate) mod token;
 
+#[cfg(test)]
+use crate::traits::EntityValue;
 use crate::{
     db::{
         codec::cursor::decode_cursor,
@@ -28,7 +30,7 @@ use crate::{
         query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, FieldValue},
     types::EntityTag,
 };
 
@@ -234,7 +236,7 @@ fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, Curso
 
 /// Build one cursor boundary from one entity under one canonical order spec.
 #[must_use]
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(in crate::db) fn cursor_boundary_from_entity<E: EntityKind + EntityValue>(
     entity: &E,
     order: &OrderSpec,

@@ -4,15 +4,19 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::executor::pipeline::{
-        orchestrator::state::{LoadAccessState, LoadPayloadState},
-        stages::load_stage_labels,
-    },
+    db::executor::pipeline::orchestrator::state::{LoadAccessState, LoadPayloadState},
     traits::EntityKind,
 };
 
 pub(in crate::db::executor) const fn load_execute_stage_order_guard() -> [&'static str; 6] {
-    load_stage_labels()
+    [
+        "build_execution_context",
+        "execute_access_path",
+        "apply_grouping_projection",
+        "apply_paging",
+        "apply_tracing",
+        "materialize_surface",
+    ]
 }
 
 pub(in crate::db::executor) fn load_pipeline_state_optional_slot_count_guard<E: EntityKind>()

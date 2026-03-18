@@ -1,10 +1,6 @@
 use crate::{
-    db::executor::{
-        ExecutionTrace,
-        pipeline::contracts::{CursorPage, GroupedCursorPage},
-    },
+    db::executor::{ExecutionTrace, pipeline::contracts::GroupedCursorPage},
     error::InternalError,
-    traits::EntityKind,
 };
 use std::any::Any;
 
@@ -59,20 +55,5 @@ impl ErasedLoadPayload {
 pub(in crate::db::executor) enum ErasedLoadExecutionSurface {
     ScalarPage(ErasedLoadPayload),
     ScalarPageWithTrace(ErasedLoadPayload, Option<ExecutionTrace>),
-    GroupedPageWithTrace(GroupedCursorPage, Option<ExecutionTrace>),
-}
-
-///
-/// LoadExecutionSurface
-///
-/// Finalized typed load output surface for legacy typed entrypoint wrappers and
-/// stage-loop backstop execution.
-///
-
-#[allow(dead_code)]
-pub(in crate::db::executor) enum LoadExecutionSurface<E: EntityKind> {
-    ScalarRows(crate::db::response::EntityResponse<E>),
-    ScalarPage(CursorPage<E>),
-    ScalarPageWithTrace(CursorPage<E>, Option<ExecutionTrace>),
     GroupedPageWithTrace(GroupedCursorPage, Option<ExecutionTrace>),
 }

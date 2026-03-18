@@ -39,12 +39,4 @@ where
             },
         })
     }
-
-    // Execute one canonical access path and stage payload + trace artifacts.
-    pub(in crate::db::executor::pipeline::orchestrator) const fn execute_access_path(
-        state: LoadAccessState<E>,
-    ) -> LoadAccessState<E> {
-        // Mechanical stage boundary: access inputs stay normalized and stage-owned.
-        state
-    }
 }

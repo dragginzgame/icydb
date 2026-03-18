@@ -300,7 +300,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ///
     /// Unlike `fingerprint()`, this excludes window state such as `limit`/`offset`.
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
         match self.continuation {
             Some(ref contract) => contract.continuation_signature(),

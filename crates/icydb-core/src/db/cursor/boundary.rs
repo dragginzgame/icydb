@@ -3,6 +3,8 @@
 //! Does not own: planner query validation policy or access-path execution routing.
 //! Boundary: defines cursor-boundary domain types shared by cursor planning/runtime paths.
 
+#[cfg(test)]
+use crate::traits::EntityValue;
 use crate::{
     db::{
         contracts::canonical_value_compare,
@@ -12,7 +14,7 @@ use crate::{
         schema::{SchemaInfo, literal_matches_type},
     },
     model::entity::{EntityModel, resolve_field_slot},
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, FieldValue},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
@@ -58,7 +60,7 @@ impl CursorBoundary {
 
     /// Build one cursor boundary from one entity using canonical order fields.
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(in crate::db) fn from_ordered_entity<E: EntityKind + EntityValue>(
         entity: &E,
         order: &OrderSpec,
@@ -67,18 +69,6 @@ impl CursorBoundary {
 
         Self::from_slot_reader(E::MODEL, order, &mut read_slot)
     }
-}
-
-/// Build boundary slots from one entity using canonical order fields.
-#[must_use]
-#[allow(dead_code)]
-pub(in crate::db) fn boundary_slots_from_entity<E: EntityKind + EntityValue>(
-    entity: &E,
-    order: &OrderSpec,
-) -> Vec<CursorBoundarySlot> {
-    let mut read_slot = |slot| entity.get_value_by_index(slot);
-
-    boundary_slots_from_slot_reader(E::MODEL, order, &mut read_slot)
 }
 
 /// Build boundary slots from one structural slot reader using canonical order fields.

@@ -1,25 +1,20 @@
 //! Module: executor::pipeline::orchestrator
-//! Responsibility: load staged orchestration wiring and contract-boundary exports.
+//! Responsibility: load entrypoint runtime wiring and contract-boundary exports.
 //! Does not own: row materialization mechanics or continuation cursor resolution internals.
-//! Boundary: executes staged orchestration and exposes stable load contracts.
+//! Boundary: executes the monomorphic erased-surface load path and exposes the
+//! stable load contracts needed by entrypoints and runtime leaves.
 
 mod contracts;
-mod dispatch;
 #[cfg(test)]
 mod guards;
-mod payload;
 mod state;
 mod strategy;
 
 use crate::{
     db::executor::{
         ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadCursor,
-        pipeline::contracts::GroupedCursorPage,
+        pipeline::contracts::GroupedCursorPage, pipeline::contracts::LoadExecutor,
         pipeline::orchestrator::state::LoadExecutionContext,
-        pipeline::{
-            contracts::LoadExecutor,
-            orchestrator::{contracts::LoadExecutionDescriptor, state::LoadPipelineState},
-        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -27,8 +22,7 @@ use crate::{
 use std::any::Any;
 
 pub(in crate::db::executor) use contracts::{
-    ErasedLoadExecutionSurface, ErasedLoadPayload, LoadExecutionMode, LoadExecutionSurface,
-    LoadTracingMode,
+    ErasedLoadExecutionSurface, ErasedLoadPayload, LoadExecutionMode, LoadTracingMode,
 };
 #[cfg(test)]
 pub(in crate::db::executor) use guards::{
@@ -262,62 +256,6 @@ where
             cursor,
             execution_mode,
         )
-    }
-
-    // B1 dynamic load entrypoint:
-    // consumes one immutable descriptor that owns stage-loop authority.
-    // Existing typed entrypoints delegate here so subsequent slices can
-    // migrate runtime internals without changing public call sites.
-    // This remains as a test/backstop surface while release entrypoints route
-    // through the canonical fixed-order stage path below.
-    #[allow(dead_code)]
-    pub(in crate::db::executor) fn execute_load_dyn(
-        &self,
-        descriptor: LoadExecutionDescriptor,
-        plan: ExecutablePlan<E>,
-        cursor: LoadCursorInput,
-        execution_mode: LoadExecutionMode,
-    ) -> Result<LoadExecutionSurface<E>, InternalError> {
-        let mut state = LoadPipelineState::Inputs {
-            plan,
-            cursor,
-            execution_mode,
-        };
-
-        for stage in descriptor.stage_plan() {
-            state = self.execute_load_stage(*stage, state)?;
-        }
-
-        state.into_surface()
-    }
-
-    // Unified load entrypoint pipeline:
-    // 1) build execution context
-    // 2) execute access path
-    // 3) apply grouping/projection contract
-    // 4) apply paging contract
-    // 5) apply tracing contract
-    // 6) materialize response surface
-    #[allow(dead_code)]
-    pub(in crate::db::executor) fn execute_load(
-        &self,
-        plan: ExecutablePlan<E>,
-        cursor: LoadCursorInput,
-        execution_mode: LoadExecutionMode,
-    ) -> Result<LoadExecutionSurface<E>, InternalError> {
-        // Canonical stage order:
-        // 1) build execution context
-        let access_state = Self::build_execution_context(plan, cursor, execution_mode)?;
-        // 2) execute access path
-        let access_state = Self::execute_access_path(access_state);
-        // 3) apply grouping/projection contract
-        let payload_state = self.apply_grouping_projection(access_state)?;
-        // 4) apply paging contract
-        let payload_state = Self::apply_paging(payload_state)?;
-        // 5) apply tracing contract
-        let payload_state = Self::apply_tracing(payload_state);
-        // 6) materialize response surface
-        Self::materialize_surface(payload_state)
     }
 }
 
