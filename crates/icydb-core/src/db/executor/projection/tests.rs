@@ -3,16 +3,16 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+#[cfg(feature = "sql")]
+use crate::{db::query::fingerprint::projection_hash_for_test, db::response::ProjectedRow};
 use crate::{
     db::query::{
         builder::aggregate::{count, sum},
-        fingerprint::projection_hash_for_test,
         plan::{
             FieldSlot,
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
         },
     },
-    db::response::ProjectedRow,
     model::{field::FieldKind, index::IndexModel},
     traits::EntityValue,
     types::Ulid,
@@ -22,10 +22,9 @@ use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
-use super::{
-    GroupedRowView, eval_expr, eval_expr_grouped, evaluate_grouped_projection_values,
-    project_rows_from_projection,
-};
+#[cfg(feature = "sql")]
+use super::project_rows_from_projection;
+use super::{GroupedRowView, eval_expr, eval_expr_grouped, evaluate_grouped_projection_values};
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
 const EMPTY_INDEX: IndexModel = IndexModel::new(
@@ -186,6 +185,7 @@ fn eval_expr_alias_wrapper_is_semantic_no_op() {
     assert_eq!(plain_value, alias_value);
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn projection_hash_alias_identity_matches_evaluated_projection_output() {
     let row = row(5, 42, true);
@@ -225,6 +225,7 @@ fn projection_hash_alias_identity_matches_evaluated_projection_output() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn projection_field_order_preserved_for_multi_field_selection() {
     let rows = [row(51, 7, true), row(52, 9, false)];
@@ -266,6 +267,7 @@ fn projection_field_order_preserved_for_multi_field_selection() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn scalar_arithmetic_projection_returns_computed_values() {
     let rows = [row(7, 41, true)];
@@ -291,6 +293,7 @@ fn scalar_arithmetic_projection_returns_computed_values() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn ordering_is_preserved_when_projecting_computed_fields() {
     // Input rows are already in execution order; projection must preserve that
@@ -515,6 +518,7 @@ fn grouped_projection_column_order_is_stable() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn expression_projection_column_identity_is_deterministic() {
     let rows = [row(53, 7, true)];
@@ -637,6 +641,7 @@ fn grouped_projection_ordering_preserves_input_group_order() {
     }
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn projection_materialization_exposes_projected_rows_payload() {
     let row = row(6, 19, true);

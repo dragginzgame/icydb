@@ -6,9 +6,9 @@
 mod coercion;
 mod encoding;
 mod fingerprint;
-mod identifiers;
 mod model;
 mod normalize;
+mod parser;
 mod resolved;
 mod row_policy;
 mod runtime;
@@ -19,11 +19,14 @@ pub use coercion::CoercionId;
 pub use model::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use row_policy::MissingRowPolicy;
 
+pub(crate) use crate::db::reduced_sql::SqlParseError;
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
-pub(in crate::db) use identifiers::rewrite_field_identifiers;
 pub(crate) use model::PredicateExecutionModel;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
+#[cfg(feature = "sql")]
+pub(in crate::db) use parser::parse_predicate_from_cursor;
+pub(crate) use parser::parse_sql_predicate;
 
 pub(in crate::db) use fingerprint::hash_predicate;
 pub(in crate::db) use resolved::{ResolvedComparePredicate, ResolvedPredicate};

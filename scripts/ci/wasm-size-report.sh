@@ -5,59 +5,94 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 OUT_DIR="$ROOT/artifacts/wasm-size"
 CANISTER_NAME="${WASM_CANISTER_NAME:-minimal}"
 PROFILE="${WASM_PROFILE:-wasm-release}"
+SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
 
 mkdir -p "$OUT_DIR"
 
-echo "[wasm-size] Building '$CANISTER_NAME' using profile '$PROFILE'"
-(
-    cd "$ROOT"
-    export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
-    export QUICKSTART_WASM_PROFILE="$PROFILE"
-    cargo run -p icydb-testing-integration --bin build_quickstart_canister --locked -- "$CANISTER_NAME"
-)
+case "$SQL_VARIANTS_MODE" in
+    both)
+        SQL_VARIANTS=("sql-on" "sql-off")
+        ;;
+    sql-on|on|enabled)
+        SQL_VARIANTS=("sql-on")
+        ;;
+    sql-off|off|disabled)
+        SQL_VARIANTS=("sql-off")
+        ;;
+    *)
+        echo "[wasm-size] invalid WASM_SQL_VARIANTS value '$SQL_VARIANTS_MODE'; expected 'sql-on', 'sql-off', or 'both'" >&2
+        exit 1
+        ;;
+esac
 
-DFX_DIR="$ROOT/.dfx/local/canisters/$CANISTER_NAME"
-RAW_WASM="$DFX_DIR/$CANISTER_NAME.wasm"
-RAW_DID="$DFX_DIR/$CANISTER_NAME.did"
-RAW_GZ_EMITTED="$DFX_DIR/$CANISTER_NAME.wasm.gz"
+build_variant() {
+    local sql_variant="$1"
+    local sql_mode="on"
+    local artifact_suffix=""
+    local stem=""
 
-if [[ ! -f "$RAW_WASM" ]]; then
-    echo "[wasm-size] expected wasm missing: $RAW_WASM" >&2
-    exit 1
-fi
+    if [[ "$sql_variant" == "sql-off" ]]; then
+        sql_mode="off"
+    fi
 
-if [[ ! -f "$RAW_DID" ]]; then
-    echo "[wasm-size] expected did missing: $RAW_DID" >&2
-    exit 1
-fi
+    if [[ "${#SQL_VARIANTS[@]}" -gt 1 || "$sql_variant" == "sql-off" ]]; then
+        artifact_suffix=".$sql_variant"
+    fi
 
-RAW_COPY="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-built.wasm"
-RAW_GZ_DETERMINISTIC="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-built.wasm.gz"
-RAW_GZ_EMITTED_COPY="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-emitted.wasm.gz"
-DID_COPY="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.did"
-SHRUNK_WASM="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-shrunk.wasm"
-SHRUNK_GZ="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-shrunk.wasm.gz"
-RAW_INFO="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-built.info.txt"
-SHRUNK_INFO="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-shrunk.info.txt"
-REPORT_JSON="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.report.json"
-SUMMARY_MD="$OUT_DIR/${CANISTER_NAME}.${PROFILE}.summary.md"
+    stem="${CANISTER_NAME}.${PROFILE}${artifact_suffix}"
 
-cp "$RAW_WASM" "$RAW_COPY"
-cp "$RAW_DID" "$DID_COPY"
-gzip -n -9 -c "$RAW_COPY" > "$RAW_GZ_DETERMINISTIC"
+    echo "[wasm-size] Building '$CANISTER_NAME' using profile '$PROFILE' ($sql_variant)"
+    (
+        cd "$ROOT"
+        export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
+        export QUICKSTART_WASM_PROFILE="$PROFILE"
+        export ICYDB_CANISTER_SQL_MODE="$sql_mode"
+        cargo run -p icydb-testing-integration --bin build_quickstart_canister --locked -- "$CANISTER_NAME"
+    )
 
-if [[ -f "$RAW_GZ_EMITTED" ]]; then
-    cp "$RAW_GZ_EMITTED" "$RAW_GZ_EMITTED_COPY"
-fi
+    DFX_DIR="$ROOT/.dfx/local/canisters/$CANISTER_NAME"
+    RAW_WASM="$DFX_DIR/$CANISTER_NAME.wasm"
+    RAW_DID="$DFX_DIR/$CANISTER_NAME.did"
+    RAW_GZ_EMITTED="$DFX_DIR/$CANISTER_NAME.wasm.gz"
 
-ic-wasm "$RAW_COPY" -o "$SHRUNK_WASM" shrink
-gzip -n -9 -c "$SHRUNK_WASM" > "$SHRUNK_GZ"
+    if [[ ! -f "$RAW_WASM" ]]; then
+        echo "[wasm-size] expected wasm missing: $RAW_WASM" >&2
+        exit 1
+    fi
 
-ic-wasm "$RAW_COPY" info > "$RAW_INFO"
-ic-wasm "$SHRUNK_WASM" info > "$SHRUNK_INFO"
+    if [[ ! -f "$RAW_DID" ]]; then
+        echo "[wasm-size] expected did missing: $RAW_DID" >&2
+        exit 1
+    fi
 
-export CANISTER_NAME PROFILE RAW_COPY RAW_GZ_DETERMINISTIC RAW_GZ_EMITTED_COPY SHRUNK_WASM SHRUNK_GZ RAW_INFO SHRUNK_INFO DID_COPY REPORT_JSON SUMMARY_MD
-python3 - <<'PY'
+    RAW_COPY="$OUT_DIR/${stem}.dfx-built.wasm"
+    RAW_GZ_DETERMINISTIC="$OUT_DIR/${stem}.dfx-built.wasm.gz"
+    RAW_GZ_EMITTED_COPY="$OUT_DIR/${stem}.dfx-emitted.wasm.gz"
+    DID_COPY="$OUT_DIR/${stem}.did"
+    SHRUNK_WASM="$OUT_DIR/${stem}.dfx-shrunk.wasm"
+    SHRUNK_GZ="$OUT_DIR/${stem}.dfx-shrunk.wasm.gz"
+    RAW_INFO="$OUT_DIR/${stem}.dfx-built.info.txt"
+    SHRUNK_INFO="$OUT_DIR/${stem}.dfx-shrunk.info.txt"
+    REPORT_JSON="$OUT_DIR/${stem}.report.json"
+    SUMMARY_MD="$OUT_DIR/${stem}.summary.md"
+
+    cp "$RAW_WASM" "$RAW_COPY"
+    cp "$RAW_DID" "$DID_COPY"
+    gzip -n -9 -c "$RAW_COPY" > "$RAW_GZ_DETERMINISTIC"
+
+    if [[ -f "$RAW_GZ_EMITTED" ]]; then
+        cp "$RAW_GZ_EMITTED" "$RAW_GZ_EMITTED_COPY"
+    fi
+
+    ic-wasm "$RAW_COPY" -o "$SHRUNK_WASM" shrink
+    gzip -n -9 -c "$SHRUNK_WASM" > "$SHRUNK_GZ"
+
+    ic-wasm "$RAW_COPY" info > "$RAW_INFO"
+    ic-wasm "$SHRUNK_WASM" info > "$SHRUNK_INFO"
+
+    export CANISTER_NAME PROFILE RAW_COPY RAW_GZ_DETERMINISTIC RAW_GZ_EMITTED_COPY SHRUNK_WASM SHRUNK_GZ RAW_INFO SHRUNK_INFO DID_COPY REPORT_JSON SUMMARY_MD
+    export SQL_VARIANT="$sql_variant"
+    python3 - <<'PY'
 import hashlib
 import json
 import os
@@ -108,6 +143,7 @@ def parse_info(path: Path) -> dict:
 
 canister = os.environ["CANISTER_NAME"]
 profile = os.environ["PROFILE"]
+sql_variant = os.environ["SQL_VARIANT"]
 raw_wasm = Path(os.environ["RAW_COPY"])
 raw_gz = Path(os.environ["RAW_GZ_DETERMINISTIC"])
 raw_gz_emitted = Path(os.environ["RAW_GZ_EMITTED_COPY"])
@@ -131,6 +167,7 @@ emitted_gz_meta = file_meta(raw_gz_emitted) if raw_gz_emitted.exists() else None
 report = {
     "canister": canister,
     "profile": profile,
+    "sql_variant": sql_variant,
     "artifacts": {
         "did": file_meta(did_path),
         "dfx_built_wasm": raw_wasm_meta,
@@ -152,7 +189,7 @@ report = {
 report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 summary_lines = [
-    f"## Wasm Size Report: `{canister}` ({profile})",
+    f"## Wasm Size Report: `{canister}` ({profile}, {sql_variant})",
     "",
     "| Artifact | Bytes |",
     "| --- | ---: |",
@@ -172,6 +209,8 @@ summary_lines.extend(
         f"| Shrink delta `.wasm` | {report['deltas']['shrink_wasm_bytes']} |",
         f"| Shrink delta `.wasm.gz` | {report['deltas']['shrink_wasm_gz_bytes']} |",
         "",
+        f"SQL variant: `{sql_variant}`",
+        "",
         f"Exports (shrunk): {shrunk_info_meta['exported_method_count']}",
         "",
         f"JSON report: `{report_path}`",
@@ -187,5 +226,10 @@ if step_summary:
         handle.write(summary)
 PY
 
-echo "[wasm-size] Wrote report: $REPORT_JSON"
-echo "[wasm-size] Wrote summary: $SUMMARY_MD"
+    echo "[wasm-size] Wrote report: $REPORT_JSON"
+    echo "[wasm-size] Wrote summary: $SUMMARY_MD"
+}
+
+for sql_variant in "${SQL_VARIANTS[@]}"; do
+    build_variant "$sql_variant"
+done

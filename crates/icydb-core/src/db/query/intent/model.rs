@@ -3,6 +3,8 @@
 //! Does not own: executor runtime behavior or post-plan execution routing.
 //! Boundary: turns fluent/query intent state into validated logical/planned contracts.
 
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::{FieldId, ProjectionSelection};
 use crate::{
     db::{
         access::AccessPlan,
@@ -13,12 +15,11 @@ use crate::{
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, build_logical_plan,
-                expr::{FieldId, ProjectionSelection},
-                fold_constant_predicate, is_limit_zero_load_window,
-                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, resolve_group_field_slot,
-                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
+                LogicalPlan, OrderSpec, QueryMode, build_logical_plan, fold_constant_predicate,
+                is_limit_zero_load_window, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
+                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
+                validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -126,6 +127,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     /// Select one explicit scalar field projection list.
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(crate) fn select_fields<I, S>(mut self, fields: I) -> Self
     where

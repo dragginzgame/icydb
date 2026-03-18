@@ -16,6 +16,7 @@ pub(crate) mod registry;
 pub(crate) mod response;
 pub(crate) mod schema;
 pub(crate) mod session;
+#[cfg(feature = "sql")]
 pub(crate) mod sql;
 
 pub(in crate::db) mod codec;
@@ -26,6 +27,7 @@ pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
 pub(in crate::db) mod migration;
 pub(in crate::db) mod numeric;
+pub(in crate::db) mod reduced_sql;
 pub(in crate::db) mod relation;
 
 use crate::{
@@ -89,9 +91,13 @@ pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, ValidateError,
 };
+#[cfg(not(feature = "sql"))]
+pub use session::DbSession;
+#[cfg(feature = "sql")]
 pub use session::{
     DbSession, SqlDispatchResult, SqlParsedStatement, SqlPreparedStatement, SqlStatementRoute,
 };
+#[cfg(feature = "sql")]
 pub use sql::identifier::{
     identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
     split_qualified_identifier,

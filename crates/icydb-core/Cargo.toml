@@ -11,6 +11,10 @@ authors = { workspace = true }
 [lib]
 doctest = false
 
+[features]
+default = ["sql"]
+sql = []
+
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }

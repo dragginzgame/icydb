@@ -14,7 +14,7 @@ mod tests;
 use crate::db::codec::{finalize_hash_sha256, new_hash_sha256_prefixed};
 use sha2::Sha256;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use projection_hash::projection_hash_for_test;
 
 const PLAN_FINGERPRINT_PROFILE_TAG_V2: &[u8] = b"planfp:v2";

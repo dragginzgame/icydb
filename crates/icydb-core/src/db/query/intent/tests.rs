@@ -4,6 +4,11 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
+#[cfg(feature = "sql")]
+use crate::db::query::plan::{
+    AggregateKind,
+    expr::{Expr, ProjectionField},
+};
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
@@ -13,10 +18,7 @@ use crate::{
         query::{
             builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
             expr::FilterExpr,
-            plan::{
-                AccessPlannedQuery, AggregateKind, LogicalPlan, ScalarPlan,
-                expr::{Expr, ProjectionField},
-            },
+            plan::{AccessPlannedQuery, LogicalPlan, ScalarPlan},
         },
     },
     model::{
@@ -1348,6 +1350,7 @@ fn query_distinct_sets_logical_plan_flag() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn compiled_query_projection_spec_lowers_scalar_fields_in_model_order() {
     let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
@@ -1370,6 +1373,7 @@ fn compiled_query_projection_spec_lowers_scalar_fields_in_model_order() {
     assert_eq!(field_names, vec!["id".to_string(), "name".to_string()]);
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
     let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
@@ -1410,6 +1414,7 @@ fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
     }
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn compiled_query_projection_spec_preserves_global_distinct_aggregate_semantics() {
     let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)

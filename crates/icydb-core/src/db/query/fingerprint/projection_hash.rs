@@ -3,7 +3,7 @@
 //! Does not own: planner projection lowering or continuation profile ordering.
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 use crate::{db::codec::new_hash_sha256, db::query::fingerprint::finalize_sha256_digest};
 use crate::{
     db::numeric::coerce_numeric_decimal,
@@ -186,7 +186,7 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) fn projection_hash_for_test(projection: &ProjectionSpec) -> [u8; 32] {
     let mut hasher = new_hash_sha256();
     hash_projection_structural_fingerprint_v1(&mut hasher, projection);

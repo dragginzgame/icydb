@@ -53,6 +53,7 @@ help:
 	@echo "  make patch       # Bump patch version"
 	@echo "  make test        # Run tests"
 	@echo "  make build       # Build project"
+	@echo "  WASM_SQL_VARIANTS=both make wasm-size-report   # Build SQL-on and SQL-off size variants"
 
 #
 # Installing

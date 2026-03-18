@@ -360,7 +360,7 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",

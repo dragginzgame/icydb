@@ -4,11 +4,31 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 CANISTER_NAME="${WASM_CANISTER_NAME:-minimal}"
 PROFILE="${WASM_PROFILE:-wasm-release}"
+SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
 AUDIT_DATE="${WASM_AUDIT_DATE:-$(date +%F)}"
 AUDIT_MONTH="${AUDIT_DATE:0:7}"
 REPORT_DIR="${WASM_AUDIT_REPORT_DIR:-$ROOT/docs/audits/reports/$AUDIT_MONTH/$AUDIT_DATE}"
 REPORT_SCOPE="wasm-footprint"
 ARTIFACT_SCOPE_DIR="$REPORT_DIR/artifacts/$REPORT_SCOPE"
+
+case "$SQL_VARIANTS_MODE" in
+    sql-on|on|enabled)
+        SQL_VARIANT="sql-on"
+        SIZE_REPORT_SUFFIX=""
+        ;;
+    sql-off|off|disabled)
+        SQL_VARIANT="sql-off"
+        SIZE_REPORT_SUFFIX=".sql-off"
+        ;;
+    both)
+        echo "[wasm-audit] WASM_SQL_VARIANTS=both is not supported for audit reports; run one variant per audit pass" >&2
+        exit 1
+        ;;
+    *)
+        echo "[wasm-audit] invalid WASM_SQL_VARIANTS value '$SQL_VARIANTS_MODE'; expected 'sql-on', 'sql-off', or 'both'" >&2
+        exit 1
+        ;;
+esac
 
 if ! command -v twiggy >/dev/null 2>&1; then
     echo "[wasm-audit] missing required tool: twiggy" >&2
@@ -25,9 +45,9 @@ else
 fi
 
 ARTIFACT_DIR="$ROOT/artifacts/wasm-size"
-SIZE_REPORT_JSON="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}.report.json"
-SIZE_SUMMARY_MD="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}.summary.md"
-SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}.dfx-shrunk.wasm"
+SIZE_REPORT_JSON="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.report.json"
+SIZE_SUMMARY_MD="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.summary.md"
+SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.dfx-shrunk.wasm"
 
 for required in "$SIZE_REPORT_JSON" "$SIZE_SUMMARY_MD" "$SHRUNK_WASM"; do
     if [[ ! -f "$required" ]]; then
@@ -46,13 +66,13 @@ if [[ -f "$REPORT_DIR/$REPORT_SCOPE.md" ]]; then
 fi
 
 REPORT_PATH="$REPORT_DIR/${REPORT_STEM}.md"
-SIZE_REPORT_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.size-report.json"
-SIZE_SUMMARY_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.size-summary.md"
-TWIGGY_TOP_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.twiggy-top.txt"
-TWIGGY_TOP_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.twiggy-top.csv"
-TWIGGY_DOMINATORS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.twiggy-dominators.txt"
-TWIGGY_RETAINED_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.twiggy-retained.csv"
-TWIGGY_MONOS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.twiggy-monos.txt"
+SIZE_REPORT_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.size-report.json"
+SIZE_SUMMARY_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.size-summary.md"
+TWIGGY_TOP_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-top.txt"
+TWIGGY_TOP_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-top.csv"
+TWIGGY_DOMINATORS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-dominators.txt"
+TWIGGY_RETAINED_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-retained.csv"
+TWIGGY_MONOS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-monos.txt"
 
 if [[ "$REPORT_STEM" == "wasm-footprint" ]]; then
     BASELINE_PATH="$(
@@ -96,7 +116,7 @@ twiggy dominators -r 160 "$SHRUNK_WASM" > "$TWIGGY_DOMINATORS_TXT"
 twiggy top --retained -n 40 -f csv "$SHRUNK_WASM" > "$TWIGGY_RETAINED_CSV"
 twiggy monos "$SHRUNK_WASM" > "$TWIGGY_MONOS_TXT"
 
-export ROOT CANISTER_NAME PROFILE AUDIT_DATE REPORT_PATH REPORT_STEM REPORT_SCOPE BASELINE_PATH
+export ROOT CANISTER_NAME PROFILE SQL_VARIANT AUDIT_DATE REPORT_PATH REPORT_STEM REPORT_SCOPE BASELINE_PATH
 export SIZE_REPORT_COPY TWIGGY_TOP_CSV TWIGGY_RETAINED_CSV TWIGGY_MONOS_TXT
 export SIZE_SUMMARY_COPY TWIGGY_TOP_TXT TWIGGY_DOMINATORS_TXT
 python3 - <<'PY'
@@ -151,9 +171,20 @@ if baseline_path != "N/A":
         baseline_report.parent
         / "artifacts"
         / report_scope
+        / f"{baseline_report.stem}.{canister}.{profile}.{os.environ['SQL_VARIANT']}.size-report.json"
+    )
+    legacy_sql_on_baseline_artifact = (
+        baseline_report.parent
+        / "artifacts"
+        / report_scope
         / f"{baseline_report.stem}.{canister}.{profile}.size-report.json"
     )
     legacy_baseline_artifact = (
+        baseline_report.parent
+        / "helpers"
+        / f"{baseline_report.stem}.{canister}.{profile}.{os.environ['SQL_VARIANT']}.size-report.json"
+    )
+    legacy_sql_on_helper_artifact = (
         baseline_report.parent
         / "helpers"
         / f"{baseline_report.stem}.{canister}.{profile}.size-report.json"
@@ -161,10 +192,26 @@ if baseline_path != "N/A":
     if baseline_artifact.exists():
         baseline_artifact_path = baseline_artifact
         baseline_metrics = json.loads(baseline_artifact.read_text(encoding="utf-8"))
+    elif (
+        os.environ["SQL_VARIANT"] == "sql-on"
+        and legacy_sql_on_baseline_artifact.exists()
+    ):
+        baseline_artifact_path = legacy_sql_on_baseline_artifact
+        baseline_metrics = json.loads(
+            legacy_sql_on_baseline_artifact.read_text(encoding="utf-8")
+        )
     elif legacy_baseline_artifact.exists():
         baseline_artifact_path = legacy_baseline_artifact
         baseline_metrics = json.loads(
             legacy_baseline_artifact.read_text(encoding="utf-8")
+        )
+    elif (
+        os.environ["SQL_VARIANT"] == "sql-on"
+        and legacy_sql_on_helper_artifact.exists()
+    ):
+        baseline_artifact_path = legacy_sql_on_helper_artifact
+        baseline_metrics = json.loads(
+            legacy_sql_on_helper_artifact.read_text(encoding="utf-8")
         )
 
 try:
@@ -271,7 +318,7 @@ lines = [
     "",
     (
         f"- scope: recurring wasm footprint audit for `{canister}` "
-        f"with profile `{profile}`"
+        f"with profile `{profile}` and SQL variant `{os.environ['SQL_VARIANT']}`"
     ),
     f"- compared baseline report path: `{baseline_path}`",
     f"- code snapshot identifier: `{snapshot}`",

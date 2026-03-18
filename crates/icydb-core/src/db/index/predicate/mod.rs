@@ -9,10 +9,7 @@ mod tests;
 
 use crate::{
     db::index::{EncodedValue, IndexKey},
-    db::{
-        predicate::Predicate,
-        sql::parser::{SqlParseError, parse_sql_predicate},
-    },
+    db::predicate::{Predicate, SqlParseError, parse_sql_predicate},
     error::InternalError,
     model::index::IndexModel,
     value::Value,

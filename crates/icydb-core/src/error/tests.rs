@@ -69,6 +69,7 @@ fn query_executor_invariant_uses_invariant_violation_class() {
     assert_eq!(err.origin, ErrorOrigin::Query);
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn query_unsupported_sql_feature_preserves_query_detail_label() {
     let err = InternalError::query_unsupported_sql_feature("JOIN");
@@ -79,7 +80,7 @@ fn query_unsupported_sql_feature_preserves_query_detail_label() {
         matches!(
             err.detail(),
             Some(ErrorDetail::Query(QueryErrorDetail::UnsupportedSqlFeature { feature }))
-                if *feature == "JOIN"
+                if feature == &"JOIN"
         ),
         "query unsupported SQL feature helper should preserve structured feature label detail",
     );

@@ -9,7 +9,8 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [features]
-default = []
+default = ["sql"]
+sql = ["icydb-core/sql"]
 
 [dependencies]
 candid = { workspace = true }
@@ -19,7 +20,7 @@ canic-utils = { workspace = true }
 ctor = { workspace = true }
 derive_more = { workspace = true }
 icydb-build = { workspace = true }
-icydb-core = { workspace = true }
+icydb-core = { path = "../icydb-core", default-features = false }
 icydb-derive = { workspace = true }
 icydb-schema = { workspace = true }
 icydb-schema-derive = { workspace = true }

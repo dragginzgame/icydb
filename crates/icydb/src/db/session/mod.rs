@@ -2,14 +2,17 @@ pub mod delete;
 pub mod load;
 mod macros;
 
+#[cfg(feature = "sql")]
+use crate::db::{
+    SqlStatementRoute,
+    response::ProjectionResponse,
+    sql::{SqlQueryResult, SqlQueryRowsOutput, projection_rows_from_response},
+};
 use crate::{
     db::{
-        EntityFieldDescription, EntitySchemaDescription, SqlStatementRoute, StorageReport,
+        EntityFieldDescription, EntitySchemaDescription, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{
-            PagedGroupedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
-        },
-        sql::{SqlQueryResult, SqlQueryRowsOutput, projection_rows_from_response},
+        response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
     metrics::MetricsSink,
@@ -30,10 +33,12 @@ pub use load::{FluentLoadQuery, PagedLoadQuery};
 /// Use this to parse once and reuse one canonical route+statement contract
 /// across dynamic dispatch and typed execution.
 ///
+#[cfg(feature = "sql")]
 pub struct SqlParsedStatement {
     inner: core::db::SqlParsedStatement,
 }
 
+#[cfg(feature = "sql")]
 impl SqlParsedStatement {
     #[must_use]
     const fn from_core(inner: core::db::SqlParsedStatement) -> Self {
@@ -54,11 +59,12 @@ impl SqlParsedStatement {
 /// Use this to prepare once per resolved entity route and reuse one
 /// normalized fail-closed lowering contract across lane callbacks.
 ///
-
+#[cfg(feature = "sql")]
 pub struct SqlPreparedStatement {
     inner: core::db::SqlPreparedStatement,
 }
 
+#[cfg(feature = "sql")]
 impl SqlPreparedStatement {
     #[must_use]
     const fn from_core(inner: core::db::SqlPreparedStatement) -> Self {
@@ -127,6 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Build one typed query intent from one reduced SQL statement.
+    #[cfg(feature = "sql")]
     pub fn query_from_sql<E>(&self, sql: &str) -> Result<Query<E>, Error>
     where
         E: EntityKind<Canister = C>,
@@ -135,6 +142,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Parse one reduced SQL statement into canonical route metadata.
+    #[cfg(feature = "sql")]
     pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, Error> {
         let parsed = self.parse_sql_statement(sql)?;
 
@@ -142,6 +150,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Parse one reduced SQL statement into one reusable parsed envelope.
+    #[cfg(feature = "sql")]
     pub fn parse_sql_statement(&self, sql: &str) -> Result<SqlParsedStatement, Error> {
         Ok(SqlParsedStatement::from_core(
             self.inner.parse_sql_statement(sql)?,
@@ -149,6 +158,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Prepare one parsed reduced SQL statement for one concrete entity route.
+    #[cfg(feature = "sql")]
     pub fn prepare_sql_dispatch_parsed(
         &self,
         parsed: &SqlParsedStatement,
@@ -161,6 +171,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one reduced SQL `SELECT`/`DELETE` statement.
+    #[cfg(feature = "sql")]
     pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -169,6 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one reduced SQL statement and return one unified SQL payload.
+    #[cfg(feature = "sql")]
     pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -179,6 +191,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one parsed reduced SQL statement and return one unified SQL payload.
+    #[cfg(feature = "sql")]
     pub fn execute_sql_dispatch_parsed<E>(
         &self,
         parsed: &SqlParsedStatement,
@@ -192,6 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one prepared reduced SQL statement and return one unified SQL payload.
+    #[cfg(feature = "sql")]
     pub fn execute_sql_dispatch_prepared<E>(
         &self,
         prepared: &SqlPreparedStatement,
@@ -207,6 +221,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one prepared reduced SQL statement limited to query/explain lanes.
+    #[cfg(feature = "sql")]
     pub fn execute_sql_dispatch_query_lane_prepared<E>(
         &self,
         prepared: &SqlPreparedStatement,
@@ -221,6 +236,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Self::map_sql_dispatch_result::<E>(result))
     }
 
+    #[cfg(feature = "sql")]
     fn map_sql_dispatch_result<E>(result: core::db::SqlDispatchResult<E>) -> SqlQueryResult
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -260,6 +276,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one reduced SQL global aggregate `SELECT` statement.
+    #[cfg(feature = "sql")]
     pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<crate::value::Value, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -268,6 +285,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one reduced SQL grouped `SELECT` statement with optional continuation cursor.
+    #[cfg(feature = "sql")]
     pub fn execute_sql_grouped<E>(
         &self,
         sql: &str,
@@ -571,7 +589,7 @@ impl<C: CanisterKind> DbSession<C> {
 /// TESTS
 ///
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::*;
     use crate::{
@@ -644,7 +662,7 @@ mod tests {
         };
     }
 
-    fn facade_session() -> DbSession<FacadeSqlCanister> {
+    const fn facade_session() -> DbSession<FacadeSqlCanister> {
         let core_session = core::db::DbSession::<FacadeSqlCanister>::new_with_hooks(
             &FACADE_SQL_STORE_REGISTRY,
             &[],
@@ -810,7 +828,7 @@ mod tests {
         }
     }
 
-    fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
+    const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
         [
             (
                 "SELECT * FROM FacadeSqlEntity JOIN other ON FacadeSqlEntity.id = other.id",

@@ -5,13 +5,14 @@
 
 use crate::{
     db::{
-        predicate::{MissingRowPolicy, Predicate, rewrite_field_identifiers},
+        predicate::{MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
             intent::{Query, QueryError},
         },
         sql::identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
+            rewrite_field_identifiers,
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,

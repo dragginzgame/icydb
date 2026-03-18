@@ -5,13 +5,12 @@
 
 #![expect(clippy::similar_names)]
 use super::*;
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::{ProjectionField, ProjectionSpec};
 use crate::db::{
     IndexStore,
     data::DataKey,
-    query::{
-        explain::{ExplainAccessPath, ExplainExecutionNodeType},
-        plan::expr::{ProjectionField, ProjectionSpec},
-    },
+    query::explain::{ExplainAccessPath, ExplainExecutionNodeType},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -164,6 +163,7 @@ where
     .join("\n")
 }
 
+#[cfg(feature = "sql")]
 fn projection_columns_snapshot(projection: &ProjectionSpec) -> Vec<String> {
     projection
         .fields()
@@ -177,6 +177,7 @@ fn projection_columns_snapshot(projection: &ProjectionSpec) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "sql")]
 fn query_execution_pipeline_projection_snapshot<E>(query: &Query<E>) -> String
 where
     E: EntityKind + EntityValue,
@@ -1815,6 +1816,7 @@ fn query_execution_pipeline_snapshot_for_by_key_shape_is_stable() {
     );
 }
 
+#[cfg(feature = "sql")]
 #[test]
 fn query_execution_pipeline_snapshot_for_by_key_shape_with_projection_columns_is_stable() {
     let query =

@@ -174,6 +174,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
     }
 
     quote! {
+        #[cfg(feature = "sql")]
         ///
         /// SQL Runtime Dispatch
         ///

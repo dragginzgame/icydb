@@ -3,6 +3,8 @@
 //! Does not own: final planner validation or executor route/runtime semantics.
 //! Boundary: applies fluent/query API mutations to internal intent state contracts.
 
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::{
     predicate::Predicate,
     query::{
@@ -12,7 +14,7 @@ use crate::db::{
         },
         plan::{
             FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
-            GroupedExecutionConfig, OrderDirection, OrderSpec, expr::ProjectionSelection,
+            GroupedExecutionConfig, OrderDirection, OrderSpec,
         },
     },
 };
@@ -48,6 +50,7 @@ impl<K> QueryIntent<K> {
     }
 
     /// Override scalar projection selection with one explicit planner contract.
+    #[cfg(feature = "sql")]
     pub(in crate::db::query::intent) fn set_projection_selection(
         &mut self,
         projection_selection: ProjectionSelection,

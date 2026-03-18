@@ -305,6 +305,7 @@ impl InternalError {
 
     /// Construct a query-origin unsupported error preserving one SQL parser
     /// unsupported-feature label in structured error detail.
+    #[cfg(feature = "sql")]
     pub(crate) fn query_unsupported_sql_feature(feature: &'static str) -> Self {
         let message = format!(
             "SQL query is not executable in this release: unsupported SQL feature: {feature}"

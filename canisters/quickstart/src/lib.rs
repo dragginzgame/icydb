@@ -4,19 +4,24 @@
 
 mod seed;
 
-use ic_cdk::{export_candid, query as ic_query, update};
+#[cfg(feature = "sql")]
+use ic_cdk::query as ic_query;
+use ic_cdk::{export_candid, update};
+#[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
 use icydb_testing_quickstart_fixtures::schema::{Character, Order, User};
 
 icydb::start!();
 
 /// Return one list of fixture entity names accepted by the SQL endpoints.
+#[cfg(feature = "sql")]
 #[ic_query]
 fn sql_entities() -> Vec<String> {
     sql_dispatch::entities()
 }
 
 /// Execute one reduced SQL statement against fixture entities.
+#[cfg(feature = "sql")]
 #[ic_query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
@@ -48,7 +53,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 /// TESTS
 ///
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::{SqlQueryResult, User, db, sql_dispatch};
 

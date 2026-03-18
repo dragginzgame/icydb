@@ -8,7 +8,6 @@ use super::{
     SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
     SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
     SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
-    parse_sql_predicate,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -714,36 +713,4 @@ fn parse_sql_normalization_is_case_and_whitespace_insensitive() {
             .expect("variant statement should parse");
 
     assert_eq!(canonical, variant);
-}
-
-#[test]
-fn parse_sql_predicate_parses_expression_without_statement_wrapper() {
-    let predicate = parse_sql_predicate("active = true AND age >= 21")
-        .expect("predicate-only SQL should parse");
-
-    assert_eq!(
-        predicate,
-        Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "active",
-                CompareOp::Eq,
-                Value::Bool(true),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
-                CompareOp::Gte,
-                Value::Int(21),
-                CoercionId::NumericWiden,
-            )),
-        ]),
-    );
-}
-
-#[test]
-fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
-    let err = parse_sql_predicate("active = true ORDER BY age")
-        .expect_err("predicate parser should reject trailing unsupported clauses");
-
-    assert!(matches!(err, super::SqlParseError::InvalidSyntax { .. }));
 }

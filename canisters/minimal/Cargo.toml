@@ -8,14 +8,18 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = ["sql"]
+sql = ["icydb/sql"]
+
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { workspace = true }
+icydb = { path = "../../crates/icydb", default-features = false }
 icydb-testing-minimal-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { workspace = true }
+icydb = { path = "../../crates/icydb", default-features = false }
 icydb-testing-minimal-fixtures = { workspace = true }
 
 [lints]

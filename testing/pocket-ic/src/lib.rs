@@ -13,6 +13,7 @@ const MINIMAL_CANISTER_PACKAGE: &str = "canister_minimal";
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
 const QUICKSTART_WASM_PROFILE_ENV: &str = "QUICKSTART_WASM_PROFILE";
+const CANISTER_SQL_MODE_ENV: &str = "ICYDB_CANISTER_SQL_MODE";
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -83,12 +84,28 @@ fn selected_canister_wasm_profile() -> Result<&'static str, String> {
     }
 }
 
+fn selected_canister_sql_enabled() -> Result<bool, String> {
+    let Some(explicit_mode) = env::var_os(CANISTER_SQL_MODE_ENV) else {
+        return Ok(true);
+    };
+
+    let normalized = explicit_mode.to_string_lossy().to_ascii_lowercase();
+    match normalized.as_str() {
+        "on" | "sql-on" | "enabled" => Ok(true),
+        "off" | "sql-off" | "disabled" => Ok(false),
+        other => Err(format!(
+            "invalid {CANISTER_SQL_MODE_ENV} value '{other}', expected 'on'/'sql-on' or 'off'/'sql-off'"
+        )),
+    }
+}
+
 fn build_canister_package(
     package_name: &str,
     profile: &str,
     context_label: &str,
 ) -> Result<PathBuf, String> {
     let root = workspace_root();
+    let sql_enabled = selected_canister_sql_enabled()?;
     let mut cargo = Command::new("cargo");
     cargo.current_dir(&root).args([
         "build",
@@ -97,6 +114,9 @@ fn build_canister_package(
         "--package",
         package_name,
     ]);
+    if !sql_enabled {
+        cargo.arg("--no-default-features");
+    }
     if profile == "release" {
         cargo.arg("--release");
     } else if profile != "debug" {

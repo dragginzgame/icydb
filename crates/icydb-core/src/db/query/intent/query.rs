@@ -118,6 +118,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Override scalar projection selection with one explicit field list.
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -594,6 +595,7 @@ impl<E: EntityKind> CompiledQuery<E> {
 
     /// Borrow planner-lowered projection semantics for this compiled query.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
         self.plan.projection_spec(E::MODEL)
     }

@@ -3,16 +3,22 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+#[cfg(feature = "sql")]
 use crate::{
     db::{
-        executor::{ExecutablePlan, pipeline::contracts::LoadExecutor},
-        query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
+        executor::ExecutablePlan,
         response::{ProjectedRow, ProjectionResponse},
+    },
+    types::Id,
+};
+use crate::{
+    db::{
+        executor::pipeline::contracts::LoadExecutor,
+        query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
     },
     error::InternalError,
     model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
-    types::Id,
     value::Value,
 };
 
@@ -26,6 +32,7 @@ where
     E: EntityKind + EntityValue,
 {
     /// Execute one scalar load plan and return projection-shaped response rows.
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn execute_projection(
         &self,
         plan: ExecutablePlan<E>,
@@ -89,6 +96,7 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
     Ok(projected_values)
 }
 
+#[cfg(feature = "sql")]
 pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
     projection: &ProjectionSpec,
     rows: &[(Id<E>, E)],

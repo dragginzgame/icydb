@@ -4,11 +4,12 @@
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
 mod query;
+#[cfg(feature = "sql")]
 mod sql;
 ///
 /// TESTS
 ///
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 mod tests;
 mod write;
 
@@ -30,6 +31,7 @@ use crate::{
 };
 use std::thread::LocalKey;
 
+#[cfg(feature = "sql")]
 pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlPreparedStatement, SqlStatementRoute};
 
 // Map executor-owned plan-surface failures into query-owned plan errors.
