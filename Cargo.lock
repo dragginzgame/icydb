@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "canister_minimal"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "canister_quickstart"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1175,11 +1175,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.59.3"
+version = "0.59.4"
 
 [[package]]
 name = "icydb-schema"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "canic-utils",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-fixtures"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-quickstart-fixtures"
-version = "0.59.3"
+version = "0.59.4"
 dependencies = [
  "candid",
  "icydb",
@@ -3390,18 +3390,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.46"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c5030500cb2d66bdfbb4ebc9563be6ce7005a4b5d0f26be0c523870fe372ca6"
+checksum = "efbb2a062be311f2ba113ce66f697a4dc589f85e78a4aea276200804cea0ed87"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.46"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5f86989a046a79640b9d8867c823349a139367bda96549794fcc3313ce91f4e"
+checksum = "0e8bc7269b54418e7aeeef514aa68f8690b8c0489a06b0136e5f57c4c5ccab89"
 dependencies = [
  "proc-macro2",
  "quote",
