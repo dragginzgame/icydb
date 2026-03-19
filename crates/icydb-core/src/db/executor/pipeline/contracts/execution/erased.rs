@@ -16,6 +16,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
+    value::Value,
 };
 use std::ptr;
 
@@ -44,7 +45,7 @@ type IndexRangeLimitPushdownRuntimeFn =
     ) -> Result<Option<FastPathKeyResult>, InternalError>;
 type FallbackExecutionKeysRuntimeFn = unsafe fn(
     ErasedContext,
-    ErasedAccessPlan,
+    ErasedStructuralAccessPlan,
     AccessStreamBindings<'_>,
     Option<usize>,
     Option<IndexPredicateExecution<'_>>,
@@ -52,7 +53,7 @@ type FallbackExecutionKeysRuntimeFn = unsafe fn(
 
 // SAFETY INVARIANTS:
 // - `ErasedContext` must only be constructed from `&Context<'_, E>`.
-// - `ErasedAccessPlan` must only be constructed from `&AccessPlan<E::Key>`.
+// - `ErasedStructuralAccessPlan` must only be constructed from `&AccessPlan<Value>`.
 // - `ExecutionRuntimeCoreVTable` must be instantiated with the same `E` used
 //   to create the erased pointers.
 // - `ErasedRuntimeBindings` keeps the erased pointers and matching vtable
@@ -100,41 +101,36 @@ impl ErasedContext {
 }
 
 ///
-/// ErasedAccessPlan
+/// ErasedStructuralAccessPlan
 ///
-/// ErasedAccessPlan is the type-erased access-plan pointer carried with the
+/// ErasedStructuralAccessPlan is the type-erased structural access-plan pointer carried with the
 /// structural runtime adapter.
-/// It documents that the pointer originated from one typed `AccessPlan<E::Key>`
+/// It documents that the pointer originated from one structural `AccessPlan<Value>`
 /// and centralizes typed recovery behind one audited unsafe boundary.
 ///
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub(in crate::db::executor::pipeline::contracts::execution) struct ErasedAccessPlan(*const ());
+pub(in crate::db::executor::pipeline::contracts::execution) struct ErasedStructuralAccessPlan(
+    *const (),
+);
 
-impl ErasedAccessPlan {
-    /// Construct one erased typed access plan from one borrowed typed access plan.
+impl ErasedStructuralAccessPlan {
+    /// Construct one erased structural access plan from one borrowed structural access plan.
     #[must_use]
-    pub(in crate::db::executor::pipeline::contracts::execution) const fn new<E>(
-        access: &AccessPlan<E::Key>,
-    ) -> Self
-    where
-        E: EntityKind + EntityValue,
-    {
+    pub(in crate::db::executor::pipeline::contracts::execution) const fn new(
+        access: &AccessPlan<Value>,
+    ) -> Self {
         Self(ptr::from_ref(access).cast())
     }
 
-    // Recover one typed access plan behind the runtime vtable contract.
-    const unsafe fn as_typed<E>(self) -> &'static AccessPlan<E::Key>
-    where
-        E: EntityKind + EntityValue,
-    {
+    // Recover one structural access plan behind the runtime vtable contract.
+    const unsafe fn as_structural(self) -> &'static AccessPlan<Value> {
         // SAFETY:
-        // - the pointer was created from `&AccessPlan<E::Key>` in `ErasedAccessPlan::new`
-        // - the paired runtime vtable was instantiated with the same `E`
+        // - the pointer was created from `&AccessPlan<Value>` in `ErasedStructuralAccessPlan::new`
         // - the outer adapter lifetime bounds ensure the reference does not
         //   outlive the original executor-scoped borrow
-        unsafe { &*self.0.cast::<AccessPlan<E::Key>>() }
+        unsafe { &*self.0.cast::<AccessPlan<Value>>() }
     }
 }
 
@@ -149,7 +145,7 @@ impl ErasedAccessPlan {
 
 pub(in crate::db::executor::pipeline::contracts::execution) struct ErasedRuntimeBindings {
     ctx: ErasedContext,
-    access: ErasedAccessPlan,
+    access: ErasedStructuralAccessPlan,
     vtable: ExecutionRuntimeCoreVTable,
 }
 
@@ -158,14 +154,14 @@ impl ErasedRuntimeBindings {
     #[must_use]
     pub(in crate::db::executor::pipeline::contracts::execution) const fn new<E>(
         ctx: &Context<'_, E>,
-        access: &AccessPlan<E::Key>,
+        access: &AccessPlan<Value>,
     ) -> Self
     where
         E: EntityKind + EntityValue,
     {
         Self {
             ctx: ErasedContext::new::<E>(ctx),
-            access: ErasedAccessPlan::new::<E>(access),
+            access: ErasedStructuralAccessPlan::new(access),
             vtable: execution_runtime_core_vtable::<E>(),
         }
     }
@@ -334,7 +330,7 @@ where
 
 unsafe fn runtime_resolve_fallback_execution_key_stream<E>(
     ctx: ErasedContext,
-    access: ErasedAccessPlan,
+    access: ErasedStructuralAccessPlan,
     bindings: AccessStreamBindings<'_>,
     physical_fetch_hint: Option<usize>,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -343,9 +339,9 @@ where
     E: EntityKind + EntityValue,
 {
     let ctx = unsafe { ctx.as_typed::<E>() };
-    let access = unsafe { access.as_typed::<E>() };
-    let access = ExecutableAccess::new(
-        access,
+    let access = unsafe { access.as_structural() };
+    let access = ExecutableAccess::from_executable_plan(
+        access.resolve_strategy().into_executable(),
         bindings,
         physical_fetch_hint,
         index_predicate_execution,
@@ -353,6 +349,6 @@ where
 
     LoadExecutor::<E>::resolve_routed_key_stream(
         ctx,
-        RoutedKeyStreamRequest::ExecutableAccess(access),
+        RoutedKeyStreamRequest::StructuralExecutableAccess(access),
     )
 }

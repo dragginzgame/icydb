@@ -13,6 +13,7 @@ mod tests;
 use crate::{
     db::{
         Context,
+        access::StructuralKey,
         executor::{
             ExecutableAccess, ExecutionOptimization,
             pipeline::contracts::{FastPathKeyResult, LoadExecutor},
@@ -30,6 +31,7 @@ where
     /// Resolve one fast-path access stream without materialize/restream adapters.
     ///
     /// Fast-path streams must expose an exact key-count hint for observability parity.
+    #[cfg(test)]
     pub(super) fn execute_fast_stream_request(
         ctx: &Context<'_, E>,
         access: ExecutableAccess<'_, E::Key>,
@@ -38,6 +40,32 @@ where
         // Phase 1: resolve the ordered key stream through the routed access boundary.
         let key_stream =
             Self::resolve_routed_key_stream(ctx, RoutedKeyStreamRequest::ExecutableAccess(access))?;
+
+        // Phase 2: enforce exact row-scan count hint required by fast-path observability.
+        let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
+            crate::db::error::query_executor_invariant(
+                "fast-path stream must expose an exact key-count hint",
+            )
+        })?;
+
+        Ok(FastPathKeyResult {
+            ordered_key_stream: key_stream,
+            rows_scanned,
+            optimization,
+        })
+    }
+
+    /// Resolve one structural fast-path access stream without rebuilding a typed access plan.
+    pub(super) fn execute_structural_fast_stream_request(
+        ctx: &Context<'_, E>,
+        access: ExecutableAccess<'_, StructuralKey>,
+        optimization: ExecutionOptimization,
+    ) -> Result<FastPathKeyResult, InternalError> {
+        // Phase 1: resolve the ordered key stream through the structural routed access boundary.
+        let key_stream = Self::resolve_routed_key_stream(
+            ctx,
+            RoutedKeyStreamRequest::StructuralExecutableAccess(access),
+        )?;
 
         // Phase 2: enforce exact row-scan count hint required by fast-path observability.
         let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {

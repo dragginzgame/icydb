@@ -7,6 +7,13 @@
 //! (`count_distinct_by`, `distinct_values_by`) and intentionally do not route
 //! through grouped `ExecutionContext` budget counters.
 
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::executor::group::{GroupKeySet, KeyCanonicalError},
     error::InternalError,
@@ -22,29 +29,4 @@ pub(in crate::db::executor::aggregate) fn insert_materialized_distinct_value(
     distinct_values
         .insert_value(value)
         .map_err(KeyCanonicalError::into_internal_error)
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn insert_materialized_distinct_value_dedups_repeated_values() {
-        let mut distinct_values = GroupKeySet::new();
-
-        assert!(
-            insert_materialized_distinct_value(&mut distinct_values, &Value::Uint(7))
-                .expect("first distinct insertion should succeed"),
-            "first value should be inserted",
-        );
-        assert!(
-            !insert_materialized_distinct_value(&mut distinct_values, &Value::Uint(7))
-                .expect("duplicate distinct insertion should succeed"),
-            "duplicate value should not be inserted twice",
-        );
-    }
 }

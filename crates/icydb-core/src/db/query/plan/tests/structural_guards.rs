@@ -356,7 +356,7 @@ fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
         "predicate canonicalization owner surface should expose normalize(...)",
     );
 
-    let sql_lowering_source = fs::read_to_string(crate_root.join("src/db/sql/lowering.rs"))
+    let sql_lowering_source = fs::read_to_string(crate_root.join("src/db/sql/lowering/mod.rs"))
         .expect("sql lowering source should be readable");
     let sql_lowering_runtime_source = strip_cfg_test_items(sql_lowering_source.as_str());
     assert!(
@@ -396,7 +396,7 @@ fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
     );
 
     let access_choice_source =
-        fs::read_to_string(crate_root.join("src/db/query/plan/access_choice.rs"))
+        fs::read_to_string(crate_root.join("src/db/query/plan/access_choice/mod.rs"))
             .expect("access choice source should be readable");
     let access_choice_runtime_source = strip_cfg_test_items(access_choice_source.as_str());
     for forbidden in ["fn schema_literal_compatible(", "fn indexable_compare_op("] {

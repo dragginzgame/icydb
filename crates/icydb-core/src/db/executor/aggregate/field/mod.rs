@@ -191,14 +191,6 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_plan
     })
 }
 
-/// Resolve one aggregate target field into a stable projection slot.
-#[cfg(test)]
-pub(in crate::db::executor) fn resolve_any_aggregate_target_slot<E: EntityKind>(
-    target_field: &str,
-) -> Result<FieldSlot, AggregateFieldValueError> {
-    resolve_any_aggregate_target_slot_with_model(E::MODEL, target_field)
-}
-
 /// Resolve one aggregate target field into a stable projection slot using structural model data.
 pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_with_model(
     model: &'static EntityModel,
@@ -238,14 +230,6 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_sl
         index: field_slot.index(),
         kind: field.kind,
     })
-}
-
-/// Resolve one numeric aggregate target field into a stable projection slot.
-#[cfg(test)]
-pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot<E: EntityKind>(
-    target_field: &str,
-) -> Result<FieldSlot, AggregateFieldValueError> {
-    resolve_numeric_aggregate_target_slot_with_model(E::MODEL, target_field)
 }
 
 /// Resolve one numeric aggregate target field into a stable projection slot using structural model data.
@@ -334,17 +318,6 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
     Ok(value)
 }
 
-/// Extract one numeric field value as `Decimal` for aggregate arithmetic.
-pub(in crate::db::executor) fn extract_numeric_field_decimal<E: EntityKind + EntityValue>(
-    entity: &E,
-    target_field: &str,
-    field_slot: FieldSlot,
-) -> Result<Decimal, AggregateFieldValueError> {
-    extract_numeric_field_decimal_with_slot_reader(target_field, field_slot, &mut |index| {
-        entity.get_value_by_index(index)
-    })
-}
-
 /// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
 pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
     target_field: &str,
@@ -380,43 +353,6 @@ pub(in crate::db::executor) fn compare_orderable_field_values(
     };
 
     Ok(ordering)
-}
-
-/// Compare two entities by one orderable aggregate field and return base ascending ordering.
-pub(in crate::db::executor) fn compare_entities_by_orderable_field<E: EntityKind + EntityValue>(
-    left: &E,
-    right: &E,
-    target_field: &str,
-    field_slot: FieldSlot,
-) -> Result<Ordering, AggregateFieldValueError> {
-    let left_value = extract_orderable_field_value(left, target_field, field_slot)?;
-    let right_value = extract_orderable_field_value(right, target_field, field_slot)?;
-
-    compare_orderable_field_values(target_field, &left_value, &right_value)
-}
-
-/// Compare two entities for field-extrema selection with deterministic tie-break semantics.
-///
-/// Contract:
-/// - primary comparison follows aggregate `direction` over the target field value.
-/// - ties always break on canonical primary-key ascending order.
-pub(in crate::db::executor) fn compare_entities_for_field_extrema<E: EntityKind + EntityValue>(
-    left: &E,
-    right: &E,
-    target_field: &str,
-    field_slot: FieldSlot,
-    direction: Direction,
-) -> Result<Ordering, AggregateFieldValueError> {
-    let field_order = compare_entities_by_orderable_field(left, right, target_field, field_slot)?;
-    let directional_field_order = apply_aggregate_direction(field_order, direction);
-    if directional_field_order != Ordering::Equal {
-        return Ok(directional_field_order);
-    }
-
-    let left_id = left.id().as_value();
-    let right_id = right.id().as_value();
-
-    compare_orderable_field_values(E::MODEL.primary_key.name, &left_id, &right_id)
 }
 
 /// Apply aggregate direction to one base ordering result.

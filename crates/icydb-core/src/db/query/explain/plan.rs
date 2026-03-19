@@ -504,13 +504,6 @@ pub enum ExplainDeleteLimit {
 }
 
 impl AccessPlannedQuery {
-    /// Produce a stable, deterministic explanation of this logical plan.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn explain(&self) -> ExplainPlan {
-        self.explain_inner(None)
-    }
-
     /// Produce a stable, deterministic explanation of this logical plan
     /// with optional model context for query-layer projections.
     ///
@@ -521,7 +514,10 @@ impl AccessPlannedQuery {
         self.explain_inner(Some(model))
     }
 
-    fn explain_inner(&self, model: Option<&EntityModel>) -> ExplainPlan {
+    pub(in crate::db::query::explain) fn explain_inner(
+        &self,
+        model: Option<&EntityModel>,
+    ) -> ExplainPlan {
         // Phase 1: project logical plan variant into scalar core + grouped metadata.
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),

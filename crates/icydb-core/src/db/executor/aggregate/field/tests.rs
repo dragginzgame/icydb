@@ -4,15 +4,15 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
-    compare_entities_by_orderable_field, compare_entities_for_field_extrema,
-    compare_orderable_field_values, extract_numeric_field_decimal,
-    resolve_any_aggregate_target_slot, resolve_numeric_aggregate_target_slot,
+    AggregateFieldValueError, FieldSlot, apply_aggregate_direction, compare_orderable_field_values,
+    extract_numeric_field_decimal_with_slot_reader, extract_orderable_field_value_with_slot_reader,
+    resolve_any_aggregate_target_slot_with_model, resolve_numeric_aggregate_target_slot_with_model,
     resolve_orderable_aggregate_target_slot,
 };
 use crate::{
     db::{direction::Direction, numeric::compare_numeric_order},
     model::field::FieldKind,
+    traits::{EntitySchema, FieldProjection as FieldProjectionTrait},
     types::{Decimal, Ulid},
     value::Value,
 };
@@ -21,6 +21,44 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 static SCORE_LIST_KIND: FieldKind = FieldKind::Uint;
+
+fn compare_entity_slot(
+    left: &AggregateFieldEntity,
+    right: &AggregateFieldEntity,
+    target_field: &str,
+    field_slot: FieldSlot,
+) -> Result<Ordering, AggregateFieldValueError> {
+    let left_value =
+        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |index| {
+            left.get_value_by_index(index)
+        })?;
+    let right_value =
+        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |index| {
+            right.get_value_by_index(index)
+        })?;
+
+    compare_orderable_field_values(target_field, &left_value, &right_value)
+}
+
+fn compare_entity_field_extrema(
+    left: &AggregateFieldEntity,
+    right: &AggregateFieldEntity,
+    target_field: &str,
+    field_slot: FieldSlot,
+    direction: Direction,
+) -> Result<Ordering, AggregateFieldValueError> {
+    let field_order = compare_entity_slot(left, right, target_field, field_slot)?;
+    let directional_field_order = apply_aggregate_direction(field_order, direction);
+    if directional_field_order != Ordering::Equal {
+        return Ok(directional_field_order);
+    }
+
+    compare_orderable_field_values(
+        AggregateFieldEntity::MODEL.primary_key.name,
+        &Value::Ulid(left.id),
+        &Value::Ulid(right.id),
+    )
+}
 
 crate::test_canister! {
     ident = AggregateFieldCanister,
@@ -78,7 +116,7 @@ fn resolve_orderable_target_slot_matches_schema_index() {
 
 #[test]
 fn resolve_any_target_slot_supports_non_orderable_field_kind() {
-    let slot = resolve_any_aggregate_target_slot::<AggregateFieldEntity>("scores")
+    let slot = resolve_any_aggregate_target_slot_with_model(AggregateFieldEntity::MODEL, "scores")
         .expect("any-target slot should resolve list field");
 
     assert_eq!(slot.index, 3);
@@ -157,7 +195,7 @@ fn compare_entities_by_orderable_field_returns_deterministic_ordering() {
         scores: vec![3, 4],
     };
 
-    let asc = compare_entities_by_orderable_field(
+    let asc = compare_entity_slot(
         &low,
         &high,
         "rank",
@@ -187,7 +225,7 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
         label: "right".into(),
         scores: vec![3, 4],
     };
-    let err = compare_entities_by_orderable_field(
+    let err = compare_entity_slot(
         &left,
         &right,
         "rank",
@@ -220,7 +258,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_asc() {
         scores: vec![2],
     };
 
-    let ordering = compare_entities_for_field_extrema(
+    let ordering = compare_entity_field_extrema(
         &higher_id,
         &lower_id,
         "rank",
@@ -250,7 +288,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_desc() {
         scores: vec![2],
     };
 
-    let ordering = compare_entities_for_field_extrema(
+    let ordering = compare_entity_field_extrema(
         &higher_id,
         &lower_id,
         "rank",
@@ -267,16 +305,18 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_desc() {
 
 #[test]
 fn resolve_numeric_target_slot_accepts_numeric_field() {
-    let slot = resolve_numeric_aggregate_target_slot::<AggregateFieldEntity>("rank")
-        .expect("numeric target field should be accepted");
+    let slot =
+        resolve_numeric_aggregate_target_slot_with_model(AggregateFieldEntity::MODEL, "rank")
+            .expect("numeric target field should be accepted");
 
     assert!(matches!(slot.kind, FieldKind::Uint));
 }
 
 #[test]
 fn resolve_numeric_target_slot_rejects_non_numeric_field() {
-    let err = resolve_numeric_aggregate_target_slot::<AggregateFieldEntity>("label")
-        .expect_err("text field should be rejected for numeric aggregates");
+    let err =
+        resolve_numeric_aggregate_target_slot_with_model(AggregateFieldEntity::MODEL, "label")
+            .expect_err("text field should be rejected for numeric aggregates");
 
     assert!(matches!(
         err,
@@ -293,13 +333,13 @@ fn extract_numeric_field_decimal_coerces_numeric_values() {
         scores: vec![1, 2],
     };
 
-    let value = extract_numeric_field_decimal(
-        &entity,
+    let value = extract_numeric_field_decimal_with_slot_reader(
         "rank",
         FieldSlot {
             index: 1,
             kind: FieldKind::Uint,
         },
+        &mut |index| entity.get_value_by_index(index),
     )
     .expect("numeric field extraction should succeed");
 

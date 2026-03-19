@@ -13,7 +13,7 @@ mod decode;
 use crate::{
     db::{
         cursor::IndexScanContinuationInput,
-        data::DataKey,
+        data::{DataKey, DataRow},
         direction::Direction,
         executor::{
             ExecutablePlan, ExecutionKernel,
@@ -22,7 +22,7 @@ use crate::{
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
                 PreparedScalarProjectionStrategy, ScalarAggregateOutput, ScalarProjectionWindow,
                 field::{
-                    FieldSlot, extract_orderable_field_value,
+                    FieldSlot, extract_orderable_field_value_with_slot_reader,
                     resolve_any_aggregate_target_slot_from_planner_slot,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
@@ -37,6 +37,7 @@ use crate::{
             },
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
+            terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
         query::{
@@ -46,7 +47,6 @@ use crate::{
                 constant_covering_projection_value_from_access,
             },
         },
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -417,43 +417,34 @@ where
                 .map(ScalarProjectionBoundaryOutput::TerminalValue);
         }
 
-        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
+        let page = self.execute_scalar_materialized_page_stage(prepared)?;
+        let (rows, _) = page.into_parts();
+        let projected_values = Self::project_field_values_with_ids_from_materialized(
+            rows,
+            &boundary.target_field_name,
+            boundary.field_slot,
+        )?;
 
         match boundary.op {
-            PreparedScalarProjectionOp::Values => Self::project_field_values_from_materialized(
-                response,
-                &boundary.target_field_name,
-                boundary.field_slot,
-            )
-            .map(ScalarProjectionBoundaryOutput::Values),
+            PreparedScalarProjectionOp::Values => Ok(ScalarProjectionBoundaryOutput::Values(
+                Self::field_values_from_projection(projected_values),
+            )),
             PreparedScalarProjectionOp::DistinctValues => {
-                Self::project_distinct_field_values_from_materialized(
-                    response,
-                    &boundary.target_field_name,
-                    boundary.field_slot,
-                )
-                .map(ScalarProjectionBoundaryOutput::Values)
+                Self::project_distinct_field_values_from_materialized(projected_values)
+                    .map(ScalarProjectionBoundaryOutput::Values)
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                Self::project_distinct_field_values_from_materialized(
-                    response,
-                    &boundary.target_field_name,
-                    boundary.field_slot,
+                Self::project_distinct_field_values_from_materialized(projected_values).map(
+                    |values| {
+                        ScalarProjectionBoundaryOutput::Count(
+                            u32::try_from(values.len()).unwrap_or(u32::MAX),
+                        )
+                    },
                 )
-                .map(|values| {
-                    ScalarProjectionBoundaryOutput::Count(
-                        u32::try_from(values.len()).unwrap_or(u32::MAX),
-                    )
-                })
             }
-            PreparedScalarProjectionOp::ValuesWithIds => {
-                Self::project_field_values_with_ids_from_materialized(
-                    response,
-                    &boundary.target_field_name,
-                    boundary.field_slot,
-                )
-                .map(ScalarProjectionBoundaryOutput::ValuesWithIds)
-            }
+            PreparedScalarProjectionOp::ValuesWithIds => Ok(
+                ScalarProjectionBoundaryOutput::ValuesWithIds(projected_values),
+            ),
             PreparedScalarProjectionOp::TerminalValue { .. } => {
                 Err(crate::db::error::query_executor_invariant(
                     "terminal value projection materialized branch must execute before row materialization",
@@ -505,58 +496,54 @@ where
         Ok(Some(value))
     }
 
-    // Project one materialized response into one field value vector while
+    // Project one materialized `(id, value)` vector into one field value vector while
     // preserving the effective response row order.
-    fn project_field_values_from_materialized(
-        response: EntityResponse<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Vec<Value>, InternalError> {
-        response
+    fn field_values_from_projection(projected_values: IdValueProjection<E>) -> Vec<Value> {
+        projected_values
             .into_iter()
-            .map(|row| {
-                extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
-                    .map_err(Self::map_aggregate_field_value_error)
-            })
+            .map(|(_, value)| value)
             .collect()
     }
 
-    // Project one materialized response into distinct field values while
+    // Project one materialized `(id, value)` vector into distinct field values while
     // preserving first-observed order within the effective response window.
     // This is value DISTINCT semantics via canonical `GroupKey` equality.
     fn project_distinct_field_values_from_materialized(
-        response: EntityResponse<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
+        projected_values: IdValueProjection<E>,
     ) -> Result<Vec<Value>, InternalError> {
         let mut distinct_values = GroupKeySet::default();
-        let mut projected_values = Vec::new();
-        for row in response {
-            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
+        let mut distinct_projected_values = Vec::new();
+        for (_, value) in projected_values {
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;
             }
-            projected_values.push(value);
+            distinct_projected_values.push(value);
         }
 
-        Ok(projected_values)
+        Ok(distinct_projected_values)
     }
 
-    // Project one materialized response into id/value pairs while preserving
-    // the effective response row order.
+    // Project materialized structural rows into id/value pairs while
+    // preserving the effective response row order.
     fn project_field_values_with_ids_from_materialized(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<IdValueProjection<E>, InternalError> {
-        response
-            .into_iter()
-            .map(|row| {
-                let (id, entity) = row.into_parts();
-                extract_orderable_field_value(&entity, target_field, field_slot)
-                    .map(|value| (id, value))
-                    .map_err(Self::map_aggregate_field_value_error)
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
+
+        rows.into_iter()
+            .map(|(data_key, raw_row)| {
+                let id = Id::from_key(data_key.try_key::<E>()?);
+                let row = row_decoder.decode(&row_layout, (data_key, raw_row))?;
+                extract_orderable_field_value_with_slot_reader(
+                    target_field,
+                    field_slot,
+                    &mut |index| row.slot(index),
+                )
+                .map(|value| (id, value))
+                .map_err(Self::map_aggregate_field_value_error)
             })
             .collect()
     }

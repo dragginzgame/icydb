@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Context,
-        data::DataKey,
+        data::{DataKey, DataRow},
         direction::Direction,
         executor::{
             KeyStreamLoopControl, OrderedKeyStream,
@@ -14,7 +14,7 @@ use crate::{
             aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
-                extract_orderable_field_value, extract_orderable_field_value_with_slot_reader,
+                extract_orderable_field_value_with_slot_reader,
             },
             drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
@@ -22,7 +22,6 @@ use crate::{
             terminal::{RowDecoder, RowLayout, page::KernelRow},
         },
         predicate::MissingRowPolicy,
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -66,9 +65,10 @@ where
         field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
+        let page = self.execute_scalar_materialized_page_stage(prepared)?;
+        let (rows, _) = page.into_parts();
 
-        Self::aggregate_nth_field_from_materialized(response, target_field, field_slot, nth)
+        Self::aggregate_nth_field_from_materialized(rows, target_field, field_slot, nth)
     }
 
     // Execute one field-target median aggregate (`median(field)`) via
@@ -80,9 +80,10 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
+        let page = self.execute_scalar_materialized_page_stage(prepared)?;
+        let (rows, _) = page.into_parts();
 
-        Self::aggregate_median_field_from_materialized(response, target_field, field_slot)
+        Self::aggregate_median_field_from_materialized(rows, target_field, field_slot)
     }
 
     // Execute one field-target paired extrema aggregate (`min_max(field)`)
@@ -94,21 +95,22 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
-        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
+        let page = self.execute_scalar_materialized_page_stage(prepared)?;
+        let (rows, _) = page.into_parts();
 
-        Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
+        Self::aggregate_min_max_field_from_materialized(rows, target_field, field_slot)
     }
 
     // Reduce one materialized response into `nth(field, n)` using deterministic
     // ordering `(field_value_asc, primary_key_asc)`.
     fn aggregate_nth_field_from_materialized(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         target_field: &str,
         field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
         let ordered_rows =
-            Self::ordered_field_projection_from_materialized(response, target_field, field_slot)?;
+            Self::ordered_field_projection_from_materialized(rows, target_field, field_slot)?;
 
         // Phase 2: project the requested ordinal position.
         if nth >= ordered_rows.len() {
@@ -122,12 +124,12 @@ where
     // ordering `(field_value_asc, primary_key_asc)`.
     // Even-length windows select the lower median for type-agnostic stability.
     fn aggregate_median_field_from_materialized(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
         let ordered_rows =
-            Self::ordered_field_projection_from_materialized(response, target_field, field_slot)?;
+            Self::ordered_field_projection_from_materialized(rows, target_field, field_slot)?;
         if ordered_rows.is_empty() {
             return Ok(None);
         }
@@ -144,16 +146,14 @@ where
     // Reduce one materialized response into `(min_by(field), max_by(field))`
     // using one pass over the response window.
     fn aggregate_min_max_field_from_materialized(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
         let mut min_candidate: Option<(Id<E>, Value)> = None;
         let mut max_candidate: Option<(Id<E>, Value)> = None;
-        for row in response {
-            let (id, entity) = row.into_parts();
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+        for (id, value) in Self::field_projection_from_materialized(rows, target_field, field_slot)?
+        {
             let replace_min = match min_candidate.as_ref() {
                 Some((current_id, current_value)) => Self::field_projection_candidate_precedes(
                     target_field,
@@ -200,15 +200,13 @@ where
     // Project one response window into deterministic field ordering
     // `(field_value_asc, primary_key_asc)`.
     fn ordered_field_projection_from_materialized(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, Value)> = Vec::new();
-        for row in response {
-            let (id, entity) = row.into_parts();
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+        for (id, value) in Self::field_projection_from_materialized(rows, target_field, field_slot)?
+        {
             let mut insert_index = ordered_rows.len();
             for (index, (current_id, current_value)) in ordered_rows.iter().enumerate() {
                 let candidate_precedes = Self::field_projection_candidate_precedes(
@@ -229,6 +227,32 @@ where
         }
 
         Ok(ordered_rows)
+    }
+
+    // Project materialized scalar rows into `(id, field_value)` pairs through
+    // structural row decoding rather than full entity reconstruction.
+    fn field_projection_from_materialized(
+        rows: Vec<DataRow>,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
+        let mut projected = Vec::with_capacity(rows.len());
+
+        for (data_key, raw_row) in rows {
+            let id = Id::from_key(data_key.try_key::<E>()?);
+            let kernel_row = row_decoder.decode(&row_layout, (data_key, raw_row))?;
+            let value = extract_orderable_field_value_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| kernel_row.slot(index),
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+            projected.push((id, value));
+        }
+
+        Ok(projected)
     }
 
     // Load one structural row for field aggregates while preserving read

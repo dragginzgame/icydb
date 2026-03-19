@@ -5,8 +5,6 @@
 
 mod operators;
 
-#[cfg(test)]
-use crate::traits::{EntityKind, EntityValue};
 use crate::{
     db::executor::projection::grouped::GroupedRowView,
     db::query::plan::expr::Expr,
@@ -60,18 +58,6 @@ pub(in crate::db::executor) enum ProjectionEvalError {
         aggregate_index: usize,
         aggregate_count: usize,
     },
-}
-
-/// Evaluate one projection expression against one entity row.
-#[cfg(test)]
-pub(in crate::db::executor) fn eval_expr<E>(
-    expr: &Expr,
-    row: &E,
-) -> Result<Value, ProjectionEvalError>
-where
-    E: EntityKind + EntityValue,
-{
-    eval_expr_with_slot_reader(expr, E::MODEL, &mut |slot| row.get_value_by_index(slot))
 }
 
 /// Evaluate one projection expression through one runtime slot reader.

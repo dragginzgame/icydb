@@ -11,6 +11,7 @@
 //! Boundary: data::store persists `RawDataKey`; higher layers use `DataKey`.
 
 use crate::{
+    db::access::StructuralKey,
     error::InternalError,
     traits::{EntityKind, FieldValue, Storable},
     types::EntityTag,
@@ -114,10 +115,34 @@ impl DataKey {
     where
         E: EntityKind,
     {
+        Self::try_from_field_value(E::ENTITY_TAG, &key)
+    }
+
+    /// Construct from one entity tag plus one typed field-value key.
+    ///
+    /// This keeps key encoding shared across entity-bound callers without
+    /// forcing the data-key boundary itself to be generic over `E`.
+    pub(crate) fn try_from_field_value<K>(entity: EntityTag, key: &K) -> Result<Self, InternalError>
+    where
+        K: FieldValue,
+    {
         let value = key.to_value();
         let key = StorageKey::try_from_value(&value)?;
 
-        Ok(Self::new(E::ENTITY_TAG, key))
+        Ok(Self::new(entity, key))
+    }
+
+    /// Construct from one entity tag plus one structural planner key literal.
+    ///
+    /// This is the structural key-codec boundary used by execution paths that
+    /// no longer carry typed entity keys.
+    pub(crate) fn try_from_structural_key(
+        entity: EntityTag,
+        key: &StructuralKey,
+    ) -> Result<Self, InternalError> {
+        let key = StorageKey::try_from_value(key)?;
+
+        Ok(Self::new(entity, key))
     }
 
     /// Decode a raw entity key from this data key.
@@ -143,22 +168,6 @@ impl DataKey {
                 "data key primary key decode failed: {value:?}"
             ))
         })
-    }
-
-    #[must_use]
-    pub(crate) const fn lower_bound<E>() -> Self
-    where
-        E: EntityKind,
-    {
-        Self::lower_bound_for(E::ENTITY_TAG)
-    }
-
-    #[must_use]
-    pub(crate) const fn upper_bound<E>() -> Self
-    where
-        E: EntityKind,
-    {
-        Self::upper_bound_for(E::ENTITY_TAG)
     }
 
     #[must_use]
@@ -315,7 +324,59 @@ impl Storable for RawDataKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        error::{ErrorClass, ErrorOrigin},
+        traits::FieldValue,
+        types::{Account, Principal, Subaccount, Timestamp, Ulid},
+        value::Value,
+    };
     use std::borrow::Cow;
+
+    fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
+    where
+        K: FieldValue + std::fmt::Debug,
+    {
+        let typed = DataKey::try_from_field_value(entity, &key).expect("typed key should encode");
+        let structural = DataKey::try_from_structural_key(entity, &key.to_value())
+            .expect("structural key should encode");
+
+        assert_eq!(
+            typed, structural,
+            "typed and structural data-key constructors must stay equivalent for {key:?}",
+        );
+    }
+
+    fn assert_structural_dedup_matches_typed_dedup<K>(entity: EntityTag, keys: Vec<K>)
+    where
+        K: FieldValue + Clone + Ord + std::fmt::Debug,
+    {
+        let mut typed_keys = keys.clone();
+        typed_keys.sort();
+        typed_keys.dedup();
+
+        let mut typed_data_keys = typed_keys
+            .iter()
+            .map(|key| DataKey::try_from_field_value(entity, key).expect("typed key should encode"))
+            .collect::<Vec<_>>();
+        typed_data_keys.sort();
+        typed_data_keys.dedup();
+
+        let mut structural_data_keys = keys
+            .iter()
+            .map(FieldValue::to_value)
+            .map(|key| {
+                DataKey::try_from_structural_key(entity, &key)
+                    .expect("structural key should encode")
+            })
+            .collect::<Vec<_>>();
+        structural_data_keys.sort();
+        structural_data_keys.dedup();
+
+        assert_eq!(
+            structural_data_keys, typed_data_keys,
+            "structural DataKey dedup must match typed-key dedup semantics",
+        );
+    }
 
     #[test]
     fn data_key_is_exactly_fixed_size() {
@@ -382,6 +443,106 @@ mod tests {
         });
 
         assert_eq!(by_ord, by_bytes);
+    }
+
+    #[test]
+    fn data_key_structural_constructor_matches_typed_constructor() {
+        let entity = EntityTag::new(17);
+
+        assert_constructor_equivalence(entity, -42_i64);
+        assert_constructor_equivalence(entity, 42_u64);
+        assert_constructor_equivalence(entity, Principal::from_slice(&[1, 2, 3, 4]));
+        assert_constructor_equivalence(entity, Subaccount::new([7; 32]));
+        assert_constructor_equivalence(entity, Timestamp::from_millis(1_710_013_530_123));
+        assert_constructor_equivalence(entity, Ulid::from_u128(42));
+        assert_constructor_equivalence(
+            entity,
+            Account::from_parts(
+                Principal::from_slice(&[9, 8, 7]),
+                Some(Subaccount::new([5; 32])),
+            ),
+        );
+        assert_constructor_equivalence(entity, ());
+    }
+
+    #[test]
+    fn data_key_constructors_reject_non_storage_key_values_consistently() {
+        let entity = EntityTag::new(23);
+        let unsupported_values = [
+            Value::Text("not-a-storage-key".to_string()),
+            Value::Bool(true),
+            Value::List(vec![Value::Uint(1)]),
+            Value::Null,
+        ];
+
+        for value in unsupported_values {
+            let typed_err = DataKey::try_from_field_value(entity, &value)
+                .expect_err("typed constructor must reject non-storage-key values");
+            let structural_err = DataKey::try_from_structural_key(entity, &value)
+                .expect_err("structural constructor must reject non-storage-key values");
+
+            assert_eq!(typed_err.class(), ErrorClass::Unsupported);
+            assert_eq!(typed_err.origin(), ErrorOrigin::Serialize);
+            assert_eq!(structural_err.class(), ErrorClass::Unsupported);
+            assert_eq!(structural_err.origin(), ErrorOrigin::Serialize);
+            assert_eq!(
+                typed_err.message(),
+                structural_err.message(),
+                "typed and structural constructors must report the same rejection for {value:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn data_key_bounds_cover_supported_structural_key_domain() {
+        let entity = EntityTag::new(29);
+        let lower = DataKey::lower_bound_for(entity);
+        let upper = DataKey::upper_bound_for(entity);
+        let supported_values = [
+            Value::Account(Account::from_parts(
+                Principal::from_slice(&[3, 1, 4]),
+                Some(Subaccount::new([1; 32])),
+            )),
+            Value::Int(-17),
+            Value::Principal(Principal::from_slice(&[1, 2, 3])),
+            Value::Subaccount(Subaccount::new([2; 32])),
+            Value::Timestamp(Timestamp::from_secs(7)),
+            Value::Uint(42),
+            Value::Ulid(Ulid::from_u128(99)),
+            Value::Unit,
+        ];
+
+        assert_eq!(lower.entity_tag(), entity);
+        assert_eq!(upper.entity_tag(), entity);
+        assert_eq!(lower.storage_key(), StorageKey::MIN);
+        assert_eq!(upper.storage_key(), StorageKey::upper_bound());
+        assert!(lower <= upper, "entity bounds must stay ordered");
+
+        for value in supported_values {
+            let data_key = DataKey::try_from_structural_key(entity, &value)
+                .expect("supported structural key should encode");
+            assert!(
+                lower <= data_key && data_key <= upper,
+                "supported structural key {value:?} must stay within entity bounds",
+            );
+        }
+    }
+
+    #[test]
+    fn data_key_structural_dedup_matches_typed_key_dedup() {
+        let entity = EntityTag::new(31);
+
+        assert_structural_dedup_matches_typed_dedup(entity, vec![7_u64, 1, 7, 3, 1, 9]);
+        assert_structural_dedup_matches_typed_dedup(
+            entity,
+            vec![
+                Ulid::from_u128(9),
+                Ulid::from_u128(1),
+                Ulid::from_u128(9),
+                Ulid::from_u128(2),
+                Ulid::from_u128(1),
+            ],
+        );
     }
 
     #[test]

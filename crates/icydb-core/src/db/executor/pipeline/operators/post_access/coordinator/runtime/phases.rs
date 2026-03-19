@@ -93,33 +93,16 @@ fn apply_delete_post_access_kernel_dyn(
     apply_delete_limit_phase: &mut dyn FnMut(bool) -> Result<(bool, usize), InternalError>,
 ) -> Result<PostAccessStats, InternalError> {
     // Phase 1: predicate filtering.
-    let (filtered, rows_after_filter) = apply_filter_phase()?;
+    let (filtered, _) = apply_filter_phase()?;
 
     // Phase 2: ordering.
     let (ordered, rows_after_order) = apply_order_phase(filtered)?;
 
     // Phase 3: delete limiting.
-    let (delete_was_limited, rows_after_delete_limit) = apply_delete_limit_phase(ordered)?;
-
-    #[cfg(not(test))]
-    let _ = (rows_after_filter, rows_after_order, rows_after_delete_limit);
+    let (delete_was_limited, _) = apply_delete_limit_phase(ordered)?;
 
     Ok(PostAccessStats {
         delete_was_limited,
         rows_after_cursor: rows_after_order,
-        #[cfg(test)]
-        filtered,
-        #[cfg(test)]
-        ordered,
-        #[cfg(test)]
-        paged: false,
-        #[cfg(test)]
-        rows_after_filter,
-        #[cfg(test)]
-        rows_after_order,
-        #[cfg(test)]
-        rows_after_page: rows_after_order,
-        #[cfg(test)]
-        rows_after_delete_limit,
     })
 }

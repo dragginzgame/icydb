@@ -11,7 +11,6 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             ExecutionOptimization, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             pipeline::contracts::{FastPathKeyResult, LoadExecutor},
-            reconstruct_typed_access_plan,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -33,15 +32,14 @@ where
         // Phase 1: validate that the routed access shape is PK-stream compatible.
         Self::verify_pk_stream_fast_path_access(plan)?;
 
-        // Phase 2: lower through the canonical access-stream resolver boundary.
-        let typed_access = reconstruct_typed_access_plan::<E>(plan)?;
-        let access = ExecutableAccess::new(
-            &typed_access,
+        // Phase 2: lower through the canonical structural access-stream boundary.
+        let access = ExecutableAccess::from_executable_plan(
+            plan.access.resolve_strategy().into_executable(),
             AccessStreamBindings::no_index(stream_direction),
             probe_fetch_hint,
             None,
         );
-        Ok(Some(Self::execute_fast_stream_request(
+        Ok(Some(Self::execute_structural_fast_stream_request(
             ctx,
             access,
             ExecutionOptimization::PrimaryKey,
@@ -56,9 +54,8 @@ where
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        // Phase 1: verify access-path/spec invariants for index-prefix execution.
-        let typed_access = reconstruct_typed_access_plan::<E>(plan)?;
-        let access_strategy = typed_access.resolve_strategy();
+        // Phase 1: verify structural access-path/spec invariants for index-prefix execution.
+        let access_strategy = plan.access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -84,7 +81,7 @@ where
             probe_fetch_hint,
             index_predicate_execution,
         );
-        let fast = Self::execute_fast_stream_request(
+        let fast = Self::execute_structural_fast_stream_request(
             ctx,
             access,
             ExecutionOptimization::SecondaryOrderPushdown,
@@ -107,9 +104,8 @@ where
         effective_fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        // Phase 1: verify access-path and executable spec materialization invariants.
-        let typed_access = reconstruct_typed_access_plan::<E>(plan)?;
-        let access_strategy = typed_access.resolve_strategy();
+        // Phase 1: verify structural access-path and executable spec materialization invariants.
+        let access_strategy = plan.access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -136,7 +132,7 @@ where
             index_predicate_execution,
         );
 
-        Ok(Some(Self::execute_fast_stream_request(
+        Ok(Some(Self::execute_structural_fast_stream_request(
             ctx,
             access,
             ExecutionOptimization::IndexRangeLimitPushdown,

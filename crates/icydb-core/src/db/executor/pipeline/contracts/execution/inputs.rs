@@ -272,7 +272,7 @@ impl ExecutionRuntimeAdapterCore {
     #[must_use]
     fn new<'a, E>(
         ctx: &'a Context<'_, E>,
-        access: &'a crate::db::access::AccessPlan<E::Key>,
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         store: StoreHandle,
         model: &'static EntityModel,
         slot_map: Option<Vec<usize>>,
@@ -356,10 +356,10 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a> {
 }
 
 impl<'ctx, 'a> ExecutionRuntimeAdapter<'ctx, 'a> {
-    /// Build one typed runtime adapter from recovered context plus typed access sidecar.
+    /// Build one typed runtime adapter from recovered context plus structural access plan.
     pub(in crate::db::executor) fn new<E>(
         ctx: &'a Context<'ctx, E>,
-        access: &'a crate::db::access::AccessPlan<E::Key>,
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
     ) -> Result<Self, InternalError>
     where
         E: EntityKind + EntityValue,

@@ -192,7 +192,7 @@ where
     where
         E: EntityKind,
     {
-        DataKey::try_new::<E>(key)
+        DataKey::try_from_field_value(E::ENTITY_TAG, &key)
     }
 
     /// Deduplicate entity keys using canonical key ordering.

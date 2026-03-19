@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Context,
-        data::DataKey,
+        data::{DataKey, DataRow},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
@@ -15,18 +15,17 @@ use crate::{
                 AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput,
                 field::{
                     AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
-                    compare_entities_for_field_extrema, compare_orderable_field_values,
-                    extract_orderable_field_value_with_slot_reader,
+                    compare_orderable_field_values, extract_orderable_field_value_with_slot_reader,
                     resolve_orderable_aggregate_target_slot,
                 },
             },
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::record_rows_scanned,
             route::aggregate_extrema_direction,
+            terminal::{RowDecoder, RowLayout},
         },
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -38,7 +37,7 @@ impl ExecutionKernel {
     // Reduce one materialized response into a field-target extrema id with the
     // deterministic tie-break contract `(field_value, primary_key_asc)`.
     pub(in crate::db::executor::aggregate) fn aggregate_field_extrema_from_materialized<E>(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         kind: AggregateKind,
         target_field: &str,
         field_slot: FieldSlot,
@@ -57,25 +56,37 @@ impl ExecutionKernel {
             )
         })?;
 
-        let mut selected: Option<(StorageKey, E)> = None;
-        for row in response {
-            let (id, entity) = row.into_parts();
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
+        let mut selected: Option<(StorageKey, Value)> = None;
+        for (data_key, raw_row) in rows {
+            let candidate_key = data_key.storage_key();
+            let row = row_decoder.decode(&row_layout, (data_key, raw_row))?;
+            let candidate_value = extract_orderable_field_value_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
             let should_replace = match selected.as_ref() {
-                Some((_, current)) => {
-                    compare_entities_for_field_extrema(
-                        &entity,
-                        current,
+                Some((current_key, current_value)) => {
+                    let field_order = compare_orderable_field_values(
                         target_field,
-                        field_slot,
-                        compare_direction,
+                        &candidate_value,
+                        current_value,
                     )
-                    .map_err(AggregateFieldValueError::into_internal_error)?
-                        == Ordering::Less
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                    let directional_field_order =
+                        apply_aggregate_direction(field_order, compare_direction);
+
+                    directional_field_order == Ordering::Less
+                        || (directional_field_order == Ordering::Equal
+                            && candidate_key < *current_key)
                 }
                 None => true,
             };
             if should_replace {
-                selected = Some((storage_key_from_entity_id(id)?, entity));
+                selected = Some((candidate_key, candidate_value));
             }
         }
 
@@ -178,7 +189,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access)?;
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.logical_plan.access)?;
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
             &prepared.logical_plan,
@@ -329,12 +340,4 @@ where
 
         Ok((output, keys_scanned))
     }
-}
-
-// Convert one typed entity id into the structural storage-key surface used by scalar kernels.
-fn storage_key_from_entity_id<E>(id: crate::types::Id<E>) -> Result<StorageKey, InternalError>
-where
-    E: EntityKind,
-{
-    StorageKey::try_from_value(&id.as_value()).map_err(InternalError::from)
 }

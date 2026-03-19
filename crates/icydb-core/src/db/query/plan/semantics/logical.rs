@@ -45,30 +45,6 @@ impl LogicalPlan {
             Self::Grouped(plan) => &plan.scalar,
         }
     }
-
-    /// Borrow scalar semantic fields mutably across logical variants.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_semantics_mut(&mut self) -> &mut ScalarPlan {
-        match self {
-            Self::Scalar(plan) => plan,
-            Self::Grouped(plan) => &mut plan.scalar,
-        }
-    }
-
-    /// Test-only shorthand for explicit scalar semantic borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar(&self) -> &ScalarPlan {
-        self.scalar_semantics()
-    }
-
-    /// Test-only shorthand for explicit mutable scalar semantic borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
-        self.scalar_semantics_mut()
-    }
 }
 
 impl AccessPlannedQuery {
@@ -131,27 +107,6 @@ impl AccessPlannedQuery {
         entity_path: &'static str,
     ) -> ExecutionShapeSignature {
         ExecutionShapeSignature::new(self.continuation_signature(entity_path))
-    }
-
-    /// Borrow scalar semantic fields mutably across logical variants.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_plan_mut(&mut self) -> &mut ScalarPlan {
-        self.logical.scalar_semantics_mut()
-    }
-
-    /// Test-only shorthand for explicit scalar plan borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar(&self) -> &ScalarPlan {
-        self.scalar_plan()
-    }
-
-    /// Test-only shorthand for explicit mutable scalar plan borrowing.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
-        self.scalar_plan_mut()
     }
 }
 

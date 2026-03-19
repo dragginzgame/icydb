@@ -47,6 +47,9 @@ where
             crate::db::executor::route::RoutedKeyStreamRequest::ExecutableAccess(access) => {
                 ctx.ordered_key_stream_from_runtime_access(access)
             }
+            crate::db::executor::route::RoutedKeyStreamRequest::StructuralExecutableAccess(
+                access,
+            ) => ctx.ordered_key_stream_from_structural_runtime_access(access),
         }
     }
 

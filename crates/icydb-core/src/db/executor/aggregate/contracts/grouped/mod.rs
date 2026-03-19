@@ -5,11 +5,10 @@
 
 mod context;
 mod engine;
+#[cfg(test)]
+mod tests;
 
 pub(in crate::db::executor) use context::{ExecutionConfig, ExecutionContext};
 pub(in crate::db::executor) use engine::{
     GroupedAggregateEngine, ScalarAggregateEngine, execute_scalar_aggregate,
 };
-
-#[cfg(test)]
-pub(in crate::db::executor) use engine::GroupedAggregateOutput;

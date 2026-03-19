@@ -43,19 +43,7 @@ pub(in crate::db::executor) struct GroupedAggregateOutput {
 }
 
 impl GroupedAggregateOutput {
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn group_key(&self) -> &GroupKey {
-        &self.group_key
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn output(&self) -> &Value {
-        &self.output
-    }
-
-    fn into_value_pair(self) -> (Value, Value) {
+    pub(in crate::db::executor::aggregate) fn into_value_pair(self) -> (Value, Value) {
         (self.group_key.canonical_value().clone(), self.output)
     }
 }
@@ -115,20 +103,9 @@ impl GroupedAggregateState {
         }
     }
 
-    /// Apply one `(group_key, data_key)` row into grouped aggregate state.
-    #[cfg(test)]
-    pub(in crate::db::executor::aggregate) fn apply(
-        &mut self,
-        group_key: GroupKey,
-        data_key: &DataKey,
-        execution_context: &mut ExecutionContext,
-    ) -> Result<FoldControl, GroupError> {
-        self.apply_borrowed(&group_key, data_key, execution_context)
-    }
-
     // Apply one `(group_key, data_key)` row into grouped aggregate state using
     // a borrowed grouped key to avoid hot-path clone churn at ingest callsites.
-    fn apply_borrowed(
+    pub(in crate::db::executor::aggregate) fn apply_borrowed(
         &mut self,
         group_key: &GroupKey,
         data_key: &DataKey,
@@ -184,15 +161,6 @@ impl GroupedAggregateState {
         );
 
         Ok(fold_control)
-    }
-
-    /// Return the current number of grouped keys tracked by this state.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) fn group_count(&self) -> usize {
-        self.groups
-            .values()
-            .fold(0usize, |count, bucket| count.saturating_add(bucket.len()))
     }
 
     /// Finalize all groups into deterministic grouped aggregate outputs.

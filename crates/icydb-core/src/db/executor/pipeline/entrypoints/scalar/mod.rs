@@ -241,10 +241,10 @@ fn execute_scalar_materialized_rows_boundary<E>(
     executor: &LoadExecutor<E>,
     ctx: Context<'_, E>,
     logical_plan: AccessPlannedQuery,
-    typed_access: AccessPlan<E::Key>,
+    _typed_access: AccessPlan<E::Key>,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
-) -> Result<EntityResponse<E>, InternalError>
+) -> Result<StructuralCursorPage, InternalError>
 where
     E: EntityKind + EntityValue,
 {
@@ -259,7 +259,8 @@ where
     );
 
     // Phase 1: resolve typed execution authority once at the boundary.
-    let runtime = ExecutionRuntimeAdapter::new(&ctx, &typed_access)?;
+    let structural_access = logical_plan.access.clone();
+    let runtime = ExecutionRuntimeAdapter::new(&ctx, &structural_access)?;
     let execution_preparation = ExecutionPreparation::from_plan(
         E::MODEL,
         &logical_plan,
@@ -294,16 +295,15 @@ where
         debug: executor.debug,
     })?;
 
-    let response = page.into_entity_response::<E>()?;
-    let response = LoadExecutor::<E>::finalize_entity_response(
-        response,
+    let page = LoadExecutor::<E>::finalize_structural_page(
+        page,
         metrics,
         &mut span,
         &mut trace,
         execution_time_micros,
     );
 
-    Ok(response)
+    Ok(page)
 }
 
 impl<E> LoadExecutor<E>
@@ -345,12 +345,13 @@ where
     ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let (logical_plan, typed_access) = plan.into_plan_and_access();
+        let (logical_plan, _typed_access) = plan.into_plan_and_access();
 
         // Phase 1: resolve all typed execution authority once at the boundary.
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
-        let runtime = ExecutionRuntimeAdapter::new(&ctx, &typed_access)?;
+        let structural_access = logical_plan.access.clone();
+        let runtime = ExecutionRuntimeAdapter::new(&ctx, &structural_access)?;
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
             &logical_plan,
@@ -393,12 +394,12 @@ where
         Ok((page, trace))
     }
 
-    // Materialize scalar rows from one already-prepared aggregate/load stage
-    // without reconstructing `ExecutablePlan<E>` inside the execution path.
-    pub(in crate::db::executor) fn execute_scalar_materialized_rows_stage(
+    // Materialize one scalar page structurally from one already-prepared
+    // aggregate/load stage without forcing typed entity reconstruction.
+    pub(in crate::db::executor) fn execute_scalar_materialized_page_stage(
         &self,
         prepared: PreparedAggregateStreamingInputs<'_, E>,
-    ) -> Result<crate::db::response::EntityResponse<E>, InternalError> {
+    ) -> Result<StructuralCursorPage, InternalError> {
         execute_scalar_materialized_rows_boundary(
             self,
             prepared.ctx,
@@ -415,13 +416,15 @@ where
         &self,
         prepared: PreparedScalarMaterializedBoundary<'_, E>,
     ) -> Result<EntityResponse<E>, InternalError> {
-        execute_scalar_materialized_rows_boundary(
+        let page = execute_scalar_materialized_rows_boundary(
             self,
             prepared.ctx,
             prepared.logical_plan,
             prepared.typed_access,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
-        )
+        )?;
+
+        page.into_entity_response::<E>()
     }
 }

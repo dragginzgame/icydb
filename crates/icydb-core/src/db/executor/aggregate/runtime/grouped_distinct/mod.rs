@@ -7,6 +7,13 @@ mod aggregate;
 mod paging;
 mod strategy;
 
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests;
+
 pub(in crate::db::executor) use aggregate::{
     GlobalDistinctFieldAggregateKind, execute_global_distinct_field_aggregate,
 };

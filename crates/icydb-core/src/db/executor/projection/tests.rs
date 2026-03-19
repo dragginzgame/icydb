@@ -14,7 +14,7 @@ use crate::{
         },
     },
     model::{field::FieldKind, index::IndexModel},
-    traits::EntityValue,
+    traits::{EntitySchema, EntityValue, FieldProjection as _},
     types::Ulid,
     value::Value,
 };
@@ -24,7 +24,10 @@ use std::cmp::Ordering;
 
 #[cfg(feature = "sql")]
 use super::project_rows_from_projection;
-use super::{GroupedRowView, eval_expr, eval_expr_grouped, evaluate_grouped_projection_values};
+use super::{
+    GroupedRowView, eval_expr_grouped, eval_expr_with_slot_reader,
+    evaluate_grouped_projection_values,
+};
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
 const EMPTY_INDEX: IndexModel = IndexModel::new(
@@ -86,6 +89,15 @@ fn row(
     (entity.id(), entity)
 }
 
+fn eval_expr_for_row(
+    expr: &Expr,
+    row: &ProjectionEvalEntity,
+) -> Result<Value, crate::db::executor::projection::ProjectionEvalError> {
+    eval_expr_with_slot_reader(expr, ProjectionEvalEntity::MODEL, &mut |slot| {
+        row.get_value_by_index(slot)
+    })
+}
+
 #[test]
 fn eval_expr_supports_arithmetic_projection() {
     let (_, entity) = row(1, 7, true);
@@ -95,8 +107,8 @@ fn eval_expr_supports_arithmetic_projection() {
         right: Box::new(Expr::Literal(Value::Int(1))),
     };
 
-    let value = eval_expr::<ProjectionEvalEntity>(&expr, &entity)
-        .expect("numeric projection expression should evaluate");
+    let value =
+        eval_expr_for_row(&expr, &entity).expect("numeric projection expression should evaluate");
 
     assert_eq!(
         value.cmp_numeric(&Value::Int(8)),
@@ -114,8 +126,8 @@ fn eval_expr_supports_boolean_projection() {
         right: Box::new(Expr::Literal(Value::Bool(true))),
     };
 
-    let value = eval_expr::<ProjectionEvalEntity>(&expr, &entity)
-        .expect("boolean projection expression should evaluate");
+    let value =
+        eval_expr_for_row(&expr, &entity).expect("boolean projection expression should evaluate");
 
     assert_eq!(value, Value::Bool(true));
 }
@@ -129,8 +141,7 @@ fn eval_expr_supports_numeric_equality_widening() {
         right: Box::new(Expr::Literal(Value::Uint(7))),
     };
 
-    let value =
-        eval_expr::<ProjectionEvalEntity>(&expr, &entity).expect("numeric equality should widen");
+    let value = eval_expr_for_row(&expr, &entity).expect("numeric equality should widen");
 
     assert_eq!(value, Value::Bool(true));
 }
@@ -144,7 +155,7 @@ fn eval_expr_rejects_numeric_and_non_numeric_equality_mix() {
         right: Box::new(Expr::Field(FieldId::new("label"))),
     };
 
-    let err = eval_expr::<ProjectionEvalEntity>(&expr, &entity)
+    let err = eval_expr_for_row(&expr, &entity)
         .expect_err("mixed numeric/non-numeric equality should fail invariant checks");
     assert!(matches!(
         err,
@@ -162,8 +173,8 @@ fn eval_expr_propagates_null_values() {
         right: Box::new(Expr::Literal(Value::Null)),
     };
 
-    let value = eval_expr::<ProjectionEvalEntity>(&expr, &entity)
-        .expect("null propagation should remain deterministic");
+    let value =
+        eval_expr_for_row(&expr, &entity).expect("null propagation should remain deterministic");
 
     assert_eq!(value, Value::Null);
 }
@@ -177,9 +188,9 @@ fn eval_expr_alias_wrapper_is_semantic_no_op() {
         name: Alias::new("rank_alias"),
     };
 
-    let plain_value = eval_expr::<ProjectionEvalEntity>(&plain, &entity)
-        .expect("plain field expression should evaluate");
-    let alias_value = eval_expr::<ProjectionEvalEntity>(&aliased, &entity)
+    let plain_value =
+        eval_expr_for_row(&plain, &entity).expect("plain field expression should evaluate");
+    let alias_value = eval_expr_for_row(&aliased, &entity)
         .expect("aliased expression should evaluate identically");
 
     assert_eq!(plain_value, alias_value);

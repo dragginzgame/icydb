@@ -9,6 +9,8 @@ mod json;
 mod nodes;
 mod plan;
 mod render;
+#[cfg(test)]
+mod test_support;
 mod writer;
 
 pub use execution::*;

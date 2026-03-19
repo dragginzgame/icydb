@@ -3,16 +3,9 @@
 //! Does not own: pure logical plan model definitions or semantic interpretation.
 //! Boundary: glue between logical plan semantics and selected access paths.
 
-#[cfg(test)]
-use crate::db::access::AccessPath;
 use crate::db::{
     access::{AccessPlan, AccessStrategy},
     query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan, expr::ProjectionSelection},
-};
-#[cfg(test)]
-use crate::db::{
-    predicate::MissingRowPolicy,
-    query::plan::{LoadSpec, QueryMode, ScalarPlan},
 };
 use crate::{traits::FieldValue, value::Value};
 
@@ -98,25 +91,5 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn access_strategy(&self) -> AccessStrategy<'_, Value> {
         self.access.resolve_strategy()
-    }
-
-    /// Construct a minimal access-planned query with only an access path.
-    ///
-    /// Predicates, ordering, and pagination may be attached later.
-    #[cfg(test)]
-    pub(crate) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
-        Self {
-            logical: LogicalPlan::Scalar(ScalarPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
-                predicate: None,
-                order: None,
-                distinct: false,
-                delete_limit: None,
-                page: None,
-                consistency,
-            }),
-            access: AccessPlan::path(access),
-            projection_selection: ProjectionSelection::All,
-        }
     }
 }

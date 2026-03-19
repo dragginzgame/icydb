@@ -3,18 +3,25 @@
 //! Does not own: numeric coercion policy beyond field helper contracts.
 //! Boundary: materialized numeric aggregate helpers for load executor terminals.
 
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         access::AccessPathKind,
         cursor::{ContinuationRuntime, LoopAction},
+        data::DataRow,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl,
             aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
-                FieldSlot, extract_numeric_field_decimal,
-                extract_numeric_field_decimal_with_slot_reader,
+                FieldSlot, extract_numeric_field_decimal_with_slot_reader,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
             aggregate::{
@@ -24,10 +31,10 @@ use crate::{
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
             preparation::slot_map_for_entity_plan,
+            terminal::{RowDecoder, RowLayout},
         },
         numeric::{add_decimal_terms, average_decimal_terms},
         query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -152,10 +159,11 @@ where
                         )
                     }
                     PreparedScalarNumericStrategy::Materialized => {
-                        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
+                        let page = self.execute_scalar_materialized_page_stage(prepared)?;
+                        let (rows, _) = page.into_parts();
 
                         Self::aggregate_numeric_field_from_materialized(
-                            response,
+                            rows,
                             &boundary.target_field_name,
                             boundary.field_slot,
                             boundary.op,
@@ -179,15 +187,23 @@ where
     // Reduce one materialized response into `sum(field)` / `avg(field)` over
     // numeric field values coerced to Decimal.
     fn aggregate_numeric_field_from_materialized(
-        response: EntityResponse<E>,
+        rows: Vec<DataRow>,
         target_field: &str,
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut accumulator = NumericAggregateAccumulator::new();
-        for row in response {
-            let value = extract_numeric_field_decimal(row.entity_ref(), target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
+
+        for row in rows {
+            let row = row_decoder.decode(&row_layout, row)?;
+            let value = extract_numeric_field_decimal_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(Self::map_aggregate_field_value_error)?;
             accumulator.add(value);
         }
 
@@ -422,39 +438,4 @@ fn decode_global_distinct_numeric_output(
 // numeric arithmetic contract so projection/aggregate arithmetic semantics stay aligned.
 fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Decimal {
     add_decimal_terms(sum, value)
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        db::{executor::aggregate::numeric::add_numeric_decimal, numeric::average_decimal_terms},
-        types::Decimal,
-    };
-
-    #[test]
-    fn aggregate_numeric_addition_uses_shared_saturating_decimal_semantics() {
-        let left = Decimal::from_i128_with_scale(i128::MAX, 0);
-        let right = Decimal::from_i128_with_scale(1, 0);
-
-        let result = add_numeric_decimal(left, right);
-
-        assert_eq!(result, Decimal::from_i128_with_scale(i128::MAX, 0));
-    }
-
-    #[test]
-    fn aggregate_numeric_avg_division_uses_shared_rounding_semantics() {
-        let sum = Decimal::from_num(-1_i64).expect("sum decimal");
-
-        let result =
-            average_decimal_terms(sum, 6_u64).expect("decimal avg should produce one value");
-
-        assert_eq!(
-            result,
-            Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18)
-        );
-    }
 }

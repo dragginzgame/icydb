@@ -16,6 +16,3 @@ pub(in crate::db::executor) use grouped::{
 };
 pub(in crate::db::executor) use spec::{AggregateKind, ScalarAggregateOutput};
 pub(in crate::db::executor) use state::{AggregateFoldMode, FoldControl};
-
-#[cfg(test)]
-pub(in crate::db::executor) use grouped::GroupedAggregateOutput;

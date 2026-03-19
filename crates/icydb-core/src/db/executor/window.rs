@@ -46,17 +46,6 @@ pub(in crate::db) fn compute_page_window(offset: u32, limit: u32) -> PageWindow 
     }
 }
 
-/// Compute canonical `(keep_count, fetch_count)` for one pagination window.
-///
-/// Callers that need both values should use this helper to avoid duplicated
-/// offset/limit arithmetic and independent window projections.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn compute_page_keep_and_fetch_counts(offset: u32, limit: u32) -> (usize, usize) {
-    let window = compute_page_window(offset, limit);
-    (window.keep_count, window.fetch_count)
-}
-
 impl ExecutionKernel {
     /// Build one kernel-owned window/cursor progression contract for stream reducers.
     pub(in crate::db::executor) fn window_cursor_contract(
@@ -108,10 +97,7 @@ impl ExecutionKernel {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        PageWindow, compute_page_keep_and_fetch_counts, compute_page_keep_count,
-        compute_page_window,
-    };
+    use super::{PageWindow, compute_page_keep_count, compute_page_window};
 
     #[test]
     fn compute_page_window_zero_offset_zero_limit_projects_keep_and_fetch() {
@@ -168,9 +154,9 @@ mod tests {
 
     #[test]
     fn compute_page_keep_and_fetch_counts_matches_window_projections() {
-        let (keep_count, fetch_count) = compute_page_keep_and_fetch_counts(37, 11);
+        let window = compute_page_window(37, 11);
 
-        assert_eq!(keep_count, compute_page_keep_count(37, 11));
-        assert_eq!(fetch_count, compute_page_window(37, 11).fetch_count);
+        assert_eq!(window.keep_count, compute_page_keep_count(37, 11));
+        assert_eq!(window.fetch_count, compute_page_window(37, 11).fetch_count);
     }
 }

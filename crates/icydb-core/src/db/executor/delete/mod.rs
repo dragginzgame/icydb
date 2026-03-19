@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, DataRow, PersistedEntityRow, RawRow, decode_persisted_entity_ref},
+        data::{DataKey, DataRow, PersistedEntityRow, RawRow, decode_raw_row_for_entity_key},
         executor::{
             ExecutablePlan, ExecutionKernel, ExecutionPreparation, PlanRow,
             mutation::{
@@ -54,8 +54,8 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
     rows.into_iter()
         .map(|row| {
             let row = PersistedEntityRow::from_data_row(row);
-            let (_, entity) = decode_persisted_entity_ref::<E>(row.as_ref())?;
             let (key, raw) = row.into_parts();
+            let (_, entity) = decode_raw_row_for_entity_key::<E>(&key, &raw)?;
 
             Ok(DeleteRow {
                 key,

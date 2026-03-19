@@ -34,7 +34,6 @@ use crate::{
                 LoadExecutor, TypedGroupedRowRuntime,
             },
             plan_metrics::record_grouped_plan_metrics,
-            reconstruct_typed_access_plan,
         },
         index::IndexCompilePolicy,
     },
@@ -205,8 +204,7 @@ where
     ) -> Result<GroupedStreamStage<'a>, InternalError> {
         let ctx = self.db.recovered_context::<E>()?;
         let row_ctx = self.db.recovered_context::<E>()?;
-        let typed_access = reconstruct_typed_access_plan::<E>(route.plan())?;
-        let runtime = ExecutionRuntimeAdapter::new(&ctx, &typed_access)?;
+        let runtime = ExecutionRuntimeAdapter::new(&ctx, &route.plan().access)?;
         build_grouped_stream_with_runtime(
             route,
             &runtime,

@@ -16,7 +16,6 @@ use crate::{
                 contracts::{FastPathKeyResult, LoadExecutor},
                 operators::decorate_key_stream_for_plan,
             },
-            reconstruct_typed_access_plan,
             route::{
                 FastPathOrder, RoutedKeyStreamRequest, derive_budget_safety_flags,
                 ensure_index_range_aggregate_fast_path_specs,
@@ -262,8 +261,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let access = reconstruct_typed_access_plan::<E>(plan)?;
-        let access_strategy = access.resolve_strategy();
+        let access_strategy = plan.access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -291,7 +289,7 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::ExecutableAccess(access),
+            RoutedKeyStreamRequest::StructuralExecutableAccess(access),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -355,8 +353,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let access = reconstruct_typed_access_plan::<E>(plan)?;
-        let access_strategy = access.resolve_strategy();
+        let access_strategy = plan.access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
@@ -373,12 +370,14 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::ExecutableAccess(ExecutableAccess::from_executable_plan(
-                access_strategy.into_executable(),
-                AccessStreamBindings::no_index(direction),
-                physical_fetch_hint,
-                None,
-            )),
+            RoutedKeyStreamRequest::StructuralExecutableAccess(
+                ExecutableAccess::from_executable_plan(
+                    access_strategy.into_executable(),
+                    AccessStreamBindings::no_index(direction),
+                    physical_fetch_hint,
+                    None,
+                ),
+            ),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -426,9 +425,12 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let typed_access = reconstruct_typed_access_plan::<E>(inputs.logical_plan)?;
-        let access = ExecutableAccess::new(
-            &typed_access,
+        let access = ExecutableAccess::from_executable_plan(
+            inputs
+                .logical_plan
+                .access
+                .resolve_strategy()
+                .into_executable(),
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
                 inputs.index_range_specs,
@@ -443,7 +445,7 @@ impl ExecutionKernel {
             inputs.direction,
             inputs.kind,
             inputs.fold_mode,
-            RoutedKeyStreamRequest::ExecutableAccess(access),
+            RoutedKeyStreamRequest::StructuralExecutableAccess(access),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))

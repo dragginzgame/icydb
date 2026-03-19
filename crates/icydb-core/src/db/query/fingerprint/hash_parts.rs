@@ -628,18 +628,7 @@ pub(in crate::db::query) fn hash_explain_plan_profile(
     hash_explain_plan_profile_internal(hasher, plan, profile, None);
 }
 
-/// Hash an `ExplainPlan` with one explicit semantic projection section.
-#[cfg(test)]
-pub(in crate::db::query) fn hash_explain_plan_profile_with_projection(
-    hasher: &mut Sha256,
-    plan: &ExplainPlan,
-    profile: ExplainHashProfile<'_>,
-    projection: &ProjectionSpec,
-) {
-    hash_explain_plan_profile_internal(hasher, plan, profile, Some(projection));
-}
-
-fn hash_explain_plan_profile_internal(
+pub(in crate::db::query::fingerprint) fn hash_explain_plan_profile_internal(
     hasher: &mut Sha256,
     plan: &ExplainPlan,
     profile: ExplainHashProfile<'_>,

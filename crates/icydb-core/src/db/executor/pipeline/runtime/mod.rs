@@ -14,7 +14,6 @@ use crate::{
         pipeline::contracts::{LoadExecutor, StructuralCursorPage},
         plan_metrics::set_rows_from_len,
     },
-    db::response::EntityResponse,
     metrics::sink::Span,
     traits::{EntityKind, EntityValue},
 };
@@ -23,20 +22,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Finalize one rows-only execution attempt without reconstructing page state.
-    pub(in crate::db::executor) fn finalize_entity_response(
-        response: EntityResponse<E>,
-        metrics: ExecutionOutcomeMetrics,
-        span: &mut Span<E>,
-        execution_trace: &mut Option<ExecutionTrace>,
-        execution_time_micros: u64,
-    ) -> EntityResponse<E> {
-        Self::finalize_path_outcome(execution_trace, metrics, false, execution_time_micros);
-        set_rows_from_len(span, response.len());
-
-        response
-    }
-
     /// Finalize one structural scalar page before typed surface projection.
     pub(in crate::db::executor) fn finalize_structural_page(
         page: StructuralCursorPage,

@@ -38,85 +38,10 @@ impl PersistedEntityRow {
         Self { data_key, raw_row }
     }
 
-    /// Borrow the structural persisted-row decode boundary.
-    #[must_use]
-    pub(in crate::db) const fn as_ref(&self) -> PersistedEntityRowRef<'_> {
-        PersistedEntityRowRef::new(&self.data_key, &self.raw_row)
-    }
-
     /// Return the owned row parts after structural decode work completes.
     #[must_use]
     pub(in crate::db) fn into_parts(self) -> (DataKey, RawRow) {
         (self.data_key, self.raw_row)
-    }
-}
-
-///
-/// PersistedEntityRowRef
-///
-/// PersistedEntityRowRef is the borrowed persisted-row boundary shared by row
-/// decode callers.
-/// It centralizes row-envelope diagnostics and raw row access so executor-side
-/// typed wrappers only own the entity-specific decode operations.
-///
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::db) struct PersistedEntityRowRef<'a> {
-    data_key: &'a DataKey,
-    raw_row: &'a RawRow,
-}
-
-impl<'a> PersistedEntityRowRef<'a> {
-    /// Build one borrowed persisted-row boundary.
-    #[must_use]
-    pub(in crate::db) const fn new(data_key: &'a DataKey, raw_row: &'a RawRow) -> Self {
-        Self { data_key, raw_row }
-    }
-
-    /// Decode the expected typed entity key from the authoritative data key.
-    pub(in crate::db) fn expected_key<E>(self) -> Result<E::Key, InternalError>
-    where
-        E: EntityKind,
-    {
-        self.data_key.try_key::<E>()
-    }
-
-    /// Decode one entity from the persisted row and enforce key consistency.
-    #[inline(never)]
-    pub(in crate::db) fn decode_entity<E, DecodeFn, DecodeErr, DecodeErrMap, MismatchErrMap>(
-        self,
-        expected_key: E::Key,
-        decode_entity: DecodeFn,
-        map_decode_error: DecodeErrMap,
-        map_key_mismatch: MismatchErrMap,
-    ) -> Result<E, InternalError>
-    where
-        E: EntityKind + EntityValue,
-        DecodeFn: FnOnce(&RawRow) -> Result<E, DecodeErr>,
-        DecodeErrMap: FnOnce(DecodeErr) -> InternalError,
-        MismatchErrMap: FnOnce(E::Key, E::Key) -> InternalError,
-    {
-        decode_and_validate_entity_key::<E, _, _, _, _>(
-            expected_key,
-            || decode_entity(self.raw_row),
-            map_decode_error,
-            map_key_mismatch,
-        )
-    }
-
-    /// Build the canonical row-decode failure message for this persisted row.
-    #[must_use]
-    pub(in crate::db) fn decode_failure_message(self, err: impl Display) -> String {
-        format!("failed to deserialize row: {} ({err})", self.data_key)
-    }
-
-    /// Build the canonical row-key mismatch message for this persisted row.
-    #[must_use]
-    pub(in crate::db) fn key_mismatch_message(
-        expected: impl Display,
-        actual: impl Display,
-    ) -> String {
-        format!("row key mismatch: expected {expected}, found {actual}")
     }
 }
 
@@ -183,25 +108,28 @@ impl Drop for ErasedEntityResponseBuilder {
     }
 }
 
-/// Decode one borrowed persisted row into one typed entity plus its expected key.
-pub(in crate::db) fn decode_persisted_entity_ref<E>(
-    row: PersistedEntityRowRef<'_>,
+/// Decode one persisted `(DataKey, RawRow)` pair into one typed entity row.
+///
+/// This is the shared typed edge for callers that already separated row
+/// ownership from executor/runtime traversal and only need canonical decode
+/// diagnostics plus key-consistency validation.
+pub(in crate::db) fn decode_raw_row_for_entity_key<E>(
+    data_key: &DataKey,
+    raw_row: &RawRow,
 ) -> Result<(E::Key, E), InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let expected_key = row.expected_key::<E>()?;
-    let entity = row.decode_entity::<E, _, _, _, _>(
+    let expected_key = data_key.try_key::<E>()?;
+    let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
         expected_key,
-        RawRow::try_decode::<E>,
-        |err| InternalError::serialize_corruption(row.decode_failure_message(err)),
+        || RawRow::try_decode::<E>(raw_row),
+        |err| InternalError::serialize_corruption(decode_failure_message(data_key, err)),
         |expected_key, actual_key| {
             let expected = format_entity_key_for_mismatch::<E>(expected_key);
             let found = format_entity_key_for_mismatch::<E>(actual_key);
 
-            InternalError::store_corruption(PersistedEntityRowRef::key_mismatch_message(
-                expected, found,
-            ))
+            InternalError::store_corruption(key_mismatch_message(expected, found))
         },
     )?;
 
@@ -247,7 +175,8 @@ where
     E: EntityKind + EntityValue,
 {
     let row = PersistedEntityRow::from_data_row(row);
-    let (expected_key, entity) = decode_persisted_entity_ref::<E>(row.as_ref())?;
+    let (data_key, raw_row) = row.into_parts();
+    let (expected_key, entity) = decode_raw_row_for_entity_key::<E>(&data_key, &raw_row)?;
 
     Ok(Row::new(Id::from_key(expected_key), entity))
 }
@@ -267,6 +196,16 @@ where
     }
 
     Ok(builder.finish::<E>())
+}
+
+// Build the canonical row-decode failure message for one persisted row.
+fn decode_failure_message(data_key: &DataKey, err: impl Display) -> String {
+    format!("failed to deserialize row: {data_key} ({err})")
+}
+
+// Build the canonical row-key mismatch message for one persisted row.
+fn key_mismatch_message(expected: impl Display, actual: impl Display) -> String {
+    format!("row key mismatch: expected {expected}, found {actual}")
 }
 
 /// Format an entity key for mismatch diagnostics using canonical `DataKey`

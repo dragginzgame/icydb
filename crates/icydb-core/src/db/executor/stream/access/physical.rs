@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
+        access::{ExecutableAccessPathDispatch, StructuralKey, dispatch_executable_access_path},
         cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
@@ -151,7 +151,7 @@ where
 {
     fn resolve_by_key(&self, key: E::Key) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         Ok((
-            vec![Context::<E>::data_key_from_key(key)?],
+            vec![DataKey::try_from_field_value(E::ENTITY_TAG, &key)?],
             KeyOrderState::FinalOrder,
         ))
     }
@@ -162,7 +162,7 @@ where
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let keys = Context::<E>::dedup_keys(keys.to_vec())
             .into_iter()
-            .map(Context::<E>::data_key_from_key)
+            .map(|key| DataKey::try_from_field_value(E::ENTITY_TAG, &key))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((keys, KeyOrderState::AscendingSorted))
@@ -175,8 +175,8 @@ where
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
-        let start = Context::<E>::data_key_from_key(start)?;
-        let end = Context::<E>::data_key_from_key(end)?;
+        let start = DataKey::try_from_field_value(E::ENTITY_TAG, &start)?;
+        let end = DataKey::try_from_field_value(E::ENTITY_TAG, &end)?;
         let keys =
             PrimaryScan::range::<E>(self.ctx, &start, &end, direction, primary_scan_fetch_hint)?;
         let key_order_state = if primary_scan_fetch_hint.is_some() {
@@ -193,8 +193,8 @@ where
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
-        let start = DataKey::lower_bound::<E>();
-        let end = DataKey::upper_bound::<E>();
+        let start = DataKey::lower_bound_for(E::ENTITY_TAG);
+        let end = DataKey::upper_bound_for(E::ENTITY_TAG);
         let keys =
             PrimaryScan::range::<E>(self.ctx, &start, &end, direction, primary_scan_fetch_hint)?;
         let key_order_state = if primary_scan_fetch_hint.is_some() {
@@ -291,6 +291,147 @@ where
     }
 }
 
+///
+/// StructuralKeyAccessRuntime
+///
+/// StructuralKeyAccessRuntime binds one recovered typed context to the
+/// structural planner-key boundary used by structural fast-path traversal.
+/// It recovers typed primary-key values only inside physical leaf resolution.
+///
+
+struct StructuralKeyAccessRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    ctx: &'a Context<'ctx, E>,
+}
+
+impl<'ctx, 'a, E> StructuralKeyAccessRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    const fn new(ctx: &'a Context<'ctx, E>) -> Self {
+        Self { ctx }
+    }
+}
+
+impl<E> PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime<'_, '_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn resolve_by_key(
+        &self,
+        key: StructuralKey,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        Ok((
+            vec![DataKey::try_from_structural_key(E::ENTITY_TAG, &key)?],
+            KeyOrderState::FinalOrder,
+        ))
+    }
+
+    fn resolve_by_keys(
+        &self,
+        keys: &[StructuralKey],
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        let mut data_keys = Vec::with_capacity(keys.len());
+        for key in keys {
+            data_keys.push(DataKey::try_from_structural_key(E::ENTITY_TAG, key)?);
+        }
+        data_keys.sort_unstable();
+        data_keys.dedup();
+
+        Ok((data_keys, KeyOrderState::AscendingSorted))
+    }
+
+    fn resolve_key_range(
+        &self,
+        start: StructuralKey,
+        end: StructuralKey,
+        direction: Direction,
+        primary_scan_fetch_hint: Option<usize>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        let start = DataKey::try_from_structural_key(E::ENTITY_TAG, &start)?;
+        let end = DataKey::try_from_structural_key(E::ENTITY_TAG, &end)?;
+        let keys =
+            PrimaryScan::range::<E>(self.ctx, &start, &end, direction, primary_scan_fetch_hint)?;
+        let key_order_state = if primary_scan_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::AscendingSorted
+        };
+
+        Ok((keys, key_order_state))
+    }
+
+    fn resolve_full_scan(
+        &self,
+        direction: Direction,
+        primary_scan_fetch_hint: Option<usize>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        let runtime = ContextPhysicalAccessRuntime::new(self.ctx);
+
+        <ContextPhysicalAccessRuntime<'_, '_, E> as PhysicalAccessRuntime<E::Key>>::resolve_full_scan(
+            &runtime,
+            direction,
+            primary_scan_fetch_hint,
+        )
+    }
+
+    fn resolve_index_prefix(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        direction: Direction,
+        index_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        let runtime = ContextPhysicalAccessRuntime::new(self.ctx);
+
+        <ContextPhysicalAccessRuntime<'_, '_, E> as PhysicalAccessRuntime<E::Key>>::resolve_index_prefix(
+            &runtime,
+            index_prefix_specs,
+            direction,
+            index_fetch_hint,
+            index_predicate_execution,
+        )
+    }
+
+    fn resolve_index_multi_lookup(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        value_count: usize,
+        direction: Direction,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        let runtime = ContextPhysicalAccessRuntime::new(self.ctx);
+
+        <ContextPhysicalAccessRuntime<'_, '_, E> as PhysicalAccessRuntime<E::Key>>::resolve_index_multi_lookup(
+            &runtime,
+            index_prefix_specs,
+            value_count,
+            direction,
+            index_predicate_execution,
+        )
+    }
+
+    fn resolve_index_range(
+        &self,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+        continuation: IndexScanContinuationInput<'_>,
+        index_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+        let runtime = ContextPhysicalAccessRuntime::new(self.ctx);
+
+        <ContextPhysicalAccessRuntime<'_, '_, E> as PhysicalAccessRuntime<E::Key>>::resolve_index_range(
+            &runtime,
+            index_range_spec,
+            continuation,
+            index_fetch_hint,
+            index_predicate_execution,
+        )
+    }
+}
+
 // Normalize key ordering according to explicit resolver output state.
 fn normalize_ordered_keys(
     keys: &mut [DataKey],
@@ -321,7 +462,7 @@ fn resolve_physical_key_stream<K>(
     runtime: &dyn PhysicalAccessRuntime<K>,
 ) -> Result<OrderedKeyStreamBox, InternalError>
 where
-    K: Copy + Ord,
+    K: Clone,
 {
     let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
         request.physical_fetch_hint
@@ -330,11 +471,11 @@ where
     };
 
     let (mut candidates, key_order_state) = match dispatch_executable_access_path(path) {
-        ExecutableAccessPathDispatch::ByKey(key) => runtime.resolve_by_key(*key)?,
+        ExecutableAccessPathDispatch::ByKey(key) => runtime.resolve_by_key(key.clone())?,
         ExecutableAccessPathDispatch::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
         ExecutableAccessPathDispatch::KeyRange { start, end } => runtime.resolve_key_range(
-            *start,
-            *end,
+            start.clone(),
+            end.clone(),
             request.continuation.direction(),
             primary_scan_fetch_hint,
         )?,
@@ -381,9 +522,34 @@ impl<K> ExecutableAccessPath<'_, K> {
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
+        K: Clone,
     {
         let runtime = ContextPhysicalAccessRuntime::new(request.ctx);
+        let bindings = PhysicalStreamBindings {
+            index_prefix_specs: request.index_prefix_specs,
+            index_range_spec: request.index_range_spec,
+            continuation: request.continuation,
+            physical_fetch_hint: request.physical_fetch_hint,
+            index_predicate_execution: request.index_predicate_execution,
+        };
+
+        resolve_physical_key_stream(self, bindings, &runtime)
+    }
+}
+
+impl ExecutableAccessPath<'_, StructuralKey> {
+    // Physical access lowering for one structural executable access path.
+    // Typed key recovery is deferred to the concrete path leaves in the
+    // structural runtime adapter.
+    /// Build an ordered key stream for one structural access path.
+    pub(super) fn resolve_structural_physical_key_stream<E>(
+        &self,
+        request: PhysicalStreamRequest<'_, '_, E>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let runtime = StructuralKeyAccessRuntime::new(request.ctx);
         let bindings = PhysicalStreamBindings {
             index_prefix_specs: request.index_prefix_specs,
             index_range_spec: request.index_range_spec,

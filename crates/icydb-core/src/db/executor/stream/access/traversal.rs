@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, StructuralKey},
         data::DataRow,
         executor::{
             Context, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
@@ -139,6 +139,62 @@ where
     }
 }
 
+///
+/// ContextStructuralTraversalRuntime
+///
+/// ContextStructuralTraversalRuntime binds one recovered typed context to the
+/// structural planner-key executable-access boundary.
+/// This keeps structural fast-path traversal separate from the ordinary typed
+/// runtime access path without reintroducing typed access-plan reconstruction.
+///
+
+struct ContextStructuralTraversalRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    ctx: &'a Context<'ctx, E>,
+}
+
+impl<'ctx, 'a, E> ContextStructuralTraversalRuntime<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    // Build one structural traversal runtime from one recovered executor context.
+    const fn new(ctx: &'a Context<'ctx, E>) -> Self {
+        Self { ctx }
+    }
+}
+
+impl<E> AccessTraversalRuntime<StructuralKey> for ContextStructuralTraversalRuntime<'_, '_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn lower_path_access(
+        &self,
+        path: &ExecutableAccessPath<'_, StructuralKey>,
+        inputs: TraversalInputs<'_>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let constraints = IndexStreamConstraints {
+            prefixes: index_prefix_specs,
+            range: index_range_spec,
+        };
+        let hints = StreamExecutionHints {
+            physical_fetch_hint: inputs.physical_fetch_hint,
+            predicate_execution: inputs.index_predicate_execution,
+        };
+
+        self.ctx
+            .ordered_key_stream_from_structural_executable_access(
+                path,
+                constraints,
+                inputs.continuation,
+                hints,
+            )
+    }
+}
+
 impl<E> Context<'_, E>
 where
     E: EntityKind + EntityValue,
@@ -155,6 +211,27 @@ where
         E: EntityKind,
     {
         access.resolve_physical_key_stream(physical::PhysicalStreamRequest {
+            ctx: self,
+            index_prefix_specs: constraints.prefixes,
+            index_range_spec: constraints.range,
+            continuation,
+            physical_fetch_hint: hints.physical_fetch_hint,
+            index_predicate_execution: hints.predicate_execution,
+        })
+    }
+
+    /// Resolve one structural executable access path into an ordered key stream.
+    pub(in crate::db::executor) fn ordered_key_stream_from_structural_executable_access(
+        &self,
+        access: &ExecutableAccessPath<'_, StructuralKey>,
+        constraints: IndexStreamConstraints<'_>,
+        continuation: AccessScanContinuationInput<'_>,
+        hints: StreamExecutionHints<'_>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind,
+    {
+        access.resolve_structural_physical_key_stream::<E>(physical::PhysicalStreamRequest {
             ctx: self,
             index_prefix_specs: constraints.prefixes,
             index_range_spec: constraints.range,
@@ -201,6 +278,34 @@ where
             index_predicate_execution: request.index_predicate_execution,
         };
         let runtime = ContextTraversalRuntime::new(self);
+        let mut spec_cursor = inputs.spec_cursor();
+        let key_stream = AccessPlanStreamResolver::produce_key_stream(
+            &runtime,
+            &request.plan,
+            inputs,
+            &mut spec_cursor,
+        )?;
+        spec_cursor.validate_consumed()?;
+
+        Ok(key_stream)
+    }
+
+    /// Resolve a structural access plan to an ordered key stream while consuming lowered specs.
+    pub(in crate::db::executor) fn ordered_key_stream_from_structural_runtime_access(
+        &self,
+        request: ExecutableAccess<'_, StructuralKey>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind,
+    {
+        let inputs = TraversalInputs {
+            index_prefix_specs: request.bindings.index_prefix_specs,
+            index_range_specs: request.bindings.index_range_specs,
+            continuation: request.bindings.continuation,
+            physical_fetch_hint: request.physical_fetch_hint,
+            index_predicate_execution: request.index_predicate_execution,
+        };
+        let runtime = ContextStructuralTraversalRuntime::new(self);
         let mut spec_cursor = inputs.spec_cursor();
         let key_stream = AccessPlanStreamResolver::produce_key_stream(
             &runtime,
@@ -275,7 +380,7 @@ impl AccessPlanStreamResolver {
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
     where
-        K: Copy,
+        K: Clone,
     {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
@@ -336,7 +441,7 @@ impl AccessPlanStreamResolver {
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
-        K: Copy,
+        K: Clone,
     {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
@@ -379,7 +484,7 @@ impl AccessPlanStreamResolver {
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
-        K: Copy,
+        K: Clone,
     {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
@@ -401,7 +506,7 @@ impl AccessPlanStreamResolver {
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
-        K: Copy,
+        K: Clone,
     {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());

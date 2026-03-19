@@ -15,6 +15,9 @@ use crate::db::{
     },
 };
 
+#[cfg(test)]
+use crate::db::query::fingerprint::test_support::continuation_signature_with_projection;
+
 impl AccessPlannedQuery {
     /// Compute a continuation signature bound to the entity path.
     ///
@@ -40,22 +43,6 @@ fn continuation_signature_for_plan_with_projection(
     hash_parts::hash_planned_query_profile_with_projection(
         &mut hasher,
         plan,
-        hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
-        projection,
-    );
-    ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
-}
-
-#[cfg(test)]
-fn continuation_signature_with_projection(
-    explain: &ExplainPlan,
-    entity_path: &'static str,
-    projection: &crate::db::query::plan::expr::ProjectionSpec,
-) -> ContinuationSignature {
-    let mut hasher = new_continuation_signature_hasher_v1();
-    hash_parts::hash_explain_plan_profile_with_projection(
-        &mut hasher,
-        explain,
         hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
         projection,
     );

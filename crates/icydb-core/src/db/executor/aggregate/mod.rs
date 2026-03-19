@@ -16,15 +16,13 @@ mod numeric;
 mod projection;
 pub(in crate::db::executor) mod runtime;
 mod terminals;
-#[cfg(test)]
-mod tests;
 
 use crate::db::executor::aggregate::field::{
     AggregateFieldValueError, resolve_orderable_aggregate_target_slot,
 };
 use crate::{
     db::{
-        data::DataKey,
+        data::DataRow,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
@@ -36,7 +34,6 @@ use crate::{
         },
         index::IndexCompilePolicy,
         query::builder::AggregateExpr,
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -262,39 +259,35 @@ impl ExecutionKernel {
             // fail-fast unsupported behavior without scan-budget consumption.
             let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
-            let response = executor.execute_scalar_materialized_rows_stage(prepared)?;
+            let page = executor.execute_scalar_materialized_page_stage(prepared)?;
+            let (rows, _) = page.into_parts();
 
-            return Self::aggregate_field_extrema_from_materialized(
-                response,
+            return Self::aggregate_field_extrema_from_materialized::<E>(
+                rows,
                 kind,
                 target_field,
                 field_slot,
             );
         }
-        let response = executor.execute_scalar_materialized_rows_stage(prepared)?;
+        let page = executor.execute_scalar_materialized_page_stage(prepared)?;
+        let (rows, _) = page.into_parts();
 
-        Self::aggregate_from_materialized(response, kind)
+        Self::aggregate_from_materialized(rows, kind)
     }
 
     // Reduce one materialized response into a standard aggregate terminal
     // result using the shared aggregate state-machine boundary.
-    fn aggregate_from_materialized<E>(
-        response: EntityResponse<E>,
+    fn aggregate_from_materialized(
+        rows: Vec<DataRow>,
         kind: AggregateKind,
-    ) -> Result<ScalarAggregateOutput, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<ScalarAggregateOutput, InternalError> {
         // Materialized fallback can observe response order that is unrelated to
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
-        let mut response = response.into_iter();
         let mut ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
-            for row in response.by_ref() {
-                let id = row.id();
-                let data_key = DataKey::try_new::<E>(id.key())?;
-                let fold_control = engine.ingest(&data_key)?;
+            for (data_key, _) in &rows {
+                let fold_control = engine.ingest(data_key)?;
                 if matches!(fold_control, FoldControl::Break) {
                     break;
                 }
@@ -364,7 +357,7 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access)?;
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.logical_plan.access)?;
         let execution_inputs = ExecutionInputs::new(
             &runtime,
             &prepared.logical_plan,

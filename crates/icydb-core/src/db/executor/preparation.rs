@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::{ExecutableAccessPlan, reconstruct_typed_access_plan},
+        executor::ExecutableAccessPlan,
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
@@ -101,9 +101,5 @@ pub(in crate::db::executor) fn slot_map_for_entity_plan<E>(
 where
     E: EntityKind,
 {
-    reconstruct_typed_access_plan::<E>(plan)
-        .ok()
-        .and_then(|access| {
-            resolved_index_slots_for_access_path(E::MODEL, access.resolve_strategy().executable())
-        })
+    resolved_index_slots_for_access_path(E::MODEL, plan.access.resolve_strategy().executable())
 }

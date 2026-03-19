@@ -106,24 +106,6 @@ impl<K> ExecutableAccessSidecar<K> {
     }
 }
 
-/// Reconstruct one typed access helper plan from the canonical structural plan.
-///
-/// This is transitional Slice D boundary glue. The structural plan is now the
-/// source of truth, but executor subsystems that still require typed key access
-/// can rebind that typed view explicitly at the boundary.
-pub(in crate::db::executor) fn reconstruct_typed_access_plan<E>(
-    plan: &AccessPlannedQuery,
-) -> Result<AccessPlan<E::Key>, InternalError>
-where
-    E: EntityKind,
-{
-    access_plan_to_entity_keys::<E>(E::MODEL, plan.access.clone()).map_err(|err| {
-        crate::db::error::query_executor_invariant(format!(
-            "typed access sidecar reconstruction failed for structural plan: {err:?}"
-        ))
-    })
-}
-
 /// ExecutablePlanCore
 ///
 /// Generic-free executable-plan payload shared by typed `ExecutablePlan<E>`

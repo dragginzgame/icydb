@@ -9,7 +9,6 @@ use crate::{
         schema::{SchemaInfo, literal_matches_type},
     },
     model::{entity::EntityModel, index::IndexModel},
-    traits::FieldValue,
     value::Value,
 };
 use std::ops::Bound;
@@ -77,44 +76,6 @@ trait AccessPlanKeyAdapter<K> {
 }
 
 ///
-/// GenericKeyAdapter
-/// Adapter for typed key plans (FieldValue + Ord)
-///
-
-struct GenericKeyAdapter;
-
-impl<K> AccessPlanKeyAdapter<K> for GenericKeyAdapter
-where
-    K: FieldValue + Ord,
-{
-    fn validate_pk_key(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        key: &K,
-    ) -> Result<(), AccessPlanError> {
-        validate_pk_key(schema, model, key)
-    }
-
-    fn validate_key_range(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        start: &K,
-        end: &K,
-    ) -> Result<(), AccessPlanError> {
-        validate_pk_key(schema, model, start)?;
-        validate_pk_key(schema, model, end)?;
-
-        // Executor-boundary validation is defensive and must not reject
-        // planner-level key-range semantics. Inverted ranges are allowed here
-        // and execute as empty scans.
-
-        Ok(())
-    }
-}
-
-///
 /// ValueKeyAdapter
 /// Adapter for model-level Value plans (partial ordering).
 ///
@@ -158,20 +119,6 @@ fn validate_access_structure_with<K>(
     access.validate(schema, model, adapter)
 }
 
-/// Validate executor-visible access paths.
-///
-/// This ensures keys, ranges, and index prefixes are schema-compatible.
-pub(crate) fn validate_access_structure<K>(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    access: &AccessPlan<K>,
-) -> Result<(), AccessPlanError>
-where
-    K: FieldValue + Ord,
-{
-    validate_access_structure_with(schema, model, access, &GenericKeyAdapter)
-}
-
 /// Validate model-level access paths that carry `Value` keys.
 pub(crate) fn validate_access_structure_model(
     schema: &SchemaInfo,
@@ -179,19 +126,6 @@ pub(crate) fn validate_access_structure_model(
     access: &AccessPlan<Value>,
 ) -> Result<(), AccessPlanError> {
     validate_access_structure_with(schema, model, access, &ValueKeyAdapter)
-}
-
-/// Validate that a key matches the entity's primary key type.
-fn validate_pk_key<K>(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    key: &K,
-) -> Result<(), AccessPlanError>
-where
-    K: FieldValue,
-{
-    let value = key.to_value();
-    validate_pk_literal(schema, model, &value)
 }
 
 // Validate that a primary-key literal matches the entity primary-key schema.

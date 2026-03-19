@@ -14,8 +14,6 @@ mod query;
 mod state;
 
 pub use errors::{IntentError, QueryError, QueryExecutionError};
-#[expect(unused_imports)]
-pub(crate) use key_access::coerce_entity_key;
 pub(crate) use key_access::{
     KeyAccess, KeyAccessKind, KeyAccessState, access_plan_to_entity_keys,
     build_access_plan_from_keys,
