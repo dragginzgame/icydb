@@ -8,8 +8,8 @@ use crate::{
         executor::{
             ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
-                ErasedCursorPage, ExecutionInputs, MaterializedExecutionAttempt,
-                ResolvedExecutionKeyStream, RuntimePageMaterializationRequest,
+                ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+                RuntimePageMaterializationRequest, StructuralCursorPage,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
         },
@@ -89,7 +89,7 @@ impl ExecutionKernel {
         ))
     }
 
-    // Materialize one typed attempt for a specific route-plan candidate.
+    // Materialize one structural attempt for a specific route-plan candidate.
     fn materialize_route_attempt(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
@@ -147,7 +147,7 @@ impl ExecutionKernel {
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         resolved: &mut ResolvedExecutionKeyStream,
-    ) -> Result<(ErasedCursorPage, usize, usize), InternalError> {
+    ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
         if let Some((page, keys_scanned, post_access_rows)) =
             inputs.runtime().try_materialize_load_via_row_collector(
                 inputs.plan(),
@@ -160,7 +160,7 @@ impl ExecutionKernel {
 
         let (page, keys_scanned, post_access_rows) = inputs
             .runtime()
-            .materialize_key_stream_into_page(RuntimePageMaterializationRequest {
+            .materialize_key_stream_into_structural_page(RuntimePageMaterializationRequest {
                 plan: inputs.plan(),
                 predicate_slots: inputs.execution_preparation().compiled_predicate(),
                 key_stream: resolved.key_stream_mut(),

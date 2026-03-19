@@ -6,48 +6,40 @@
 use crate::{
     db::{
         access::AccessPlan,
-        executor::ExecutablePlan,
         executor::aggregate::materialized_distinct::insert_materialized_distinct_value,
         executor::group::GroupKeySet,
-        query::plan::PageSpec,
         query::plan::{
-            CoveringProjectionContext, covering_index_adjacent_distinct_eligible as plan_adjacent,
+            CoveringProjectionContext, OrderSpec, PageSpec,
+            covering_index_adjacent_distinct_eligible as plan_adjacent,
             covering_index_projection_context as plan_covering_context,
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 
 ///
 /// CoveringProjectionValues
 ///
-/// Covering projection decoded values plus the planner context that produced
-/// them. Distinct terminals use this bundle to choose safe dedupe semantics.
+/// Covering projection decoded values emitted by one prepared index-only
+/// projection attempt.
+/// Distinct policy is now resolved earlier during boundary preparation, so
+/// execution only needs the decoded values here.
 ///
 
 pub(super) struct CoveringProjectionValues {
     pub(super) values: Vec<Value>,
-    pub(super) context: CoveringProjectionContext,
 }
 
 // Derive one planner-owned covering projection context from executor plan
 // contracts without duplicating order-shape interpretation in executor code.
-pub(super) fn covering_index_projection_context<E>(
-    access: &AccessPlan<E::Key>,
-    plan: &ExecutablePlan<E>,
+pub(super) fn covering_index_projection_context<K>(
+    access: &AccessPlan<K>,
+    order: Option<&OrderSpec>,
     target_field: &str,
-) -> Option<CoveringProjectionContext>
-where
-    E: EntityKind + EntityValue,
-{
-    plan_covering_context(
-        access,
-        plan.order_spec(),
-        target_field,
-        E::MODEL.primary_key.name,
-    )
+    primary_key_name: &'static str,
+) -> Option<CoveringProjectionContext> {
+    plan_covering_context(access, order, target_field, primary_key_name)
 }
 
 // Return whether adjacent dedupe is safe for one covering context.

@@ -28,22 +28,10 @@ impl AggregateKind {
         AggregateExpr::is_sum_kind(self)
     }
 
-    /// Return whether this terminal kind supports explicit field targets.
-    #[must_use]
-    pub(in crate::db) const fn supports_field_targets(self) -> bool {
-        AggregateExpr::supports_field_targets_kind(self)
-    }
-
     /// Return whether this terminal kind belongs to the extrema family.
     #[must_use]
     pub(in crate::db) const fn is_extrema(self) -> bool {
         AggregateExpr::is_extrema_kind(self)
-    }
-
-    /// Return whether this terminal kind supports first/last value projection.
-    #[must_use]
-    pub(in crate::db) const fn supports_terminal_value_projection(self) -> bool {
-        AggregateExpr::supports_terminal_value_projection_kind(self)
     }
 
     /// Return whether reducer updates for this kind require a decoded id payload.

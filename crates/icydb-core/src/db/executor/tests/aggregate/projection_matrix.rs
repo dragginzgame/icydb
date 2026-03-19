@@ -726,13 +726,13 @@ fn run_projection_scan_budget_terminal(
 ) -> Result<(), InternalError> {
     match terminal {
         ProjectionScanBudgetTerminal::ValuesBy => {
-            load.values_by_slot(plan, slot(load, "rank"))?;
+            execute_projection_values_boundary(load, plan, slot(load, "rank"))?;
         }
         ProjectionScanBudgetTerminal::DistinctValuesBy => {
-            load.distinct_values_by_slot(plan, slot(load, "rank"))?;
+            execute_projection_distinct_values_boundary(load, plan, slot(load, "rank"))?;
         }
         ProjectionScanBudgetTerminal::ValuesByWithIds => {
-            load.values_by_with_ids_slot(plan, slot(load, "rank"))?;
+            execute_projection_values_with_ids_boundary(load, plan, slot(load, "rank"))?;
         }
     }
 

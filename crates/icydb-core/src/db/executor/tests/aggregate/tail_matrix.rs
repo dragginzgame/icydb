@@ -428,19 +428,19 @@ fn run_simple_terminal_probe(
 
     let output = match case.terminal {
         SimpleTerminalProbeKind::Exists => {
-            SimpleTerminalExpected::Exists(load.aggregate_exists(plan)?)
+            SimpleTerminalExpected::Exists(execute_exists_terminal(load, plan)?)
         }
         SimpleTerminalProbeKind::Min => {
-            SimpleTerminalExpected::Id(load.aggregate_min(plan)?.map(|id| id.key()))
+            SimpleTerminalExpected::Id(execute_min_terminal(load, plan)?.map(|id| id.key()))
         }
         SimpleTerminalProbeKind::Max => {
-            SimpleTerminalExpected::Id(load.aggregate_max(plan)?.map(|id| id.key()))
+            SimpleTerminalExpected::Id(execute_max_terminal(load, plan)?.map(|id| id.key()))
         }
         SimpleTerminalProbeKind::First => {
-            SimpleTerminalExpected::Id(load.aggregate_first(plan)?.map(|id| id.key()))
+            SimpleTerminalExpected::Id(execute_first_terminal(load, plan)?.map(|id| id.key()))
         }
         SimpleTerminalProbeKind::Last => {
-            SimpleTerminalExpected::Id(load.aggregate_last(plan)?.map(|id| id.key()))
+            SimpleTerminalExpected::Id(execute_last_terminal(load, plan)?.map(|id| id.key()))
         }
     };
 
@@ -672,7 +672,8 @@ fn aggregate_last_unbounded_desc_large_dataset_scans_full_stream() {
 
     let (last_desc, scanned_last_desc) =
         capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-            load.aggregate_last(
+            execute_last_terminal(
+                &load,
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .order_by_desc("id")
                     .plan()
@@ -709,7 +710,8 @@ fn aggregate_last_secondary_index_desc_mixed_direction_falls_back_safely() {
 
     let (last_desc, scanned_desc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_last(
+            execute_last_terminal(
+                &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
                     .order_by_desc("rank")
@@ -786,7 +788,8 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let (count_asc, scanned_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .distinct()
                 .order_by("id")
@@ -799,7 +802,8 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
         .expect("count distinct+offset ASC should succeed")
     });
     let (count_desc, scanned_desc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .distinct()
                 .order_by_desc("id")
@@ -930,21 +934,25 @@ fn run_strict_prefilter_aggregate(
 
     match aggregate {
         StrictPrefilterAggregate::Count => {
-            load.aggregate_count(plan).map(StrictPrefilterOutput::Count)
+            execute_count_terminal(load, plan).map(StrictPrefilterOutput::Count)
         }
-        StrictPrefilterAggregate::Exists => load
-            .aggregate_exists(plan)
-            .map(StrictPrefilterOutput::Exists),
-        StrictPrefilterAggregate::MinBy => load
-            .aggregate_min_by_slot(plan, slot(load, "rank"))
-            .map(StrictPrefilterOutput::Id),
-        StrictPrefilterAggregate::MaxBy => load
-            .aggregate_max_by_slot(plan, slot(load, "rank"))
-            .map(StrictPrefilterOutput::Id),
+        StrictPrefilterAggregate::Exists => {
+            execute_exists_terminal(load, plan).map(StrictPrefilterOutput::Exists)
+        }
+        StrictPrefilterAggregate::MinBy => {
+            execute_min_by_slot_terminal(load, plan, slot(load, "rank"))
+                .map(StrictPrefilterOutput::Id)
+        }
+        StrictPrefilterAggregate::MaxBy => {
+            execute_max_by_slot_terminal(load, plan, slot(load, "rank"))
+                .map(StrictPrefilterOutput::Id)
+        }
         StrictPrefilterAggregate::First => {
-            load.aggregate_first(plan).map(StrictPrefilterOutput::Id)
+            execute_first_terminal(load, plan).map(StrictPrefilterOutput::Id)
         }
-        StrictPrefilterAggregate::Last => load.aggregate_last(plan).map(StrictPrefilterOutput::Id),
+        StrictPrefilterAggregate::Last => {
+            execute_last_terminal(load, plan).map(StrictPrefilterOutput::Id)
+        }
     }
 }
 
@@ -1047,7 +1055,8 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
 
     let (exists_asc, scanned_asc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_exists(
+            execute_exists_terminal(
+                &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
                     .order_by("rank")
@@ -1059,7 +1068,8 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
         });
     let (exists_desc, scanned_desc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_exists(
+            execute_exists_terminal(
+                &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
                     .order_by_desc("rank")

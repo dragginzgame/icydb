@@ -29,22 +29,22 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
     let expected_response = load
         .execute(build_plan())
         .expect("field-target count-distinct baseline execute should succeed");
-    let distinct_count = load
-        .aggregate_count_distinct_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("count_distinct_by(rank) should succeed");
-    let empty_window_count = load
-        .aggregate_count_distinct_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by_desc("id")
-                .offset(50)
-                .limit(5)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("empty-window count-distinct plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("empty-window count_distinct_by(rank) should succeed");
+    let distinct_count =
+        execute_projection_count_distinct_boundary(&load, build_plan(), slot(&load, "rank"))
+            .expect("count_distinct_by(rank) should succeed");
+    let empty_window_count = execute_projection_count_distinct_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(50)
+            .limit(5)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("empty-window count-distinct plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("empty-window count_distinct_by(rank) should succeed");
 
     assert_eq!(
         distinct_count,
@@ -62,16 +62,16 @@ fn aggregate_field_target_count_distinct_supports_non_orderable_fields() {
     seed_phase_entities(&[(8_197, 10), (8_198, 20), (8_199, 10)]);
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
-    let distinct_count = load
-        .aggregate_count_distinct_by_slot(
-            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("non-orderable count-distinct plan should build"),
-            slot(&load, "tags"),
-        )
-        .expect("count_distinct_by(tags) should succeed");
+    let distinct_count = execute_projection_count_distinct_boundary(
+        &load,
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("non-orderable count-distinct plan should build"),
+        slot(&load, "tags"),
+    )
+    .expect("count_distinct_by(tags) should succeed");
 
     assert_eq!(
         distinct_count, 2,
@@ -113,16 +113,16 @@ fn aggregate_field_target_count_distinct_list_order_semantics_are_stable() {
     ]);
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
-    let distinct_count = load
-        .aggregate_count_distinct_by_slot(
-            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("list-order count-distinct plan should build"),
-            slot(&load, "tags"),
-        )
-        .expect("count_distinct_by(tags) should succeed");
+    let distinct_count = execute_projection_count_distinct_boundary(
+        &load,
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("list-order count-distinct plan should build"),
+        slot(&load, "tags"),
+    )
+    .expect("count_distinct_by(tags) should succeed");
 
     assert_eq!(
         distinct_count, 3,
@@ -181,7 +181,7 @@ fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_m
 
     let (distinct_count, scanned_count_distinct) =
         capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
-            load.aggregate_count_distinct_by_slot(build_plan(), slot(&load, "tag"))
+            execute_projection_count_distinct_boundary(&load, build_plan(), slot(&load, "tag"))
                 .expect("residual-retry count_distinct_by(tag) should succeed")
         });
     let (response, scanned_execute) =
@@ -224,29 +224,29 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
         (8_3205, 8, 99),
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let asc_count = load
-        .aggregate_count_distinct_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by("rank")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("direction-invariant ASC plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("direction-invariant ASC count_distinct_by(rank) should succeed");
-    let desc_count = load
-        .aggregate_count_distinct_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by_desc("rank")
-                .order_by_desc("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("direction-invariant DESC plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("direction-invariant DESC count_distinct_by(rank) should succeed");
+    let asc_count = execute_projection_count_distinct_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("direction-invariant ASC plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("direction-invariant ASC count_distinct_by(rank) should succeed");
+    let desc_count = execute_projection_count_distinct_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("rank")
+            .order_by_desc("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("direction-invariant DESC plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("direction-invariant DESC count_distinct_by(rank) should succeed");
 
     assert_eq!(
         asc_count, desc_count,
@@ -321,9 +321,12 @@ fn aggregate_field_target_count_distinct_covering_fast_paths_emit_projection_hit
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let index_covering_count = load
-        .aggregate_count_distinct_by_slot(index_covering_plan(), slot(&load, "rank"))
-        .expect("count_distinct_by(rank) covering shape should succeed");
+    let index_covering_count = execute_projection_count_distinct_boundary(
+        &load,
+        index_covering_plan(),
+        slot(&load, "rank"),
+    )
+    .expect("count_distinct_by(rank) covering shape should succeed");
     assert_eq!(
         index_covering_count, 3,
         "count_distinct_by(rank) should count unique rank values in the effective window",
@@ -349,9 +352,12 @@ fn aggregate_field_target_count_distinct_covering_fast_paths_emit_projection_hit
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let constant_covering_count = load
-        .aggregate_count_distinct_by_slot(constant_covering_plan(), slot(&load, "group"))
-        .expect("count_distinct_by(group) constant covering shape should succeed");
+    let constant_covering_count = execute_projection_count_distinct_boundary(
+        &load,
+        constant_covering_plan(),
+        slot(&load, "group"),
+    )
+    .expect("count_distinct_by(group) constant covering shape should succeed");
     assert_eq!(
         constant_covering_count, 1,
         "count_distinct_by(group) should collapse to one distinct constant value for non-empty windows",
@@ -377,9 +383,9 @@ fn aggregate_field_target_count_distinct_covering_fast_paths_emit_projection_hit
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let _ = load
-        .aggregate_count_distinct_by_slot(ineligible_plan(), slot(&load, "rank"))
-        .expect("count_distinct_by(rank) ineligible shape should succeed");
+    let _ =
+        execute_projection_count_distinct_boundary(&load, ineligible_plan(), slot(&load, "rank"))
+            .expect("count_distinct_by(rank) ineligible shape should succeed");
     assert_eq!(
         LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
             ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
@@ -415,12 +421,18 @@ fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("optional-field null-semantics DESC plan should build")
     };
-    let asc_err = load
-        .aggregate_count_distinct_by_slot(build_plan_asc(), slot(&load, "opt_rank"))
-        .expect_err("count_distinct_by(opt_rank) ASC should reject null field values");
-    let desc_err = load
-        .aggregate_count_distinct_by_slot(build_plan_desc(), slot(&load, "opt_rank"))
-        .expect_err("count_distinct_by(opt_rank) DESC should reject null field values");
+    let asc_err = execute_projection_count_distinct_boundary(
+        &load,
+        build_plan_asc(),
+        slot(&load, "opt_rank"),
+    )
+    .expect_err("count_distinct_by(opt_rank) ASC should reject null field values");
+    let desc_err = execute_projection_count_distinct_boundary(
+        &load,
+        build_plan_desc(),
+        slot(&load, "opt_rank"),
+    )
+    .expect_err("count_distinct_by(opt_rank) DESC should reject null field values");
 
     assert_eq!(
         asc_err.class,
@@ -512,12 +524,19 @@ fn optional_field_null_baseline_error(
 ) -> InternalError {
     match terminal {
         OptionalFieldNullTerminal::TopKByWithIds | OptionalFieldNullTerminal::BottomKByWithIds => {
-            load.values_by_with_ids_slot(optional_field_null_plan(), slot(load, "opt_rank"))
-                .expect_err("values_by_with_ids(opt_rank) should reject null field values")
+            execute_projection_values_with_ids_boundary(
+                load,
+                optional_field_null_plan(),
+                slot(load, "opt_rank"),
+            )
+            .expect_err("values_by_with_ids(opt_rank) should reject null field values")
         }
-        _ => load
-            .values_by_slot(optional_field_null_plan(), slot(load, "opt_rank"))
-            .expect_err("values_by(opt_rank) should reject null field values"),
+        _ => execute_projection_values_boundary(
+            load,
+            optional_field_null_plan(),
+            slot(load, "opt_rank"),
+        )
+        .expect_err("values_by(opt_rank) should reject null field values"),
     }
 }
 
@@ -599,12 +618,20 @@ fn missing_field_baseline_error(
     terminal: MissingFieldTerminal,
 ) -> InternalError {
     match terminal {
-        MissingFieldTerminal::TopKByWithIds | MissingFieldTerminal::BottomKByWithIds => load
-            .values_by_with_ids_slot(missing_field_parity_plan(), slot(load, "missing_field"))
-            .expect_err("values_by_with_ids(missing_field) should be rejected"),
-        _ => load
-            .values_by_slot(missing_field_parity_plan(), slot(load, "missing_field"))
-            .expect_err("values_by(missing_field) should be rejected"),
+        MissingFieldTerminal::TopKByWithIds | MissingFieldTerminal::BottomKByWithIds => {
+            execute_projection_values_with_ids_boundary(
+                load,
+                missing_field_parity_plan(),
+                slot(load, "missing_field"),
+            )
+            .expect_err("values_by_with_ids(missing_field) should be rejected")
+        }
+        _ => execute_projection_values_boundary(
+            load,
+            missing_field_parity_plan(),
+            slot(load, "missing_field"),
+        )
+        .expect_err("values_by(missing_field) should be rejected"),
     }
 }
 
@@ -727,24 +754,24 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         )
         .expect("distinct count-distinct baseline execute should succeed");
 
-    let non_distinct_count = load
-        .aggregate_count_distinct_by_slot(
-            build_query(false)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("non-distinct count-distinct plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("non-distinct count_distinct_by(rank) should succeed");
-    let distinct_count = load
-        .aggregate_count_distinct_by_slot(
-            build_query(true)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("distinct count-distinct plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("distinct count_distinct_by(rank) should succeed");
+    let non_distinct_count = execute_projection_count_distinct_boundary(
+        &load,
+        build_query(false)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("non-distinct count-distinct plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("non-distinct count_distinct_by(rank) should succeed");
+    let distinct_count = execute_projection_count_distinct_boundary(
+        &load,
+        build_query(true)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("distinct count-distinct plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("distinct count_distinct_by(rank) should succeed");
 
     assert_eq!(
         non_distinct_count,
@@ -767,18 +794,18 @@ fn aggregate_field_target_values_by_distinct_remains_row_level() {
         (8_1974, 8, 99),
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let values = load
-        .values_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .distinct()
-                .order_by("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("values_by distinct plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("values_by(rank) should succeed");
+    let values = execute_projection_values_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .distinct()
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("values_by distinct plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("values_by(rank) should succeed");
 
     assert_eq!(
         values,
@@ -823,21 +850,28 @@ fn aggregate_field_target_covering_constant_projection_terminals_match_effective
         Some(expected_value.clone())
     };
 
-    let values = load
-        .values_by_slot(build_plan(), slot(&load, "group"))
+    let values = execute_projection_values_boundary(&load, build_plan(), slot(&load, "group"))
         .expect("values_by(group) should succeed on covering index-prefix window");
-    let distinct_values = load
-        .distinct_values_by_slot(build_plan(), slot(&load, "group"))
-        .expect("distinct_values_by(group) should succeed on covering index-prefix window");
-    let values_with_ids = load
-        .values_by_with_ids_slot(build_plan(), slot(&load, "group"))
-        .expect("values_by_with_ids(group) should succeed on covering index-prefix window");
-    let first_value = load
-        .first_value_by_slot(build_plan(), slot(&load, "group"))
-        .expect("first_value_by(group) should succeed on covering index-prefix window");
-    let last_value = load
-        .last_value_by_slot(build_plan(), slot(&load, "group"))
-        .expect("last_value_by(group) should succeed on covering index-prefix window");
+    let distinct_values =
+        execute_projection_distinct_values_boundary(&load, build_plan(), slot(&load, "group"))
+            .expect("distinct_values_by(group) should succeed on covering index-prefix window");
+    let values_with_ids =
+        execute_projection_values_with_ids_boundary(&load, build_plan(), slot(&load, "group"))
+            .expect("values_by_with_ids(group) should succeed on covering index-prefix window");
+    let first_value = execute_projection_terminal_value_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "group"),
+        AggregateKind::First,
+    )
+    .expect("first_value_by(group) should succeed on covering index-prefix window");
+    let last_value = execute_projection_terminal_value_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "group"),
+        AggregateKind::Last,
+    )
+    .expect("last_value_by(group) should succeed on covering index-prefix window");
 
     assert_eq!(
         values, expected_values,
@@ -919,9 +953,9 @@ fn aggregate_field_target_covering_constant_projection_emits_hit_marker_only_for
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let values = load
-        .values_by_slot(constant_eligible_plan(), slot(&load, "group"))
-        .expect("values_by(group) should succeed for constant covering projection");
+    let values =
+        execute_projection_values_boundary(&load, constant_eligible_plan(), slot(&load, "group"))
+            .expect("values_by(group) should succeed for constant covering projection");
     assert_eq!(
         values,
         vec![Value::Uint(7), Value::Uint(7)],
@@ -948,8 +982,7 @@ fn aggregate_field_target_covering_constant_projection_emits_hit_marker_only_for
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let _ = load
-        .values_by_slot(ineligible_plan(), slot(&load, "group"))
+    let _ = execute_projection_values_boundary(&load, ineligible_plan(), slot(&load, "group"))
         .expect("values_by(group) should succeed for ineligible covering shape");
     assert_eq!(
         LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
@@ -987,17 +1020,17 @@ fn aggregate_field_target_covering_constant_projection_strict_missing_row_preser
     remove_pushdown_row_data(8_4021);
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let err = load
-        .values_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-                .filter(u32_eq_predicate_strict("group", 7))
-                .order_by("rank")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict covering-projection plan should build"),
-            slot(&load, "group"),
-        )
-        .expect_err("strict covering projection should fail on missing primary rows");
+    let err = execute_projection_values_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+            .filter(u32_eq_predicate_strict("group", 7))
+            .order_by("rank")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict covering-projection plan should build"),
+        slot(&load, "group"),
+    )
+    .expect_err("strict covering projection should fail on missing primary rows");
 
     assert_eq!(
         err.class,
@@ -1009,17 +1042,17 @@ fn aggregate_field_target_covering_constant_projection_strict_missing_row_preser
         "strict covering projection must preserve missing-row error context",
     );
 
-    let with_ids_err = load
-        .values_by_with_ids_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-                .filter(u32_eq_predicate_strict("group", 7))
-                .order_by("rank")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict covering-projection with-ids plan should build"),
-            slot(&load, "group"),
-        )
-        .expect_err("strict covering projection with ids should fail on missing primary rows");
+    let with_ids_err = execute_projection_values_with_ids_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+            .filter(u32_eq_predicate_strict("group", 7))
+            .order_by("rank")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict covering-projection with-ids plan should build"),
+        slot(&load, "group"),
+    )
+    .expect_err("strict covering projection with ids should fail on missing primary rows");
 
     assert_eq!(
         with_ids_err.class,
@@ -1065,21 +1098,28 @@ fn covering_projection_matches_row_materialized_projection() {
     let expected_first = expected_first_value_by_rank(&expected_response);
     let expected_last = expected_last_value_by_rank(&expected_response);
 
-    let values = load
-        .values_by_slot(build_plan(), slot(&load, "rank"))
+    let values = execute_projection_values_boundary(&load, build_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed on covering index projection");
-    let values_with_ids = load
-        .values_by_with_ids_slot(build_plan(), slot(&load, "rank"))
-        .expect("values_by_with_ids(rank) should succeed on covering index projection");
-    let distinct_values = load
-        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("distinct_values_by(rank) should succeed on covering index projection");
-    let first_value = load
-        .first_value_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("first_value_by(rank) should succeed on covering index projection");
-    let last_value = load
-        .last_value_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("last_value_by(rank) should succeed on covering index projection");
+    let values_with_ids =
+        execute_projection_values_with_ids_boundary(&load, build_plan(), slot(&load, "rank"))
+            .expect("values_by_with_ids(rank) should succeed on covering index projection");
+    let distinct_values =
+        execute_projection_distinct_values_boundary(&load, build_plan(), slot(&load, "rank"))
+            .expect("distinct_values_by(rank) should succeed on covering index projection");
+    let first_value = execute_projection_terminal_value_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        AggregateKind::First,
+    )
+    .expect("first_value_by(rank) should succeed on covering index projection");
+    let last_value = execute_projection_terminal_value_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        AggregateKind::Last,
+    )
+    .expect("last_value_by(rank) should succeed on covering index projection");
 
     assert_eq!(
         values, expected_values,
@@ -1148,8 +1188,7 @@ fn aggregate_field_target_covering_index_projection_emits_hit_marker_only_for_el
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let _ = load
-        .values_by_slot(index_eligible_plan(), slot(&load, "rank"))
+    let _ = execute_projection_values_boundary(&load, index_eligible_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed for index covering projection");
     assert_eq!(
         LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
@@ -1172,8 +1211,7 @@ fn aggregate_field_target_covering_index_projection_emits_hit_marker_only_for_el
     let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
     );
-    let _ = load
-        .values_by_slot(ineligible_plan(), slot(&load, "rank"))
+    let _ = execute_projection_values_boundary(&load, ineligible_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed for ineligible covering shape");
     assert_eq!(
         LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
@@ -1211,12 +1249,13 @@ fn aggregate_field_target_covering_index_distinct_non_leading_component_preserve
             .expect("covering non-leading distinct plan should build")
     };
 
-    let values = load
-        .values_by_slot(build_plan(), slot(&load, "rank"))
+    let values = execute_projection_values_boundary(&load, build_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed for covering non-leading distinct shape");
-    let distinct_values = load
-        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("distinct_values_by(rank) should succeed for covering non-leading distinct shape");
+    let distinct_values =
+        execute_projection_distinct_values_boundary(&load, build_plan(), slot(&load, "rank"))
+            .expect(
+                "distinct_values_by(rank) should succeed for covering non-leading distinct shape",
+            );
 
     let mut expected_distinct_from_values = Vec::new();
     for value in &values {
@@ -1264,17 +1303,17 @@ fn aggregate_field_target_covering_index_projection_strict_missing_row_preserves
     remove_pushdown_row_data(8_4042);
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let err = load
-        .values_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-                .filter(u32_eq_predicate_strict("group", 7))
-                .order_by("rank")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict covering-index projection plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect_err("strict covering-index projection should fail on missing primary rows");
+    let err = execute_projection_values_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+            .filter(u32_eq_predicate_strict("group", 7))
+            .order_by("rank")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict covering-index projection plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect_err("strict covering-index projection should fail on missing primary rows");
 
     assert_eq!(
         err.class,
@@ -1286,19 +1325,17 @@ fn aggregate_field_target_covering_index_projection_strict_missing_row_preserves
         "strict covering-index projection must preserve missing-row error context",
     );
 
-    let with_ids_err = load
-        .values_by_with_ids_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-                .filter(u32_eq_predicate_strict("group", 7))
-                .order_by("rank")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict covering-index projection with-ids plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect_err(
-            "strict covering-index projection with ids should fail on missing primary rows",
-        );
+    let with_ids_err = execute_projection_values_with_ids_boundary(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+            .filter(u32_eq_predicate_strict("group", 7))
+            .order_by("rank")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict covering-index projection with-ids plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect_err("strict covering-index projection with ids should fail on missing primary rows");
 
     assert_eq!(
         with_ids_err.class,
@@ -1336,9 +1373,9 @@ fn aggregate_field_target_distinct_values_by_matches_effective_window_projection
     let expected = load
         .execute(build_plan())
         .expect("baseline execute for distinct_values_by should succeed");
-    let actual = load
-        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("distinct_values_by(rank) should succeed");
+    let actual =
+        execute_projection_distinct_values_boundary(&load, build_plan(), slot(&load, "rank"))
+            .expect("distinct_values_by(rank) should succeed");
 
     assert_eq!(
         actual,
@@ -1369,12 +1406,11 @@ fn aggregate_field_target_distinct_values_by_matches_values_by_first_observed_de
             .expect("distinct-values invariant plan should build")
     };
 
-    let values = load
-        .values_by_slot(build_plan(), slot(&load, "rank"))
+    let values = execute_projection_values_boundary(&load, build_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed");
-    let distinct_values = load
-        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("distinct_values_by(rank) should succeed");
+    let distinct_values =
+        execute_projection_distinct_values_boundary(&load, build_plan(), slot(&load, "rank"))
+            .expect("distinct_values_by(rank) should succeed");
 
     let mut expected_distinct_from_values = Vec::new();
     for value in &values {

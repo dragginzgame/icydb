@@ -9,14 +9,16 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
-            ExecutionPlan, ExecutionPreparation, KeyStreamLoopControl,
-            aggregate::field::{
-                AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
-                compare_entities_by_orderable_field, compare_entities_for_field_extrema,
-                resolve_orderable_aggregate_target_slot,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
+            ExecutionPreparation, KeyStreamLoopControl,
+            aggregate::{
+                AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput,
+                field::{
+                    AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
+                    compare_entities_by_orderable_field, compare_entities_for_field_extrema,
+                    resolve_orderable_aggregate_target_slot,
+                },
             },
-            aggregate::{AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput},
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::record_rows_scanned,
             route::aggregate_extrema_direction,
@@ -88,8 +90,7 @@ impl ExecutionKernel {
     // Execute one route-eligible field-target extrema aggregate through kernel-
     // owned streaming setup, stream resolution, and fold orchestration.
     pub(in crate::db::executor::aggregate) fn execute_field_target_extrema_aggregate<E>(
-        executor: &LoadExecutor<E>,
-        plan: ExecutablePlan<E>,
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
         kind: AggregateKind,
         target_field: &str,
         direction: Direction,
@@ -119,10 +120,9 @@ impl ExecutionKernel {
             .map_err(AggregateFieldValueError::into_internal_error)?;
 
         // Reuse shared aggregate streaming setup and route-owned stream resolution.
-        let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;
         let consistency = prepared.consistency();
         let (probe_output, probe_rows_scanned) = Self::fold_field_target_extrema_for_route_plan(
-            &prepared,
+            prepared,
             consistency,
             direction,
             route_plan,
@@ -130,7 +130,7 @@ impl ExecutionKernel {
             field_slot,
             kind,
         )?;
-        if !Self::field_extrema_probe_requires_fallback(
+        if !Self::field_extrema_probe_may_be_inconclusive(
             consistency,
             kind,
             route_plan.aggregate_seek_fetch_hint(),
@@ -149,7 +149,7 @@ impl ExecutionKernel {
         fallback_route_plan.aggregate_seek_spec = None;
         let (fallback_output, fallback_rows_scanned) =
             Self::fold_field_target_extrema_for_route_plan(
-                &prepared,
+                prepared,
                 consistency,
                 direction,
                 &fallback_route_plan,
@@ -177,7 +177,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access);
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access)?;
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
             &prepared.logical_plan,
@@ -215,7 +215,7 @@ impl ExecutionKernel {
     // Ignore can skip stale leading index entries. If a bounded field-extrema
     // probe returns None exactly at the fetch boundary, the outcome is
     // inconclusive and must retry unbounded.
-    const fn field_extrema_probe_requires_fallback(
+    const fn field_extrema_probe_may_be_inconclusive(
         consistency: MissingRowPolicy,
         kind: AggregateKind,
         probe_fetch_hint: Option<usize>,

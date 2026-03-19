@@ -27,9 +27,9 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedExecutorHandoff,
-            OrderDirection, OrderSpec, PageSpec, QueryMode,
-            constant_covering_projection_value_from_access, covering_index_projection_context,
-            grouped_executor_handoff, index_covering_existing_rows_terminal_eligible,
+            OrderDirection, OrderSpec, QueryMode, constant_covering_projection_value_from_access,
+            covering_index_projection_context, grouped_executor_handoff,
+            index_covering_existing_rows_terminal_eligible,
         },
         query::{
             builder::AggregateExpr,
@@ -278,7 +278,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
             self.plan.projection_spec(E::MODEL)
         ));
         lines.push(format!("order_spec={:?}", self.order_spec()));
-        lines.push(format!("page_spec={:?}", self.page_spec()));
+        lines.push(format!(
+            "page_spec={:?}",
+            self.plan.scalar_plan().page.as_ref()
+        ));
         lines.push(format!(
             "projection_coverage_flag={projection_coverage_flag}"
         ));
@@ -418,12 +421,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan.scalar_plan().order.as_ref()
     }
 
-    /// Borrow scalar pagination contract for this executable plan, if any.
-    #[must_use]
-    pub(in crate::db::executor) const fn page_spec(&self) -> Option<&PageSpec> {
-        self.plan.scalar_plan().page.as_ref()
-    }
-
     /// Return whether this executable plan has a residual predicate.
     #[must_use]
     pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
@@ -441,21 +438,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
         !self.has_predicate() && !self.is_distinct()
-    }
-
-    /// Return primary-key order direction when ORDER BY is explicitly
-    /// primary-key-only; otherwise return `None`.
-    #[must_use]
-    pub(in crate::db::executor) fn explicit_primary_key_order_direction(
-        &self,
-    ) -> Option<Direction> {
-        let order = self.order_spec()?;
-        order
-            .primary_key_only_direction(E::MODEL.primary_key.name)
-            .map(|direction| match direction {
-                OrderDirection::Asc => Direction::Asc,
-                OrderDirection::Desc => Direction::Desc,
-            })
     }
 
     /// Return one canonical scan direction for unordered plans (`Asc`) or

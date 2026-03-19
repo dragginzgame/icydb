@@ -42,12 +42,12 @@ fn run_composite_terminal(
     terminal: CompositeTerminal,
 ) -> Result<CompositeTerminalResult, InternalError> {
     match terminal {
-        CompositeTerminal::Count => load
-            .aggregate_count(plan)
-            .map(CompositeTerminalResult::Count),
-        CompositeTerminal::Exists => load
-            .aggregate_exists(plan)
-            .map(CompositeTerminalResult::Exists),
+        CompositeTerminal::Count => {
+            execute_count_terminal(load, plan).map(CompositeTerminalResult::Count)
+        }
+        CompositeTerminal::Exists => {
+            execute_exists_terminal(load, plan).map(CompositeTerminalResult::Exists)
+        }
     }
 }
 
@@ -1230,7 +1230,8 @@ fn aggregate_by_id_windowed_count_scans_one_candidate_key() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_id(Ulid::from_u128(8621))
                 .order_by("id")
@@ -1256,7 +1257,8 @@ fn aggregate_by_id_count_ignore_missing_returns_zero() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_id(Ulid::from_u128(8627))
                 .plan()
@@ -1281,15 +1283,15 @@ fn aggregate_by_id_count_strict_missing_surfaces_corruption_error() {
     seed_simple_entities(&[8628]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let err = load
-        .aggregate_count(
-            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
-                .by_id(Ulid::from_u128(8629))
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict by_id COUNT plan should build"),
-        )
-        .expect_err("strict by_id COUNT should fail when row is missing");
+    let err = execute_count_terminal(
+        &load,
+        Query::<SimpleEntity>::new(MissingRowPolicy::Error)
+            .by_id(Ulid::from_u128(8629))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict by_id COUNT plan should build"),
+    )
+    .expect_err("strict by_id COUNT should fail when row is missing");
 
     assert_eq!(
         err.class,
@@ -1303,15 +1305,15 @@ fn aggregate_by_id_strict_missing_surfaces_corruption_error() {
     seed_simple_entities(&[8631]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let err = load
-        .aggregate_exists(
-            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
-                .by_id(Ulid::from_u128(8632))
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict by_id EXISTS plan should build"),
-        )
-        .expect_err("strict by_id aggregate should fail when row is missing");
+    let err = execute_exists_terminal(
+        &load,
+        Query::<SimpleEntity>::new(MissingRowPolicy::Error)
+            .by_id(Ulid::from_u128(8632))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict by_id EXISTS plan should build"),
+    )
+    .expect_err("strict by_id aggregate should fail when row is missing");
 
     assert_eq!(
         err.class,
@@ -1353,7 +1355,8 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
     );
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids([
                     Ulid::from_u128(8654),
@@ -1394,7 +1397,8 @@ fn aggregate_by_ids_count_pk_desc_window_uses_primary_key_stream_fast_path() {
     );
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids([
                     Ulid::from_u128(8_659),
@@ -1434,16 +1438,16 @@ fn aggregate_by_ids_strict_missing_surfaces_corruption_error() {
     seed_simple_entities(&[8661]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let err = load
-        .aggregate_count(
-            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
-                .by_ids([Ulid::from_u128(8662)])
-                .order_by("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("strict by_ids COUNT plan should build"),
-        )
-        .expect_err("strict by_ids aggregate should fail when row is missing");
+    let err = execute_count_terminal(
+        &load,
+        Query::<SimpleEntity>::new(MissingRowPolicy::Error)
+            .by_ids([Ulid::from_u128(8662)])
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict by_ids COUNT plan should build"),
+    )
+    .expect_err("strict by_ids aggregate should fail when row is missing");
 
     assert_eq!(
         err.class,
@@ -1460,17 +1464,17 @@ fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_s
     let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
     );
-    let _eligible_count = load
-        .aggregate_count(
-            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("id")
-                .offset(1)
-                .limit(2)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("eligible COUNT PK-cardinality plan should build"),
-        )
-        .expect("eligible COUNT PK-cardinality execution should succeed");
+    let _eligible_count = execute_count_terminal(
+        &load,
+        Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .offset(1)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("eligible COUNT PK-cardinality plan should build"),
+    )
+    .expect("eligible COUNT PK-cardinality execution should succeed");
     assert_eq!(
         LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
             ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath
@@ -1482,15 +1486,15 @@ fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_s
     let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
     );
-    let _ineligible_count = load
-        .aggregate_count(
-            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .by_id(Ulid::from_u128(8_671))
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("ineligible COUNT fallback plan should build"),
-        )
-        .expect("ineligible COUNT fallback execution should succeed");
+    let _ineligible_count = execute_count_terminal(
+        &load,
+        Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+            .by_id(Ulid::from_u128(8_671))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("ineligible COUNT fallback plan should build"),
+    )
+    .expect("ineligible COUNT fallback execution should succeed");
     assert_eq!(
         LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
             ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath
@@ -1511,20 +1515,20 @@ fn aggregate_count_primary_key_stream_fast_path_emits_hit_marker_for_by_ids_unor
     let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
         ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
     );
-    let count = load
-        .aggregate_count(
-            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .by_ids([
-                    Ulid::from_u128(8_704),
-                    Ulid::from_u128(8_702),
-                    Ulid::from_u128(8_702),
-                    Ulid::from_u128(8_701),
-                ])
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("eligible unordered by-ids COUNT plan should build"),
-        )
-        .expect("eligible unordered by-ids COUNT execution should succeed");
+    let count = execute_count_terminal(
+        &load,
+        Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+            .by_ids([
+                Ulid::from_u128(8_704),
+                Ulid::from_u128(8_702),
+                Ulid::from_u128(8_702),
+                Ulid::from_u128(8_701),
+            ])
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("eligible unordered by-ids COUNT plan should build"),
+    )
+    .expect("eligible unordered by-ids COUNT execution should succeed");
 
     assert_eq!(
         count, 3,
@@ -1552,7 +1556,8 @@ fn aggregate_count_full_scan_window_scans_offset_plus_limit() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(
+        execute_count_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .offset(2)
@@ -1596,8 +1601,7 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
     let key_range_plan = crate::db::executor::ExecutablePlan::<SimpleEntity>::new(logical_plan);
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_count(key_range_plan)
-            .expect("key-range COUNT should succeed")
+        execute_count_terminal(&load, key_range_plan).expect("key-range COUNT should succeed")
     });
 
     assert_eq!(count, 2, "key-range COUNT should honor the page window");
@@ -1613,7 +1617,8 @@ fn aggregate_exists_full_scan_window_scans_offset_plus_one() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let (exists, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
-        load.aggregate_exists(
+        execute_exists_terminal(
+            &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .offset(2)
@@ -1672,8 +1677,7 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
         crate::db::executor::ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
 
     let (exists, scanned) = capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
-        load.aggregate_exists(index_range_plan)
-            .expect("index-range EXISTS should succeed")
+        execute_exists_terminal(&load, index_range_plan).expect("index-range EXISTS should succeed")
     });
 
     assert!(

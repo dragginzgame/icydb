@@ -7,7 +7,10 @@ use super::PlanModelEntity;
 use crate::{
     db::{
         access::AccessPath,
-        executor::{ExecutablePlan, LoadExecutor},
+        executor::{
+            ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
+            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
+        },
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, FieldSlot,
@@ -31,52 +34,12 @@ type LoadExecuteFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,
 ) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
-type SlotValuesByFn<E> = fn(
-    &LoadExecutor<E>,
-    ExecutablePlan<E>,
-    FieldSlot,
-) -> Result<Vec<crate::value::Value>, crate::error::InternalError>;
 type SlotTopKByFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,
     FieldSlot,
     u32,
 ) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
-type SlotSumByFn<E> = fn(
-    &LoadExecutor<E>,
-    ExecutablePlan<E>,
-    FieldSlot,
-) -> Result<Option<crate::types::Decimal>, crate::error::InternalError>;
-type SlotCountDistinctByFn<E> =
-    fn(&LoadExecutor<E>, ExecutablePlan<E>, FieldSlot) -> Result<u32, crate::error::InternalError>;
-type SlotMinByFn<E> = fn(
-    &LoadExecutor<E>,
-    ExecutablePlan<E>,
-    FieldSlot,
-) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
-type SlotMaxByFn<E> = fn(
-    &LoadExecutor<E>,
-    ExecutablePlan<E>,
-    FieldSlot,
-) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
-type SlotNthByFn<E> = fn(
-    &LoadExecutor<E>,
-    ExecutablePlan<E>,
-    FieldSlot,
-    usize,
-) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
-type SlotMedianByFn<E> = fn(
-    &LoadExecutor<E>,
-    ExecutablePlan<E>,
-    FieldSlot,
-) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
-type SlotMinMaxByFn<E> =
-    fn(
-        &LoadExecutor<E>,
-        ExecutablePlan<E>,
-        FieldSlot,
-    )
-        -> Result<Option<(crate::types::Id<E>, crate::types::Id<E>)>, crate::error::InternalError>;
 type DistinctExecutionStrategyFn = fn(&AccessPlannedQuery) -> DistinctExecutionStrategy;
 
 fn grouped_distinct_strategy_accessor_type_check<'a>(
@@ -101,31 +64,56 @@ where
 {
     let executable_new: ExecutablePlanNewFn<E> = ExecutablePlan::<E>::new;
     let load_execute: LoadExecuteFn<E> = LoadExecutor::<E>::execute;
-    let values_by_slot: SlotValuesByFn<E> = LoadExecutor::<E>::values_by_slot;
+    let scalar_projection_boundary = LoadExecutor::<E>::execute_scalar_projection_boundary;
     let top_k_by_slot: SlotTopKByFn<E> = LoadExecutor::<E>::top_k_by_slot;
-    let aggregate_sum_by_slot: SlotSumByFn<E> = LoadExecutor::<E>::aggregate_sum_by_slot;
-    let aggregate_count_distinct_by_slot: SlotCountDistinctByFn<E> =
-        LoadExecutor::<E>::aggregate_count_distinct_by_slot;
-    let aggregate_min_by_slot: SlotMinByFn<E> = LoadExecutor::<E>::aggregate_min_by_slot;
-    let aggregate_max_by_slot: SlotMaxByFn<E> = LoadExecutor::<E>::aggregate_max_by_slot;
-    let aggregate_nth_by_slot: SlotNthByFn<E> = LoadExecutor::<E>::aggregate_nth_by_slot;
-    let aggregate_median_by_slot: SlotMedianByFn<E> = LoadExecutor::<E>::aggregate_median_by_slot;
-    let aggregate_min_max_by_slot: SlotMinMaxByFn<E> = LoadExecutor::<E>::aggregate_min_max_by_slot;
+    let scalar_numeric_boundary = LoadExecutor::<E>::execute_numeric_field_boundary;
+    let scalar_terminal_boundary = LoadExecutor::<E>::execute_scalar_terminal_request;
     let distinct_execution_strategy: DistinctExecutionStrategyFn =
         AccessPlannedQuery::distinct_execution_strategy;
+    let count_request = ScalarTerminalBoundaryRequest::Count;
+    let exists_request = ScalarTerminalBoundaryRequest::Exists;
+    let projection_values_request = ScalarProjectionBoundaryRequest::Values;
+    let projection_distinct_values_request = ScalarProjectionBoundaryRequest::DistinctValues;
+    let projection_count_distinct_request = ScalarProjectionBoundaryRequest::CountDistinct;
+    let numeric_sum_request = ScalarNumericFieldBoundaryRequest::Sum;
+    let numeric_avg_request = ScalarNumericFieldBoundaryRequest::Avg;
+    let id_terminal_request = ScalarTerminalBoundaryRequest::IdTerminal {
+        kind: AggregateKind::Min,
+    };
+    let id_by_slot_request = ScalarTerminalBoundaryRequest::IdBySlot {
+        kind: AggregateKind::Max,
+        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
+    };
+    let nth_by_slot_request = ScalarTerminalBoundaryRequest::NthBySlot {
+        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
+        nth: 0,
+    };
+    let median_by_slot_request = ScalarTerminalBoundaryRequest::MedianBySlot {
+        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
+    };
+    let min_max_by_slot_request = ScalarTerminalBoundaryRequest::MinMaxBySlot {
+        target_field: FieldSlot::from_parts_for_test(0, "field".to_string()),
+    };
 
     let _ = executable_new;
     let _ = load_execute;
-    let _ = values_by_slot;
+    let _ = scalar_projection_boundary;
     let _ = top_k_by_slot;
-    let _ = aggregate_sum_by_slot;
-    let _ = aggregate_count_distinct_by_slot;
-    let _ = aggregate_min_by_slot;
-    let _ = aggregate_max_by_slot;
-    let _ = aggregate_nth_by_slot;
-    let _ = aggregate_median_by_slot;
-    let _ = aggregate_min_max_by_slot;
+    let _ = scalar_numeric_boundary;
+    let _ = scalar_terminal_boundary;
     let _ = distinct_execution_strategy;
+    let _ = count_request;
+    let _ = exists_request;
+    let _ = projection_values_request;
+    let _ = projection_distinct_values_request;
+    let _ = projection_count_distinct_request;
+    let _ = numeric_sum_request;
+    let _ = numeric_avg_request;
+    let _ = id_terminal_request;
+    let _ = id_by_slot_request;
+    let _ = nth_by_slot_request;
+    let _ = median_by_slot_request;
+    let _ = min_max_by_slot_request;
     let _ = grouped_distinct_strategy_accessor_type_check;
 }
 

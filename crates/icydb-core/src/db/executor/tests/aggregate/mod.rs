@@ -18,8 +18,9 @@ use crate::{
         access::AccessPath,
         data::DataKey,
         executor::{
-            ExecutablePlan, ExecutionKernel, aggregate::AggregateKind, route::RouteExecutionMode,
-            saturating_row_len,
+            ExecutablePlan, ExecutionKernel, ScalarNumericFieldBoundaryRequest,
+            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
+            aggregate::AggregateKind, route::RouteExecutionMode, saturating_row_len,
         },
         query::{
             explain::ExplainExecutionNodeType,
@@ -244,6 +245,268 @@ where
     field_slot_for_test::<E>(field)
 }
 
+fn execute_count_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<u32, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
+        .into_count()
+}
+
+fn execute_exists_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<bool, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
+        .into_exists()
+}
+
+fn execute_min_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Min,
+        },
+    )?
+    .into_id()
+}
+
+fn execute_max_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Max,
+        },
+    )?
+    .into_id()
+}
+
+fn execute_first_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::First,
+        },
+    )?
+    .into_id()
+}
+
+fn execute_last_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Last,
+        },
+    )?
+    .into_id()
+}
+
+fn execute_min_by_slot_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdBySlot {
+            kind: AggregateKind::Min,
+            target_field,
+        },
+    )?
+    .into_id()
+}
+
+fn execute_max_by_slot_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdBySlot {
+            kind: AggregateKind::Max,
+            target_field,
+        },
+    )?
+    .into_id()
+}
+
+fn execute_nth_by_slot_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+    nth: usize,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth },
+    )?
+    .into_id()
+}
+
+fn execute_median_by_slot_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Option<Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::MedianBySlot { target_field },
+    )?
+    .into_id()
+}
+
+#[expect(clippy::type_complexity)]
+fn execute_min_max_by_slot_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Option<(Id<E>, Id<E>)>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field },
+    )?
+    .into_id_pair()
+}
+
+fn execute_numeric_field_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+    request: ScalarNumericFieldBoundaryRequest,
+) -> Result<Option<Decimal>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_numeric_field_boundary(plan, target_field, request)
+}
+
+fn execute_projection_values_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Vec<Value>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_projection_boundary(
+        plan,
+        target_field,
+        ScalarProjectionBoundaryRequest::Values,
+    )?
+    .into_values()
+}
+
+fn execute_projection_distinct_values_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Vec<Value>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_projection_boundary(
+        plan,
+        target_field,
+        ScalarProjectionBoundaryRequest::DistinctValues,
+    )?
+    .into_values()
+}
+
+fn execute_projection_count_distinct_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<u32, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_projection_boundary(
+        plan,
+        target_field,
+        ScalarProjectionBoundaryRequest::CountDistinct,
+    )?
+    .into_count()
+}
+
+fn execute_projection_values_with_ids_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+) -> Result<Vec<(Id<E>, Value)>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_projection_boundary(
+        plan,
+        target_field,
+        ScalarProjectionBoundaryRequest::ValuesWithIds,
+    )?
+    .into_values_with_ids()
+}
+
+fn execute_projection_terminal_value_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: FieldSlot,
+    terminal_kind: AggregateKind,
+) -> Result<Option<Value>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_projection_boundary(
+        plan,
+        target_field,
+        ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind },
+    )?
+    .into_terminal_value()
+}
+
 fn remove_pushdown_row_data(id: u128) {
     let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
         .expect("pushdown data key should build")
@@ -318,42 +581,48 @@ fn parity_actual_count<E: EntityKind + EntityValue>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
 ) -> Result<AggregateParityValue<E>, InternalError> {
-    Ok(AggregateParityValue::Count(load.aggregate_count(plan)?))
+    Ok(AggregateParityValue::Count(execute_count_terminal(
+        load, plan,
+    )?))
 }
 
 fn parity_actual_exists<E: EntityKind + EntityValue>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
 ) -> Result<AggregateParityValue<E>, InternalError> {
-    Ok(AggregateParityValue::Exists(load.aggregate_exists(plan)?))
+    Ok(AggregateParityValue::Exists(execute_exists_terminal(
+        load, plan,
+    )?))
 }
 
 fn parity_actual_min<E: EntityKind + EntityValue>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
 ) -> Result<AggregateParityValue<E>, InternalError> {
-    Ok(AggregateParityValue::Id(load.aggregate_min(plan)?))
+    Ok(AggregateParityValue::Id(execute_min_terminal(load, plan)?))
 }
 
 fn parity_actual_max<E: EntityKind + EntityValue>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
 ) -> Result<AggregateParityValue<E>, InternalError> {
-    Ok(AggregateParityValue::Id(load.aggregate_max(plan)?))
+    Ok(AggregateParityValue::Id(execute_max_terminal(load, plan)?))
 }
 
 fn parity_actual_first<E: EntityKind + EntityValue>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
 ) -> Result<AggregateParityValue<E>, InternalError> {
-    Ok(AggregateParityValue::Id(load.aggregate_first(plan)?))
+    Ok(AggregateParityValue::Id(execute_first_terminal(
+        load, plan,
+    )?))
 }
 
 fn parity_actual_last<E: EntityKind + EntityValue>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
 ) -> Result<AggregateParityValue<E>, InternalError> {
-    Ok(AggregateParityValue::Id(load.aggregate_last(plan)?))
+    Ok(AggregateParityValue::Id(execute_last_terminal(load, plan)?))
 }
 
 fn aggregate_id_terminal_parity_cases<E: EntityKind + EntityValue>() -> [AggregateParityCase<E>; 6]
@@ -628,25 +897,30 @@ fn field_parity_actual_min_by_rank(
     load: &LoadExecutor<PushdownParityEntity>,
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
-    Ok(FieldAggregateParityValue::Id(
-        load.aggregate_min_by_slot(plan, slot(load, "rank"))?,
-    ))
+    Ok(FieldAggregateParityValue::Id(execute_min_by_slot_terminal(
+        load,
+        plan,
+        slot(load, "rank"),
+    )?))
 }
 
 fn field_parity_actual_max_by_rank(
     load: &LoadExecutor<PushdownParityEntity>,
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
-    Ok(FieldAggregateParityValue::Id(
-        load.aggregate_max_by_slot(plan, slot(load, "rank"))?,
-    ))
+    Ok(FieldAggregateParityValue::Id(execute_max_by_slot_terminal(
+        load,
+        plan,
+        slot(load, "rank"),
+    )?))
 }
 
 fn field_parity_actual_nth_by_rank(
     load: &LoadExecutor<PushdownParityEntity>,
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
-    Ok(FieldAggregateParityValue::Id(load.aggregate_nth_by_slot(
+    Ok(FieldAggregateParityValue::Id(execute_nth_by_slot_terminal(
+        load,
         plan,
         slot(load, "rank"),
         FIELD_PARITY_NTH_ORDINAL,
@@ -658,7 +932,12 @@ fn field_parity_actual_sum_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Decimal(
-        load.aggregate_sum_by_slot(plan, slot(load, "rank"))?,
+        execute_numeric_field_boundary(
+            load,
+            plan,
+            slot(load, "rank"),
+            ScalarNumericFieldBoundaryRequest::Sum,
+        )?,
     ))
 }
 
@@ -667,7 +946,12 @@ fn field_parity_actual_avg_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Decimal(
-        load.aggregate_avg_by_slot(plan, slot(load, "rank"))?,
+        execute_numeric_field_boundary(
+            load,
+            plan,
+            slot(load, "rank"),
+            ScalarNumericFieldBoundaryRequest::Avg,
+        )?,
     ))
 }
 
@@ -676,7 +960,7 @@ fn field_parity_actual_median_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Id(
-        load.aggregate_median_by_slot(plan, slot(load, "rank"))?,
+        execute_median_by_slot_terminal(load, plan, slot(load, "rank"))?,
     ))
 }
 
@@ -685,7 +969,7 @@ fn field_parity_actual_count_distinct_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Count(
-        load.aggregate_count_distinct_by_slot(plan, slot(load, "rank"))?,
+        execute_projection_count_distinct_boundary(load, plan, slot(load, "rank"))?,
     ))
 }
 
@@ -694,7 +978,7 @@ fn field_parity_actual_min_max_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::IdPair(
-        load.aggregate_min_max_by_slot(plan, slot(load, "rank"))?,
+        execute_min_max_by_slot_terminal(load, plan, slot(load, "rank"))?,
     ))
 }
 
@@ -831,14 +1115,14 @@ fn assert_count_parity_for_query<E>(
         .expect("baseline materialized execution should succeed")
         .count();
 
-    let actual_count = load
-        .aggregate_count(
-            make_query()
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("aggregate COUNT plan should build"),
-        )
-        .expect("aggregate COUNT should succeed");
+    let actual_count = execute_count_terminal(
+        load,
+        make_query()
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("aggregate COUNT plan should build"),
+    )
+    .expect("aggregate COUNT should succeed");
 
     assert_eq!(
         actual_count, expected_count,
@@ -1115,35 +1399,40 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
 
     // Validate canonical empty-input outputs for non-count scalar terminals.
     let strict_results = (
-        load.aggregate_exists(
+        execute_exists_terminal(
+            &load,
             strict_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict exists empty-window plan should build"),
         )
         .expect("strict exists empty-window should succeed"),
-        load.aggregate_min(
+        execute_min_terminal(
+            &load,
             strict_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict min empty-window plan should build"),
         )
         .expect("strict min empty-window should succeed"),
-        load.aggregate_max(
+        execute_max_terminal(
+            &load,
             strict_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict max empty-window plan should build"),
         )
         .expect("strict max empty-window should succeed"),
-        load.aggregate_first(
+        execute_first_terminal(
+            &load,
             strict_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict first empty-window plan should build"),
         )
         .expect("strict first empty-window should succeed"),
-        load.aggregate_last(
+        execute_last_terminal(
+            &load,
             strict_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
@@ -1152,35 +1441,40 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         .expect("strict last empty-window should succeed"),
     );
     let widen_results = (
-        load.aggregate_exists(
+        execute_exists_terminal(
+            &load,
             widen_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen exists empty-window plan should build"),
         )
         .expect("widen exists empty-window should succeed"),
-        load.aggregate_min(
+        execute_min_terminal(
+            &load,
             widen_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen min empty-window plan should build"),
         )
         .expect("widen min empty-window should succeed"),
-        load.aggregate_max(
+        execute_max_terminal(
+            &load,
             widen_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen max empty-window plan should build"),
         )
         .expect("widen max empty-window should succeed"),
-        load.aggregate_first(
+        execute_first_terminal(
+            &load,
             widen_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen first empty-window plan should build"),
         )
         .expect("widen first empty-window should succeed"),
-        load.aggregate_last(
+        execute_last_terminal(
+            &load,
             widen_query()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
@@ -1226,22 +1520,22 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         RouteExecutionMode::Materialized,
         "uncertain empty-window count route should force materialized"
     );
-    let streaming_count = load
-        .aggregate_count(
-            streaming_count_query()
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("streaming count empty-window plan should build"),
-        )
-        .expect("streaming count empty-window should succeed");
-    let materialized_count = load
-        .aggregate_count(
-            widen_query()
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("materialized count empty-window plan should build"),
-        )
-        .expect("materialized count empty-window should succeed");
+    let streaming_count = execute_count_terminal(
+        &load,
+        streaming_count_query()
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("streaming count empty-window plan should build"),
+    )
+    .expect("streaming count empty-window should succeed");
+    let materialized_count = execute_count_terminal(
+        &load,
+        widen_query()
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("materialized count empty-window plan should build"),
+    )
+    .expect("materialized count empty-window should succeed");
 
     let expected_empty = (
         false,

@@ -4,6 +4,46 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
+use crate::{
+    db::{
+        executor::aggregate::{
+            AggregateKind,
+            field::{AggregateFieldValueError, resolve_orderable_aggregate_target_slot},
+        },
+        query::builder::AggregateExpr,
+    },
+    error::InternalError,
+    traits::{EntityKind, EntityValue},
+};
+
+// Execute the minimal executor-side validation that remains meaningful when a
+// test bypasses planner aggregate-shape checks entirely.
+fn execute_bypassed_field_target_validation<E>(
+    aggregate: AggregateExpr,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    // Phase 1: preserve the executor invariant for field-target non-extrema
+    // shapes when planner validation is intentionally bypassed in tests.
+    if aggregate.target_field().is_some()
+        && !matches!(aggregate.kind(), AggregateKind::Min | AggregateKind::Max)
+    {
+        return Err(crate::db::error::query_executor_invariant(format!(
+            "field-target aggregate requires MIN/MAX terminal after planning: found {:?}",
+            aggregate.kind()
+        )));
+    }
+
+    // Phase 2: preserve field-target resolution taxonomy for unsupported and
+    // unknown target fields without entering any runtime execution path.
+    if let Some(target_field) = aggregate.target_field() {
+        resolve_orderable_aggregate_target_slot::<E>(target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+    }
+
+    Ok(())
+}
 
 #[test]
 fn aggregate_parity_ordered_page_window_asc() {
@@ -30,6 +70,7 @@ fn aggregate_parity_matrix_harness_covers_all_id_terminals() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn aggregate_constant_false_window_returns_terminal_zeros_without_scan_budget() {
     // Phase 1: seed rows and build one planner-lowered constant-false plan factory.
     seed_pushdown_entities(&[(8_011, 7, 10), (8_012, 7, 20), (8_013, 8, 30)]);
@@ -46,41 +87,48 @@ fn aggregate_constant_false_window_returns_terminal_zeros_without_scan_budget() 
     // metrics sink so each terminal reports scan-budget usage.
     let (count, scanned_count) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_count(build_plan())
+            execute_count_terminal(&load, build_plan())
                 .expect("constant-false COUNT should succeed")
         });
     let (exists, scanned_exists) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_exists(build_plan())
+            execute_exists_terminal(&load, build_plan())
                 .expect("constant-false EXISTS should succeed")
         });
     let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_min(build_plan())
-            .expect("constant-false MIN should succeed")
+        execute_min_terminal(&load, build_plan()).expect("constant-false MIN should succeed")
     });
     let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_max(build_plan())
-            .expect("constant-false MAX should succeed")
+        execute_max_terminal(&load, build_plan()).expect("constant-false MAX should succeed")
     });
     let (first_id, scanned_first) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_first(build_plan())
+            execute_first_terminal(&load, build_plan())
                 .expect("constant-false FIRST should succeed")
         });
     let (last_id, scanned_last) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_last(build_plan())
-                .expect("constant-false LAST should succeed")
+            execute_last_terminal(&load, build_plan()).expect("constant-false LAST should succeed")
         });
     let (sum_rank, scanned_sum) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-                .expect("constant-false SUM(field) should succeed")
+            execute_numeric_field_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "rank"),
+                ScalarNumericFieldBoundaryRequest::Sum,
+            )
+            .expect("constant-false SUM(field) should succeed")
         });
     let (avg_rank, scanned_avg) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-                .expect("constant-false AVG(field) should succeed")
+            execute_numeric_field_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "rank"),
+                ScalarNumericFieldBoundaryRequest::Avg,
+            )
+            .expect("constant-false AVG(field) should succeed")
         });
 
     // Phase 3: assert canonical empty-window outputs and zero scan-budget use.
@@ -141,16 +189,8 @@ fn aggregate_constant_false_window_returns_terminal_zeros_without_scan_budget() 
 #[test]
 fn aggregate_spec_field_target_non_extrema_is_executor_invariant_only_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_021, 7, 10), (8_022, 7, 20), (8_023, 7, 30)]);
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
-        .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
-        .expect("field-target non-extrema aggregate plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        ExecutionKernel::execute_aggregate_spec(
-            &load,
-            plan,
+        execute_bypassed_field_target_validation::<PushdownParityEntity>(
             crate::db::query::builder::aggregate::count_by("rank"),
         )
     });
@@ -189,11 +229,11 @@ fn aggregate_spec_field_target_extrema_selects_deterministic_ids() {
     };
 
     let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_min_by_slot(build_plan(), slot(&load, "rank"))
+        execute_min_by_slot_terminal(&load, build_plan(), slot(&load, "rank"))
             .expect("field-target MIN should execute")
     });
     let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_max_by_slot(build_plan(), slot(&load, "rank"))
+        execute_max_by_slot_terminal(&load, build_plan(), slot(&load, "rank"))
             .expect("field-target MAX should execute")
     });
 
@@ -216,16 +256,8 @@ fn aggregate_spec_field_target_extrema_selects_deterministic_ids() {
 #[test]
 fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan() {
     seed_pushdown_entities(&[(8_041, 7, 10), (8_042, 7, 20), (8_043, 7, 30)]);
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
-        .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
-        .expect("field-target unknown-field aggregate plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        ExecutionKernel::execute_aggregate_spec(
-            &load,
-            plan,
+        execute_bypassed_field_target_validation::<PushdownParityEntity>(
             crate::db::query::builder::aggregate::min_by("missing_field"),
         )
     });
@@ -248,16 +280,8 @@ fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan()
 #[test]
 fn aggregate_spec_field_target_non_orderable_field_surfaces_unsupported_without_scan() {
     seed_phase_entities(&[(8_051, 10), (8_052, 20), (8_053, 30)]);
-    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
-        .plan()
-        .map(crate::db::executor::ExecutablePlan::from)
-        .expect("field-target non-orderable aggregate plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
-        ExecutionKernel::execute_aggregate_spec(
-            &load,
-            plan,
+        execute_bypassed_field_target_validation::<PhaseEntity>(
             crate::db::query::builder::aggregate::min_by("tags"),
         )
     });
@@ -297,11 +321,9 @@ fn aggregate_spec_field_target_tie_breaks_on_primary_key_ascending() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("field-target MAX tie-break plan should build");
 
-    let min_id = load
-        .aggregate_min_by_slot(min_plan, slot(&load, "rank"))
+    let min_id = execute_min_by_slot_terminal(&load, min_plan, slot(&load, "rank"))
         .expect("field-target MIN tie-break should succeed");
-    let max_id = load
-        .aggregate_max_by_slot(max_plan, slot(&load, "rank"))
+    let max_id = execute_max_by_slot_terminal(&load, max_plan, slot(&load, "rank"))
         .expect("field-target MAX tie-break should succeed");
 
     assert_eq!(
@@ -331,8 +353,7 @@ fn aggregate_field_target_secondary_index_min_uses_index_leading_order() {
         0,
     );
 
-    let min_id = load
-        .aggregate_min_by_slot(plan, slot(&load, "rank"))
+    let min_id = execute_min_by_slot_terminal(&load, plan, slot(&load, "rank"))
         .expect("secondary-index field-target MIN should succeed");
 
     assert_eq!(
@@ -358,8 +379,7 @@ fn aggregate_field_target_secondary_index_max_tie_breaks_primary_key_ascending()
         0,
     );
 
-    let max_id = load
-        .aggregate_max_by_slot(plan, slot(&load, "rank"))
+    let max_id = execute_max_by_slot_terminal(&load, plan, slot(&load, "rank"))
         .expect("secondary-index field-target MAX should succeed");
 
     assert_eq!(
@@ -388,20 +408,15 @@ fn aggregate_field_target_nth_selects_deterministic_position() {
             .expect("field-target nth plan should build")
     };
 
-    let nth_0 = load
-        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 0)
+    let nth_0 = execute_nth_by_slot_terminal(&load, build_plan(), slot(&load, "rank"), 0)
         .expect("nth_by(rank, 0) should succeed");
-    let nth_1 = load
-        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 1)
+    let nth_1 = execute_nth_by_slot_terminal(&load, build_plan(), slot(&load, "rank"), 1)
         .expect("nth_by(rank, 1) should succeed");
-    let nth_2 = load
-        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 2)
+    let nth_2 = execute_nth_by_slot_terminal(&load, build_plan(), slot(&load, "rank"), 2)
         .expect("nth_by(rank, 2) should succeed");
-    let nth_3 = load
-        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 3)
+    let nth_3 = execute_nth_by_slot_terminal(&load, build_plan(), slot(&load, "rank"), 3)
         .expect("nth_by(rank, 3) should succeed");
-    let nth_4 = load
-        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 4)
+    let nth_4 = execute_nth_by_slot_terminal(&load, build_plan(), slot(&load, "rank"), 4)
         .expect("nth_by(rank, 4) should succeed");
 
     assert_eq!(
@@ -440,7 +455,7 @@ fn aggregate_field_target_nth_unknown_field_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("field-target nth unknown-field plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_nth_by_slot(plan, slot(&load, "missing_field"), 0)
+        execute_nth_by_slot_terminal(&load, plan, slot(&load, "missing_field"), 0)
     });
     let Err(err) = result else {
         panic!("nth_by(missing_field, 0) should be rejected");
@@ -464,7 +479,7 @@ fn aggregate_field_target_nth_non_orderable_field_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("field-target nth non-orderable plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
-        load.aggregate_nth_by_slot(plan, slot(&load, "tags"), 0)
+        execute_nth_by_slot_terminal(&load, plan, slot(&load, "tags"), 0)
     });
     let Err(err) = result else {
         panic!("nth_by(tags, 0) should be rejected");
@@ -507,35 +522,35 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
     let expected_len = expected_response.len();
 
     for nth in [0usize, 1, 2, 3, usize::MAX] {
-        let actual = load
-            .aggregate_nth_by_slot(
-                base_query()
-                    .plan()
-                    .map(crate::db::executor::ExecutablePlan::from)
-                    .expect("nth boundary plan should build"),
-                slot(&load, "rank"),
-                nth,
-            )
-            .expect("nth boundary aggregate should succeed");
+        let actual = execute_nth_by_slot_terminal(
+            &load,
+            base_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("nth boundary plan should build"),
+            slot(&load, "rank"),
+            nth,
+        )
+        .expect("nth boundary aggregate should succeed");
         let expected = expected_nth_by_rank_id(&expected_response, nth);
 
         assert_eq!(actual, expected, "nth boundary parity failed for n={nth}");
     }
 
-    let empty_window_nth_zero = load
-        .aggregate_nth_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by_desc("id")
-                .offset(50)
-                .limit(3)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("empty-window nth plan should build"),
-            slot(&load, "rank"),
-            0,
-        )
-        .expect("empty-window nth should succeed");
+    let empty_window_nth_zero = execute_nth_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(50)
+            .limit(3)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("empty-window nth plan should build"),
+        slot(&load, "rank"),
+        0,
+    )
+    .expect("empty-window nth should succeed");
 
     assert_eq!(
         expected_len, 3,
@@ -570,8 +585,7 @@ fn aggregate_field_target_median_even_window_uses_lower_policy() {
     let expected_response = load
         .execute(build_plan())
         .expect("field-target median baseline execute should succeed");
-    let median = load
-        .aggregate_median_by_slot(build_plan(), slot(&load, "rank"))
+    let median = execute_median_by_slot_terminal(&load, build_plan(), slot(&load, "rank"))
         .expect("median_by(rank) should succeed");
 
     assert_eq!(
@@ -601,7 +615,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (median_result, median_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_median_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_median_by_slot_terminal(&load, build_plan(), slot(&load, "missing_field"))
         });
     let Err(median_err) = median_result else {
         panic!("median_by(missing_field) should be rejected");
@@ -615,7 +629,11 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (count_result, count_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_count_distinct_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_projection_count_distinct_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "missing_field"),
+            )
         });
     let Err(count_err) = count_result else {
         panic!("count_distinct_by(missing_field) should be rejected");
@@ -629,7 +647,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (min_max_result, min_max_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_min_max_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_min_max_by_slot_terminal(&load, build_plan(), slot(&load, "missing_field"))
         });
     let Err(min_max_err) = min_max_result else {
         panic!("min_max_by(missing_field) should be rejected");
@@ -643,7 +661,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (values_result, values_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.values_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_projection_values_boundary(&load, build_plan(), slot(&load, "missing_field"))
         });
     let Err(values_err) = values_result else {
         panic!("values_by(missing_field) should be rejected");
@@ -657,7 +675,11 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (distinct_values_result, distinct_values_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.distinct_values_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_projection_distinct_values_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "missing_field"),
+            )
         });
     let Err(distinct_values_err) = distinct_values_result else {
         panic!("distinct_values_by(missing_field) should be rejected");
@@ -671,7 +693,11 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (values_with_ids_result, values_with_ids_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.values_by_with_ids_slot(build_plan(), slot(&load, "missing_field"))
+            execute_projection_values_with_ids_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "missing_field"),
+            )
         });
     let Err(values_with_ids_err) = values_with_ids_result else {
         panic!("values_by_with_ids(missing_field) should be rejected");
@@ -685,7 +711,12 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (first_value_result, first_value_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.first_value_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_projection_terminal_value_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "missing_field"),
+                AggregateKind::First,
+            )
         });
     let Err(first_value_err) = first_value_result else {
         panic!("first_value_by(missing_field) should be rejected");
@@ -699,7 +730,12 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (last_value_result, last_value_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.last_value_by_slot(build_plan(), slot(&load, "missing_field"))
+            execute_projection_terminal_value_boundary(
+                &load,
+                build_plan(),
+                slot(&load, "missing_field"),
+                AggregateKind::Last,
+            )
         });
     let Err(last_value_err) = last_value_result else {
         panic!("last_value_by(missing_field) should be rejected");
@@ -864,14 +900,11 @@ fn aggregate_field_target_min_max_matches_individual_extrema() {
             .expect("field-target min-max plan should build")
     };
 
-    let min_max = load
-        .aggregate_min_max_by_slot(build_plan(), slot(&load, "rank"))
+    let min_max = execute_min_max_by_slot_terminal(&load, build_plan(), slot(&load, "rank"))
         .expect("min_max_by(rank) should succeed");
-    let min_by = load
-        .aggregate_min_by_slot(build_plan(), slot(&load, "rank"))
+    let min_by = execute_min_by_slot_terminal(&load, build_plan(), slot(&load, "rank"))
         .expect("min_by(rank) should succeed");
-    let max_by = load
-        .aggregate_max_by_slot(build_plan(), slot(&load, "rank"))
+    let max_by = execute_max_by_slot_terminal(&load, build_plan(), slot(&load, "rank"))
         .expect("max_by(rank) should succeed");
     let expected_pair = min_by.zip(max_by);
 
@@ -936,33 +969,33 @@ fn aggregate_field_target_min_max_metamorphic_matrix_matches_individual_extrema(
             query
         };
 
-        let min_max = load
-            .aggregate_min_max_by_slot(
-                build_query()
-                    .plan()
-                    .map(crate::db::executor::ExecutablePlan::from)
-                    .expect("metamorphic min_max plan should build"),
-                slot(&load, "rank"),
-            )
-            .expect("metamorphic min_max_by(rank) should succeed");
-        let min_by = load
-            .aggregate_min_by_slot(
-                build_query()
-                    .plan()
-                    .map(crate::db::executor::ExecutablePlan::from)
-                    .expect("metamorphic min plan should build"),
-                slot(&load, "rank"),
-            )
-            .expect("metamorphic min_by(rank) should succeed");
-        let max_by = load
-            .aggregate_max_by_slot(
-                build_query()
-                    .plan()
-                    .map(crate::db::executor::ExecutablePlan::from)
-                    .expect("metamorphic max plan should build"),
-                slot(&load, "rank"),
-            )
-            .expect("metamorphic max_by(rank) should succeed");
+        let min_max = execute_min_max_by_slot_terminal(
+            &load,
+            build_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("metamorphic min_max plan should build"),
+            slot(&load, "rank"),
+        )
+        .expect("metamorphic min_max_by(rank) should succeed");
+        let min_by = execute_min_by_slot_terminal(
+            &load,
+            build_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("metamorphic min plan should build"),
+            slot(&load, "rank"),
+        )
+        .expect("metamorphic min_by(rank) should succeed");
+        let max_by = execute_max_by_slot_terminal(
+            &load,
+            build_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("metamorphic max plan should build"),
+            slot(&load, "rank"),
+        )
+        .expect("metamorphic max_by(rank) should succeed");
 
         assert_eq!(
             min_max,
@@ -977,19 +1010,19 @@ fn aggregate_field_target_min_max_empty_window_returns_none() {
     seed_pushdown_entities(&[(8_2031, 7, 10), (8_2032, 7, 20), (8_2033, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let min_max = load
-        .aggregate_min_max_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by("id")
-                .offset(50)
-                .limit(2)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("empty-window min_max plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("empty-window min_max_by(rank) should succeed");
+    let min_max = execute_min_max_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .offset(50)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("empty-window min_max plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("empty-window min_max_by(rank) should succeed");
 
     assert_eq!(min_max, None, "empty-window min_max_by should return None");
 }
@@ -999,19 +1032,19 @@ fn aggregate_field_target_min_max_single_row_returns_same_id_pair() {
     seed_pushdown_entities(&[(8_2041, 7, 10), (8_2042, 7, 20), (8_2043, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let min_max = load
-        .aggregate_min_max_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by("id")
-                .offset(1)
-                .limit(1)
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("single-row min_max plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("single-row min_max_by(rank) should succeed");
+    let min_max = execute_min_max_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .offset(1)
+            .limit(1)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("single-row min_max plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("single-row min_max_by(rank) should succeed");
 
     assert_eq!(
         min_max.map(|(min_id, max_id)| (min_id.key(), max_id.key())),
@@ -1031,28 +1064,28 @@ fn aggregate_field_target_median_order_direction_invariant_on_same_window() {
         (8_2056, 8, 99),
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let asc_median = load
-        .aggregate_median_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("median ASC plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("median_by(rank) ASC should succeed");
-    let desc_median = load
-        .aggregate_median_by_slot(
-            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
-                .order_by_desc("id")
-                .plan()
-                .map(crate::db::executor::ExecutablePlan::from)
-                .expect("median DESC plan should build"),
-            slot(&load, "rank"),
-        )
-        .expect("median_by(rank) DESC should succeed");
+    let asc_median = execute_median_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("median ASC plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("median_by(rank) ASC should succeed");
+    let desc_median = execute_median_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("median DESC plan should build"),
+        slot(&load, "rank"),
+    )
+    .expect("median_by(rank) DESC should succeed");
 
     assert_eq!(
         asc_median, desc_median,
@@ -1078,12 +1111,20 @@ fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
             .expect("numeric field aggregate plan should build")
     };
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
     let expected_avg = Decimal::from_num(65u64).expect("sum decimal")
         / Decimal::from_num(3u64).expect("count decimal");
 
@@ -1118,12 +1159,20 @@ fn aggregate_numeric_field_streaming_fold_hits_counter_for_unpaged_shape() {
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1166,12 +1215,20 @@ fn aggregate_numeric_field_streaming_fold_skips_counter_for_ordered_page_window(
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1215,12 +1272,20 @@ fn aggregate_numeric_field_streaming_fold_skips_counter_when_predicate_present()
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1263,12 +1328,20 @@ fn aggregate_numeric_field_streaming_fold_hits_counter_for_pk_ordered_page_windo
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1311,8 +1384,13 @@ fn aggregate_numeric_field_streaming_fold_pk_ordered_page_bounds_rows_scanned() 
     );
 
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_sum_by_slot(plan, slot(&load, "rank"))
-            .expect("sum_by(rank) should succeed")
+        execute_numeric_field_boundary(
+            &load,
+            plan,
+            slot(&load, "rank"),
+            ScalarNumericFieldBoundaryRequest::Sum,
+        )
+        .expect("sum_by(rank) should succeed")
     });
 
     assert_eq!(
@@ -1355,12 +1433,20 @@ fn aggregate_numeric_field_streaming_fold_hits_counter_for_pk_desc_ordered_page_
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1409,12 +1495,20 @@ fn aggregate_numeric_field_streaming_fold_hits_counter_for_by_ids_window_shape()
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1462,8 +1556,13 @@ fn aggregate_numeric_field_streaming_fold_by_ids_paged_bounds_rows_scanned() {
     );
 
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_sum_by_slot(plan, slot(&load, "rank"))
-            .expect("sum_by(rank) should succeed")
+        execute_numeric_field_boundary(
+            &load,
+            plan,
+            slot(&load, "rank"),
+            ScalarNumericFieldBoundaryRequest::Sum,
+        )
+        .expect("sum_by(rank) should succeed")
     });
 
     assert_eq!(
@@ -1521,12 +1620,20 @@ fn aggregate_numeric_field_streaming_fold_skips_counter_for_index_multi_lookup_s
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1562,12 +1669,20 @@ fn aggregate_numeric_field_streaming_fold_hits_counter_for_by_id_shape() {
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1606,12 +1721,20 @@ fn aggregate_numeric_field_streaming_fold_hits_counter_for_by_id_paged_shape() {
         ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
     );
 
-    let sum = load
-        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("sum_by(rank) should succeed");
-    let avg = load
-        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
-        .expect("avg_by(rank) should succeed");
+    let sum = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect("sum_by(rank) should succeed");
+    let avg = execute_numeric_field_boundary(
+        &load,
+        build_plan(),
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::Avg,
+    )
+    .expect("avg_by(rank) should succeed");
 
     assert_eq!(
         sum,
@@ -1649,8 +1772,13 @@ fn aggregate_numeric_field_streaming_fold_by_id_paged_bounds_rows_scanned() {
     );
 
     let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_sum_by_slot(plan, slot(&load, "rank"))
-            .expect("sum_by(rank) should succeed")
+        execute_numeric_field_boundary(
+            &load,
+            plan,
+            slot(&load, "rank"),
+            ScalarNumericFieldBoundaryRequest::Sum,
+        )
+        .expect("sum_by(rank) should succeed")
     });
 
     assert_eq!(
@@ -1687,9 +1815,13 @@ fn aggregate_numeric_field_sum_distinct_uses_grouped_global_distinct_path() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("sum_distinct_by(rank) plan should build");
 
-    let sum_distinct = load
-        .aggregate_sum_distinct_by_slot(plan, slot(&load, "rank"))
-        .expect("sum_distinct_by(rank) should succeed");
+    let sum_distinct = execute_numeric_field_boundary(
+        &load,
+        plan,
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::SumDistinct,
+    )
+    .expect("sum_distinct_by(rank) should succeed");
 
     assert_eq!(
         sum_distinct,
@@ -1714,9 +1846,13 @@ fn aggregate_numeric_field_avg_distinct_uses_grouped_global_distinct_path() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("avg_distinct_by(rank) plan should build");
 
-    let avg_distinct = load
-        .aggregate_avg_distinct_by_slot(plan, slot(&load, "rank"))
-        .expect("avg_distinct_by(rank) should succeed");
+    let avg_distinct = execute_numeric_field_boundary(
+        &load,
+        plan,
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::AvgDistinct,
+    )
+    .expect("avg_distinct_by(rank) should succeed");
 
     assert_eq!(
         avg_distinct,
@@ -1748,12 +1884,20 @@ fn aggregate_numeric_field_sum_distinct_is_insertion_order_invariant() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("sum_distinct_by(rank) DESC plan should build");
 
-    let sum_distinct_asc = load
-        .aggregate_sum_distinct_by_slot(plan_asc, slot(&load, "rank"))
-        .expect("sum_distinct_by(rank) ASC should succeed");
-    let sum_distinct_desc = load
-        .aggregate_sum_distinct_by_slot(plan_desc, slot(&load, "rank"))
-        .expect("sum_distinct_by(rank) DESC should succeed");
+    let sum_distinct_asc = execute_numeric_field_boundary(
+        &load,
+        plan_asc,
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::SumDistinct,
+    )
+    .expect("sum_distinct_by(rank) ASC should succeed");
+    let sum_distinct_desc = execute_numeric_field_boundary(
+        &load,
+        plan_desc,
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::SumDistinct,
+    )
+    .expect("sum_distinct_by(rank) DESC should succeed");
 
     assert_eq!(
         sum_distinct_asc, sum_distinct_desc,
@@ -1777,10 +1921,14 @@ fn aggregate_numeric_field_sum_distinct_handles_large_values_without_wrap() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("sum_distinct_by(rank) large-value plan should build");
 
-    let sum_distinct = load
-        .aggregate_sum_distinct_by_slot(plan, slot(&load, "rank"))
-        .expect("sum_distinct_by(rank) large values should succeed")
-        .expect("sum_distinct_by(rank) should return a value");
+    let sum_distinct = execute_numeric_field_boundary(
+        &load,
+        plan,
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::SumDistinct,
+    )
+    .expect("sum_distinct_by(rank) large values should succeed")
+    .expect("sum_distinct_by(rank) should return a value");
     let expected = Decimal::from_num(u64::from(u32::MAX) + u64::from(u32::MAX - 1))
         .expect("large expected decimal should convert");
 
@@ -1806,10 +1954,14 @@ fn aggregate_numeric_field_sum_distinct_preserves_decimal_integer_canonical_scal
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("sum_distinct_by(rank) canonical-scale plan should build");
 
-    let sum_distinct = load
-        .aggregate_sum_distinct_by_slot(plan, slot(&load, "rank"))
-        .expect("sum_distinct_by(rank) canonical-scale should succeed")
-        .expect("sum_distinct_by(rank) should return a value");
+    let sum_distinct = execute_numeric_field_boundary(
+        &load,
+        plan,
+        slot(&load, "rank"),
+        ScalarNumericFieldBoundaryRequest::SumDistinct,
+    )
+    .expect("sum_distinct_by(rank) canonical-scale should succeed")
+    .expect("sum_distinct_by(rank) should return a value");
 
     assert_eq!(
         sum_distinct.scale(),
@@ -1828,7 +1980,12 @@ fn aggregate_numeric_field_unknown_target_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("numeric field unknown-target plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_sum_by_slot(plan, slot(&load, "missing_field"))
+        execute_numeric_field_boundary(
+            &load,
+            plan,
+            slot(&load, "missing_field"),
+            ScalarNumericFieldBoundaryRequest::Sum,
+        )
     });
     let Err(err) = result else {
         panic!("sum_by(missing_field) should be rejected");
@@ -1852,7 +2009,12 @@ fn aggregate_numeric_field_non_numeric_target_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("numeric field non-numeric target plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_avg_by_slot(plan, slot(&load, "label"))
+        execute_numeric_field_boundary(
+            &load,
+            plan,
+            slot(&load, "label"),
+            ScalarNumericFieldBoundaryRequest::Avg,
+        )
     });
     let Err(err) = result else {
         panic!("avg_by(label) should be rejected");

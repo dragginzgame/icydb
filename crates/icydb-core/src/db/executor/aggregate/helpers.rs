@@ -9,8 +9,9 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            ExecutablePlan, KeyStreamLoopControl, OrderedKeyStream,
+            KeyStreamLoopControl, OrderedKeyStream,
             aggregate::AggregateKind,
+            aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
@@ -59,12 +60,12 @@ where
     // materialized fallback semantics using one planner-resolved field slot.
     pub(in crate::db::executor::aggregate) fn execute_nth_field_aggregate_with_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         target_field: &str,
         field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let response = self.execute(plan)?;
+        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
 
         Self::aggregate_nth_field_from_materialized(response, target_field, field_slot, nth)
     }
@@ -74,11 +75,11 @@ where
     // field slot.
     pub(in crate::db::executor::aggregate) fn execute_median_field_aggregate_with_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let response = self.execute(plan)?;
+        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
 
         Self::aggregate_median_field_from_materialized(response, target_field, field_slot)
     }
@@ -88,11 +89,11 @@ where
     // planner-resolved field slot.
     pub(in crate::db::executor::aggregate) fn execute_min_max_field_aggregate_with_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
-        let response = self.execute(plan)?;
+        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
 
         Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
     }

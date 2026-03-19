@@ -206,7 +206,7 @@ where
         let ctx = self.db.recovered_context::<E>()?;
         let row_ctx = self.db.recovered_context::<E>()?;
         let typed_access = reconstruct_typed_access_plan::<E>(route.plan())?;
-        let runtime = ExecutionRuntimeAdapter::new(&ctx, &typed_access);
+        let runtime = ExecutionRuntimeAdapter::new(&ctx, &typed_access)?;
         build_grouped_stream_with_runtime(
             route,
             &runtime,

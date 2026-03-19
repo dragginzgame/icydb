@@ -36,6 +36,10 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
+pub(in crate::db) use aggregate::{
+    ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
+    ScalarTerminalBoundaryRequest,
+};
 pub(in crate::db::executor) use continuation::{
     AccessWindow, ContinuationCapabilities, ContinuationEngine, ContinuationMode,
     GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,

@@ -52,28 +52,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Derive one route-owned `bytes()` terminal fast-path contract.
-    pub(in crate::db::executor) fn derive_bytes_terminal_fast_path_contract(
-        plan: &ExecutablePlan<E>,
-    ) -> Option<BytesTerminalFastPathContract> {
-        plan.has_no_predicate_or_distinct().then_some(())?;
-
-        let direction = plan.unordered_or_primary_key_order_direction()?;
-        let access_strategy = plan.access().resolve_strategy();
-        let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
-
-        capabilities
-            .supports_bytes_terminal_primary_key_window()
-            .then_some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction))
-            .or_else(|| {
-                capabilities
-                    .supports_bytes_terminal_ordered_key_stream_window()
-                    .then_some(BytesTerminalFastPathContract::OrderedKeyStreamWindow(
-                        direction,
-                    ))
-            })
-    }
-
     // Derive one route-owned `count()` terminal fast-path contract.
     pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract(
         plan: &ExecutablePlan<E>,

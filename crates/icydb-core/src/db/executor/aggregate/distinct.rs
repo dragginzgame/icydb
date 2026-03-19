@@ -9,18 +9,14 @@
 
 use crate::{
     db::{
+        GroupedRow,
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutablePlan, LoadCursorInput,
-            aggregate::{
-                AggregateKind, field::resolve_any_aggregate_target_slot_from_planner_slot,
-            },
-            pipeline::contracts::LoadExecutor,
+            ExecutablePlan,
+            aggregate::AggregateKind,
+            pipeline::contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
         },
-        query::plan::{
-            FieldSlot as PlannedFieldSlot, GroupedExecutionConfig,
-            global_distinct_group_spec_for_semantic_aggregate,
-        },
+        query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_semantic_aggregate},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -34,29 +30,14 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Execute `count_distinct(field)` over the effective response window using
-    /// one planner-resolved field slot.
-    pub(in crate::db) fn aggregate_count_distinct_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<u32, InternalError> {
-        resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let distinct_values = self.distinct_values_by_slot(plan, target_field)?;
-
-        Ok(u32::try_from(distinct_values.len()).unwrap_or(u32::MAX))
-    }
-
-    // Execute one global DISTINCT field-target grouped aggregate by lowering
-    // into grouped logical shape with zero group keys.
-    pub(in crate::db::executor) fn execute_global_distinct_field_grouped_aggregate(
+    // Lower one scalar DISTINCT aggregate request into one prepared grouped
+    // route stage used by global DISTINCT terminals.
+    pub(in crate::db::executor::aggregate) fn prepare_global_distinct_grouped_route(
         &self,
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
         target_field: &str,
-    ) -> Result<Option<Value>, InternalError> {
-        // Build global DISTINCT grouped shape via query semantic authority.
+    ) -> Result<GroupedRouteStage, InternalError> {
         let grouped_shape = global_distinct_group_spec_for_semantic_aggregate(
             kind,
             target_field,
@@ -71,13 +52,16 @@ where
                 reason.invariant_message(),
             ))
         })?;
-        let grouped_plan = plan.into_inner().into_grouped(grouped_shape);
-        let grouped_plan = ExecutablePlan::new(grouped_plan);
-        let (page, _) = self.execute_load_grouped_page_with_trace(
-            grouped_plan,
-            LoadCursorInput::grouped(GroupedPlannedCursor::none()),
-        )?;
+        let grouped_plan = ExecutablePlan::new(plan.into_inner().into_grouped(grouped_shape));
 
+        Self::resolve_grouped_route(grouped_plan, GroupedPlannedCursor::none(), self.debug)
+    }
+
+    // Decode one grouped zero-key DISTINCT aggregate page back into one scalar
+    // aggregate value while preserving grouped-output invariants explicitly.
+    fn decode_global_distinct_grouped_output(
+        page: GroupedCursorPage,
+    ) -> Result<Option<Value>, InternalError> {
         if page.next_cursor.is_some() {
             return Err(crate::db::error::query_executor_invariant(
                 "global DISTINCT grouped aggregate must not emit continuation cursor",
@@ -91,6 +75,14 @@ where
         let Some(row) = page.rows.first() else {
             return Ok(None);
         };
+
+        Self::decode_global_distinct_grouped_row(row)
+    }
+
+    // Decode one grouped zero-key DISTINCT aggregate row into one scalar value.
+    fn decode_global_distinct_grouped_row(
+        row: &GroupedRow,
+    ) -> Result<Option<Value>, InternalError> {
         if !row.group_key().is_empty() {
             return Err(crate::db::error::query_executor_invariant(
                 "global DISTINCT grouped aggregate row must have empty grouped key",
@@ -104,5 +96,16 @@ where
         }
 
         Ok(row.aggregate_values().first().cloned())
+    }
+
+    // Execute one global DISTINCT field-target grouped aggregate by lowering
+    // into grouped logical shape with zero group keys.
+    pub(in crate::db::executor::aggregate) fn execute_prepared_global_distinct_grouped_aggregate(
+        &self,
+        route: GroupedRouteStage,
+    ) -> Result<Option<Value>, InternalError> {
+        let (page, _) = self.execute_prepared_grouped_route(route)?;
+
+        Self::decode_global_distinct_grouped_output(page)
     }
 }

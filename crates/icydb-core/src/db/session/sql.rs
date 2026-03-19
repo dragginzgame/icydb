@@ -3,6 +3,7 @@ use crate::{
         DbSession, EntityFieldDescription, EntityResponse, EntitySchemaDescription,
         MissingRowPolicy, PagedGroupedExecutionWithTrace, ProjectedRow, ProjectionResponse, Query,
         QueryError,
+        executor::{ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest},
         query::{
             builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
             intent::IntentError,
@@ -583,12 +584,23 @@ impl<C: CanisterKind> DbSession<C> {
 
         match command.terminal() {
             SqlGlobalAggregateTerminal::CountRows => self
-                .execute_load_query_with(command.query(), |load, plan| load.aggregate_count(plan))
+                .execute_load_query_with(command.query(), |load, plan| {
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        crate::db::executor::ScalarTerminalBoundaryRequest::Count,
+                    )?
+                    .into_count()
+                })
                 .map(|count| Value::Uint(u64::from(count))),
             SqlGlobalAggregateTerminal::CountField(field) => {
                 let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
                 self.execute_load_query_with(command.query(), |load, plan| {
-                    load.values_by_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::Values,
+                    )?
+                    .into_values()
                 })
                 .map(|values| {
                     let count = values
@@ -601,21 +613,36 @@ impl<C: CanisterKind> DbSession<C> {
             SqlGlobalAggregateTerminal::SumField(field) => {
                 let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
                 self.execute_load_query_with(command.query(), |load, plan| {
-                    load.aggregate_sum_by_slot(plan, target_slot)
+                    load.execute_numeric_field_boundary(
+                        plan,
+                        target_slot,
+                        ScalarNumericFieldBoundaryRequest::Sum,
+                    )
                 })
                 .map(|value| value.map_or(Value::Null, Value::Decimal))
             }
             SqlGlobalAggregateTerminal::AvgField(field) => {
                 let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
                 self.execute_load_query_with(command.query(), |load, plan| {
-                    load.aggregate_avg_by_slot(plan, target_slot)
+                    load.execute_numeric_field_boundary(
+                        plan,
+                        target_slot,
+                        ScalarNumericFieldBoundaryRequest::Avg,
+                    )
                 })
                 .map(|value| value.map_or(Value::Null, Value::Decimal))
             }
             SqlGlobalAggregateTerminal::MinField(field) => {
                 let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
                 let min_id = self.execute_load_query_with(command.query(), |load, plan| {
-                    load.aggregate_min_by_slot(plan, target_slot)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        crate::db::executor::ScalarTerminalBoundaryRequest::IdBySlot {
+                            kind: AggregateKind::Min,
+                            target_field: target_slot,
+                        },
+                    )?
+                    .into_id()
                 })?;
 
                 match min_id {
@@ -630,7 +657,14 @@ impl<C: CanisterKind> DbSession<C> {
             SqlGlobalAggregateTerminal::MaxField(field) => {
                 let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
                 let max_id = self.execute_load_query_with(command.query(), |load, plan| {
-                    load.aggregate_max_by_slot(plan, target_slot)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        crate::db::executor::ScalarTerminalBoundaryRequest::IdBySlot {
+                            kind: AggregateKind::Max,
+                            target_field: target_slot,
+                        },
+                    )?
+                    .into_id()
                 })?;
 
                 match max_id {

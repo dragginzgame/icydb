@@ -12,15 +12,18 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             KeyStreamLoopControl,
-            aggregate::aggregate_window_is_provably_empty,
+            aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
+            aggregate::{
+                PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState,
+                PreparedScalarNumericOp, PreparedScalarNumericStrategy,
+            },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
             preparation::slot_map_for_entity_plan,
-            validate_executor_plan,
         },
         numeric::{add_decimal_terms, average_decimal_terms},
         query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
@@ -33,121 +36,144 @@ use crate::{
 };
 use std::cell::RefCell;
 
-///
-/// NumericFieldAggregateKind
-///
-/// Internal selector for field-target numeric aggregate terminals.
-///
-
+// Typed boundary request for one numeric field aggregate terminal family call.
 #[derive(Clone, Copy)]
-enum NumericFieldAggregateKind {
+pub(in crate::db) enum ScalarNumericFieldBoundaryRequest {
     Sum,
+    SumDistinct,
     Avg,
+    AvgDistinct,
+}
+
+impl ScalarNumericFieldBoundaryRequest {
+    // Resolve one public numeric request into the non-generic numeric operation.
+    const fn prepared_op(self) -> PreparedScalarNumericOp {
+        match self {
+            Self::Sum | Self::SumDistinct => PreparedScalarNumericOp::Sum,
+            Self::Avg | Self::AvgDistinct => PreparedScalarNumericOp::Avg,
+        }
+    }
+
+    // Return whether this request must route through grouped global DISTINCT execution.
+    const fn requires_global_distinct(self) -> bool {
+        matches!(self, Self::SumDistinct | Self::AvgDistinct)
+    }
 }
 
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Execute one field-target numeric aggregate terminal (`sum`/`avg`) through
-    // one shared slot-resolution and execution-path contract.
-    fn aggregate_numeric_by_slot(
+    // Execute one numeric field aggregate family request from the typed API
+    // boundary, lower plan-derived policy into one prepared contract, and then
+    // execute the prepared boundary.
+    pub(in crate::db) fn execute_numeric_field_boundary(
         &self,
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
-        kind: NumericFieldAggregateKind,
+        request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<Option<Decimal>, InternalError> {
+        let prepared = self.prepare_scalar_numeric_boundary(plan, target_field, request)?;
+
+        self.execute_prepared_scalar_numeric_boundary(prepared)
+    }
+
+    // Lower one public numeric field aggregate request into a prepared
+    // non-generic contract plus the runtime payload needed to execute it.
+    fn prepare_scalar_numeric_boundary(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+        request: ScalarNumericFieldBoundaryRequest,
+    ) -> Result<PreparedScalarNumericExecutionState<'_, E>, InternalError> {
+        let target_field_name = target_field.field().to_string();
         let field_slot =
             resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                 .map_err(Self::map_aggregate_field_value_error)?;
-        if aggregate_window_is_provably_empty(&plan) {
-            return Ok(None);
-        }
-        if Self::streaming_numeric_field_aggregate_eligible(&plan) {
-            return self.aggregate_numeric_field_from_streaming(
-                plan,
-                target_field.field(),
+        let op = request.prepared_op();
+
+        if request.requires_global_distinct() {
+            let boundary = PreparedScalarNumericBoundary {
+                target_field_name,
                 field_slot,
-                kind,
-            );
+                op,
+                strategy: PreparedScalarNumericStrategy::GlobalDistinctGrouped,
+            };
+            let route = self.prepare_global_distinct_grouped_route(
+                plan,
+                op.aggregate_kind(),
+                &boundary.target_field_name,
+            )?;
+
+            return Ok(PreparedScalarNumericExecutionState::GlobalDistinct {
+                boundary,
+                route: Box::new(route),
+            });
         }
 
-        let response = self.execute(plan)?;
+        let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
+        let strategy = if Self::streaming_numeric_field_aggregate_eligible(&prepared) {
+            PreparedScalarNumericStrategy::Streaming
+        } else {
+            PreparedScalarNumericStrategy::Materialized
+        };
 
-        Self::aggregate_numeric_field_from_materialized(
-            response,
-            target_field.field(),
-            field_slot,
-            kind,
-        )
+        Ok(PreparedScalarNumericExecutionState::Aggregate {
+            boundary: PreparedScalarNumericBoundary {
+                target_field_name,
+                field_slot,
+                op,
+                strategy,
+            },
+            prepared: Box::new(prepared),
+        })
     }
 
-    /// Execute `sum(field)` over the effective response window using one
-    /// planner-resolved numeric field slot.
-    pub(in crate::db) fn aggregate_sum_by_slot(
+    // Execute one prepared numeric aggregate contract without re-deriving
+    // strategy from the original plan.
+    fn execute_prepared_scalar_numeric_boundary(
         &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
+        prepared_state: PreparedScalarNumericExecutionState<'_, E>,
     ) -> Result<Option<Decimal>, InternalError> {
-        self.aggregate_numeric_by_slot(plan, target_field, NumericFieldAggregateKind::Sum)
-    }
+        match prepared_state {
+            PreparedScalarNumericExecutionState::Aggregate { boundary, prepared } => {
+                let prepared = *prepared;
+                if prepared.window_is_provably_empty() {
+                    return Ok(None);
+                }
 
-    /// Execute global `sum(distinct field)` through grouped zero-key execution
-    /// using one planner-resolved field slot.
-    pub(in crate::db) fn aggregate_sum_distinct_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<Option<Decimal>, InternalError> {
-        self.aggregate_numeric_distinct_by_slot(
-            plan,
-            target_field,
-            crate::db::query::plan::AggregateKind::Sum,
-            "SUM",
-        )
-    }
+                match boundary.strategy {
+                    PreparedScalarNumericStrategy::Streaming => {
+                        Self::aggregate_numeric_field_from_streaming(
+                            prepared,
+                            &boundary.target_field_name,
+                            boundary.field_slot,
+                            boundary.op,
+                        )
+                    }
+                    PreparedScalarNumericStrategy::Materialized => {
+                        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
 
-    /// Execute global `avg(distinct field)` through grouped zero-key execution
-    /// using one planner-resolved field slot.
-    pub(in crate::db) fn aggregate_avg_distinct_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<Option<Decimal>, InternalError> {
-        self.aggregate_numeric_distinct_by_slot(
-            plan,
-            target_field,
-            crate::db::query::plan::AggregateKind::Avg,
-            "AVG",
-        )
-    }
+                        Self::aggregate_numeric_field_from_materialized(
+                            response,
+                            &boundary.target_field_name,
+                            boundary.field_slot,
+                            boundary.op,
+                        )
+                    }
+                    PreparedScalarNumericStrategy::GlobalDistinctGrouped => {
+                        Err(crate::db::error::query_executor_invariant(
+                            "numeric aggregate direct execution reached global DISTINCT strategy",
+                        ))
+                    }
+                }
+            }
+            PreparedScalarNumericExecutionState::GlobalDistinct { boundary, route } => {
+                let value = self.execute_prepared_global_distinct_grouped_aggregate(*route)?;
 
-    /// Execute `avg(field)` over the effective response window using one
-    /// planner-resolved numeric field slot.
-    pub(in crate::db) fn aggregate_avg_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<Option<Decimal>, InternalError> {
-        self.aggregate_numeric_by_slot(plan, target_field, NumericFieldAggregateKind::Avg)
-    }
-
-    // Route one numeric DISTINCT terminal through the shared grouped global
-    // aggregate path so SUM/AVG decode semantics stay centralized.
-    fn aggregate_numeric_distinct_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-        aggregate_kind: crate::db::query::plan::AggregateKind,
-        aggregate_name: &str,
-    ) -> Result<Option<Decimal>, InternalError> {
-        let value = self.execute_global_distinct_field_grouped_aggregate(
-            plan,
-            aggregate_kind,
-            target_field.field(),
-        )?;
-
-        decode_global_distinct_numeric_output(value, aggregate_name)
+                decode_global_distinct_numeric_output(value, boundary.op.aggregate_name())
+            }
+        }
     }
 
     // Reduce one materialized response into `sum(field)` / `avg(field)` over
@@ -156,7 +182,7 @@ where
         response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
-        kind: NumericFieldAggregateKind,
+        kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut accumulator = NumericAggregateAccumulator::new();
         for row in response {
@@ -169,12 +195,14 @@ where
     }
 
     // Return whether numeric field aggregates can use one direct key-stream fold.
-    fn streaming_numeric_field_aggregate_eligible(plan: &ExecutablePlan<E>) -> bool {
-        if !Self::aggregate_predicate_safe(plan) {
+    fn streaming_numeric_field_aggregate_eligible(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+    ) -> bool {
+        if !Self::aggregate_predicate_safe(prepared) {
             return false;
         }
 
-        let access_strategy = plan.access().resolve_strategy();
+        let access_strategy = prepared.typed_access.resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
             return false;
         };
@@ -183,13 +211,13 @@ where
             return false;
         }
 
-        Self::aggregate_page_window_safe(plan, path_kind)
+        Self::aggregate_page_window_safe(prepared, path_kind)
     }
 
     // Return whether predicate and distinct planner flags preserve one
     // canonical direct stream-fold contract.
-    const fn aggregate_predicate_safe(plan: &ExecutablePlan<E>) -> bool {
-        plan.has_no_predicate_or_distinct()
+    const fn aggregate_predicate_safe(prepared: &PreparedAggregateStreamingInputs<'_, E>) -> bool {
+        prepared.has_no_predicate_or_distinct()
     }
 
     // Return whether the resolved access path kind can support one direct
@@ -200,15 +228,21 @@ where
 
     // Return whether one paged ORDER BY window preserves one direct numeric
     // stream-fold contract under primary-key order constraints.
-    fn aggregate_page_window_safe(plan: &ExecutablePlan<E>, path_kind: AccessPathKind) -> bool {
-        if plan.page_spec().is_none() {
+    fn aggregate_page_window_safe(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        path_kind: AccessPathKind,
+    ) -> bool {
+        if prepared.page_spec().is_none() {
             return true;
         }
-        let Some(_order) = plan.order_spec() else {
+        let Some(_order) = prepared.order_spec() else {
             // Planner rejects unordered pagination, but fail closed if bypassed.
             return false;
         };
-        if plan.explicit_primary_key_order_direction().is_none() {
+        if prepared
+            .explicit_primary_key_order_direction(E::MODEL.primary_key.name)
+            .is_none()
+        {
             return false;
         }
 
@@ -218,19 +252,21 @@ where
     // Fold numeric field aggregates directly from one ordered key stream without
     // materializing the full response window.
     fn aggregate_numeric_field_from_streaming(
-        &self,
-        plan: ExecutablePlan<E>,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         target_field: &str,
         field_slot: FieldSlot,
-        kind: NumericFieldAggregateKind,
+        kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
-        // Phase 1: capture lowered index specs and consume executable plan into logical form.
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-        let consistency = plan.consistency();
-        let direction = Self::aggregate_numeric_stream_direction(&plan);
-        let (logical_plan, typed_access) = plan.into_plan_and_access();
-        validate_executor_plan::<E>(&logical_plan)?;
+        // Phase 1: consume prepared aggregate stage state into one direct stream fold.
+        let consistency = prepared.consistency();
+        let direction = Self::aggregate_numeric_stream_direction(&prepared);
+        let PreparedAggregateStreamingInputs {
+            ctx,
+            logical_plan,
+            typed_access,
+            index_prefix_specs,
+            index_range_specs,
+        } = prepared;
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
             &logical_plan,
@@ -247,7 +283,6 @@ where
                 rejected_keys_counter: None,
             }
         });
-        let ctx = self.recovered_context()?;
         let access = ExecutableAccess::new(
             &typed_access,
             AccessStreamBindings::new(
@@ -298,8 +333,10 @@ where
         finalize_numeric_field_output(accumulator, kind)
     }
 
-    fn aggregate_numeric_stream_direction(plan: &ExecutablePlan<E>) -> Direction {
-        ExecutionOrderContract::from_plan(false, plan.order_spec()).primary_scan_direction()
+    fn aggregate_numeric_stream_direction(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+    ) -> Direction {
+        ExecutionOrderContract::from_plan(false, prepared.order_spec()).primary_scan_direction()
     }
 
     const fn loop_control_from_continuation_action(action: LoopAction) -> KeyStreamLoopControl {
@@ -341,15 +378,15 @@ impl NumericAggregateAccumulator {
 // accumulator pair so streaming and materialized paths stay behavior-identical.
 fn finalize_numeric_field_output(
     accumulator: NumericAggregateAccumulator,
-    kind: NumericFieldAggregateKind,
+    kind: PreparedScalarNumericOp,
 ) -> Result<Option<Decimal>, InternalError> {
     if accumulator.row_count == 0 {
         return Ok(None);
     }
 
     let output = match kind {
-        NumericFieldAggregateKind::Sum => accumulator.sum,
-        NumericFieldAggregateKind::Avg => {
+        PreparedScalarNumericOp::Sum => accumulator.sum,
+        PreparedScalarNumericOp::Avg => {
             let Some(avg) = average_decimal_terms(accumulator.sum, accumulator.row_count) else {
                 return Err(crate::db::error::query_executor_invariant(
                     "numeric field AVG divisor conversion overflowed decimal bounds",

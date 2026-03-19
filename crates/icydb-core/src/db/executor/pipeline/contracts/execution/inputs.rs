@@ -6,69 +6,160 @@
 use crate::{
     db::{
         cursor::CursorBoundary,
-        data::DataRow,
+        data::{DataKey, DataRow},
         direction::Direction,
         executor::pipeline::contracts::FastPathKeyResult,
         executor::{
             AccessStreamBindings, Context, ExecutableAccess, ExecutionKernel, ExecutionPreparation,
-            LoadExecutor, OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
+            ExecutorError, LoadExecutor, OrderedKeyStream, OrderedKeyStreamBox,
+            ScalarContinuationBindings,
             preparation::resolved_index_slots_for_access_path,
             route::RoutedKeyStreamRequest,
-            terminal::page::{
-                KernelPageMaterializationRequest, kernel_row_from_entity,
-                materialize_key_stream_into_erased_page,
+            terminal::{
+                RowDecoder, RowLayout,
+                page::{
+                    KernelPageMaterializationRequest, ScalarRowRuntimeHandle,
+                    ScalarRowRuntimeVTable, materialize_key_stream_into_structural_page,
+                },
             },
             traversal::row_read_consistency_for_plan,
         },
         index::predicate::IndexPredicateExecution,
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::AccessPlannedQuery,
-        response::EntityResponse,
+        registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    model::entity::EntityModel,
+    traits::{EntityKind, EntityValue, Path},
 };
-use std::any::Any;
 
-type ErasedRowCollectorPayload = (ErasedCursorPage, usize, usize);
+type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
 
 ///
-/// ErasedCursorPage
+/// ScalarRowRuntimeState
 ///
-/// ErasedCursorPage is the single executor-owned wrapper for typed cursor-page
-/// erasure across monomorphic execution boundaries.
-/// It keeps raw `Any` payload handling localized so shared orchestration code
-/// does not traffic in open-coded trait-object downcasts.
+/// ScalarRowRuntimeState is the structural row-production descriptor recovered
+/// once at the scalar execution boundary.
+/// It owns store-read authority plus precomputed structural decode metadata so
+/// shared scalar loops can materialize `KernelRow` values without rebuilding
+/// typed row-runtime state during execution.
 ///
 
-pub(in crate::db::executor) struct ErasedCursorPage {
-    page: Box<dyn Any>,
+#[derive(Clone, Debug)]
+struct ScalarRowRuntimeState {
+    store: StoreHandle,
+    row_layout: RowLayout,
+    row_decoder: RowDecoder,
 }
 
-impl ErasedCursorPage {
-    /// Erase one typed cursor page at the runtime boundary.
-    #[must_use]
-    pub(in crate::db::executor) fn new<T>(page: T) -> Self
-    where
-        T: 'static,
-    {
+impl ScalarRowRuntimeState {
+    // Build one structural scalar row-runtime descriptor from resolved
+    // boundary inputs.
+    fn new(store: StoreHandle, model: &'static EntityModel) -> Self {
         Self {
-            page: Box::new(page),
+            store,
+            row_layout: RowLayout::from_model(model),
+            row_decoder: RowDecoder::structural(),
         }
     }
 
-    /// Recover one typed cursor page at the typed execution boundary.
-    pub(in crate::db::executor) fn into_typed<T>(
-        self,
-        mismatch_message: &'static str,
-    ) -> Result<T, InternalError>
-    where
-        T: 'static,
+    // Read one raw row through the structural store handle while preserving
+    // the scalar missing-row consistency contract.
+    fn read_row(
+        &self,
+        consistency: MissingRowPolicy,
+        key: &DataKey,
+    ) -> Result<Option<crate::db::data::RawRow>, InternalError> {
+        let raw_key = key.to_raw()?;
+        let row = self.store.with_data(|store| store.get(&raw_key));
+
+        match consistency {
+            MissingRowPolicy::Error => row.map(Some).ok_or_else(|| {
+                InternalError::from(ExecutorError::store_corruption(format!(
+                    "missing row: {key}"
+                )))
+            }),
+            MissingRowPolicy::Ignore => Ok(row),
+        }
+    }
+}
+
+// Read one scalar kernel row through the typed store boundary, then decode the
+// persisted row structurally before any predicate or page logic runs.
+unsafe fn structural_scalar_read_kernel_row(
+    state: *mut (),
+    consistency: MissingRowPolicy,
+    key: &DataKey,
+    predicate_preapplied: bool,
+    predicate_slots: Option<&PredicateProgram>,
+) -> Result<Option<crate::db::executor::terminal::page::KernelRow>, InternalError> {
+    let state = unsafe { &mut *state.cast::<ScalarRowRuntimeState>() };
+    let Some(row) = state.read_row(consistency, key)? else {
+        return Ok(None);
+    };
+    let data_row = (key.clone(), row);
+    let kernel_row = state.row_decoder.decode(&state.row_layout, data_row)?;
+    if predicate_preapplied
+        && let Some(predicate_program) = predicate_slots
+        && !predicate_program.eval_with_slot_reader(&mut |slot| kernel_row.slot(slot))
     {
-        self.page
-            .downcast::<T>()
-            .map(|page| *page)
-            .map_err(|_| crate::db::error::query_executor_invariant(mismatch_message))
+        return Ok(None);
+    }
+
+    Ok(Some(kernel_row))
+}
+
+// Drop one erased typed scalar runtime state allocated by the row-runtime
+// handle constructor.
+unsafe fn structural_scalar_drop_state(state: *mut ()) {
+    drop(unsafe { Box::from_raw(state.cast::<ScalarRowRuntimeState>()) });
+}
+
+// Build the erased scalar row-runtime vtable once for one typed boundary.
+const fn scalar_row_runtime_vtable() -> ScalarRowRuntimeVTable {
+    ScalarRowRuntimeVTable {
+        read_kernel_row: structural_scalar_read_kernel_row,
+        drop_state: structural_scalar_drop_state,
+    }
+}
+
+///
+/// StructuralCursorPage
+///
+/// StructuralCursorPage is the shared scalar page payload emitted by the
+/// monomorphic scalar runtime before typed response reconstruction.
+/// It preserves post-access row order and the next-page cursor while keeping
+/// final entity decode at the outer typed boundary only.
+///
+
+pub(in crate::db::executor) struct StructuralCursorPage {
+    data_rows: Vec<DataRow>,
+    next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
+}
+
+impl StructuralCursorPage {
+    /// Build one structural scalar page from canonical data rows plus cursor state.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        data_rows: Vec<DataRow>,
+        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
+    ) -> Self {
+        Self {
+            data_rows,
+            next_cursor,
+        }
+    }
+
+    /// Consume one structural scalar page into rows plus cursor state.
+    #[must_use]
+    pub(in crate::db::executor) fn into_parts(
+        self,
+    ) -> (
+        Vec<DataRow>,
+        Option<crate::db::executor::pipeline::contracts::PageCursor>,
+    ) {
+        (self.data_rows, self.next_cursor)
     }
 }
 
@@ -140,13 +231,13 @@ pub(in crate::db::executor) trait ExecutionRuntime {
         plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
         key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<Option<ErasedRowCollectorPayload>, InternalError>;
+    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError>;
 
-    /// Materialize one ordered key stream into one erased typed page payload.
-    fn materialize_key_stream_into_page(
+    /// Materialize one ordered key stream into one structural scalar page payload.
+    fn materialize_key_stream_into_structural_page(
         &self,
         request: RuntimePageMaterializationRequest<'_>,
-    ) -> Result<ErasedRowCollectorPayload, InternalError>;
+    ) -> Result<StructuralRowCollectorPayload, InternalError>;
 }
 
 ///
@@ -163,7 +254,9 @@ where
 {
     ctx: &'a Context<'ctx, E>,
     access: &'a crate::db::access::AccessPlan<E::Key>,
+    model: &'static EntityModel,
     slot_map: Option<Vec<usize>>,
+    scalar_row_runtime: ScalarRowRuntimeState,
 }
 
 impl<'ctx, 'a, E> ExecutionRuntimeAdapter<'ctx, 'a, E>
@@ -171,19 +264,24 @@ where
     E: EntityKind + EntityValue,
 {
     /// Build one typed runtime adapter from recovered context plus typed access sidecar.
-    #[must_use]
     pub(in crate::db::executor) fn new(
         ctx: &'a Context<'ctx, E>,
         access: &'a crate::db::access::AccessPlan<E::Key>,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
+        let model = E::MODEL;
         let slot_map =
-            resolved_index_slots_for_access_path(E::MODEL, access.resolve_strategy().executable());
+            resolved_index_slots_for_access_path(model, access.resolve_strategy().executable());
+        let store = ctx
+            .db
+            .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
 
-        Self {
+        Ok(Self {
             ctx,
             access,
+            model,
             slot_map,
-        }
+            scalar_row_runtime: ScalarRowRuntimeState::new(store, model),
+        })
     }
 
     /// Borrow the precomputed slot map for this typed adapter.
@@ -271,70 +369,42 @@ where
         plan: &AccessPlannedQuery,
         cursor_boundary: Option<&CursorBoundary>,
         key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<Option<ErasedRowCollectorPayload>, InternalError> {
-        Ok(
-            ExecutionKernel::try_materialize_load_via_row_collector::<E>(
-                self.ctx,
-                plan,
-                cursor_boundary,
-                key_stream,
-            )?
-            .map(|(page, keys_scanned, post_access_rows)| {
-                (ErasedCursorPage::new(page), keys_scanned, post_access_rows)
-            }),
+    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
+        let mut row_runtime = ScalarRowRuntimeHandle::new(
+            self.scalar_row_runtime.clone(),
+            scalar_row_runtime_vtable(),
+        );
+
+        ExecutionKernel::try_materialize_load_via_row_collector(
+            plan,
+            self.model,
+            cursor_boundary,
+            key_stream,
+            &mut row_runtime,
         )
     }
 
-    fn materialize_key_stream_into_page(
+    fn materialize_key_stream_into_structural_page(
         &self,
         request: RuntimePageMaterializationRequest<'_>,
-    ) -> Result<ErasedRowCollectorPayload, InternalError> {
-        let mut read_row_for_key = |key: &crate::db::data::DataKey| {
-            let read = match request.consistency {
-                MissingRowPolicy::Error => self.ctx.read_strict(key),
-                MissingRowPolicy::Ignore => self.ctx.read(key),
-            };
+    ) -> Result<StructuralRowCollectorPayload, InternalError> {
+        let mut row_runtime = ScalarRowRuntimeHandle::new(
+            self.scalar_row_runtime.clone(),
+            scalar_row_runtime_vtable(),
+        );
 
-            match read {
-                Ok(row) => Ok(Some(row)),
-                Err(err) if err.is_not_found() => Ok(None),
-                Err(err) => Err(err),
-            }
-        };
-        let predicate_preapplied = request.plan.scalar_plan().predicate.is_some();
-        let mut on_row = |data_row: DataRow| {
-            let (_id, entity) = Context::deserialize_row(data_row.clone())?;
-            if predicate_preapplied
-                && let Some(predicate_program) = request.predicate_slots
-                && !predicate_program.eval(&entity)
-            {
-                return Ok(None);
-            }
-
-            Ok(Some(kernel_row_from_entity::<E>(data_row, &entity)))
-        };
-        let mut build_page = |data_rows: Vec<DataRow>, next_cursor| {
-            let rows = Context::<E>::deserialize_rows(data_rows)?;
-            let items = EntityResponse::from_rows(rows);
-
-            Ok(ErasedCursorPage::new(
-                crate::db::executor::pipeline::contracts::CursorPage { items, next_cursor },
-            ))
-        };
-
-        materialize_key_stream_into_erased_page(
+        materialize_key_stream_into_structural_page(
             KernelPageMaterializationRequest {
-                model: E::MODEL,
+                model: self.model,
                 plan: request.plan,
                 predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,
                 scan_budget_hint: request.scan_budget_hint,
                 stream_order_contract_safe: request.stream_order_contract_safe,
+                consistency: request.consistency,
                 continuation: request.continuation,
             },
-            &mut read_row_for_key,
-            &mut on_row,
-            &mut build_page,
+            &mut row_runtime,
         )
     }
 }

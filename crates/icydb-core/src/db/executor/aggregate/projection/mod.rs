@@ -18,7 +18,9 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter,
             aggregate::{
-                AggregateKind, ScalarAggregateOutput,
+                AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
+                PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
+                PreparedScalarProjectionStrategy, ScalarAggregateOutput, ScalarProjectionWindow,
                 field::{
                     FieldSlot, extract_orderable_field_value,
                     resolve_any_aggregate_target_slot_from_planner_slot,
@@ -54,167 +56,355 @@ use crate::{
 
 type IdValueProjection<E> = Vec<(Id<E>, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
-type CoveringProjectionPairs = (CoveringProjectionContext, CoveringProjectionPairRows);
-type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairs>, InternalError>;
+type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
 type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
+
+// Typed boundary request for one scalar field-projection terminal family call.
+pub(in crate::db) enum ScalarProjectionBoundaryRequest {
+    Values,
+    DistinctValues,
+    CountDistinct,
+    ValuesWithIds,
+    TerminalValue { terminal_kind: AggregateKind },
+}
+
+// Typed boundary output for one scalar field-projection terminal family call.
+pub(in crate::db) enum ScalarProjectionBoundaryOutput<E: EntityKind + EntityValue> {
+    Count(u32),
+    Values(Vec<Value>),
+    ValuesWithIds(IdValueProjection<E>),
+    TerminalValue(Option<Value>),
+}
+
+impl<E> ScalarProjectionBoundaryOutput<E>
+where
+    E: EntityKind + EntityValue,
+{
+    // Decode one plain-value projection boundary output.
+    pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
+        match self {
+            Self::Values(values) => Ok(values),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "scalar projection boundary values output kind mismatch",
+            )),
+        }
+    }
+
+    // Decode one count-distinct projection boundary output.
+    pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
+        match self {
+            Self::Count(value) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "scalar projection boundary count output kind mismatch",
+            )),
+        }
+    }
+
+    // Decode one `(id, value)` projection boundary output.
+    pub(in crate::db) fn into_values_with_ids(self) -> Result<IdValueProjection<E>, InternalError> {
+        match self {
+            Self::ValuesWithIds(values) => Ok(values),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "scalar projection boundary values-with-ids output kind mismatch",
+            )),
+        }
+    }
+
+    // Decode one terminal-value projection boundary output.
+    pub(in crate::db) fn into_terminal_value(self) -> Result<Option<Value>, InternalError> {
+        match self {
+            Self::TerminalValue(value) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "scalar projection boundary terminal-value output kind mismatch",
+            )),
+        }
+    }
+}
 
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Execute `values_by(field)` over the effective response window using one
-    /// planner-resolved field slot.
-    pub(in crate::db) fn values_by_slot(
+    // Execute one scalar field-projection terminal family request from the
+    // typed API boundary, lower plan-derived policy into one prepared
+    // projection contract, and then execute that contract.
+    pub(in crate::db) fn execute_scalar_projection_boundary(
         &self,
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
-    ) -> Result<Vec<Value>, InternalError> {
+        request: ScalarProjectionBoundaryRequest,
+    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+        let prepared = self.prepare_scalar_projection_boundary(plan, target_field, request)?;
+
+        self.execute_prepared_scalar_projection_boundary(prepared)
+    }
+
+    // Lower one public scalar field-projection request into one prepared
+    // projection contract that no longer retains `ExecutablePlan<E>`.
+    fn prepare_scalar_projection_boundary(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+        request: ScalarProjectionBoundaryRequest,
+    ) -> Result<PreparedScalarProjectionExecutionState<'_, E>, InternalError> {
+        let target_field_name = target_field.field().to_string();
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(projected_values) =
-            self.covering_index_projection_values_if_eligible(&plan, &target_field)?
+        let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
+
+        let op = PreparedScalarProjectionOp::from_request(request);
+        if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = op
+            && !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last)
         {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
-            return Ok(projected_values);
-        }
-        if let Some(constant_value) =
-            Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
-        {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
-            let row_count = self.aggregate_count(plan)?;
-            let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
-            return Ok(vec![constant_value; output_len]);
-        }
-
-        let response = self.execute(plan)?;
-
-        Self::project_field_values_from_materialized(response, target_field.field(), field_slot)
-    }
-
-    /// Execute `distinct_values_by(field)` over the effective response window
-    /// using one planner-resolved field slot.
-    pub(in crate::db) fn distinct_values_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(covering_projection) =
-            self.covering_index_projection_values_with_context_if_eligible(&plan, &target_field)?
-        {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
-            if covering_index_adjacent_distinct_eligible(covering_projection.context) {
-                return Ok(dedup_adjacent_values(covering_projection.values));
-            }
-
-            return dedup_values_preserving_first(covering_projection.values);
-        }
-        if let Some(constant_value) =
-            Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
-        {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
-            let has_rows = self.aggregate_exists(plan)?;
-            return Ok(if has_rows {
-                vec![constant_value]
-            } else {
-                Vec::new()
-            });
-        }
-
-        let response = self.execute(plan)?;
-
-        Self::project_distinct_field_values_from_materialized(
-            response,
-            target_field.field(),
-            field_slot,
-        )
-    }
-
-    /// Execute `values_by_with_ids(field)` over the effective response window
-    /// using one planner-resolved field slot.
-    pub(in crate::db) fn values_by_with_ids_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<IdValueProjection<E>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(projected_values) =
-            self.covering_index_projection_values_with_ids_if_eligible(&plan, &target_field)?
-        {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
-            return Ok(projected_values);
-        }
-        let response = self.execute(plan)?;
-
-        Self::project_field_values_with_ids_from_materialized(
-            response,
-            target_field.field(),
-            field_slot,
-        )
-    }
-
-    /// Execute `first_value_by(field)` using one planner-resolved field slot.
-    pub(in crate::db) fn first_value_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<Option<Value>, InternalError> {
-        self.terminal_value_by_slot(plan, target_field, AggregateKind::First)
-    }
-
-    /// Execute `last_value_by(field)` using one planner-resolved field slot.
-    pub(in crate::db) fn last_value_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-    ) -> Result<Option<Value>, InternalError> {
-        self.terminal_value_by_slot(plan, target_field, AggregateKind::Last)
-    }
-
-    // Execute FIRST/LAST field-value projection terminals through one shared
-    // wrapper that preserves covering and constant fast-path behavior.
-    fn terminal_value_by_slot(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: PlannedFieldSlot,
-        terminal_kind: AggregateKind,
-    ) -> Result<Option<Value>, InternalError> {
-        if !terminal_kind.supports_terminal_value_projection() {
             return Err(crate::db::error::query_executor_invariant(
                 "terminal value projection requires FIRST/LAST aggregate kind",
             ));
         }
 
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(projected_values) =
-            self.covering_index_projection_values_if_eligible(&plan, &target_field)?
-        {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
-            return Ok(match terminal_kind {
-                AggregateKind::First => projected_values.first().cloned(),
-                AggregateKind::Last => projected_values.last().cloned(),
-                _ => unreachable!(
-                    "terminal value projection helper must only be used for FIRST/LAST terminals"
-                ),
-            });
+        let strategy = Self::prepare_scalar_projection_strategy(&prepared, &target_field_name, op);
+
+        Ok(PreparedScalarProjectionExecutionState {
+            boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary {
+                target_field_name,
+                field_slot,
+                op,
+                strategy,
+            },
+            prepared,
+        })
+    }
+
+    // Execute one prepared field-projection contract without re-reading
+    // access-path, covering, or distinct policy from the original plan.
+    fn execute_prepared_scalar_projection_boundary(
+        &self,
+        prepared_state: PreparedScalarProjectionExecutionState<'_, E>,
+    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+        let PreparedScalarProjectionExecutionState { boundary, prepared } = prepared_state;
+
+        match boundary.strategy.clone() {
+            PreparedScalarProjectionStrategy::Materialized => {
+                self.execute_materialized_scalar_projection_boundary(boundary, prepared)
+            }
+            PreparedScalarProjectionStrategy::CoveringIndex {
+                context,
+                window,
+                distinct,
+            } => self.execute_covering_scalar_projection_boundary(
+                boundary, prepared, context, window, distinct,
+            ),
+            PreparedScalarProjectionStrategy::CoveringConstant { value } => {
+                self.execute_constant_scalar_projection_boundary(boundary, prepared, value)
+            }
         }
-        if let Some(constant_value) =
-            Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
+    }
+
+    // Resolve one non-generic execution strategy for the prepared projection
+    // contract before runtime execution begins.
+    fn prepare_scalar_projection_strategy(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        target_field: &str,
+        op: PreparedScalarProjectionOp,
+    ) -> PreparedScalarProjectionStrategy {
+        if !prepared.has_predicate()
+            && let Some(context) = covering_index_projection_context(
+                &prepared.typed_access,
+                prepared.order_spec(),
+                target_field,
+                E::MODEL.primary_key.name,
+            )
         {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
-            let has_rows = self.aggregate_exists(plan)?;
-            return Ok(has_rows.then_some(constant_value));
+            let window = ScalarProjectionWindow {
+                offset: scalar_window_for_covering_projection(prepared.page_spec()).0,
+                limit: scalar_window_for_covering_projection(prepared.page_spec()).1,
+            };
+            let distinct = match op {
+                PreparedScalarProjectionOp::DistinctValues
+                | PreparedScalarProjectionOp::CountDistinct => {
+                    Some(if covering_index_adjacent_distinct_eligible(context) {
+                        PreparedCoveringDistinctStrategy::Adjacent
+                    } else {
+                        PreparedCoveringDistinctStrategy::PreserveFirst
+                    })
+                }
+                _ => None,
+            };
+
+            return PreparedScalarProjectionStrategy::CoveringIndex {
+                context,
+                window,
+                distinct,
+            };
         }
 
-        self.execute_terminal_value_field_projection_with_slot(
-            plan,
-            target_field.field(),
-            field_slot,
-            terminal_kind,
-        )
+        match op {
+            PreparedScalarProjectionOp::Values
+            | PreparedScalarProjectionOp::DistinctValues
+            | PreparedScalarProjectionOp::CountDistinct
+            | PreparedScalarProjectionOp::TerminalValue { .. } => {
+                if let Some(value) =
+                    Self::constant_covering_projection_value_if_eligible(prepared, target_field)
+                {
+                    return PreparedScalarProjectionStrategy::CoveringConstant { value };
+                }
+            }
+            PreparedScalarProjectionOp::ValuesWithIds => {}
+        }
+
+        PreparedScalarProjectionStrategy::Materialized
+    }
+
+    // Execute one prepared covering-index projection contract. Decode failures
+    // that prove the covering payload is unusable fall back to the canonical
+    // materialized boundary without re-deriving strategy from the plan.
+    fn execute_covering_scalar_projection_boundary(
+        &self,
+        boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        context: CoveringProjectionContext,
+        window: ScalarProjectionWindow,
+        distinct: Option<PreparedCoveringDistinctStrategy>,
+    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+        match boundary.op {
+            PreparedScalarProjectionOp::Values => {
+                if let Some(covering_projection) =
+                    Self::covering_index_projection_values_with_context_from_prepared(
+                        &prepared, context, window,
+                    )?
+                {
+                    Self::record_covering_index_projection_fast_path_hit_for_tests();
+                    return Ok(ScalarProjectionBoundaryOutput::Values(
+                        covering_projection.values,
+                    ));
+                }
+            }
+            PreparedScalarProjectionOp::DistinctValues => {
+                if let Some(covering_projection) =
+                    Self::covering_index_projection_values_with_context_from_prepared(
+                        &prepared, context, window,
+                    )?
+                {
+                    Self::record_covering_index_projection_fast_path_hit_for_tests();
+                    let values = match distinct {
+                        Some(PreparedCoveringDistinctStrategy::Adjacent) => {
+                            dedup_adjacent_values(covering_projection.values)
+                        }
+                        Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
+                            dedup_values_preserving_first(covering_projection.values)?
+                        }
+                        None => {
+                            return Err(crate::db::error::query_executor_invariant(
+                                "covering DISTINCT projection requires prepared distinct strategy",
+                            ));
+                        }
+                    };
+
+                    return Ok(ScalarProjectionBoundaryOutput::Values(values));
+                }
+            }
+            PreparedScalarProjectionOp::CountDistinct => {
+                if let Some(covering_projection) =
+                    Self::covering_index_projection_values_with_context_from_prepared(
+                        &prepared, context, window,
+                    )?
+                {
+                    Self::record_covering_index_projection_fast_path_hit_for_tests();
+                    let values = match distinct {
+                        Some(PreparedCoveringDistinctStrategy::Adjacent) => {
+                            dedup_adjacent_values(covering_projection.values)
+                        }
+                        Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
+                            dedup_values_preserving_first(covering_projection.values)?
+                        }
+                        None => {
+                            return Err(crate::db::error::query_executor_invariant(
+                                "covering COUNT DISTINCT projection requires prepared distinct strategy",
+                            ));
+                        }
+                    };
+
+                    return Ok(ScalarProjectionBoundaryOutput::Count(
+                        u32::try_from(values.len()).unwrap_or(u32::MAX),
+                    ));
+                }
+            }
+            PreparedScalarProjectionOp::ValuesWithIds => {
+                if let Some(values) = Self::covering_index_projection_values_with_ids_from_context(
+                    &prepared, context, window,
+                )? {
+                    Self::record_covering_index_projection_fast_path_hit_for_tests();
+                    return Ok(ScalarProjectionBoundaryOutput::ValuesWithIds(values));
+                }
+            }
+            PreparedScalarProjectionOp::TerminalValue { terminal_kind } => {
+                if let Some(covering_projection) =
+                    Self::covering_index_projection_values_with_context_from_prepared(
+                        &prepared, context, window,
+                    )?
+                {
+                    Self::record_covering_index_projection_fast_path_hit_for_tests();
+                    let value = match terminal_kind {
+                        AggregateKind::First => covering_projection.values.first().cloned(),
+                        AggregateKind::Last => covering_projection.values.last().cloned(),
+                        _ => {
+                            return Err(crate::db::error::query_executor_invariant(
+                                "covering terminal value projection requires FIRST/LAST aggregate kind",
+                            ));
+                        }
+                    };
+
+                    return Ok(ScalarProjectionBoundaryOutput::TerminalValue(value));
+                }
+            }
+        }
+
+        self.execute_materialized_scalar_projection_boundary(boundary, prepared)
+    }
+
+    // Execute one prepared constant projection contract without revisiting
+    // covering eligibility checks.
+    fn execute_constant_scalar_projection_boundary(
+        &self,
+        boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        value: Value,
+    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+        Self::record_covering_constant_projection_fast_path_hit_for_tests();
+
+        match boundary.op {
+            PreparedScalarProjectionOp::Values => {
+                let row_count = self.aggregate_count_from_prepared(prepared)?;
+                let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
+
+                Ok(ScalarProjectionBoundaryOutput::Values(vec![
+                    value;
+                    output_len
+                ]))
+            }
+            PreparedScalarProjectionOp::DistinctValues => {
+                let has_rows = self.aggregate_exists_from_prepared(prepared)?;
+                Ok(ScalarProjectionBoundaryOutput::Values(if has_rows {
+                    vec![value]
+                } else {
+                    Vec::new()
+                }))
+            }
+            PreparedScalarProjectionOp::CountDistinct => {
+                let has_rows = self.aggregate_exists_from_prepared(prepared)?;
+                Ok(ScalarProjectionBoundaryOutput::Count(u32::from(has_rows)))
+            }
+            PreparedScalarProjectionOp::TerminalValue { .. } => {
+                let has_rows = self.aggregate_exists_from_prepared(prepared)?;
+                Ok(ScalarProjectionBoundaryOutput::TerminalValue(
+                    has_rows.then_some(value),
+                ))
+            }
+            PreparedScalarProjectionOp::ValuesWithIds => {
+                Err(crate::db::error::query_executor_invariant(
+                    "values-with-ids projection cannot execute constant covering strategy",
+                ))
+            }
+        }
     }
 
     // Record one covering index projection fast-path hit in tests.
@@ -233,23 +423,86 @@ where
         );
     }
 
+    // Execute one prepared materialized projection contract.
+    fn execute_materialized_scalar_projection_boundary(
+        &self,
+        boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
+    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+        if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = boundary.op {
+            return self
+                .execute_terminal_value_field_projection_with_slot(
+                    prepared,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                    terminal_kind,
+                )
+                .map(ScalarProjectionBoundaryOutput::TerminalValue);
+        }
+
+        let response = self.execute_scalar_materialized_rows_stage(prepared)?;
+
+        match boundary.op {
+            PreparedScalarProjectionOp::Values => Self::project_field_values_from_materialized(
+                response,
+                &boundary.target_field_name,
+                boundary.field_slot,
+            )
+            .map(ScalarProjectionBoundaryOutput::Values),
+            PreparedScalarProjectionOp::DistinctValues => {
+                Self::project_distinct_field_values_from_materialized(
+                    response,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )
+                .map(ScalarProjectionBoundaryOutput::Values)
+            }
+            PreparedScalarProjectionOp::CountDistinct => {
+                Self::project_distinct_field_values_from_materialized(
+                    response,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )
+                .map(|values| {
+                    ScalarProjectionBoundaryOutput::Count(
+                        u32::try_from(values.len()).unwrap_or(u32::MAX),
+                    )
+                })
+            }
+            PreparedScalarProjectionOp::ValuesWithIds => {
+                Self::project_field_values_with_ids_from_materialized(
+                    response,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )
+                .map(ScalarProjectionBoundaryOutput::ValuesWithIds)
+            }
+            PreparedScalarProjectionOp::TerminalValue { .. } => {
+                Err(crate::db::error::query_executor_invariant(
+                    "terminal value projection materialized branch must execute before row materialization",
+                ))
+            }
+        }
+    }
+
     // Execute one field-target scalar terminal projection (`first_value_by` /
     // `last_value_by`) using a planner-validated slot and route-owned
     // first/last row selection semantics.
     fn execute_terminal_value_field_projection_with_slot(
         &self,
-        plan: ExecutablePlan<E>,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         target_field: &str,
         field_slot: FieldSlot,
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
-        let consistency = plan.consistency();
-        let (ScalarAggregateOutput::First(selected_key)
-        | ScalarAggregateOutput::Last(selected_key)) = ExecutionKernel::execute_aggregate_spec(
-            self,
-            plan,
+        let consistency = prepared.consistency();
+        let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+            prepared,
             terminal_expr_for_kind(terminal_kind),
-        )?
+        );
+        let (ScalarAggregateOutput::First(selected_key)
+        | ScalarAggregateOutput::Last(selected_key)) =
+            ExecutionKernel::execute_prepared_aggregate_state(self, state)?
         else {
             return Err(crate::db::error::query_executor_invariant(
                 "terminal value projection result kind mismatch",
@@ -333,41 +586,25 @@ where
     //   missing-row corruption surfacing behavior.
     // - only applies when the target field is bound by index-prefix equality.
     fn constant_covering_projection_value_if_eligible(
-        plan: &ExecutablePlan<E>,
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
         target_field: &str,
     ) -> Option<Value> {
-        if !matches!(plan.consistency(), MissingRowPolicy::Ignore) {
+        if !matches!(prepared.consistency(), MissingRowPolicy::Ignore) {
             return None;
         }
 
-        constant_covering_projection_value_from_access(plan.access(), target_field)
+        constant_covering_projection_value_from_access(&prepared.typed_access, target_field)
     }
 
-    // Resolve one index-covered projection value vector for field terminals when
-    // planner/runtime shape contracts allow index-only value decoding.
-    fn covering_index_projection_values_if_eligible(
-        &self,
-        plan: &ExecutablePlan<E>,
-        target_field: &PlannedFieldSlot,
-    ) -> Result<Option<Vec<Value>>, InternalError> {
-        let Some(covering_projection) =
-            self.covering_index_projection_values_with_context_if_eligible(plan, target_field)?
-        else {
-            return Ok(None);
-        };
-
-        Ok(Some(covering_projection.values))
-    }
-
-    // Resolve one index-covered projection value vector with routing metadata
-    // so terminal-specific post-processing can choose safe distinct strategy.
-    fn covering_index_projection_values_with_context_if_eligible(
-        &self,
-        plan: &ExecutablePlan<E>,
-        target_field: &PlannedFieldSlot,
+    // Resolve one index-covered projection value vector from already-prepared
+    // covering strategy metadata.
+    fn covering_index_projection_values_with_context_from_prepared(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        context: CoveringProjectionContext,
+        window: ScalarProjectionWindow,
     ) -> Result<Option<CoveringProjectionValues>, InternalError> {
-        let Some((context, projected_pairs)) =
-            self.covering_index_projection_pairs_if_eligible(plan, target_field)?
+        let Some(projected_pairs) =
+            Self::covering_index_projection_pairs_from_context(prepared, context, window)?
         else {
             return Ok(None);
         };
@@ -377,18 +614,18 @@ where
             .map(|(_, value)| value)
             .collect();
 
-        Ok(Some(CoveringProjectionValues { values, context }))
+        Ok(Some(CoveringProjectionValues { values }))
     }
 
-    // Resolve one index-covered `(id, value)` vector for `values_by_with_ids`
-    // terminals when planner/runtime shape contracts allow index-only decode.
-    fn covering_index_projection_values_with_ids_if_eligible(
-        &self,
-        plan: &ExecutablePlan<E>,
-        target_field: &PlannedFieldSlot,
+    // Resolve one index-covered `(id, value)` projection vector from already
+    // prepared covering strategy metadata.
+    fn covering_index_projection_values_with_ids_from_context(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        context: CoveringProjectionContext,
+        window: ScalarProjectionWindow,
     ) -> Result<Option<IdValueProjection<E>>, InternalError> {
-        let Some((_, projected_pairs)) =
-            self.covering_index_projection_pairs_if_eligible(plan, target_field)?
+        let Some(projected_pairs) =
+            Self::covering_index_projection_pairs_from_context(prepared, context, window)?
         else {
             return Ok(None);
         };
@@ -406,39 +643,29 @@ where
         Ok(Some(projected_values))
     }
 
-    // Resolve one index-covered projection pair vector with routing metadata so
-    // field-value terminals can share decode, policy, ordering, and window logic.
-    fn covering_index_projection_pairs_if_eligible(
-        &self,
-        plan: &ExecutablePlan<E>,
-        target_field: &PlannedFieldSlot,
+    // Resolve one covering projection pair vector from already prepared
+    // covering-index strategy metadata.
+    fn covering_index_projection_pairs_from_context(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        context: CoveringProjectionContext,
+        window: ScalarProjectionWindow,
     ) -> CoveringProjectionPairsResolution {
-        if plan.has_predicate() {
-            return Ok(None);
-        }
-
-        let Some(context) =
-            covering_index_projection_context::<E>(plan.access(), plan, target_field.field())
-        else {
-            return Ok(None);
-        };
-
         // Phase 1: read component pairs in the order implied by the covering contract.
         let scan_direction = match context.order_contract {
             CoveringProjectionOrder::IndexOrder(direction) => direction,
             CoveringProjectionOrder::PrimaryKeyOrder(_) => Direction::Asc,
         };
-        let raw_pairs = self.read_covering_projection_component_pairs(
-            plan,
+        let raw_pairs = Self::read_covering_projection_component_pairs(
+            prepared,
             context.component_index,
             scan_direction,
         )?;
 
         // Phase 2: enforce missing-row policy and decode projection components.
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        let ctx = self.recovered_context()?;
+        let ctx = &prepared.ctx;
         for (data_key, component_bytes) in raw_pairs {
-            match plan.consistency() {
+            match prepared.consistency() {
                 MissingRowPolicy::Ignore => match ctx.read(&data_key) {
                     Ok(_) => {}
                     Err(err) if err.is_not_found() => continue,
@@ -455,7 +682,7 @@ where
             projected_pairs.push((data_key, value));
         }
 
-        // Phase 3: realign to post-access order and apply effective window.
+        // Phase 3: realign to post-access order and apply prepared effective window.
         match context.order_contract {
             CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
                 projected_pairs.sort_by(|left, right| left.0.cmp(&right.0));
@@ -466,34 +693,32 @@ where
             CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc) => {}
         }
 
-        let (offset, limit) = scalar_window_for_covering_projection(plan.page_spec());
-        let windowed_pairs = match limit {
+        let windowed_pairs = match window.limit {
             Some(limit) => projected_pairs
                 .into_iter()
-                .skip(offset)
+                .skip(window.offset)
                 .take(limit)
                 .collect(),
-            None => projected_pairs.into_iter().skip(offset).collect(),
+            None => projected_pairs.into_iter().skip(window.offset).collect(),
         };
 
-        Ok(Some((context, windowed_pairs)))
+        Ok(Some(windowed_pairs))
     }
 
     // Read one index-backed `(data_key, encoded_component)` stream for covering
     // projection decoding.
     fn read_covering_projection_component_pairs(
-        &self,
-        plan: &ExecutablePlan<E>,
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
         component_index: usize,
         direction: Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        let ctx = self.recovered_context()?;
+        let ctx = &prepared.ctx;
         let continuation = IndexScanContinuationInput::new(None, direction);
 
-        let prefix_specs = plan.index_prefix_specs()?;
+        let prefix_specs = prepared.index_prefix_specs.as_slice();
         if let [spec] = prefix_specs {
             return Self::read_covering_projection_component_pairs_for_index_bounds(
-                &ctx,
+                ctx,
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -506,10 +731,10 @@ where
             ));
         }
 
-        let range_specs = plan.index_range_specs()?;
+        let range_specs = prepared.index_range_specs.as_slice();
         if let [spec] = range_specs {
             return Self::read_covering_projection_component_pairs_for_index_bounds(
-                &ctx,
+                ctx,
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -525,6 +750,42 @@ where
         Err(crate::db::error::query_executor_invariant(
             "covering projection component scans require index-backed access paths",
         ))
+    }
+
+    // Execute COUNT from one prepared aggregate stage so constant projection
+    // fast paths do not re-enter the plan-owned terminal wrapper surface.
+    fn aggregate_count_from_prepared(
+        &self,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
+    ) -> Result<u32, InternalError> {
+        let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+            prepared,
+            terminal_expr_for_kind(AggregateKind::Count),
+        );
+        match ExecutionKernel::execute_prepared_aggregate_state(self, state)? {
+            ScalarAggregateOutput::Count(value) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "projection COUNT helper result kind mismatch",
+            )),
+        }
+    }
+
+    // Execute EXISTS from one prepared aggregate stage so constant projection
+    // fast paths do not re-enter the plan-owned terminal wrapper surface.
+    fn aggregate_exists_from_prepared(
+        &self,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
+    ) -> Result<bool, InternalError> {
+        let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
+            prepared,
+            terminal_expr_for_kind(AggregateKind::Exists),
+        );
+        match ExecutionKernel::execute_prepared_aggregate_state(self, state)? {
+            ScalarAggregateOutput::Exists(value) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "projection EXISTS helper result kind mismatch",
+            )),
+        }
     }
 
     // Resolve one covering projection component stream for one lowered

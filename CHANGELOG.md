@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.59.x] - 2026-03-18 - Execution De-Monomorphization Open
 
+- `0.59.1` moves scalar execution much further onto shared prepared runtime contracts by removing more plan-owned scalar branching, making scalar row decoding structural, and updating fresh developer setup to install the required `ripgrep` tool for invariant checks.
 - `0.59.0` starts the execution-engine size-reduction line by making grouped aggregate state and grouped fold ownership structural, removing the old typed grouped fold hook layer, and landing the first measured grouped-kernel size drop before scalar execution work begins.
 
 See detailed breakdown:

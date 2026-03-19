@@ -496,8 +496,8 @@ fn run_ranked_k_one_extrema(
     terminal: RankedKOneTerminal,
 ) -> Result<Option<Id<PushdownParityEntity>>, InternalError> {
     match terminal {
-        RankedKOneTerminal::Top => load.aggregate_max_by_slot(plan, slot(load, "rank")),
-        RankedKOneTerminal::Bottom => load.aggregate_min_by_slot(plan, slot(load, "rank")),
+        RankedKOneTerminal::Top => execute_max_by_slot_terminal(load, plan, slot(load, "rank")),
+        RankedKOneTerminal::Bottom => execute_min_by_slot_terminal(load, plan, slot(load, "rank")),
     }
 }
 

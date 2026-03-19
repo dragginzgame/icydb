@@ -66,6 +66,15 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Execute one already-prepared grouped route stage directly through the
+    // canonical grouped runtime spine.
+    pub(in crate::db::executor) fn execute_prepared_grouped_route(
+        &self,
+        route: GroupedRouteStage,
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+        execute_grouped_route_path(self, route)
+    }
+
     // Execute one traced paged grouped load and materialize grouped output.
     pub(in crate::db::executor) fn execute_load_grouped_page_with_trace(
         &self,

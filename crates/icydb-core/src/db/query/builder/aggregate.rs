@@ -95,12 +95,6 @@ impl AggregateExpr {
         Self::supports_field_targets_kind(kind)
     }
 
-    /// Return whether this expression kind supports first/last value projection.
-    #[must_use]
-    pub(crate) const fn supports_terminal_value_projection_kind(kind: AggregateKind) -> bool {
-        matches!(kind, AggregateKind::First | AggregateKind::Last)
-    }
-
     /// Return whether reducer updates for this kind require a decoded id payload.
     #[must_use]
     pub(crate) const fn requires_decoded_id_kind(kind: AggregateKind) -> bool {

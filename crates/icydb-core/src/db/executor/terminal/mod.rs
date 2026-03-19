@@ -6,6 +6,7 @@
 mod bytes;
 pub(in crate::db::executor) mod page;
 mod ranking;
+mod row_decode;
 #[cfg(test)]
 mod tests;
 
@@ -15,6 +16,8 @@ use crate::{
     serialize::serialized_len,
     value::Value,
 };
+
+pub(in crate::db::executor) use row_decode::{RowDecoder, RowLayout};
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
 // testable without requiring oversized persisted rows.

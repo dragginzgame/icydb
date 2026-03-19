@@ -67,7 +67,7 @@ install-all: install-dev install-canister-deps install-hooks
 install-dev:
 	$(CARGO_ENV) cargo install cargo-watch --locked || true
 	$(CARGO_ENV) cargo install cargo-edit --locked || true
-	$(CARGO_ENV) cargo install cargo-get cargo-sort cargo-sort-derives --locked || true
+	$(CARGO_ENV) cargo install cargo-get cargo-sort cargo-sort-derives ripgrep --locked || true
 
 # Install wasm target + candid tools
 install-canister-deps:

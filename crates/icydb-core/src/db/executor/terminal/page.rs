@@ -9,24 +9,23 @@ use crate::{
             CursorBoundary, CursorBoundarySlot, MaterializedCursorRow, apply_order_direction,
             compare_boundary_slots, next_cursor_for_materialized_rows,
         },
-        data::{DataKey, DataRow, RawRow},
+        data::{DataKey, DataRow},
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
             ScalarContinuationBindings, compute_page_keep_count,
-            pipeline::contracts::{ErasedCursorPage, PageCursor},
+            pipeline::contracts::{PageCursor, StructuralCursorPage},
             projection::validate_projection_over_slot_rows,
             route::access_order_satisfied_by_route_contract_for_model,
         },
         index::IndexKey,
-        predicate::PredicateProgram,
+        predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
     },
     error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, marker::PhantomData};
 
 ///
 /// KernelRow
@@ -41,36 +40,111 @@ pub(in crate::db::executor) struct KernelRow {
 }
 
 impl KernelRow {
-    fn from_data_row<E>(data_row: DataRow, entity: &E) -> Self
-    where
-        E: EntityKind + EntityValue,
-    {
-        let slots = (0..E::MODEL.fields.len())
-            .map(|slot| entity.get_value_by_index(slot))
-            .collect::<Vec<_>>();
-
+    /// Build one structural kernel row from canonical data-row storage plus
+    /// slot-indexed runtime values.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(data_row: DataRow, slots: Vec<Option<Value>>) -> Self {
         Self { data_row, slots }
     }
 
-    fn slot(&self, slot: usize) -> Option<Value> {
+    pub(in crate::db::executor) fn slot(&self, slot: usize) -> Option<Value> {
         self.slots.get(slot).cloned().flatten()
+    }
+
+    pub(in crate::db::executor) fn into_data_row(self) -> DataRow {
+        self.data_row
     }
 }
 
-// Materialize one decoded entity into the shared non-generic kernel row shape.
-pub(in crate::db::executor) fn kernel_row_from_entity<E>(data_row: DataRow, entity: &E) -> KernelRow
-where
-    E: EntityKind + EntityValue,
-{
-    KernelRow::from_data_row::<E>(data_row, entity)
+///
+/// ScalarRowRuntimeVTable
+///
+/// Structural function-table contract for scalar row production.
+/// Typed row decode stays behind this erased handle so the shared scalar loop
+/// no longer calls typed closures per row.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct ScalarRowRuntimeVTable {
+    pub(in crate::db::executor) read_kernel_row: ScalarRowReadKernelRowFn,
+    pub(in crate::db::executor) drop_state: unsafe fn(*mut ()),
+}
+
+type ScalarRowReadKernelRowFn = unsafe fn(
+    *mut (),
+    MissingRowPolicy,
+    &DataKey,
+    bool,
+    Option<&PredicateProgram>,
+) -> Result<Option<KernelRow>, InternalError>;
+
+///
+/// ScalarRowRuntimeHandle
+///
+/// Erased scalar row-production/runtime handle used by scalar page
+/// materialization.
+/// This keeps the hot loop structural while only the typed store-read boundary
+/// remains behind one erased state object.
+///
+
+pub(in crate::db::executor) struct ScalarRowRuntimeHandle<'a> {
+    state: *mut (),
+    vtable: ScalarRowRuntimeVTable,
+    _marker: PhantomData<&'a mut ()>,
+}
+
+impl<'a> ScalarRowRuntimeHandle<'a> {
+    /// Erase one boundary-resolved row-runtime state object behind a structural runtime handle.
+    #[must_use]
+    pub(in crate::db::executor) fn new<T>(state: T, vtable: ScalarRowRuntimeVTable) -> Self
+    where
+        T: 'a,
+    {
+        Self {
+            state: Box::into_raw(Box::new(state)).cast(),
+            vtable,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Read one structural kernel row from one data key.
+    pub(in crate::db::executor) fn read_kernel_row(
+        &mut self,
+        consistency: MissingRowPolicy,
+        key: &DataKey,
+        predicate_preapplied: bool,
+        predicate_slots: Option<&PredicateProgram>,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        // SAFETY: `state` was allocated by `new`, the vtable matches the
+        // erased state type, and the handle has unique mutable access.
+        unsafe {
+            (self.vtable.read_kernel_row)(
+                self.state,
+                consistency,
+                key,
+                predicate_preapplied,
+                predicate_slots,
+            )
+        }
+    }
+}
+
+impl Drop for ScalarRowRuntimeHandle<'_> {
+    fn drop(&mut self) {
+        // SAFETY: `state` originates from `Box::into_raw` in `new` and must be
+        // reclaimed exactly once when the handle drops.
+        unsafe {
+            (self.vtable.drop_state)(self.state);
+        }
+    }
 }
 
 ///
 /// KernelPageMaterializationRequest
 ///
 /// Structural inputs for one shared scalar page-materialization pass.
-/// This keeps the kernel loop monomorphic while the typed boundary supplies
-/// row decode and final page construction callbacks.
+/// This keeps the kernel loop monomorphic while boundary adapters supply only
+/// store access and outer typed response reconstruction.
 ///
 
 pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
@@ -80,19 +154,15 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
 
-/// Materialize one ordered key stream into one erased typed cursor page.
-pub(in crate::db::executor) fn materialize_key_stream_into_erased_page(
-    request: KernelPageMaterializationRequest<'_>,
-    read_row_for_key: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
-    on_row: &mut dyn FnMut(DataRow) -> Result<Option<KernelRow>, InternalError>,
-    build_page: &mut dyn FnMut(
-        Vec<DataRow>,
-        Option<PageCursor>,
-    ) -> Result<ErasedCursorPage, InternalError>,
-) -> Result<(ErasedCursorPage, usize, usize), InternalError> {
+/// Materialize one ordered key stream into one structural scalar cursor page.
+pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
+    request: KernelPageMaterializationRequest<'a>,
+    row_runtime: &mut ScalarRowRuntimeHandle<'a>,
+) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
     let KernelPageMaterializationRequest {
         model,
         plan,
@@ -100,6 +170,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_erased_page(
         key_stream,
         scan_budget_hint,
         stream_order_contract_safe,
+        consistency,
         continuation,
     } = request;
 
@@ -111,14 +182,16 @@ pub(in crate::db::executor) fn materialize_key_stream_into_erased_page(
     }
 
     // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
-    let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(
+    let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
         stream_order_contract_safe,
+        consistency,
+        predicate_slots,
+        predicate_preapplied,
         continuation,
-        read_row_for_key,
-        on_row,
-    )?;
+        row_runtime,
+    })?;
 
     // Phase 2: apply post-access phases and validate projection semantics.
     let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
@@ -153,9 +226,9 @@ pub(in crate::db::executor) fn materialize_key_stream_into_erased_page(
     )?
     .map(PageCursor::Scalar);
 
-    // Phase 4: hand the structural rows back to the typed boundary for final decode.
-    let data_rows = rows.into_iter().map(|row| row.data_row).collect::<Vec<_>>();
-    let page = build_page(data_rows, next_cursor)?;
+    // Phase 4: finalize one structural page payload for outer typed decode.
+    let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+    let page = StructuralCursorPage::new(data_rows, next_cursor);
 
     Ok((page, rows_scanned, post_access_rows))
 }
@@ -314,14 +387,31 @@ fn apply_post_access_to_kernel_rows_dyn(
 // Shared scalar load page-kernel orchestration boundary.
 // Typed wrappers provide scan/decode callbacks so this loop can remain
 // non-generic while preserving fail-closed continuation invariants.
-fn execute_scalar_page_kernel_dyn(
-    key_stream: &mut dyn OrderedKeyStream,
+struct ScalarPageKernelRequest<'a, 'r> {
+    key_stream: &'a mut dyn OrderedKeyStream,
     scan_budget_hint: Option<usize>,
     stream_order_contract_safe: bool,
-    continuation: ScalarContinuationBindings<'_>,
-    read_row_for_key: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
-    on_row: &mut dyn FnMut(DataRow) -> Result<Option<KernelRow>, InternalError>,
+    consistency: MissingRowPolicy,
+    predicate_slots: Option<&'a PredicateProgram>,
+    predicate_preapplied: bool,
+    continuation: ScalarContinuationBindings<'a>,
+    row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
+}
+
+fn execute_scalar_page_kernel_dyn(
+    request: ScalarPageKernelRequest<'_, '_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
+    let ScalarPageKernelRequest {
+        key_stream,
+        scan_budget_hint,
+        stream_order_contract_safe,
+        consistency,
+        predicate_slots,
+        predicate_preapplied,
+        continuation,
+        row_runtime,
+    } = request;
+
     // Phase 1: continuation-owned budget hints remain validated centrally.
     continuation.validate_load_scan_budget_hint(scan_budget_hint, stream_order_contract_safe)?;
 
@@ -329,28 +419,46 @@ fn execute_scalar_page_kernel_dyn(
     if let Some(scan_budget) = scan_budget_hint {
         let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
 
-        scan_rows_into_kernel(&mut budgeted, read_row_for_key, on_row)
+        scan_rows_into_kernel(
+            &mut budgeted,
+            consistency,
+            predicate_slots,
+            predicate_preapplied,
+            row_runtime,
+        )
     } else {
-        scan_rows_into_kernel(key_stream, read_row_for_key, on_row)
+        scan_rows_into_kernel(
+            key_stream,
+            consistency,
+            predicate_slots,
+            predicate_preapplied,
+            row_runtime,
+        )
     }
 }
 
 fn scan_rows_into_kernel(
     key_stream: &mut dyn OrderedKeyStream,
-    read_row_for_key: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
-    on_row: &mut dyn FnMut(DataRow) -> Result<Option<KernelRow>, InternalError>,
+    consistency: MissingRowPolicy,
+    predicate_slots: Option<&PredicateProgram>,
+    predicate_preapplied: bool,
+    row_runtime: &mut ScalarRowRuntimeHandle<'_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
     let mut rows = Vec::new();
 
     while let Some(key) = key_stream.next_key()? {
-        let Some(row) = read_row_for_key(&key)? else {
+        rows_scanned = rows_scanned.saturating_add(1);
+        let Some(row) = row_runtime.read_kernel_row(
+            consistency,
+            &key,
+            predicate_preapplied,
+            predicate_slots,
+        )?
+        else {
             continue;
         };
-        rows_scanned = rows_scanned.saturating_add(1);
-        if let Some(row) = on_row((key, row))? {
-            rows.push(row);
-        }
+        rows.push(row);
     }
 
     Ok((rows, rows_scanned))

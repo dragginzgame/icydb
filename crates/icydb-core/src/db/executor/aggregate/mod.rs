@@ -52,8 +52,18 @@ pub(in crate::db::executor) use contracts::{
     execute_scalar_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
-    AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
+    AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateExecutionState,
+    PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
+    PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState, PreparedScalarNumericOp,
+    PreparedScalarNumericStrategy, PreparedScalarProjectionBoundary,
+    PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
+    PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
+    PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp, PreparedScalarTerminalStrategy,
+    ScalarProjectionWindow,
 };
+pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
+pub(in crate::db) use projection::ScalarProjectionBoundaryRequest;
+pub(in crate::db) use terminals::ScalarTerminalBoundaryRequest;
 
 ///
 /// AggregateReducerDispatch
@@ -80,46 +90,14 @@ enum AggregateReducerDispatch<'a> {
 /// AggregateReducerSelection
 ///
 /// AggregateReducerSelection carries either a completed aggregate output or a
-/// plan that must continue through canonical streaming fold execution.
+/// prepared execution state that must continue through canonical streaming fold
+/// execution.
 ///
 
-// Streaming selection carries an owned executable plan; keep this explicit
-// expectation until reducer migration shrinks the enum payload.
 #[expect(clippy::large_enum_variant)]
-enum AggregateReducerSelection<E: EntityKind + EntityValue> {
+enum AggregateReducerSelection<'ctx, E: EntityKind + EntityValue> {
     Completed(ScalarAggregateOutput),
-    Streaming(ExecutablePlan<E>),
-}
-
-// Return true when executor-visible plan shape proves the effective aggregate
-// input window is empty.
-//
-// Phase 1: honor explicit zero-window pagination contracts.
-// Phase 2: honor planner-lowered empty by-keys access contracts.
-pub(in crate::db::executor) fn aggregate_window_is_provably_empty<E>(
-    plan: &ExecutablePlan<E>,
-) -> bool
-where
-    E: EntityKind,
-{
-    plan.page_spec().is_some_and(|page| page.limit == Some(0))
-        || plan
-            .access()
-            .resolve_strategy()
-            .as_path()
-            .is_some_and(|path| path.capabilities().is_by_keys_empty())
-}
-
-// Return one canonical terminal aggregate output when executor-visible plan
-// shape proves the effective aggregate window is empty.
-pub(in crate::db::executor) fn aggregate_zero_output_if_window_empty<E>(
-    plan: &ExecutablePlan<E>,
-    kind: AggregateKind,
-) -> Option<ScalarAggregateOutput>
-where
-    E: EntityKind,
-{
-    aggregate_window_is_provably_empty(plan).then(|| kind.zero_output())
+    Streaming(PreparedAggregateExecutionState<'ctx, E>),
 }
 
 impl<'a> AggregateReducerDispatch<'a> {
@@ -143,17 +121,20 @@ impl<'a> AggregateReducerDispatch<'a> {
     }
 
     // Execute eager reducers immediately, or defer to canonical streaming fold.
-    fn execute_or_stream<E>(
+    fn execute_or_stream<'ctx, E>(
         self,
         executor: &LoadExecutor<E>,
-        plan: ExecutablePlan<E>,
-    ) -> Result<AggregateReducerSelection<E>, InternalError>
+        descriptor: AggregateExecutionDescriptor,
+        prepared: PreparedAggregateStreamingInputs<'ctx, E>,
+    ) -> Result<AggregateReducerSelection<'ctx, E>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
         match self {
             Self::Materialized { aggregate } => Ok(AggregateReducerSelection::Completed(
-                ExecutionKernel::execute_materialized_aggregate_spec(executor, plan, aggregate)?,
+                ExecutionKernel::execute_materialized_aggregate_spec(
+                    executor, prepared, aggregate,
+                )?,
             )),
             Self::FieldExtremaStreaming {
                 kind,
@@ -162,87 +143,79 @@ impl<'a> AggregateReducerDispatch<'a> {
                 route_plan,
             } => Ok(AggregateReducerSelection::Completed(
                 ExecutionKernel::execute_field_target_extrema_aggregate(
-                    executor,
-                    plan,
+                    &prepared,
                     kind,
                     target_field,
                     direction,
                     route_plan,
                 )?,
             )),
-            Self::StreamingFold => Ok(AggregateReducerSelection::Streaming(plan)),
+            Self::StreamingFold => Ok(AggregateReducerSelection::Streaming(
+                PreparedAggregateExecutionState {
+                    descriptor,
+                    prepared,
+                },
+            )),
         }
     }
 }
 
-impl ExecutionKernel {
-    // Validate aggregate spec contract at the executor boundary.
-    // Planner owns semantic aggregate-shape validation; executor only fails
-    // closed when a bypassed shape violates the terminal contract.
-    fn validate_scalar_aggregate_spec_invariant(
-        aggregate: &AggregateExpr,
-    ) -> Result<(), InternalError> {
-        if aggregate.target_field().is_some() && !aggregate.kind().supports_field_targets() {
-            return Err(crate::db::error::query_executor_invariant(format!(
-                "field-target aggregate requires MIN/MAX terminal after planning: found {:?}",
-                aggregate.kind()
-            )));
-        }
-
-        Ok(())
-    }
-
-    // Build one canonical aggregate descriptor so kernel dispatch works from a
-    // validated shape with route-owned mode/direction/fold decisions.
-    fn build_aggregate_execution_descriptor<E>(
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    // Consume one typed scalar aggregate wrapper plan into the canonical
+    // prepared aggregate boundary payload before handing execution to
+    // prepared-state helpers.
+    pub(in crate::db::executor::aggregate) fn prepare_scalar_aggregate_boundary(
+        &self,
         plan: ExecutablePlan<E>,
+    ) -> Result<PreparedAggregateStreamingInputs<'_, E>, InternalError> {
+        ExecutionKernel::prepare_aggregate_streaming_inputs(self, plan)
+    }
+}
+
+impl ExecutionKernel {
+    // Build one canonical aggregate descriptor from already-prepared aggregate
+    // inputs so execution no longer reconstructs `ExecutablePlan<E>` shells.
+    pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared<E>(
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         aggregate: AggregateExpr,
-    ) -> Result<(AggregateExecutionDescriptor, ExecutablePlan<E>), InternalError>
+    ) -> PreparedAggregateExecutionState<'_, E>
     where
         E: EntityKind + EntityValue,
     {
         let slot_map = crate::db::executor::preparation::resolved_index_slots_for_access_path(
             E::MODEL,
-            plan.access().resolve_strategy().executable(),
+            prepared.typed_access.resolve_strategy().executable(),
         );
-
-        // Move to one logical-plan spine for route derivation and capability snapshots.
-        let logical_plan = plan.into_inner();
-
-        // Route derivation interprets plan shape only. Re-validate first so
-        // capability snapshots are always built from a validated logical plan.
-        validate_executor_plan::<E>(&logical_plan)?;
-
         let execution_preparation =
-            ExecutionPreparation::from_plan(E::MODEL, &logical_plan, slot_map);
+            ExecutionPreparation::from_plan(E::MODEL, &prepared.logical_plan, slot_map);
 
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
         let route_plan =
             LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
-                &logical_plan,
+                &prepared.logical_plan,
                 aggregate.clone(),
                 &execution_preparation,
             );
         let direction = route_plan.direction();
 
-        // Rebuild executable contracts for downstream reducers after descriptor derivation.
-        let plan = ExecutablePlan::new(logical_plan);
-
-        Ok((
-            AggregateExecutionDescriptor {
+        PreparedAggregateExecutionState {
+            descriptor: AggregateExecutionDescriptor {
                 aggregate,
                 direction,
                 route_plan,
                 execution_preparation,
             },
-            plan,
-        ))
+            prepared,
+        }
     }
 
     // Consume one executable aggregate plan into canonical streaming execution
     // inputs used by both aggregate streaming branches.
-    fn prepare_aggregate_streaming_inputs<E>(
+    pub(in crate::db::executor::aggregate) fn prepare_aggregate_streaming_inputs<E>(
         executor: &'_ LoadExecutor<E>,
         plan: ExecutablePlan<E>,
     ) -> Result<PreparedAggregateStreamingInputs<'_, E>, InternalError>
@@ -277,7 +250,7 @@ impl ExecutionKernel {
     // Kernel owns field-target vs non-field reducer selection for this branch.
     fn execute_materialized_aggregate_spec<E>(
         executor: &LoadExecutor<E>,
-        plan: ExecutablePlan<E>,
+        prepared: PreparedAggregateStreamingInputs<'_, E>,
         aggregate: &AggregateExpr,
     ) -> Result<ScalarAggregateOutput, InternalError>
     where
@@ -289,7 +262,7 @@ impl ExecutionKernel {
             // fail-fast unsupported behavior without scan-budget consumption.
             let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
-            let response = executor.execute(plan)?;
+            let response = executor.execute_scalar_materialized_rows_stage(prepared)?;
 
             return Self::aggregate_field_extrema_from_materialized(
                 response,
@@ -298,7 +271,7 @@ impl ExecutionKernel {
                 field_slot,
             );
         }
-        let response = executor.execute(plan)?;
+        let response = executor.execute_scalar_materialized_rows_stage(prepared)?;
 
         Self::aggregate_from_materialized(response, kind)
     }
@@ -338,29 +311,34 @@ impl ExecutionKernel {
     // Execute one aggregate terminal stage through kernel-owned
     // orchestration while preserving route-owned execution-mode and fast-path
     // behavior.
-    fn execute_terminal_aggregate<E>(
+    pub(in crate::db::executor::aggregate) fn execute_prepared_aggregate_state<E>(
         executor: &LoadExecutor<E>,
-        plan: ExecutablePlan<E>,
-        aggregate: AggregateExpr,
+        state: PreparedAggregateExecutionState<'_, E>,
     ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
     {
-        let (descriptor, plan) = Self::build_aggregate_execution_descriptor(plan, aggregate)?;
-        let kind = descriptor.aggregate.kind();
+        let kind = state.descriptor.aggregate.kind();
+        let descriptor = state.descriptor;
+        let prepared = state.prepared;
 
         // Kernel-owned reducer adapter selection. Eager reducers return
         // immediately; streaming reducers continue through canonical key-stream
-        // preparation and fold.
-        let plan = match AggregateReducerDispatch::from_descriptor(&descriptor)
-            .execute_or_stream(executor, plan)?
-        {
+        // execution using the already-prepared aggregate stage.
+        let state = match AggregateReducerDispatch::from_descriptor(&descriptor).execute_or_stream(
+            executor,
+            descriptor.clone(),
+            prepared,
+        )? {
             AggregateReducerSelection::Completed(aggregate_output) => return Ok(aggregate_output),
-            AggregateReducerSelection::Streaming(plan) => plan,
+            AggregateReducerSelection::Streaming(state) => state,
         };
+        let PreparedAggregateExecutionState {
+            descriptor,
+            prepared,
+        } = state;
         let fold_mode = descriptor.route_plan.aggregate_fold_mode;
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
-        let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;
 
         let fast_path_inputs = AggregateFastPathInputs {
             ctx: &prepared.ctx,
@@ -386,7 +364,7 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access);
+        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.typed_access)?;
         let execution_inputs = ExecutionInputs::new(
             &runtime,
             &prepared.logical_plan,
@@ -422,21 +400,5 @@ impl ExecutionKernel {
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
-    }
-
-    // Execute one aggregate spec through staged grouped/scalar orchestration.
-    // Grouped stage currently validates contract shape and routes only
-    // scalar-terminal shapes into the scalar execution stage.
-    pub(in crate::db::executor) fn execute_aggregate_spec<E>(
-        executor: &LoadExecutor<E>,
-        plan: ExecutablePlan<E>,
-        aggregate: AggregateExpr,
-    ) -> Result<ScalarAggregateOutput, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        Self::validate_scalar_aggregate_spec_invariant(&aggregate)?;
-
-        Self::execute_terminal_aggregate(executor, plan, aggregate)
     }
 }

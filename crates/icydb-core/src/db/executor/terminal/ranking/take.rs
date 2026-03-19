@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        executor::{ExecutablePlan, pipeline::contracts::LoadExecutor},
+        executor::{
+            ExecutablePlan, pipeline::contracts::LoadExecutor,
+            terminal::ranking::RankingTerminalBoundaryRequest,
+        },
         response::EntityResponse,
     },
     error::InternalError,
@@ -22,23 +25,10 @@ where
         plan: ExecutablePlan<E>,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
-        self.execute_take_terminal(plan, take_count)
-    }
-
-    // Execute one row-terminal take (`take(k)`) via canonical materialized
-    // response semantics.
-    fn execute_take_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        take_count: u32,
-    ) -> Result<EntityResponse<E>, InternalError> {
-        let response = self.execute(plan)?;
-        let mut rows = response.rows();
-        let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
-        if rows.len() > take_len {
-            rows.truncate(take_len);
-        }
-
-        Ok(EntityResponse::new(rows))
+        self.execute_ranking_terminal_boundary(
+            plan,
+            RankingTerminalBoundaryRequest::Take { take_count },
+        )?
+        .into_rows()
     }
 }

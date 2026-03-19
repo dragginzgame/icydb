@@ -149,6 +149,10 @@ At that point, growth becomes incremental refinement, not architectural expansio
 - Covering-index detection improvements.
 - Strategy selection clarity (without cost-based planning).
 - Deterministic downgrade pathways.
+- Structural execution ownership across scalar and grouped runtimes.
+- Follow-on row-storage optimization after structural execution completion:
+  replace CBOR row-payload decode with offset-based row encoding plus stable
+  slot/offset layouts for direct field access.
 
 ---
 

@@ -317,7 +317,7 @@ impl ExecutionKernel {
             return Ok(None);
         };
 
-        if !Self::secondary_extrema_probe_requires_fallback(
+        if !Self::secondary_extrema_probe_may_be_inconclusive(
             inputs.consistency(),
             inputs.kind,
             probe_fetch_hint,
@@ -469,7 +469,7 @@ impl ExecutionKernel {
     // Ignore can skip stale leading index entries. If a bounded Min/Max
     // probe returns None exactly at the fetch boundary, the outcome is
     // inconclusive and must retry unbounded.
-    const fn secondary_extrema_probe_requires_fallback(
+    const fn secondary_extrema_probe_may_be_inconclusive(
         consistency: MissingRowPolicy,
         kind: AggregateKind,
         probe_fetch_hint: Option<usize>,

@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::{ExecutionOptimization, pipeline::contracts::ErasedCursorPage};
+use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
 ///
 /// MaterializedExecutionAttempt
@@ -13,7 +13,7 @@ use crate::db::executor::{ExecutionOptimization, pipeline::contracts::ErasedCurs
 ///
 
 pub(in crate::db::executor) struct MaterializedExecutionAttempt {
-    pub(in crate::db::executor) page: ErasedCursorPage,
+    pub(in crate::db::executor) page: StructuralCursorPage,
     pub(in crate::db::executor) rows_scanned: usize,
     pub(in crate::db::executor) post_access_rows: usize,
     pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
@@ -42,7 +42,7 @@ impl MaterializedExecutionAttempt {
     // Split one materialized execution attempt into response page + observability metrics.
     pub(in crate::db::executor) fn into_page_and_metrics(
         self,
-    ) -> (ErasedCursorPage, ExecutionOutcomeMetrics) {
+    ) -> (StructuralCursorPage, ExecutionOutcomeMetrics) {
         let metrics = ExecutionOutcomeMetrics {
             optimization: self.optimization,
             rows_scanned: self.rows_scanned,

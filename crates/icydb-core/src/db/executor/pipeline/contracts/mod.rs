@@ -19,9 +19,9 @@ use crate::{
 };
 
 pub(in crate::db::executor) use execution::{
-    ErasedCursorPage, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
-    ExecutionRuntimeAdapter, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
-    RuntimePageMaterializationRequest,
+    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime, ExecutionRuntimeAdapter,
+    MaterializedExecutionAttempt, ResolvedExecutionKeyStream, RuntimePageMaterializationRequest,
+    StructuralCursorPage,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,

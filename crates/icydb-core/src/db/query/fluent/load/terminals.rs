@@ -6,8 +6,10 @@
 use crate::{
     db::{
         DbSession,
-        executor::{ExecutablePlan, LoadExecutor},
-        query::fluent::load::FluentLoadQuery,
+        executor::{
+            ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
+            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
+        },
         query::{
             api::ResponseCardinalityExt,
             builder::{
@@ -15,7 +17,9 @@ use crate::{
                 aggregate::{exists, first, last, max, min},
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
+            fluent::load::FluentLoadQuery,
             intent::QueryError,
+            plan::AggregateKind,
         },
         response::EntityResponse,
     },
@@ -96,7 +100,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_exists(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| {
+            load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
+                .into_exists()
+        })
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -154,7 +161,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_count(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| {
+            load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
+                .into_count()
+        })
     }
 
     /// Execute and return the total persisted payload bytes for the effective
@@ -205,7 +215,15 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_min(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                ScalarTerminalBoundaryRequest::IdTerminal {
+                    kind: AggregateKind::Min,
+                },
+            )?
+            .into_id()
+        })
     }
 
     /// Explain scalar `min()` routing without executing the terminal.
@@ -228,7 +246,14 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_min_by_slot(plan, target_slot)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        ScalarTerminalBoundaryRequest::IdBySlot {
+                            kind: AggregateKind::Min,
+                            target_field: target_slot,
+                        },
+                    )?
+                    .into_id()
                 })
         })
     }
@@ -238,7 +263,15 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_max(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                ScalarTerminalBoundaryRequest::IdTerminal {
+                    kind: AggregateKind::Max,
+                },
+            )?
+            .into_id()
+        })
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -261,7 +294,14 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_max_by_slot(plan, target_slot)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        ScalarTerminalBoundaryRequest::IdBySlot {
+                            kind: AggregateKind::Max,
+                            target_field: target_slot,
+                        },
+                    )?
+                    .into_id()
                 })
         })
     }
@@ -277,7 +317,14 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_nth_by_slot(plan, target_slot, nth)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        ScalarTerminalBoundaryRequest::NthBySlot {
+                            target_field: target_slot,
+                            nth,
+                        },
+                    )?
+                    .into_id()
                 })
         })
     }
@@ -292,7 +339,11 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_sum_by_slot(plan, target_slot)
+                    load.execute_numeric_field_boundary(
+                        plan,
+                        target_slot,
+                        ScalarNumericFieldBoundaryRequest::Sum,
+                    )
                 })
         })
     }
@@ -307,7 +358,11 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_sum_distinct_by_slot(plan, target_slot)
+                    load.execute_numeric_field_boundary(
+                        plan,
+                        target_slot,
+                        ScalarNumericFieldBoundaryRequest::SumDistinct,
+                    )
                 })
         })
     }
@@ -322,7 +377,11 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_avg_by_slot(plan, target_slot)
+                    load.execute_numeric_field_boundary(
+                        plan,
+                        target_slot,
+                        ScalarNumericFieldBoundaryRequest::Avg,
+                    )
                 })
         })
     }
@@ -337,7 +396,11 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_avg_distinct_by_slot(plan, target_slot)
+                    load.execute_numeric_field_boundary(
+                        plan,
+                        target_slot,
+                        ScalarNumericFieldBoundaryRequest::AvgDistinct,
+                    )
                 })
         })
     }
@@ -355,7 +418,13 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_median_by_slot(plan, target_slot)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        ScalarTerminalBoundaryRequest::MedianBySlot {
+                            target_field: target_slot,
+                        },
+                    )?
+                    .into_id()
                 })
         })
     }
@@ -371,7 +440,12 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_count_distinct_by_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::CountDistinct,
+                    )?
+                    .into_count()
                 })
         })
     }
@@ -388,7 +462,13 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.aggregate_min_max_by_slot(plan, target_slot)
+                    load.execute_scalar_terminal_request(
+                        plan,
+                        ScalarTerminalBoundaryRequest::MinMaxBySlot {
+                            target_field: target_slot,
+                        },
+                    )?
+                    .into_id_pair()
                 })
         })
     }
@@ -403,7 +483,12 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.values_by_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::Values,
+                    )?
+                    .into_values()
                 })
         })
     }
@@ -577,7 +662,12 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.distinct_values_by_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::DistinctValues,
+                    )?
+                    .into_values()
                 })
         })
     }
@@ -596,7 +686,12 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.values_by_with_ids_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::ValuesWithIds,
+                    )?
+                    .into_values_with_ids()
                 })
         })
     }
@@ -612,7 +707,14 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.first_value_by_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::TerminalValue {
+                            terminal_kind: AggregateKind::First,
+                        },
+                    )?
+                    .into_terminal_value()
                 })
         })
     }
@@ -628,7 +730,14 @@ where
         Self::with_slot(field, |target_slot| {
             self.session
                 .execute_load_query_with(self.query(), move |load, plan| {
-                    load.last_value_by_slot(plan, target_slot)
+                    load.execute_scalar_projection_boundary(
+                        plan,
+                        target_slot,
+                        ScalarProjectionBoundaryRequest::TerminalValue {
+                            terminal_kind: AggregateKind::Last,
+                        },
+                    )?
+                    .into_terminal_value()
                 })
         })
     }
@@ -638,7 +747,15 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_first(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                ScalarTerminalBoundaryRequest::IdTerminal {
+                    kind: AggregateKind::First,
+                },
+            )?
+            .into_id()
+        })
     }
 
     /// Explain scalar `first()` routing without executing the terminal.
@@ -654,7 +771,15 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_last(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                ScalarTerminalBoundaryRequest::IdTerminal {
+                    kind: AggregateKind::Last,
+                },
+            )?
+            .into_id()
+        })
     }
 
     /// Explain scalar `last()` routing without executing the terminal.

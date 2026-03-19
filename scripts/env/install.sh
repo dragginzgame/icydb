@@ -35,7 +35,7 @@ cd "$ROOT"
 # apt
 sudo apt -y update && sudo apt -y upgrade
 # os
-sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config
+sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep
 # misc helpers
 sudo apt -y install speedtest-cli fdupes tree cloc
 # profiling

@@ -27,6 +27,7 @@ pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
+pub(in crate::db::executor) use scalar::PreparedScalarMaterializedBoundary;
 
 impl<E> LoadExecutor<E>
 where
