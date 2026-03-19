@@ -38,11 +38,10 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<ProjectionResponse<E>, InternalError> {
         // Phase 1: derive projection semantics from the planned query contract.
-        let planned = plan.into_inner();
-        let projection = planned.projection_spec(E::MODEL);
+        let projection = plan.logical_plan().projection_spec(E::MODEL);
 
         // Phase 2: execute canonical scalar load to preserve existing route/runtime semantics.
-        let rows = self.execute(ExecutablePlan::new(planned))?;
+        let rows = self.execute(plan)?;
         let rows = rows
             .rows()
             .into_iter()

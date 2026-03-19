@@ -142,20 +142,8 @@ pub(in crate::db::executor) struct ExecutionRouteShape {
 
 impl ExecutionRouteShape {
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn route_shape_kind(self) -> RouteShapeKind {
-        self.route_shape_kind
-    }
-
-    #[must_use]
     pub(in crate::db::executor) const fn execution_mode(self) -> RouteExecutionMode {
         self.execution_mode
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn execution_mode_case(self) -> ExecutionModeRouteCase {
-        self.execution_mode_case
     }
 
     #[must_use]
@@ -167,16 +155,4 @@ impl ExecutionRouteShape {
     pub(in crate::db::executor) const fn is_materialized(self) -> bool {
         matches!(self.execution_mode, RouteExecutionMode::Materialized)
     }
-}
-
-#[cfg(test)]
-pub(in crate::db::executor) const fn route_execution_mode_case_count_guard() -> usize {
-    let _ = [
-        ExecutionModeRouteCase::Load,
-        ExecutionModeRouteCase::AggregateCount,
-        ExecutionModeRouteCase::AggregateNonCount,
-        ExecutionModeRouteCase::AggregateGrouped,
-    ];
-
-    4
 }

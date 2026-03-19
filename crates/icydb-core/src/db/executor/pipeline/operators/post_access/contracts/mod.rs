@@ -7,6 +7,4 @@ mod row;
 mod stats;
 
 pub(in crate::db::executor) use row::PlanRow;
-#[cfg(test)]
-pub(in crate::db::executor) use stats::BudgetSafetyMetadata;
 pub(in crate::db::executor) use stats::PostAccessStats;

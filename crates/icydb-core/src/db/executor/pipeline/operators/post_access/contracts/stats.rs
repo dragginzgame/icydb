@@ -29,18 +29,3 @@ pub(in crate::db::executor) struct PostAccessStats {
     #[cfg(test)]
     pub(in crate::db::executor) rows_after_delete_limit: usize,
 }
-
-///
-/// BudgetSafetyMetadata
-///
-/// Executor-facing plan metadata for guarded scan-budget eligibility checks.
-/// This metadata keeps budget-safety predicates explicit at the plan boundary.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(test)]
-pub(in crate::db::executor) struct BudgetSafetyMetadata {
-    pub(in crate::db::executor) has_residual_filter: bool,
-    pub(in crate::db::executor) access_order_satisfied_by_path: bool,
-    pub(in crate::db::executor) requires_post_access_sort: bool,
-}

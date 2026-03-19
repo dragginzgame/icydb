@@ -13,6 +13,7 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
+            terminal::{RowDecoder, RowLayout},
         },
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::FieldSlot as PlannedFieldSlot,
@@ -120,6 +121,8 @@ where
     E: EntityKind + EntityValue,
 {
     ctx: Context<'a, E>,
+    row_layout: RowLayout,
+    row_decoder: RowDecoder,
 }
 
 impl<'a, E> TypedGroupedRowRuntime<'a, E>
@@ -128,18 +131,20 @@ where
 {
     /// Build one grouped row runtime from one recovered typed context.
     #[must_use]
-    pub(in crate::db::executor) const fn new(ctx: Context<'a, E>) -> Self {
-        Self { ctx }
+    pub(in crate::db::executor) fn new(ctx: Context<'a, E>) -> Self {
+        Self {
+            ctx,
+            row_layout: RowLayout::from_model(E::MODEL),
+            row_decoder: RowDecoder::structural(),
+        }
     }
 
-    fn decode_row_view(key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
-        let (_, entity) = Context::<E>::deserialize_row((key.clone(), row))?;
-        let mut slots = Vec::with_capacity(E::MODEL.fields.len());
-        for index in 0..E::MODEL.fields.len() {
-            slots.push(entity.get_value_by_index(index));
-        }
+    // Decode one persisted data row into the structural slot view consumed by
+    // grouped fold/runtime stages.
+    fn row_view_from_data_row(&self, row: (DataKey, RawRow)) -> Result<RowView, InternalError> {
+        let kernel_row = self.row_decoder.decode(&self.row_layout, row)?;
 
-        Ok(RowView::new(slots))
+        Ok(RowView::new(kernel_row.into_slots()))
     }
 }
 
@@ -152,18 +157,10 @@ where
         consistency: MissingRowPolicy,
         key: &DataKey,
     ) -> Result<Option<RowView>, InternalError> {
-        match consistency {
-            MissingRowPolicy::Error => {
-                let row = self.ctx.read_strict(key)?;
-
-                Ok(Some(Self::decode_row_view(key, row)?))
-            }
-            MissingRowPolicy::Ignore => match self.ctx.read(key) {
-                Ok(row) => Ok(Some(Self::decode_row_view(key, row)?)),
-                Err(err) if err.is_not_found() => Ok(None),
-                Err(err) => Err(err),
-            },
-        }
+        self.ctx
+            .read_data_row_with_consistency(key, consistency)?
+            .map(|row| self.row_view_from_data_row(row))
+            .transpose()
     }
 }
 

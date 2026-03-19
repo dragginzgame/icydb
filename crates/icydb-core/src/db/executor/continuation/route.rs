@@ -94,12 +94,6 @@ impl RouteContinuationPlan {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn mode(self) -> ContinuationMode {
-        self.capabilities.mode()
-    }
-
-    #[must_use]
     pub(in crate::db::executor) const fn capabilities(self) -> ContinuationCapabilities {
         self.capabilities
     }

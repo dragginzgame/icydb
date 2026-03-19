@@ -20,8 +20,6 @@ mod validation;
 
 pub(crate) mod token;
 
-#[cfg(test)]
-use crate::traits::EntityValue;
 use crate::{
     db::{
         codec::cursor::decode_cursor,
@@ -51,8 +49,6 @@ pub(in crate::db) use continuation::{
 pub(crate) use error::CursorPlanError;
 pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
-#[cfg(test)]
-pub(in crate::db) use range_token::cursor_anchor_from_index_key;
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_raw_index_key, range_token_anchor_key,
     range_token_from_validated_cursor_anchor,
@@ -232,16 +228,6 @@ fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, Curso
     };
 
     Ok(order)
-}
-
-/// Build one cursor boundary from one entity under one canonical order spec.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn cursor_boundary_from_entity<E: EntityKind + EntityValue>(
-    entity: &E,
-    order: &OrderSpec,
-) -> CursorBoundary {
-    CursorBoundary::from_ordered_entity(entity, order)
 }
 
 /// Validate grouped cursor ordering plan shape.

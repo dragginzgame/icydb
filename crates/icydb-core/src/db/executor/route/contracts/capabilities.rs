@@ -41,23 +41,3 @@ pub(in crate::db::executor) struct RouteCapabilities {
     pub(in crate::db::executor) field_max_fast_path_ineligibility_reason:
         Option<FieldExtremaIneligibilityReason>,
 }
-
-#[cfg(test)]
-pub(in crate::db::executor) const fn route_capability_flag_count_guard() -> usize {
-    let _ = RouteCapabilities {
-        stream_order_contract_safe: false,
-        pk_order_fast_path_eligible: false,
-        desc_physical_reverse_supported: false,
-        count_pushdown_shape_supported: false,
-        count_pushdown_existing_rows_shape_supported: false,
-        index_range_limit_pushdown_shape_supported: false,
-        composite_aggregate_fast_path_eligible: false,
-        bounded_probe_hint_safe: false,
-        field_min_fast_path_eligible: false,
-        field_max_fast_path_eligible: false,
-        field_min_fast_path_ineligibility_reason: None,
-        field_max_fast_path_ineligibility_reason: None,
-    };
-
-    10
-}

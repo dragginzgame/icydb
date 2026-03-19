@@ -16,7 +16,7 @@ use crate::{
             ExecutionPlan, ExecutionPreparation, ExecutionTrace, ResolvedScalarContinuationContext,
             ScalarRouteContinuationInvariantProjection,
             pipeline::contracts::{
-                CursorPage, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
+                ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
                 ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
             },
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -235,18 +235,6 @@ fn execute_scalar_execution_stage(
     })
 }
 
-// Decode one structural scalar page at the outer typed boundary only.
-fn decode_scalar_cursor_page<E>(page: StructuralCursorPage) -> Result<CursorPage<E>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let (data_rows, next_cursor) = page.into_parts();
-    let rows = Context::<E>::deserialize_rows(data_rows)?;
-    let items = EntityResponse::from_rows(rows);
-
-    Ok(CursorPage { items, next_cursor })
-}
-
 // Execute one fully materialized scalar rows path from already-resolved typed
 // boundary inputs without re-entering the generic `execute(plan)` wrapper.
 fn execute_scalar_materialized_rows_boundary<E>(
@@ -306,16 +294,16 @@ where
         debug: executor.debug,
     })?;
 
-    let page = decode_scalar_cursor_page::<E>(page)?;
-    let page = LoadExecutor::<E>::finalize_execution(
-        page,
+    let response = page.into_entity_response::<E>()?;
+    let response = LoadExecutor::<E>::finalize_entity_response(
+        response,
         metrics,
         &mut span,
         &mut trace,
         execution_time_micros,
     );
 
-    Ok(page.items)
+    Ok(response)
 }
 
 impl<E> LoadExecutor<E>
@@ -330,8 +318,7 @@ where
     ) -> Result<PreparedScalarMaterializedBoundary<'_, E>, InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let typed_access = plan.access().clone();
-        let logical_plan = plan.into_inner();
+        let (logical_plan, typed_access) = plan.into_plan_and_access();
 
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
@@ -355,11 +342,10 @@ where
         plan: ExecutablePlan<E>,
         resolved_continuation: ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
-    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+    ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let typed_access = plan.access().clone();
-        let logical_plan = plan.into_inner();
+        let (logical_plan, typed_access) = plan.into_plan_and_access();
 
         // Phase 1: resolve all typed execution authority once at the boundary.
         validate_executor_plan::<E>(&logical_plan)?;
@@ -395,10 +381,14 @@ where
             debug: self.debug,
         })?;
 
-        // Phase 3: re-enter the typed response surface only after runtime execution completes.
-        let page = decode_scalar_cursor_page::<E>(page)?;
-        let page =
-            Self::finalize_execution(page, metrics, &mut span, &mut trace, execution_time_micros);
+        // Phase 3: finalize observability before the final typed surface projection.
+        let page = Self::finalize_structural_page(
+            page,
+            metrics,
+            &mut span,
+            &mut trace,
+            execution_time_micros,
+        );
 
         Ok((page, trace))
     }

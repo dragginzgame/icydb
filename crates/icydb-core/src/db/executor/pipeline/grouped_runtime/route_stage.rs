@@ -86,7 +86,7 @@ where
         );
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let plan = plan.into_inner();
+        let (plan, _) = plan.into_plan_and_access();
 
         Ok(GroupedRouteStage {
             planner_payload: GroupedPlannerPayload {

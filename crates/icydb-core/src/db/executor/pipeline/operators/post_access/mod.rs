@@ -7,12 +7,8 @@ mod contracts;
 mod coordinator;
 mod order_cursor;
 mod terminal;
-#[cfg(test)]
-mod tests;
 mod window;
 
-#[cfg(test)]
-use crate::traits::EntitySchema;
 use crate::{
     db::{
         executor::{
@@ -28,8 +24,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-#[cfg(test)]
-pub(in crate::db::executor) use contracts::BudgetSafetyMetadata;
 pub(in crate::db::executor) use contracts::{PlanRow, PostAccessStats};
 
 impl ExecutionKernel {
@@ -44,27 +38,5 @@ impl ExecutionKernel {
     {
         PostAccessPlan::new(PostAccessContract::new(plan))
             .apply_delete_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) fn budget_safety_metadata<E, K>(
-        plan: &AccessPlannedQuery,
-    ) -> BudgetSafetyMetadata
-    where
-        E: EntitySchema<Key = K>,
-    {
-        PostAccessPlan::new(PostAccessContract::new(plan)).budget_safety_metadata::<E>()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) fn is_stream_order_contract_safe<E, K>(
-        plan: &AccessPlannedQuery,
-    ) -> bool
-    where
-        E: EntitySchema<Key = K>,
-    {
-        PostAccessPlan::new(PostAccessContract::new(plan)).is_stream_order_contract_safe::<E>()
     }
 }

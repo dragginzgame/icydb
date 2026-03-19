@@ -35,9 +35,6 @@ use crate::db::executor::route::planner::feasibility::gates::{
 };
 use crate::db::executor::route::planner::feasibility::grouped_strategy::grouped_execution_strategy_for_runtime;
 
-#[cfg(test)]
-pub(in crate::db::executor) use grouped_strategy::grouped_ordered_runtime_revalidation_flag_count_guard;
-
 pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stage_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,

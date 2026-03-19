@@ -10,11 +10,11 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
-            KeyStreamLoopControl,
+            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl,
             aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal,
+                extract_numeric_field_decimal_with_slot_reader,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
             aggregate::{
@@ -294,33 +294,35 @@ where
             index_predicate_execution,
         );
         let mut key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
-        Self::record_execution_optimization_hit_for_tests(
-            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
-        );
 
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;
         let mut accumulator = NumericAggregateAccumulator::new();
         let mut pre_key =
             || Self::loop_control_from_continuation_action(continuation.borrow_mut().pre_fetch());
-        let mut on_key =
-            |_data_key, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
-                let Some(entity) = entity else {
-                    return Ok(KeyStreamLoopControl::Emit);
-                };
-                rows_scanned = rows_scanned.saturating_add(1);
-                match continuation.borrow_mut().accept_row() {
-                    LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
-                    LoopAction::Emit => {}
-                    LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
-                }
-                let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
-                    .map_err(Self::map_aggregate_field_value_error)?;
-                accumulator.add(value);
-
-                Ok(KeyStreamLoopControl::Emit)
+        let mut on_key = |_data_key,
+                          row: Option<crate::db::executor::terminal::page::KernelRow>|
+         -> Result<KeyStreamLoopControl, InternalError> {
+            let Some(row) = row else {
+                return Ok(KeyStreamLoopControl::Emit);
             };
-        Self::drive_field_entity_stream(
+            rows_scanned = rows_scanned.saturating_add(1);
+            match continuation.borrow_mut().accept_row() {
+                LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
+                LoopAction::Emit => {}
+                LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
+            }
+            let value = extract_numeric_field_decimal_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(Self::map_aggregate_field_value_error)?;
+            accumulator.add(value);
+
+            Ok(KeyStreamLoopControl::Emit)
+        };
+        Self::drive_field_row_stream(
             &ctx,
             consistency,
             key_stream.as_mut(),

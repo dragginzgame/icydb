@@ -52,7 +52,8 @@ where
                 reason.invariant_message(),
             ))
         })?;
-        let grouped_plan = ExecutablePlan::new(plan.into_inner().into_grouped(grouped_shape));
+        let (plan, _) = plan.into_plan_and_access();
+        let grouped_plan = ExecutablePlan::new(plan.into_grouped(grouped_shape));
 
         Self::resolve_grouped_route(grouped_plan, GroupedPlannedCursor::none(), self.debug)
     }

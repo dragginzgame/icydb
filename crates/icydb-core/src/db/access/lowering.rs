@@ -23,9 +23,6 @@ use crate::{
 };
 use std::ops::Bound;
 
-#[cfg(test)]
-use crate::db::access::{AccessPath, dispatch::dispatch_access_path};
-
 pub(in crate::db) const LOWERED_INDEX_RANGE_SPEC_INVALID: &str =
     "validated index-range plan could not be lowered to raw bounds";
 pub(in crate::db) const LOWERED_INDEX_PREFIX_SPEC_INVALID: &str =
@@ -51,15 +48,6 @@ pub(in crate::db) fn lower_executable_access_plan<K>(
             children.iter().map(lower_executable_access_plan).collect(),
         ),
     }
-}
-
-/// Lower one structural `AccessPath` into its normalized executable contract.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) const fn lower_executable_access_path<K>(
-    path: &AccessPath<K>,
-) -> ExecutableAccessPath<'_, K> {
-    lower_executable_path_dispatch(dispatch_access_path(path))
 }
 
 // Lower one access-path dispatch payload into executable path contracts.

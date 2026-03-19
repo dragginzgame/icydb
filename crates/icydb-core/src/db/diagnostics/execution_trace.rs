@@ -8,8 +8,6 @@ use crate::db::{
     direction::Direction,
     query::plan::OrderDirection,
 };
-#[cfg(test)]
-use std::cell::Cell;
 
 ///
 /// ExecutionAccessPathVariant
@@ -43,89 +41,6 @@ pub enum ExecutionOptimization {
     SecondaryOrderPushdown,
     SecondaryOrderTopNSeek,
     IndexRangeLimitPushdown,
-}
-
-///
-/// ExecutionOptimizationCounter
-///
-/// Canonical test-only optimization counter taxonomy.
-/// This keeps fast-path hit counters aligned with one shared naming surface.
-///
-
-#[expect(clippy::enum_variant_names)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ExecutionOptimizationCounter {
-    BytesPrimaryKeyFastPath,
-    BytesStreamFastPath,
-    BytesByCoveringIndexFastPath,
-    BytesByCoveringConstantFastPath,
-    CoveringExistsFastPath,
-    CoveringCountFastPath,
-    PrimaryKeyCountFastPath,
-    PrimaryKeyCardinalityCountFastPath,
-    CoveringIndexProjectionFastPath,
-    CoveringConstantProjectionFastPath,
-    NumericFieldStreamingFoldFastPath,
-}
-
-impl ExecutionOptimizationCounter {
-    #[cfg(test)]
-    const CARDINALITY: usize = 11;
-
-    #[cfg(test)]
-    const fn index(self) -> usize {
-        match self {
-            Self::BytesPrimaryKeyFastPath => 0,
-            Self::BytesStreamFastPath => 1,
-            Self::BytesByCoveringIndexFastPath => 2,
-            Self::BytesByCoveringConstantFastPath => 3,
-            Self::CoveringExistsFastPath => 4,
-            Self::CoveringCountFastPath => 5,
-            Self::PrimaryKeyCountFastPath => 6,
-            Self::PrimaryKeyCardinalityCountFastPath => 7,
-            Self::CoveringIndexProjectionFastPath => 8,
-            Self::CoveringConstantProjectionFastPath => 9,
-            Self::NumericFieldStreamingFoldFastPath => 10,
-        }
-    }
-}
-
-#[cfg(test)]
-thread_local! {
-    static EXECUTION_OPTIMIZATION_HITS: Cell<[u64; ExecutionOptimizationCounter::CARDINALITY]> =
-        const { Cell::new([0; ExecutionOptimizationCounter::CARDINALITY]) };
-}
-
-#[cfg(test)]
-pub(crate) fn take_execution_optimization_hits_for_tests(
-    optimization: ExecutionOptimizationCounter,
-) -> u64 {
-    EXECUTION_OPTIMIZATION_HITS.with(|counter| {
-        let mut hits = counter.get();
-        let index = optimization.index();
-        let value = hits[index];
-        hits[index] = 0;
-        counter.set(hits);
-        value
-    })
-}
-
-#[cfg(test)]
-pub(crate) fn record_execution_optimization_hit_for_tests(
-    optimization: ExecutionOptimizationCounter,
-) {
-    EXECUTION_OPTIMIZATION_HITS.with(|counter| {
-        let mut hits = counter.get();
-        let index = optimization.index();
-        hits[index] = hits[index].saturating_add(1);
-        counter.set(hits);
-    });
-}
-
-#[cfg(not(test))]
-pub(crate) const fn record_execution_optimization_hit_for_tests(
-    _optimization: ExecutionOptimizationCounter,
-) {
 }
 
 ///

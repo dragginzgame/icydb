@@ -3,8 +3,6 @@
 //! Does not own: planner query validation policy or access-path execution routing.
 //! Boundary: defines cursor-boundary domain types shared by cursor planning/runtime paths.
 
-#[cfg(test)]
-use crate::traits::EntityValue;
 use crate::{
     db::{
         contracts::canonical_value_compare,
@@ -56,18 +54,6 @@ impl CursorBoundary {
         Self {
             slots: boundary_slots_from_slot_reader(model, order, read_slot),
         }
-    }
-
-    /// Build one cursor boundary from one entity using canonical order fields.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn from_ordered_entity<E: EntityKind + EntityValue>(
-        entity: &E,
-        order: &OrderSpec,
-    ) -> Self {
-        let mut read_slot = |slot| entity.get_value_by_index(slot);
-
-        Self::from_slot_reader(E::MODEL, order, &mut read_slot)
     }
 }
 

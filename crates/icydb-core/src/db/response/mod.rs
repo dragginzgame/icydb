@@ -11,6 +11,7 @@ mod paged;
 mod private;
 
 use crate::{
+    db::data::{DataRow, decode_data_rows_into_entity_response},
     prelude::*,
     traits::{AsView, EntityValue},
     types::Id,
@@ -231,6 +232,16 @@ impl<R: ResponseRow> std::ops::Deref for Response<R> {
 }
 
 impl<E: EntityKind> Response<Row<E>> {
+    /// Decode ordered persisted data rows into one typed entity response.
+    pub(in crate::db) fn from_data_rows(
+        rows: Vec<DataRow>,
+    ) -> Result<Self, crate::error::InternalError>
+    where
+        E: EntityValue,
+    {
+        decode_data_rows_into_entity_response::<E>(rows)
+    }
+
     /// Return the first row identifier, if present.
     #[must_use]
     pub fn id(&self) -> Option<Id<E>> {

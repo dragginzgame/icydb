@@ -7,7 +7,7 @@ use crate::{
     db::{
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
-            pipeline::contracts::{CursorPage, LoadExecutor},
+            pipeline::contracts::{CursorPage, LoadExecutor, StructuralCursorPage},
             pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
             pipeline::orchestrator::ErasedLoadExecutionSurface,
         },
@@ -33,22 +33,6 @@ where
         Self::expect_scalar_rows_surface(surface)
     }
 
-    // Execute one paged scalar load and materialize page output.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn execute_load_scalar_page(
-        &self,
-        plan: ExecutablePlan<E>,
-        cursor: LoadCursorInput,
-    ) -> Result<CursorPage<E>, InternalError> {
-        let surface = self.execute_load_erased(
-            plan,
-            cursor,
-            LoadExecutionMode::scalar_paged(LoadTracingMode::Disabled),
-        )?;
-
-        Self::expect_scalar_page_surface(surface)
-    }
-
     // Execute one traced paged scalar load and materialize traced page output.
     pub(in crate::db::executor) fn execute_load_scalar_page_with_trace(
         &self,
@@ -70,29 +54,14 @@ where
     ) -> Result<EntityResponse<E>, InternalError> {
         match surface {
             ErasedLoadExecutionSurface::ScalarPage(page) => {
-                let page = page.into_typed::<CursorPage<E>>(
-                    "scalar rows entrypoint must receive cursor page for entity type",
+                let page = page.into_typed::<StructuralCursorPage>(
+                    "scalar rows entrypoint must receive structural cursor page payload",
                 )?;
 
-                Ok(page.items)
+                page.into_entity_response::<E>()
             }
             _ => Err(crate::db::error::query_executor_invariant(
                 "scalar rows entrypoint must produce scalar rows surface",
-            )),
-        }
-    }
-
-    // Project one paged scalar load surface and classify shape mismatches.
-    #[cfg(test)]
-    fn expect_scalar_page_surface(
-        surface: ErasedLoadExecutionSurface,
-    ) -> Result<CursorPage<E>, InternalError> {
-        match surface {
-            ErasedLoadExecutionSurface::ScalarPage(page) => page.into_typed::<CursorPage<E>>(
-                "scalar page entrypoint must receive cursor page for entity type",
-            ),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "scalar page entrypoint must produce scalar page surface",
             )),
         }
     }
@@ -103,9 +72,10 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         match surface {
             ErasedLoadExecutionSurface::ScalarPageWithTrace(page, trace) => Ok((
-                page.into_typed::<CursorPage<E>>(
-                    "scalar traced entrypoint must receive cursor page for entity type",
-                )?,
+                page.into_typed::<StructuralCursorPage>(
+                    "scalar traced entrypoint must receive structural cursor page payload",
+                )?
+                .into_cursor_page::<E>()?,
                 trace,
             )),
             _ => Err(crate::db::error::query_executor_invariant(

@@ -27,10 +27,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-#[cfg(test)]
-use crate::db::executor::aggregate::AggregateKind;
-#[cfg(test)]
-use crate::db::executor::preparation::slot_map_for_entity_plan;
 use crate::db::executor::route::planner::{
     RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,
     derive_execution_feasibility_stage_for_model, derive_route_execution_stage,
@@ -86,31 +82,6 @@ where
         let capabilities = Self::derive_execution_capabilities(plan, Direction::Asc, None);
 
         Ok(ExecutionRoutePlan::for_mutation(capabilities))
-    }
-
-    // Build canonical execution routing for aggregate execution.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate(
-        plan: &AccessPlannedQuery,
-        kind: AggregateKind,
-    ) -> ExecutionPlan {
-        Self::build_execution_route_plan_for_aggregate_spec(plan, aggregate_terminal_expr(kind))
-    }
-
-    // Build canonical execution routing for aggregate execution via spec.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
-        plan: &AccessPlannedQuery,
-        aggregate: AggregateExpr,
-    ) -> ExecutionPlan {
-        let execution_preparation =
-            ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
-
-        Self::build_execution_route_plan_for_aggregate_spec_with_preparation(
-            plan,
-            aggregate,
-            &execution_preparation,
-        )
     }
 
     /// Build canonical aggregate execution routing using one precomputed preparation bundle.
@@ -201,24 +172,6 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
                 ),
         },
     )
-}
-
-#[cfg(test)]
-fn aggregate_terminal_expr(kind: AggregateKind) -> AggregateExpr {
-    match kind {
-        AggregateKind::Count => crate::db::query::builder::aggregate::count(),
-        AggregateKind::Sum => {
-            unreachable!("aggregate route-terminal helper must not construct SUM(fieldless) intent")
-        }
-        AggregateKind::Avg => {
-            unreachable!("aggregate route-terminal helper must not construct AVG(fieldless) intent")
-        }
-        AggregateKind::Exists => crate::db::query::builder::aggregate::exists(),
-        AggregateKind::Min => crate::db::query::builder::aggregate::min(),
-        AggregateKind::Max => crate::db::query::builder::aggregate::max(),
-        AggregateKind::First => crate::db::query::builder::aggregate::first(),
-        AggregateKind::Last => crate::db::query::builder::aggregate::last(),
-    }
 }
 
 // Build one shared execution route contract from intent + feasibility stages.

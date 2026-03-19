@@ -263,15 +263,4 @@ impl<K> AccessPath<K> {
     }
 }
 
-impl<K> AccessPath<K>
-where
-    K: FieldValue,
-{
-    /// Convert one typed access path into the canonical structural `Value` form.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn into_value_path(self) -> AccessPath<Value> {
-        self.map_keys(|key| Ok::<Value, core::convert::Infallible>(key.to_value()))
-            .expect("field value conversion is infallible")
-    }
-}
+impl<K> AccessPath<K> where K: FieldValue {}

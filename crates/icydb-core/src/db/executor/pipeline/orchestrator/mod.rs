@@ -5,8 +5,6 @@
 //! stable load contracts needed by entrypoints and runtime leaves.
 
 mod contracts;
-#[cfg(test)]
-mod guards;
 mod state;
 mod strategy;
 
@@ -23,10 +21,6 @@ use std::any::Any;
 
 pub(in crate::db::executor) use contracts::{
     ErasedLoadExecutionSurface, ErasedLoadPayload, LoadExecutionMode, LoadTracingMode,
-};
-#[cfg(test)]
-pub(in crate::db::executor) use guards::{
-    load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
 
 ///

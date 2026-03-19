@@ -11,7 +11,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
-            ExecutableAccess, ExecutablePlan, ExecutionOptimizationCounter,
+            ExecutableAccess, ExecutablePlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value,
                 resolve_any_aggregate_target_slot_from_planner_slot,
@@ -129,15 +129,9 @@ where
                 {
                     return match contract {
                         BytesTerminalFastPathContract::PrimaryKeyWindow(direction) => {
-                            Self::record_execution_optimization_hit_for_tests(
-                                ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
-                            );
                             self.bytes_from_pk_store_window(&prepared, direction)
                         }
                         BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction) => {
-                            Self::record_execution_optimization_hit_for_tests(
-                                ExecutionOptimizationCounter::BytesStreamFastPath,
-                            );
                             self.bytes_from_ordered_key_stream_window(&prepared, direction)
                         }
                     };
@@ -170,9 +164,6 @@ where
                                 "bytes_by covering-constant mode selected without constant value",
                             )
                         })?;
-                        Self::record_execution_optimization_hit_for_tests(
-                            ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
-                        );
                         let value_len = serialized_value_len(&constant_value)?;
                         let response = self.execute_scalar_materialized_rows_boundary(prepared)?;
                         let row_count = u64::try_from(response.len()).unwrap_or(u64::MAX);
@@ -184,10 +175,6 @@ where
                         if let Some(total) =
                             Self::bytes_by_covering_index_if_eligible(&prepared, &target_field)?
                         {
-                            Self::record_execution_optimization_hit_for_tests(
-                                ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
-                            );
-
                             return Ok(total);
                         }
 

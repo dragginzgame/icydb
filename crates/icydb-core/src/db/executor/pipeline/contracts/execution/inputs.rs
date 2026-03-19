@@ -8,13 +8,11 @@ use crate::{
         cursor::CursorBoundary,
         data::{DataKey, DataRow},
         direction::Direction,
-        executor::pipeline::contracts::FastPathKeyResult,
+        executor::pipeline::contracts::{FastPathKeyResult, execution::ErasedRuntimeBindings},
         executor::{
-            AccessStreamBindings, Context, ExecutableAccess, ExecutionKernel, ExecutionPreparation,
-            ExecutorError, LoadExecutor, OrderedKeyStream, OrderedKeyStreamBox,
-            ScalarContinuationBindings,
+            AccessStreamBindings, Context, ExecutionKernel, ExecutionPreparation, ExecutorError,
+            OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
             preparation::resolved_index_slots_for_access_path,
-            route::RoutedKeyStreamRequest,
             terminal::{
                 RowDecoder, RowLayout,
                 page::{
@@ -33,6 +31,7 @@ use crate::{
     model::entity::EntityModel,
     traits::{EntityKind, EntityValue, Path},
 };
+use std::marker::PhantomData;
 
 type StructuralRowCollectorPayload = (StructuralCursorPage, usize, usize);
 
@@ -151,6 +150,12 @@ impl StructuralCursorPage {
         }
     }
 
+    /// Return the number of structural rows carried by this page.
+    #[must_use]
+    pub(in crate::db::executor) const fn row_count(&self) -> usize {
+        self.data_rows.len()
+    }
+
     /// Consume one structural scalar page into rows plus cursor state.
     #[must_use]
     pub(in crate::db::executor) fn into_parts(
@@ -248,65 +253,53 @@ pub(in crate::db::executor) trait ExecutionRuntime {
 /// trait surface to shared executor code.
 ///
 
-pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    ctx: &'a Context<'ctx, E>,
-    access: &'a crate::db::access::AccessPlan<E::Key>,
+///
+/// ExecutionRuntimeAdapterCore
+///
+/// Generic-free runtime-adapter payload shared by typed execution-runtime
+/// wrappers so resolved slot maps and structural row-runtime state stay
+/// monomorphic after the typed boundary computes access-specific inputs.
+///
+
+struct ExecutionRuntimeAdapterCore {
+    runtime: ErasedRuntimeBindings,
     model: &'static EntityModel,
     slot_map: Option<Vec<usize>>,
     scalar_row_runtime: ScalarRowRuntimeState,
 }
 
-impl<'ctx, 'a, E> ExecutionRuntimeAdapter<'ctx, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Build one typed runtime adapter from recovered context plus typed access sidecar.
-    pub(in crate::db::executor) fn new(
-        ctx: &'a Context<'ctx, E>,
+impl ExecutionRuntimeAdapterCore {
+    #[must_use]
+    fn new<'a, E>(
+        ctx: &'a Context<'_, E>,
         access: &'a crate::db::access::AccessPlan<E::Key>,
-    ) -> Result<Self, InternalError> {
-        let model = E::MODEL;
-        let slot_map =
-            resolved_index_slots_for_access_path(model, access.resolve_strategy().executable());
-        let store = ctx
-            .db
-            .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
-
-        Ok(Self {
-            ctx,
-            access,
+        store: StoreHandle,
+        model: &'static EntityModel,
+        slot_map: Option<Vec<usize>>,
+    ) -> Self
+    where
+        E: EntityKind + EntityValue,
+    {
+        Self {
+            runtime: ErasedRuntimeBindings::new(ctx, access),
             model,
             slot_map,
             scalar_row_runtime: ScalarRowRuntimeState::new(store, model),
-        })
+        }
     }
 
-    /// Borrow the precomputed slot map for this typed adapter.
     #[must_use]
-    pub(in crate::db::executor) fn slot_map(&self) -> Option<&[usize]> {
+    fn slot_map(&self) -> Option<&[usize]> {
         self.slot_map.as_deref()
     }
-}
 
-impl<E> ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_, E>
-where
-    E: EntityKind + EntityValue,
-{
     fn try_execute_pk_order_stream(
         &self,
         plan: &AccessPlannedQuery,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        LoadExecutor::<E>::try_execute_pk_order_stream(
-            self.ctx,
-            plan,
-            direction,
-            physical_fetch_hint,
-        )
+        self.runtime.pk_order(plan, direction, physical_fetch_hint)
     }
 
     fn try_execute_secondary_index_order_stream(
@@ -317,8 +310,7 @@ where
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        LoadExecutor::<E>::try_execute_secondary_index_order_stream(
-            self.ctx,
+        self.runtime.secondary_index_order(
             plan,
             index_prefix_spec,
             direction,
@@ -335,8 +327,7 @@ where
         fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        LoadExecutor::<E>::try_execute_index_range_limit_pushdown_stream(
-            self.ctx,
+        self.runtime.index_range_limit_pushdown(
             plan,
             index_range_spec,
             continuation,
@@ -351,16 +342,103 @@ where
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let access = ExecutableAccess::new(
-            self.access,
+        self.runtime.fallback_execution_keys(
             bindings,
             physical_fetch_hint,
             index_predicate_execution,
-        );
+        )
+    }
+}
 
-        LoadExecutor::<E>::resolve_routed_key_stream(
-            self.ctx,
-            RoutedKeyStreamRequest::ExecutableAccess(access),
+pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a> {
+    core: ExecutionRuntimeAdapterCore,
+    marker: PhantomData<(&'a (), &'ctx ())>,
+}
+
+impl<'ctx, 'a> ExecutionRuntimeAdapter<'ctx, 'a> {
+    /// Build one typed runtime adapter from recovered context plus typed access sidecar.
+    pub(in crate::db::executor) fn new<E>(
+        ctx: &'a Context<'ctx, E>,
+        access: &'a crate::db::access::AccessPlan<E::Key>,
+    ) -> Result<Self, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let model = E::MODEL;
+        let slot_map =
+            resolved_index_slots_for_access_path(model, access.resolve_strategy().executable());
+        let store = ctx
+            .db
+            .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
+
+        Ok(Self {
+            core: ExecutionRuntimeAdapterCore::new(ctx, access, store, model, slot_map),
+            marker: PhantomData,
+        })
+    }
+
+    /// Borrow the precomputed slot map for this typed adapter.
+    #[must_use]
+    pub(in crate::db::executor) fn slot_map(&self) -> Option<&[usize]> {
+        self.core.slot_map()
+    }
+}
+
+impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
+    fn try_execute_pk_order_stream(
+        &self,
+        plan: &AccessPlannedQuery,
+        direction: Direction,
+        physical_fetch_hint: Option<usize>,
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        self.core
+            .try_execute_pk_order_stream(plan, direction, physical_fetch_hint)
+    }
+
+    fn try_execute_secondary_index_order_stream(
+        &self,
+        plan: &AccessPlannedQuery,
+        index_prefix_spec: Option<&crate::db::executor::LoweredIndexPrefixSpec>,
+        direction: Direction,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        self.core.try_execute_secondary_index_order_stream(
+            plan,
+            index_prefix_spec,
+            direction,
+            physical_fetch_hint,
+            index_predicate_execution,
+        )
+    }
+
+    fn try_execute_index_range_limit_pushdown_stream(
+        &self,
+        plan: &AccessPlannedQuery,
+        index_range_spec: Option<&crate::db::executor::LoweredIndexRangeSpec>,
+        continuation: crate::db::executor::AccessScanContinuationInput<'_>,
+        fetch: usize,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        self.core.try_execute_index_range_limit_pushdown_stream(
+            plan,
+            index_range_spec,
+            continuation,
+            fetch,
+            index_predicate_execution,
+        )
+    }
+
+    fn resolve_fallback_execution_key_stream(
+        &self,
+        bindings: AccessStreamBindings<'_>,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        self.core.resolve_fallback_execution_key_stream(
+            bindings,
+            physical_fetch_hint,
+            index_predicate_execution,
         )
     }
 
@@ -371,13 +449,13 @@ where
         key_stream: &mut dyn OrderedKeyStream,
     ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
         let mut row_runtime = ScalarRowRuntimeHandle::new(
-            self.scalar_row_runtime.clone(),
+            self.core.scalar_row_runtime.clone(),
             scalar_row_runtime_vtable(),
         );
 
         ExecutionKernel::try_materialize_load_via_row_collector(
             plan,
-            self.model,
+            self.core.model,
             cursor_boundary,
             key_stream,
             &mut row_runtime,
@@ -389,13 +467,13 @@ where
         request: RuntimePageMaterializationRequest<'_>,
     ) -> Result<StructuralRowCollectorPayload, InternalError> {
         let mut row_runtime = ScalarRowRuntimeHandle::new(
-            self.scalar_row_runtime.clone(),
+            self.core.scalar_row_runtime.clone(),
             scalar_row_runtime_vtable(),
         );
 
         materialize_key_stream_into_structural_page(
             KernelPageMaterializationRequest {
-                model: self.model,
+                model: self.core.model,
                 plan: request.plan,
                 predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,

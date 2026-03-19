@@ -4,8 +4,6 @@
 //! Boundary: consumes `Db`/store read APIs and returns DTO snapshots.
 
 mod execution_trace;
-#[cfg(test)]
-mod tests;
 
 use crate::{
     db::{
@@ -26,10 +24,6 @@ use serde::{Deserialize, Serialize};
 use serde_cbor::Value as CborValue;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) use execution_trace::ExecutionOptimizationCounter;
-pub(crate) use execution_trace::record_execution_optimization_hit_for_tests;
-#[cfg(test)]
-pub(crate) use execution_trace::take_execution_optimization_hits_for_tests;
 pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
 };

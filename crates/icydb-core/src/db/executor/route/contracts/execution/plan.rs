@@ -3,8 +3,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(test)]
-use crate::db::executor::route::contracts::FieldExtremaIneligibilityReason;
 use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
@@ -197,45 +195,6 @@ impl ExecutionRoutePlan {
     // True when route permits a future `max(field)` fast path.
     pub(in crate::db::executor) const fn field_max_fast_path_eligible(&self) -> bool {
         self.capabilities.field_max_fast_path_eligible
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn count_pushdown_shape_supported(&self) -> bool {
-        self.capabilities.count_pushdown_shape_supported
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn count_pushdown_existing_rows_shape_supported(
-        &self,
-    ) -> bool {
-        self.capabilities
-            .count_pushdown_existing_rows_shape_supported
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn index_range_limit_pushdown_shape_supported(&self) -> bool {
-        self.capabilities.index_range_limit_pushdown_shape_supported
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn bounded_probe_hint_safe(&self) -> bool {
-        self.capabilities.bounded_probe_hint_safe
-    }
-
-    // Route-owned diagnostic reason for why `min(field)` fast path is ineligible.
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn field_min_fast_path_ineligibility_reason(
-        &self,
-    ) -> Option<FieldExtremaIneligibilityReason> {
-        self.capabilities.field_min_fast_path_ineligibility_reason
-    }
-
-    // Route-owned diagnostic reason for why `max(field)` fast path is ineligible.
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn field_max_fast_path_ineligibility_reason(
-        &self,
-    ) -> Option<FieldExtremaIneligibilityReason> {
-        self.capabilities.field_max_fast_path_ineligibility_reason
     }
 
     // Route-owned fast-path dispatch order. Executors must dispatch using this

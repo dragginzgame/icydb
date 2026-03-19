@@ -3,8 +3,6 @@
 //! Does not own: logical plan semantics or route policy decisions.
 //! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
 
-#[cfg(test)]
-use crate::db::codec::cursor::encode_cursor;
 use crate::{
     db::{
         access::AccessPlan,
@@ -41,9 +39,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
     value::Value,
 };
-#[cfg(test)]
-use std::ops::Bound;
-
 ///
 /// ExecutionStrategy
 ///
@@ -129,6 +124,228 @@ where
     })
 }
 
+/// ExecutablePlanCore
+///
+/// Generic-free executable-plan payload shared by typed `ExecutablePlan<E>`
+/// wrappers. This keeps cursor, ordering, and lowered structural plan state
+/// monomorphic while typed access and model-driven behavior remain at the
+/// outer executor boundary.
+///
+
+#[derive(Debug)]
+struct ExecutablePlanCore {
+    plan: AccessPlannedQuery,
+    continuation: Option<ContinuationContract>,
+    index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+    index_prefix_spec_invalid: bool,
+    index_range_specs: Vec<LoweredIndexRangeSpec>,
+    index_range_spec_invalid: bool,
+}
+
+impl ExecutablePlanCore {
+    #[must_use]
+    const fn new(
+        plan: AccessPlannedQuery,
+        continuation: Option<ContinuationContract>,
+        index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+        index_prefix_spec_invalid: bool,
+        index_range_specs: Vec<LoweredIndexRangeSpec>,
+        index_range_spec_invalid: bool,
+    ) -> Self {
+        Self {
+            plan,
+            continuation,
+            index_prefix_specs,
+            index_prefix_spec_invalid,
+            index_range_specs,
+            index_range_spec_invalid,
+        }
+    }
+
+    #[must_use]
+    const fn plan(&self) -> &AccessPlannedQuery {
+        &self.plan
+    }
+
+    #[must_use]
+    const fn mode(&self) -> QueryMode {
+        self.plan.scalar_plan().mode
+    }
+
+    #[must_use]
+    const fn is_grouped(&self) -> bool {
+        match self.continuation {
+            Some(ref contract) => contract.is_grouped(),
+            None => false,
+        }
+    }
+
+    fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {
+        let contract = self.continuation_contract()?;
+        Ok(contract.order_contract().ordering().clone())
+    }
+
+    fn execution_strategy(&self) -> Result<ExecutionStrategy, InternalError> {
+        let ordering = self.execution_ordering()?;
+
+        Ok(match ordering {
+            ExecutionOrdering::PrimaryKey => ExecutionStrategy::PrimaryKey,
+            ExecutionOrdering::Explicit(_) => ExecutionStrategy::Ordered,
+            ExecutionOrdering::Grouped(_) => ExecutionStrategy::Grouped,
+        })
+    }
+
+    #[must_use]
+    const fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(&self.plan)
+    }
+
+    #[must_use]
+    const fn order_spec(&self) -> Option<&OrderSpec> {
+        self.plan.scalar_plan().order.as_ref()
+    }
+
+    #[must_use]
+    const fn has_predicate(&self) -> bool {
+        self.plan.scalar_plan().predicate.is_some()
+    }
+
+    #[must_use]
+    const fn is_distinct(&self) -> bool {
+        self.plan.scalar_plan().distinct
+    }
+
+    #[must_use]
+    const fn has_no_predicate_or_distinct(&self) -> bool {
+        !self.has_predicate() && !self.is_distinct()
+    }
+
+    fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+        if self.index_prefix_spec_invalid {
+            return Err(crate::db::error::query_executor_invariant(
+                LOWERED_INDEX_PREFIX_SPEC_INVALID,
+            ));
+        }
+
+        Ok(self.index_prefix_specs.as_slice())
+    }
+
+    fn index_range_specs(&self) -> Result<&[LoweredIndexRangeSpec], InternalError> {
+        if self.index_range_spec_invalid {
+            return Err(crate::db::error::query_executor_invariant(
+                LOWERED_INDEX_RANGE_SPEC_INVALID,
+            ));
+        }
+
+        Ok(self.index_range_specs.as_slice())
+    }
+
+    #[must_use]
+    fn into_inner(self) -> AccessPlannedQuery {
+        self.plan
+    }
+
+    fn prepare_cursor(
+        &self,
+        entity_path: &'static str,
+        entity_tag: crate::types::EntityTag,
+        entity_model: &crate::model::entity::EntityModel,
+        cursor: Option<&[u8]>,
+    ) -> Result<PlannedCursor, ExecutorPlanError> {
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(cursor_plan_error(
+                "continuation cursors are only supported for load plans",
+            ));
+        };
+
+        contract
+            .prepare_scalar_cursor(entity_path, entity_tag, entity_model, cursor)
+            .map_err(ExecutorPlanError::from)
+    }
+
+    fn revalidate_cursor(
+        &self,
+        entity_tag: crate::types::EntityTag,
+        entity_model: &crate::model::entity::EntityModel,
+        cursor: PlannedCursor,
+    ) -> Result<PlannedCursor, InternalError> {
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(crate::db::error::query_executor_invariant(
+                "continuation cursors are only supported for load plans",
+            ));
+        };
+
+        contract
+            .revalidate_scalar_cursor(entity_tag, entity_model, cursor)
+            .map_err(crate::db::error::from_cursor_plan_error)
+    }
+
+    fn revalidate_grouped_cursor(
+        &self,
+        cursor: GroupedPlannedCursor,
+    ) -> Result<GroupedPlannedCursor, InternalError> {
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(crate::db::error::query_executor_invariant(
+                "grouped cursor revalidation requires grouped logical plans",
+            ));
+        };
+
+        contract
+            .revalidate_grouped_cursor(cursor)
+            .map_err(crate::db::error::from_cursor_plan_error)
+    }
+
+    fn continuation_signature_for_runtime(&self) -> Result<ContinuationSignature, InternalError> {
+        let contract = self.continuation_contract()?;
+        Ok(contract.continuation_signature())
+    }
+
+    fn grouped_cursor_boundary_arity(&self) -> Result<usize, InternalError> {
+        let contract = self.continuation_contract()?;
+        if !contract.is_grouped() {
+            return Err(crate::db::error::query_executor_invariant(
+                "grouped cursor boundary arity requires grouped logical plans",
+            ));
+        }
+
+        Ok(contract.boundary_arity())
+    }
+
+    fn grouped_pagination_window(
+        &self,
+        cursor: &GroupedPlannedCursor,
+    ) -> Result<GroupedPaginationWindow, InternalError> {
+        let contract = self.continuation_contract()?;
+        let window = contract
+            .grouped_paging_window(cursor)
+            .map_err(crate::db::error::from_cursor_plan_error)?;
+        let (
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ) = window.into_parts();
+
+        Ok(GroupedPaginationWindow::new(
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ))
+    }
+
+    // Borrow immutable continuation contract for load-mode plans.
+    fn continuation_contract(&self) -> Result<&ContinuationContract, InternalError> {
+        self.continuation.as_ref().ok_or_else(|| {
+            crate::db::error::query_executor_invariant(
+                "continuation contracts are only supported for load plans",
+            )
+        })
+    }
+}
+
 ///
 /// ExecutablePlan
 ///
@@ -137,22 +354,11 @@ where
 
 #[derive(Debug)]
 pub(in crate::db) struct ExecutablePlan<E: EntityKind> {
-    plan: AccessPlannedQuery,
+    core: ExecutablePlanCore,
     sidecar: ExecutableAccessSidecar<E::Key>,
-    continuation: Option<ContinuationContract>,
-    index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
-    index_prefix_spec_invalid: bool,
-    index_range_specs: Vec<LoweredIndexRangeSpec>,
-    index_range_spec_invalid: bool,
 }
 
 impl<E: EntityKind> ExecutablePlan<E> {
-    #[cfg(test)]
-    pub(in crate::db) fn new(plan: AccessPlannedQuery) -> Self {
-        Self::build(plan)
-    }
-
-    #[cfg(not(test))]
     pub(in crate::db) fn new(plan: AccessPlannedQuery) -> Self {
         Self::build(plan)
     }
@@ -177,13 +383,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
             };
 
         Self {
-            plan,
+            core: ExecutablePlanCore::new(
+                plan,
+                continuation,
+                index_prefix_specs,
+                index_prefix_spec_invalid,
+                index_range_specs,
+                index_range_spec_invalid,
+            ),
             sidecar,
-            continuation,
-            index_prefix_specs,
-            index_prefix_spec_invalid,
-            index_range_specs,
-            index_range_spec_invalid,
         }
     }
 
@@ -196,7 +404,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E: EntityValue,
     {
-        assemble_aggregate_terminal_execution_descriptor::<E>(&self.plan, aggregate)
+        assemble_aggregate_terminal_execution_descriptor::<E>(self.core.plan(), aggregate)
     }
 
     /// Explain scalar load execution shape as one canonical execution-node descriptor tree.
@@ -212,7 +420,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             ));
         }
 
-        assemble_load_execution_node_descriptor::<E>(&self.plan)
+        assemble_load_execution_node_descriptor::<E>(self.core.plan())
     }
 
     /// Explain scalar load execution route diagnostics for verbose surfaces.
@@ -228,89 +436,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             ));
         }
 
-        assemble_load_execution_verbose_diagnostics::<E>(&self.plan)
-    }
-
-    /// Render one canonical executable-plan snapshot payload for regression tests.
-    ///
-    /// The format is line-oriented and deterministic by construction:
-    /// fixed key order, stable planner fingerprints, and canonical explain fields.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn render_snapshot_canonical(&self) -> String
-    where
-        E: EntityValue,
-    {
-        // Phase 1: capture stable planner/executor contracts that define executable shape.
-        let execution_strategy = self.execution_strategy().map_or_else(
-            |err| format!("error:{err:?}"),
-            |strategy| format!("{strategy:?}"),
-        );
-        let ordering_direction = self.continuation_contract().map_or_else(
-            |err| format!("error:{err:?}"),
-            |contract| format!("{:?}", contract.order_contract().direction()),
-        );
-        let continuation_signature = self.continuation_signature_for_runtime().map_or_else(
-            |err| format!("error:{err:?}"),
-            |signature| signature.to_string(),
-        );
-        let projection_coverage_flag = self.index_covering_existing_rows_terminal_eligible();
-        let explain = self.plan.explain_with_model(E::MODEL);
-
-        // Phase 2: emit one deterministic, append-only snapshot payload.
-        let mut lines = Vec::new();
-        lines.push("snapshot_version=1".to_string());
-        lines.push(format!("plan_hash={}", self.plan.fingerprint()));
-        lines.push(format!("mode={:?}", self.mode()));
-        lines.push(format!("is_grouped={}", self.is_grouped()));
-        lines.push(format!("execution_strategy={execution_strategy}"));
-        lines.push(format!("ordering_direction={ordering_direction}"));
-        lines.push(format!(
-            "distinct_execution_strategy={:?}",
-            self.plan.distinct_execution_strategy()
-        ));
-        lines.push(format!(
-            "projection_selection={:?}",
-            self.plan.projection_selection
-        ));
-        lines.push(format!(
-            "projection_spec={:?}",
-            self.plan.projection_spec(E::MODEL)
-        ));
-        lines.push(format!("order_spec={:?}", self.order_spec()));
-        lines.push(format!(
-            "page_spec={:?}",
-            self.plan.scalar_plan().page.as_ref()
-        ));
-        lines.push(format!(
-            "projection_coverage_flag={projection_coverage_flag}"
-        ));
-        lines.push(format!("continuation_signature={continuation_signature}"));
-        lines.push(format!(
-            "index_prefix_specs={}",
-            snapshot_index_prefix_specs(self.index_prefix_specs.as_slice())
-        ));
-        lines.push(format!(
-            "index_range_specs={}",
-            snapshot_index_range_specs(self.index_range_specs.as_slice())
-        ));
-        lines.push(format!("explain_plan={explain:?}"));
-
-        lines.join("\n")
-    }
-
-    /// Compute a stable continuation signature for cursor compatibility checks.
-    ///
-    /// Unlike `fingerprint()`, this excludes window state such as `limit`/`offset`.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
-        match self.continuation {
-            Some(ref contract) => contract.continuation_signature(),
-            None => {
-                panic!("continuation signature requires load-mode continuation contract")
-            }
-        }
+        assemble_load_execution_verbose_diagnostics::<E>(self.core.plan())
     }
 
     /// Validate and decode a continuation cursor into executor-ready cursor state.
@@ -318,47 +444,30 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: Option<&[u8]>,
     ) -> Result<PlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.continuation.as_ref() else {
-            return Err(cursor_plan_error(
-                "continuation cursors are only supported for load plans",
-            ));
-        };
-
-        contract
-            .prepare_scalar_cursor(E::PATH, E::ENTITY_TAG, E::MODEL, cursor)
-            .map_err(ExecutorPlanError::from)
+        self.core
+            .prepare_cursor(E::PATH, E::ENTITY_TAG, E::MODEL, cursor)
     }
 
     /// Return the plan mode (load vs delete).
     #[must_use]
     pub(in crate::db) const fn mode(&self) -> QueryMode {
-        self.plan.scalar_plan().mode
+        self.core.mode()
     }
 
     /// Return whether this executable plan carries grouped logical shape.
     #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
-        match self.continuation {
-            Some(ref contract) => contract.is_grouped(),
-            None => false,
-        }
+        self.core.is_grouped()
     }
 
     /// Return planner-projected execution ordering used by runtime dispatch.
     pub(in crate::db) fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {
-        let contract = self.continuation_contract()?;
-        Ok(contract.order_contract().ordering().clone())
+        self.core.execution_ordering()
     }
 
     /// Return planner-projected execution strategy for entrypoint dispatch.
     pub(in crate::db) fn execution_strategy(&self) -> Result<ExecutionStrategy, InternalError> {
-        let ordering = self.execution_ordering()?;
-
-        Ok(match ordering {
-            ExecutionOrdering::PrimaryKey => ExecutionStrategy::PrimaryKey,
-            ExecutionOrdering::Explicit(_) => ExecutionStrategy::Ordered,
-            ExecutionOrdering::Grouped(_) => ExecutionStrategy::Grouped,
-        })
+        self.core.execution_strategy()
     }
 
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
@@ -368,7 +477,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Borrow scalar row-consistency policy for runtime row reads.
     #[must_use]
     pub(in crate::db) const fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.plan)
+        self.core.consistency()
     }
 
     /// Classify canonical `bytes_by(field)` execution mode for this plan/field.
@@ -418,26 +527,20 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Borrow scalar ORDER BY contract for this executable plan, if any.
     #[must_use]
     pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
-        self.plan.scalar_plan().order.as_ref()
+        self.core.order_spec()
     }
 
     /// Return whether this executable plan has a residual predicate.
     #[must_use]
     pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
-        self.plan.scalar_plan().predicate.is_some()
-    }
-
-    /// Return whether this executable plan enables scalar DISTINCT semantics.
-    #[must_use]
-    pub(in crate::db::executor) const fn is_distinct(&self) -> bool {
-        self.plan.scalar_plan().distinct
+        self.core.has_predicate()
     }
 
     /// Return whether this plan clears both residual-predicate and DISTINCT
     /// gates required by route-owned scalar fast-path contracts.
     #[must_use]
     pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
-        !self.has_predicate() && !self.is_distinct()
+        self.core.has_no_predicate_or_distinct()
     }
 
     /// Return one canonical scan direction for unordered plans (`Asc`) or
@@ -466,7 +569,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     {
         ExecutionPreparation::from_plan(
             E::MODEL,
-            &self.plan,
+            self.core.plan(),
             resolved_index_slots_for_access_path(
                 E::MODEL,
                 self.access().resolve_strategy().executable(),
@@ -482,41 +585,27 @@ impl<E: EntityKind> ExecutablePlan<E> {
     {
         let strict_predicate_compatible = self.execution_preparation().strict_mode().is_some();
 
-        index_covering_existing_rows_terminal_eligible(&self.plan, strict_predicate_compatible)
+        index_covering_existing_rows_terminal_eligible(
+            self.core.plan(),
+            strict_predicate_compatible,
+        )
     }
 
-    #[cfg(test)]
     #[must_use]
-    pub(crate) const fn as_inner(&self) -> &AccessPlannedQuery {
-        &self.plan
+    pub(in crate::db) const fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
     }
 
     pub(in crate::db) fn index_prefix_specs(
         &self,
     ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        if self.index_prefix_spec_invalid {
-            return Err(crate::db::error::query_executor_invariant(
-                LOWERED_INDEX_PREFIX_SPEC_INVALID,
-            ));
-        }
-
-        Ok(self.index_prefix_specs.as_slice())
+        self.core.index_prefix_specs()
     }
 
     pub(in crate::db) fn index_range_specs(
         &self,
     ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        if self.index_range_spec_invalid {
-            return Err(crate::db::error::query_executor_invariant(
-                LOWERED_INDEX_RANGE_SPEC_INVALID,
-            ));
-        }
-
-        Ok(self.index_range_specs.as_slice())
-    }
-
-    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery {
-        self.plan
+        self.core.index_range_specs()
     }
 
     /// Split the executable plan into the canonical structural plan plus the
@@ -525,7 +614,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Callers that still need typed access after consuming `ExecutablePlan`
     /// must prefer this helper over reconstructing from the structural plan.
     pub(in crate::db) fn into_plan_and_access(self) -> (AccessPlannedQuery, AccessPlan<E::Key>) {
-        (self.plan, self.sidecar.access)
+        (self.core.into_inner(), self.sidecar.access)
     }
 
     /// Build grouped executor handoff from this executable plan using one
@@ -533,8 +622,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
     pub(in crate::db) fn grouped_handoff(
         &self,
     ) -> Result<GroupedExecutorHandoff<'_>, InternalError> {
-        validate_executor_plan::<E>(&self.plan)?;
-        grouped_executor_handoff(&self.plan)
+        validate_executor_plan::<E>(self.core.plan())?;
+        grouped_executor_handoff(self.core.plan())
     }
 
     /// Revalidate executor-provided cursor state through the canonical cursor spine.
@@ -542,15 +631,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError> {
-        let Some(contract) = self.continuation.as_ref() else {
-            return Err(crate::db::error::query_executor_invariant(
-                "continuation cursors are only supported for load plans",
-            ));
-        };
-
-        contract
-            .revalidate_scalar_cursor(E::ENTITY_TAG, E::MODEL, cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)
+        self.core.revalidate_cursor(E::ENTITY_TAG, E::MODEL, cursor)
     }
 
     /// Validate and decode grouped continuation cursor state for grouped plans.
@@ -558,7 +639,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
-        let Some(contract) = self.continuation.as_ref() else {
+        let Some(contract) = self.core.continuation.as_ref() else {
             return Err(cursor_plan_error(
                 "grouped cursor preparation requires grouped logical plans",
             ));
@@ -574,35 +655,19 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, InternalError> {
-        let Some(contract) = self.continuation.as_ref() else {
-            return Err(crate::db::error::query_executor_invariant(
-                "grouped cursor revalidation requires grouped logical plans",
-            ));
-        };
-
-        contract
-            .revalidate_grouped_cursor(cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)
+        self.core.revalidate_grouped_cursor(cursor)
     }
 
     /// Borrow continuation signature from immutable continuation contract.
     pub(in crate::db) fn continuation_signature_for_runtime(
         &self,
     ) -> Result<ContinuationSignature, InternalError> {
-        let contract = self.continuation_contract()?;
-        Ok(contract.continuation_signature())
+        self.core.continuation_signature_for_runtime()
     }
 
     /// Borrow grouped cursor boundary arity from immutable continuation contract.
     pub(in crate::db) fn grouped_cursor_boundary_arity(&self) -> Result<usize, InternalError> {
-        let contract = self.continuation_contract()?;
-        if !contract.is_grouped() {
-            return Err(crate::db::error::query_executor_invariant(
-                "grouped cursor boundary arity requires grouped logical plans",
-            ));
-        }
-
-        Ok(contract.boundary_arity())
+        self.core.grouped_cursor_boundary_arity()
     }
 
     /// Derive grouped paging window from immutable continuation contract.
@@ -610,34 +675,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: &GroupedPlannedCursor,
     ) -> Result<GroupedPaginationWindow, InternalError> {
-        let contract = self.continuation_contract()?;
-        let window = contract
-            .grouped_paging_window(cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)?;
-        let (
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ) = window.into_parts();
-
-        Ok(GroupedPaginationWindow::new(
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ))
-    }
-
-    // Borrow immutable continuation contract for load-mode plans.
-    fn continuation_contract(&self) -> Result<&ContinuationContract, InternalError> {
-        self.continuation.as_ref().ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
-                "continuation contracts are only supported for load plans",
-            )
-        })
+        self.core.grouped_pagination_window(cursor)
     }
 }
 
@@ -645,74 +683,4 @@ fn cursor_plan_error(message: impl Into<String>) -> ExecutorPlanError {
     ExecutorPlanError::from(CursorPlanError::continuation_cursor_invariant(
         crate::db::error::executor_invariant_message(message),
     ))
-}
-
-#[cfg(test)]
-fn snapshot_index_prefix_specs(specs: &[LoweredIndexPrefixSpec]) -> String {
-    if specs.is_empty() {
-        return "[]".to_string();
-    }
-
-    let rendered = specs
-        .iter()
-        .map(|spec| {
-            format!(
-                "{{index:{},bound_type:equality,lower:{},upper:{}}}",
-                spec.index().name(),
-                snapshot_lowered_bound(spec.lower()),
-                snapshot_lowered_bound(spec.upper()),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    format!("[{}]", rendered.join(","))
-}
-
-#[cfg(test)]
-fn snapshot_index_range_specs(specs: &[LoweredIndexRangeSpec]) -> String {
-    if specs.is_empty() {
-        return "[]".to_string();
-    }
-
-    let rendered = specs
-        .iter()
-        .map(|spec| {
-            let bound_type = snapshot_range_bound_type(spec);
-            format!(
-                "{{index:{},bound_type:{bound_type},lower:{},upper:{}}}",
-                spec.index().name(),
-                snapshot_lowered_bound(spec.lower()),
-                snapshot_lowered_bound(spec.upper()),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    format!("[{}]", rendered.join(","))
-}
-
-#[cfg(test)]
-fn snapshot_range_bound_type(spec: &LoweredIndexRangeSpec) -> &'static str {
-    match (spec.lower(), spec.upper()) {
-        (Bound::Included(lower), Bound::Included(upper)) if lower == upper => "equality",
-        _ => "range",
-    }
-}
-
-#[cfg(test)]
-fn snapshot_lowered_bound(bound: &Bound<crate::db::access::LoweredKey>) -> String {
-    match bound {
-        Bound::Unbounded => "unbounded".to_string(),
-        Bound::Included(key) => format!("included({})", snapshot_lowered_key(key)),
-        Bound::Excluded(key) => format!("excluded({})", snapshot_lowered_key(key)),
-    }
-}
-
-#[cfg(test)]
-fn snapshot_lowered_key(key: &crate::db::access::LoweredKey) -> String {
-    let bytes = key.as_bytes();
-    let preview_len = bytes.len().min(8);
-    let head = encode_cursor(&bytes[..preview_len]);
-    let tail = encode_cursor(&bytes[bytes.len().saturating_sub(preview_len)..]);
-
-    format!("len:{}:head:{}:tail:{}", bytes.len(), head, tail)
 }

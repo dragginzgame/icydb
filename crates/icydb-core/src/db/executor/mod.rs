@@ -22,8 +22,6 @@ mod runtime_context;
 mod scan;
 mod stream;
 mod terminal;
-#[cfg(test)]
-mod tests;
 mod traversal;
 mod util;
 mod window;
@@ -48,9 +46,7 @@ pub(in crate::db::executor) use continuation::{
     ScalarRouteContinuationInvariantProjection,
 };
 pub(super) use delete::DeleteExecutor;
-pub(in crate::db::executor) use diagnostics::{
-    ExecutionOptimization, ExecutionOptimizationCounter, ExecutionTrace,
-};
+pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db::executor) use executable_plan::reconstruct_typed_access_plan;
 pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use kernel::ExecutionKernel;
@@ -78,54 +74,6 @@ pub(in crate::db) use window::compute_page_keep_count;
 
 pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
 
-impl<E: EntityKind> From<CompiledQuery<E>> for ExecutablePlan<E> {
-    fn from(value: CompiledQuery<E>) -> Self {
-        Self::new(value.into_inner())
-    }
-}
-
-impl<E: EntityKind> CompiledQuery<E> {
-    /// Convert one query-owned compiled intent into an executor-ready plan.
-    #[must_use]
-    pub(in crate::db) fn into_executable(self) -> ExecutablePlan<E> {
-        ExecutablePlan::from(self)
-    }
-}
-
-#[cfg(test)]
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Consume and reset one test-only fast-path hit counter by canonical optimization key.
-    pub(crate) fn take_execution_optimization_hits_for_tests(
-        optimization: ExecutionOptimizationCounter,
-    ) -> u64 {
-        diagnostics::take_execution_optimization_hits_for_tests(optimization)
-    }
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Record one test-only optimization hit marker by canonical taxonomy key.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn record_execution_optimization_hit_for_tests(
-        optimization: ExecutionOptimizationCounter,
-    ) {
-        diagnostics::record_execution_optimization_hit_for_tests(optimization);
-    }
-
-    /// Record one test-only optimization hit marker by canonical taxonomy key.
-    #[cfg(not(test))]
-    pub(in crate::db::executor) const fn record_execution_optimization_hit_for_tests(
-        optimization: ExecutionOptimizationCounter,
-    ) {
-        diagnostics::record_execution_optimization_hit_for_tests(optimization);
-    }
-}
-
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see
 //   additional tuple payload not represented in SchemaInfo.
@@ -138,7 +86,7 @@ where
 use crate::{
     db::{CompiledQuery, cursor::CursorPlanError, data::DataKey},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
 };
 use thiserror::Error as ThisError;
 
@@ -210,15 +158,19 @@ impl ExecutorError {
     pub(in crate::db::executor) fn store_corruption(message: impl Into<String>) -> Self {
         Self::corruption(ErrorOrigin::Store, message)
     }
-
-    // Construct a serialize-origin corruption error with canonical taxonomy.
-    pub(in crate::db::executor) fn serialize_corruption(message: impl Into<String>) -> Self {
-        Self::corruption(ErrorOrigin::Serialize, message)
-    }
 }
 
 impl From<ExecutorError> for InternalError {
     fn from(err: ExecutorError) -> Self {
         Self::classified(err.class(), err.origin(), err.to_string())
+    }
+}
+
+impl<E> From<CompiledQuery<E>> for ExecutablePlan<E>
+where
+    E: EntityKind,
+{
+    fn from(value: CompiledQuery<E>) -> Self {
+        value.into_executable()
     }
 }

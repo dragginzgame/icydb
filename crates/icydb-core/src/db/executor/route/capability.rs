@@ -70,15 +70,6 @@ pub(in crate::db::executor) fn stream_order_contract_safe_for_model(
     plan.scalar_plan().mode.is_load() && !has_residual_filter && !requires_post_access_sort
 }
 
-/// Return whether one plan shape is safe for direct streaming execution.
-#[cfg(test)]
-pub(in crate::db::executor) fn stream_order_contract_safe<E>(plan: &AccessPlannedQuery) -> bool
-where
-    E: EntitySchema,
-{
-    stream_order_contract_safe_for_model(E::MODEL, plan)
-}
-
 /// Return true when bounded physical fetch hints are valid for this direction.
 pub(in crate::db::executor::route) const fn direction_allows_physical_fetch_hint(
     direction: Direction,

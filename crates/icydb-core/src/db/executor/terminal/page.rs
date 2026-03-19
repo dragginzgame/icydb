@@ -54,6 +54,10 @@ impl KernelRow {
     pub(in crate::db::executor) fn into_data_row(self) -> DataRow {
         self.data_row
     }
+
+    pub(in crate::db::executor) fn into_slots(self) -> Vec<Option<Value>> {
+        self.slots
+    }
 }
 
 ///

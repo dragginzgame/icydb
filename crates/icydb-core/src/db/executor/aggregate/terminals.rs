@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
-            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
+            ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, PreparedAggregateStreamingInputs,
                 PreparedScalarTerminalBoundary, PreparedScalarTerminalExecutionState,
@@ -208,9 +208,6 @@ fn execute_count_primary_key_cardinality_terminal_request<E>(
 where
     E: EntityKind + EntityValue,
 {
-    LoadExecutor::<E>::record_execution_optimization_hit_for_tests(
-        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
-    );
     let count = aggregate_count_from_pk_cardinality(&prepared)?;
 
     Ok(ScalarAggregateOutput::Count(count))
@@ -221,16 +218,11 @@ where
 fn execute_count_existing_rows_terminal_request<E>(
     prepared: PreparedAggregateStreamingInputs<'_, E>,
     direction: Direction,
-    covering: bool,
+    _covering: bool,
 ) -> Result<ScalarAggregateOutput, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    LoadExecutor::<E>::record_execution_optimization_hit_for_tests(if covering {
-        ExecutionOptimizationCounter::CoveringCountFastPath
-    } else {
-        ExecutionOptimizationCounter::PrimaryKeyCountFastPath
-    });
     let count = expect_count_output(
         aggregate_existing_rows_terminal_output(&prepared, AggregateKind::Count, direction)?,
         "existing-row COUNT reducer result kind mismatch",
@@ -248,9 +240,6 @@ fn execute_exists_existing_rows_terminal_request<E>(
 where
     E: EntityKind + EntityValue,
 {
-    LoadExecutor::<E>::record_execution_optimization_hit_for_tests(
-        ExecutionOptimizationCounter::CoveringExistsFastPath,
-    );
     let exists = expect_exists_output(
         aggregate_existing_rows_terminal_output(&prepared, AggregateKind::Exists, direction)?,
         "covering EXISTS reducer result kind mismatch",

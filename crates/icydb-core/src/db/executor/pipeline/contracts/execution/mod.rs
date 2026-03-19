@@ -3,10 +3,12 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+mod erased;
 mod inputs;
 mod outcomes;
 mod stream;
 
+pub(in crate::db::executor::pipeline::contracts::execution) use erased::ErasedRuntimeBindings;
 pub(in crate::db::executor) use inputs::{
     ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter, RuntimePageMaterializationRequest,
     StructuralCursorPage,

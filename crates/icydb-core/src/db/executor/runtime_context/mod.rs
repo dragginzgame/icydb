@@ -9,10 +9,7 @@ use crate::{
     db::{
         Db,
         cursor::IndexScanContinuationInput,
-        data::{
-            DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
-            format_entity_key_for_mismatch,
-        },
+        data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
         index::{
@@ -24,7 +21,6 @@ use crate::{
     error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, EntityValue, Path},
-    types::Id,
 };
 use std::{collections::BTreeSet, ops::Bound};
 
@@ -224,52 +220,24 @@ where
         }
     }
 
+    /// Read one persisted row under one consistency contract and preserve the source data key.
+    pub(in crate::db::executor) fn read_data_row_with_consistency(
+        &self,
+        key: &DataKey,
+        consistency: MissingRowPolicy,
+    ) -> Result<Option<DataRow>, InternalError> {
+        let Some(row) = self.read_row_with_consistency_skip_not_found(key, consistency)? else {
+            return Ok(None);
+        };
+
+        Ok(Some((key.clone(), row)))
+    }
+
     /// Decode one raw data key and map decode failures to executor corruption errors.
     pub(super) fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
         DataKey::try_from_raw(raw).map_err(|err| {
             InternalError::identity_corruption(format!("failed to decode data key: {err}"))
         })
-    }
-
-    /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
-    pub(in crate::db) fn deserialize_row(row: DataRow) -> Result<(Id<E>, E), InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let (key, row) = row;
-        let expected_key = key.try_key::<E>()?;
-        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
-            expected_key,
-            || row.try_decode::<E>(),
-            |err| {
-                ExecutorError::serialize_corruption(format!(
-                    "failed to deserialize row: {key} ({err})"
-                ))
-                .into()
-            },
-            |expected_key, actual_key| {
-                let expected = format_entity_key_for_mismatch::<E>(expected_key);
-                let found = format_entity_key_for_mismatch::<E>(actual_key);
-
-                ExecutorError::store_corruption(format!(
-                    "row key mismatch: expected {expected}, found {found}"
-                ))
-                .into()
-            },
-        )?;
-
-        Ok((Id::from_key(expected_key), entity))
-    }
-
-    /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
-    pub(in crate::db) fn deserialize_rows(
-        rows: Vec<DataRow>,
-    ) -> Result<Vec<(Id<E>, E)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        // Phase 1: decode each row payload and enforce key/entity alignment invariants.
-        rows.into_iter().map(Self::deserialize_row).collect()
     }
 }
 
@@ -425,10 +393,3 @@ where
 }
 
 impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

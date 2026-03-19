@@ -14,11 +14,12 @@ use crate::{
             aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
-                extract_orderable_field_value,
+                extract_orderable_field_value, extract_orderable_field_value_with_slot_reader,
             },
             drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
             route::aggregate_extrema_direction,
+            terminal::{RowDecoder, RowLayout, page::KernelRow},
         },
         predicate::MissingRowPolicy,
         response::EntityResponse,
@@ -230,46 +231,80 @@ where
         Ok(ordered_rows)
     }
 
-    // Load one entity for field-extrema stream folding while preserving read
+    // Load one structural row for field aggregates while preserving read
     // consistency classification behavior.
-    pub(in crate::db::executor) fn read_entity_for_field_extrema(
+    pub(in crate::db::executor) fn read_kernel_row_for_field_aggregate(
+        ctx: &Context<'_, E>,
+        row_layout: &RowLayout,
+        row_decoder: RowDecoder,
+        consistency: MissingRowPolicy,
+        key: &DataKey,
+    ) -> Result<Option<KernelRow>, InternalError> {
+        let Some(row) = ctx.read_data_row_with_consistency(key, consistency)? else {
+            return Ok(None);
+        };
+
+        row_decoder.decode(row_layout, row).map(Some)
+    }
+
+    // Load one projected field value from one persisted row while preserving
+    // read consistency classification behavior at the outer aggregate edge.
+    pub(in crate::db::executor) fn read_field_value_for_aggregate(
         ctx: &Context<'_, E>,
         consistency: MissingRowPolicy,
         key: &DataKey,
-    ) -> Result<Option<E>, InternalError> {
-        let decode_row = |row| -> Result<E, InternalError> {
-            let (_, entity) = Context::<E>::deserialize_row((key.clone(), row))?;
-
-            Ok(entity)
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Option<Value>, InternalError> {
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
+        let Some(row) = Self::read_kernel_row_for_field_aggregate(
+            ctx,
+            &row_layout,
+            row_decoder,
+            consistency,
+            key,
+        )?
+        else {
+            return Ok(None);
         };
-        match consistency {
-            MissingRowPolicy::Error => {
-                let row = ctx.read_strict(key)?;
-                Ok(Some(decode_row(row)?))
-            }
-            MissingRowPolicy::Ignore => match ctx.read(key) {
-                Ok(row) => Ok(Some(decode_row(row)?)),
-                Err(err) if err.is_not_found() => Ok(None),
-                Err(err) => Err(err),
-            },
-        }
+        let value = extract_orderable_field_value_with_slot_reader(
+            target_field,
+            field_slot,
+            &mut |index| row.slot(index),
+        )
+        .map_err(Self::map_aggregate_field_value_error)?;
+
+        Ok(Some(value))
     }
 
-    // Drive one canonical key stream and decode rows with field-extrema read
+    // Drive one canonical key stream and decode rows with field-aggregate read
     // consistency contracts while delegating row-level behavior to callbacks.
     // This keeps stream control-flow ownership in one helper so aggregate
     // terminals do not duplicate key-stream/read scaffolding.
-    pub(in crate::db::executor) fn drive_field_entity_stream(
+    pub(in crate::db::executor) fn drive_field_row_stream(
         ctx: &Context<'_, E>,
         consistency: MissingRowPolicy,
         key_stream: &mut dyn OrderedKeyStream,
         pre_key: &mut dyn FnMut() -> KeyStreamLoopControl,
-        on_key: &mut dyn FnMut(DataKey, Option<E>) -> Result<KeyStreamLoopControl, InternalError>,
+        on_key: &mut dyn FnMut(
+            DataKey,
+            Option<KernelRow>,
+        ) -> Result<KeyStreamLoopControl, InternalError>,
     ) -> Result<(), InternalError> {
-        drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut |data_key| {
-            let entity = Self::read_entity_for_field_extrema(ctx, consistency, &data_key)?;
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
 
-            on_key(data_key, entity)
+        drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut |data_key| {
+            let row = Self::read_kernel_row_for_field_aggregate(
+                ctx,
+                &row_layout,
+                row_decoder,
+                consistency,
+                &data_key,
+            )?;
+
+            on_key(data_key, row)
         })
     }
 

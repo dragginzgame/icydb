@@ -17,10 +17,381 @@ use crate::{
             plan::{AccessPlannedQuery, LoadSpec, QueryMode},
         },
     },
-    traits::{EntityKind, EntityValue, SingletonEntity},
+    traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
     value::Value,
 };
 use core::marker::PhantomData;
+
+///
+/// StructuralQuery
+///
+/// Generic-free query-intent core shared by typed `Query<E>` wrappers.
+/// Stores model-level key access as `Value` so only typed key-entry helpers
+/// remain entity-specific at the outer API boundary.
+///
+
+#[derive(Debug)]
+struct StructuralQuery {
+    intent: QueryModel<'static, Value>,
+}
+
+impl StructuralQuery {
+    #[must_use]
+    const fn new(
+        model: &'static crate::model::entity::EntityModel,
+        consistency: MissingRowPolicy,
+    ) -> Self {
+        Self {
+            intent: QueryModel::new(model, consistency),
+        }
+    }
+
+    #[must_use]
+    const fn mode(&self) -> QueryMode {
+        self.intent.mode()
+    }
+
+    #[must_use]
+    fn has_explicit_order(&self) -> bool {
+        self.intent.has_explicit_order()
+    }
+
+    #[must_use]
+    const fn has_grouping(&self) -> bool {
+        self.intent.has_grouping()
+    }
+
+    #[must_use]
+    const fn load_spec(&self) -> Option<LoadSpec> {
+        match self.intent.mode() {
+            QueryMode::Load(spec) => Some(spec),
+            QueryMode::Delete(_) => None,
+        }
+    }
+
+    #[must_use]
+    fn filter(mut self, predicate: Predicate) -> Self {
+        self.intent = self.intent.filter(predicate);
+        self
+    }
+
+    fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
+        let Self { intent } = self;
+        let intent = intent.filter_expr(expr)?;
+
+        Ok(Self { intent })
+    }
+
+    fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
+        let Self { intent } = self;
+        let intent = intent.sort_expr(expr)?;
+
+        Ok(Self { intent })
+    }
+
+    #[must_use]
+    fn order_by(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self.intent.order_by(field);
+        self
+    }
+
+    #[must_use]
+    fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self.intent.order_by_desc(field);
+        self
+    }
+
+    #[must_use]
+    fn distinct(mut self) -> Self {
+        self.intent = self.intent.distinct();
+        self
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    fn select_fields<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.intent = self.intent.select_fields(fields);
+        self
+    }
+
+    fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
+        let Self { intent } = self;
+        let intent = intent.push_group_field(field.as_ref())?;
+
+        Ok(Self { intent })
+    }
+
+    #[must_use]
+    fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
+        self.intent = self.intent.push_group_aggregate(aggregate);
+        self
+    }
+
+    #[must_use]
+    fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
+        self.intent = self.intent.grouped_limits(max_groups, max_group_bytes);
+        self
+    }
+
+    fn having_group(
+        self,
+        field: impl AsRef<str>,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let field = field.as_ref().to_owned();
+        let Self { intent } = self;
+        let intent = intent.push_having_group_clause(&field, op, value)?;
+
+        Ok(Self { intent })
+    }
+
+    fn having_aggregate(
+        self,
+        aggregate_index: usize,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let Self { intent } = self;
+        let intent = intent.push_having_aggregate_clause(aggregate_index, op, value)?;
+
+        Ok(Self { intent })
+    }
+
+    #[must_use]
+    fn by_id(self, id: Value) -> Self {
+        let Self { intent } = self;
+        Self {
+            intent: intent.by_id(id),
+        }
+    }
+
+    #[must_use]
+    fn by_ids<I>(self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = Value>,
+    {
+        let Self { intent } = self;
+        Self {
+            intent: intent.by_ids(ids),
+        }
+    }
+
+    #[must_use]
+    fn only(self, id: Value) -> Self {
+        let Self { intent } = self;
+
+        Self {
+            intent: intent.only(id),
+        }
+    }
+
+    #[must_use]
+    fn delete(mut self) -> Self {
+        self.intent = self.intent.delete();
+        self
+    }
+
+    #[must_use]
+    fn limit(mut self, limit: u32) -> Self {
+        self.intent = self.intent.limit(limit);
+        self
+    }
+
+    #[must_use]
+    fn offset(mut self, offset: u32) -> Self {
+        self.intent = self.intent.offset(offset);
+        self
+    }
+
+    fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
+        self.intent.build_plan_model()
+    }
+}
+
+///
+/// PlannedQueryCore
+///
+/// Generic-free planned-query payload shared by typed planned-query wrappers
+/// so explain and plan-hash logic stay structural while public callers retain
+/// entity-specific type inference.
+///
+
+#[derive(Debug)]
+struct PlannedQueryCore {
+    model: &'static crate::model::entity::EntityModel,
+    plan: AccessPlannedQuery,
+}
+
+impl PlannedQueryCore {
+    #[must_use]
+    const fn new(
+        model: &'static crate::model::entity::EntityModel,
+        plan: AccessPlannedQuery,
+    ) -> Self {
+        Self { model, plan }
+    }
+
+    #[must_use]
+    fn explain(&self) -> ExplainPlan {
+        self.plan.explain_with_model(self.model)
+    }
+
+    /// Return the stable plan hash for this planned query.
+    #[must_use]
+    fn plan_hash_hex(&self) -> String {
+        self.plan.fingerprint().to_string()
+    }
+}
+
+///
+/// PlannedQuery
+///
+/// Typed planned-query shell over one generic-free planner contract.
+/// This preserves caller-side entity inference while keeping the stored plan
+/// payload and explain/hash logic structural.
+///
+
+#[derive(Debug)]
+pub struct PlannedQuery<E: EntityKind> {
+    inner: PlannedQueryCore,
+    _marker: PhantomData<E>,
+}
+
+impl<E: EntityKind> PlannedQuery<E> {
+    #[must_use]
+    const fn from_inner(inner: PlannedQueryCore) -> Self {
+        Self {
+            inner,
+            _marker: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn explain(&self) -> ExplainPlan {
+        self.inner.explain()
+    }
+
+    /// Return the stable plan hash for this planned query.
+    #[must_use]
+    pub fn plan_hash_hex(&self) -> String {
+        self.inner.plan_hash_hex()
+    }
+}
+
+///
+/// CompiledQueryCore
+///
+/// Generic-free compiled-query payload shared by typed compiled-query wrappers
+/// so executor handoff state remains structural until the final typed adapter
+/// boundary.
+///
+
+#[derive(Clone, Debug)]
+struct CompiledQueryCore {
+    model: &'static crate::model::entity::EntityModel,
+    entity_path: &'static str,
+    plan: AccessPlannedQuery,
+}
+
+impl CompiledQueryCore {
+    #[must_use]
+    const fn new(
+        model: &'static crate::model::entity::EntityModel,
+        entity_path: &'static str,
+        plan: AccessPlannedQuery,
+    ) -> Self {
+        Self {
+            model,
+            entity_path,
+            plan,
+        }
+    }
+
+    #[must_use]
+    fn explain(&self) -> ExplainPlan {
+        self.plan.explain_with_model(self.model)
+    }
+
+    /// Return the stable plan hash for this compiled query.
+    #[must_use]
+    fn plan_hash_hex(&self) -> String {
+        self.plan.fingerprint().to_string()
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
+        self.plan.projection_spec(self.model)
+    }
+
+    #[must_use]
+    fn into_inner(self) -> AccessPlannedQuery {
+        self.plan
+    }
+}
+
+///
+/// CompiledQuery
+///
+/// Typed compiled-query shell over one generic-free planner contract.
+/// The outer entity marker restores inference for executor handoff sites
+/// while the stored execution payload remains structural.
+///
+
+#[derive(Clone, Debug)]
+pub struct CompiledQuery<E: EntityKind> {
+    inner: CompiledQueryCore,
+    _marker: PhantomData<E>,
+}
+
+impl<E: EntityKind> CompiledQuery<E> {
+    #[must_use]
+    const fn from_inner(inner: CompiledQueryCore) -> Self {
+        Self {
+            inner,
+            _marker: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn explain(&self) -> ExplainPlan {
+        self.inner.explain()
+    }
+
+    /// Return the stable plan hash for this compiled query.
+    #[must_use]
+    pub fn plan_hash_hex(&self) -> String {
+        self.inner.plan_hash_hex()
+    }
+
+    #[must_use]
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
+        self.inner.projection_spec()
+    }
+
+    /// Convert one structural compiled query into an executor-ready typed plan.
+    pub(in crate::db) fn into_executable(self) -> crate::db::executor::ExecutablePlan<E> {
+        assert!(
+            self.inner.entity_path == E::PATH,
+            "compiled query entity mismatch: compiled for '{}', requested '{}'",
+            self.inner.entity_path,
+            E::PATH,
+        );
+
+        crate::db::executor::ExecutablePlan::new(self.into_inner())
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery {
+        self.inner.into_inner()
+    }
+}
 
 ///
 /// Query
@@ -35,85 +406,89 @@ use core::marker::PhantomData;
 
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
-    intent: QueryModel<'static, E::Key>,
+    inner: StructuralQuery,
+    _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> Query<E> {
+    // Rebind one structural query core to the typed `Query<E>` surface.
+    const fn from_inner(inner: StructuralQuery) -> Self {
+        Self {
+            inner,
+            _marker: PhantomData,
+        }
+    }
+
     /// Create a new intent with an explicit missing-row policy.
     /// Ignore favors idempotency and may mask index/data divergence on deletes.
     /// Use Error to surface missing rows during scan/delete execution.
     #[must_use]
     pub const fn new(consistency: MissingRowPolicy) -> Self {
-        Self {
-            intent: QueryModel::new(E::MODEL, consistency),
-        }
+        Self::from_inner(StructuralQuery::new(E::MODEL, consistency))
     }
 
     /// Return the intent mode (load vs delete).
     #[must_use]
     pub const fn mode(&self) -> QueryMode {
-        self.intent.mode()
+        self.inner.mode()
     }
 
     #[must_use]
     pub(crate) fn has_explicit_order(&self) -> bool {
-        self.intent.has_explicit_order()
+        self.inner.has_explicit_order()
     }
 
     #[must_use]
     pub(crate) const fn has_grouping(&self) -> bool {
-        self.intent.has_grouping()
+        self.inner.has_grouping()
     }
 
     #[must_use]
     pub(crate) const fn load_spec(&self) -> Option<LoadSpec> {
-        match self.intent.mode() {
-            QueryMode::Load(spec) => Some(spec),
-            QueryMode::Delete(_) => None,
-        }
+        self.inner.load_spec()
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
-        self.intent = self.intent.filter(predicate);
+        self.inner = self.inner.filter(predicate);
         self
     }
 
     /// Apply a dynamic filter expression.
     pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.filter_expr(expr)?;
+        let Self { inner, .. } = self;
+        let inner = inner.filter_expr(expr)?;
 
-        Ok(Self { intent })
+        Ok(Self::from_inner(inner))
     }
 
     /// Apply a dynamic sort expression.
     pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.sort_expr(expr)?;
+        let Self { inner, .. } = self;
+        let inner = inner.sort_expr(expr)?;
 
-        Ok(Self { intent })
+        Ok(Self::from_inner(inner))
     }
 
     /// Append an ascending sort key.
     #[must_use]
     pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self.intent.order_by(field);
+        self.inner = self.inner.order_by(field);
         self
     }
 
     /// Append a descending sort key.
     #[must_use]
     pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self.intent.order_by_desc(field);
+        self.inner = self.inner.order_by_desc(field);
         self
     }
 
     /// Enable DISTINCT semantics for this query.
     #[must_use]
     pub fn distinct(mut self) -> Self {
-        self.intent = self.intent.distinct();
+        self.inner = self.inner.distinct();
         self
     }
 
@@ -125,29 +500,29 @@ impl<E: EntityKind> Query<E> {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.intent = self.intent.select_fields(fields);
+        self.inner = self.inner.select_fields(fields);
         self
     }
 
     /// Add one GROUP BY field.
     pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.push_group_field(field.as_ref())?;
+        let Self { inner, .. } = self;
+        let inner = inner.group_by(field)?;
 
-        Ok(Self { intent })
+        Ok(Self::from_inner(inner))
     }
 
     /// Add one aggregate terminal via composable aggregate expression.
     #[must_use]
     pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
-        self.intent = self.intent.push_group_aggregate(aggregate);
+        self.inner = self.inner.aggregate(aggregate);
         self
     }
 
     /// Override grouped hard limits for grouped execution budget enforcement.
     #[must_use]
     pub fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
-        self.intent = self.intent.grouped_limits(max_groups, max_group_bytes);
+        self.inner = self.inner.grouped_limits(max_groups, max_group_bytes);
         self
     }
 
@@ -158,11 +533,10 @@ impl<E: EntityKind> Query<E> {
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_owned();
-        let Self { intent } = self;
-        let intent = intent.push_having_group_clause(&field, op, value)?;
+        let Self { inner, .. } = self;
+        let inner = inner.having_group(field, op, value)?;
 
-        Ok(Self { intent })
+        Ok(Self::from_inner(inner))
     }
 
     /// Add one grouped HAVING compare clause over one grouped aggregate output.
@@ -172,18 +546,17 @@ impl<E: EntityKind> Query<E> {
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
-        let Self { intent } = self;
-        let intent = intent.push_having_aggregate_clause(aggregate_index, op, value)?;
+        let Self { inner, .. } = self;
+        let inner = inner.having_aggregate(aggregate_index, op, value)?;
 
-        Ok(Self { intent })
+        Ok(Self::from_inner(inner))
     }
 
     /// Set the access path to a single primary key lookup.
     pub(crate) fn by_id(self, id: E::Key) -> Self {
-        let Self { intent } = self;
-        Self {
-            intent: intent.by_id(id),
-        }
+        let Self { inner, .. } = self;
+
+        Self::from_inner(inner.by_id(id.to_value()))
     }
 
     /// Set the access path to a primary key batch lookup.
@@ -191,16 +564,15 @@ impl<E: EntityKind> Query<E> {
     where
         I: IntoIterator<Item = E::Key>,
     {
-        let Self { intent } = self;
-        Self {
-            intent: intent.by_ids(ids),
-        }
+        let Self { inner, .. } = self;
+
+        Self::from_inner(inner.by_ids(ids.into_iter().map(|id| id.to_value())))
     }
 
     /// Mark this intent as a delete query.
     #[must_use]
     pub fn delete(mut self) -> Self {
-        self.intent = self.intent.delete();
+        self.inner = self.inner.delete();
         self
     }
 
@@ -212,7 +584,7 @@ impl<E: EntityKind> Query<E> {
     /// GROUP BY queries use canonical grouped-key order by default.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
-        self.intent = self.intent.limit(limit);
+        self.inner = self.inner.limit(limit);
         self
     }
 
@@ -223,7 +595,7 @@ impl<E: EntityKind> Query<E> {
     /// Delete intents reject `offset(...)` during planning.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
-        self.intent = self.intent.offset(offset);
+        self.inner = self.inner.offset(offset);
         self
     }
 
@@ -239,7 +611,7 @@ impl<E: EntityKind> Query<E> {
     /// The hash is derived from canonical planner contracts and is suitable
     /// for diagnostics, explain diffing, and cache key construction.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        let plan = self.build_plan()?;
+        let plan = self.inner.build_plan()?;
 
         Ok(plan.fingerprint().to_string())
     }
@@ -339,25 +711,27 @@ impl<E: EntityKind> Query<E> {
 
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        let plan = self.build_plan()?;
+        let plan = self.inner.build_plan()?;
         let _projection = plan.projection_spec(E::MODEL);
 
-        Ok(PlannedQuery::<E>::new(plan))
+        Ok(PlannedQuery::from_inner(PlannedQueryCore::new(
+            E::MODEL,
+            plan,
+        )))
     }
 
     /// Compile this intent into query-owned handoff state.
     ///
     /// This boundary intentionally does not expose executor runtime shape.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        let plan = self.build_plan()?;
+        let plan = self.inner.build_plan()?;
         let _projection = plan.projection_spec(E::MODEL);
 
-        Ok(CompiledQuery::<E>::new(plan))
-    }
-
-    // Build a logical plan for the current intent.
-    fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent.build_plan_model()
+        Ok(CompiledQuery::from_inner(CompiledQueryCore::new(
+            E::MODEL,
+            E::PATH,
+            plan,
+        )))
     }
 }
 
@@ -517,288 +891,8 @@ where
 {
     /// Set the access path to the singleton primary key.
     pub(crate) fn only(self) -> Self {
-        let Self { intent } = self;
+        let Self { inner, .. } = self;
 
-        Self {
-            intent: intent.only(E::Key::default()),
-        }
-    }
-}
-
-///
-/// PlannedQuery
-///
-/// Neutral query-owned planned contract produced by query planning.
-/// Stores logical + access shape without executor compilation state.
-///
-
-#[derive(Debug)]
-pub struct PlannedQuery<E: EntityKind> {
-    plan: AccessPlannedQuery,
-    _marker: PhantomData<E>,
-}
-
-impl<E: EntityKind> PlannedQuery<E> {
-    #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery) -> Self {
-        Self {
-            plan,
-            _marker: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain_with_model(E::MODEL)
-    }
-
-    /// Return the stable plan hash for this planned query.
-    #[must_use]
-    pub fn plan_hash_hex(&self) -> String {
-        self.plan.fingerprint().to_string()
-    }
-}
-
-///
-/// CompiledQuery
-///
-/// Query-owned compiled handoff produced by `Query::plan()`.
-/// This type intentionally carries only logical/access query semantics.
-/// Executor runtime shape is derived explicitly at the executor boundary.
-///
-
-#[derive(Clone, Debug)]
-pub struct CompiledQuery<E: EntityKind> {
-    plan: AccessPlannedQuery,
-    _marker: PhantomData<E>,
-}
-
-impl<E: EntityKind> CompiledQuery<E> {
-    #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery) -> Self {
-        Self {
-            plan,
-            _marker: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain_with_model(E::MODEL)
-    }
-
-    /// Return the stable plan hash for this compiled query.
-    #[must_use]
-    pub fn plan_hash_hex(&self) -> String {
-        self.plan.fingerprint().to_string()
-    }
-
-    /// Borrow planner-lowered projection semantics for this compiled query.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.plan.projection_spec(E::MODEL)
-    }
-
-    #[must_use]
-    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery {
-        self.plan
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{db::predicate::CoercionSpec, types::Ulid};
-
-    fn strict_compare(field: &str, op: CompareOp, value: Value) -> ExplainPredicate {
-        ExplainPredicate::Compare {
-            field: field.to_string(),
-            op,
-            value,
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        }
-    }
-
-    #[test]
-    fn predicate_pushdown_label_prefix_like_and_equivalent_range_share_label() {
-        let starts_with_predicate = strict_compare(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("foo".to_string()),
-        );
-        let equivalent_range_predicate = ExplainPredicate::And(vec![
-            strict_compare("name", CompareOp::Gte, Value::Text("foo".to_string())),
-            strict_compare("name", CompareOp::Lt, Value::Text("fop".to_string())),
-        ]);
-        let access = ExplainAccessPath::IndexRange {
-            name: "idx_name",
-            fields: vec!["name"],
-            prefix_len: 0,
-            prefix: Vec::new(),
-            lower: std::ops::Bound::Included(Value::Text("foo".to_string())),
-            upper: std::ops::Bound::Excluded(Value::Text("fop".to_string())),
-        };
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&starts_with_predicate, &access),
-            plan_predicate_pushdown_label(&equivalent_range_predicate, &access),
-            "equivalent prefix-like and bounded-range shapes should report identical pushdown reason labels",
-        );
-        assert_eq!(
-            plan_predicate_pushdown_label(&starts_with_predicate, &access),
-            "applied(index_range)"
-        );
-    }
-
-    #[test]
-    fn predicate_pushdown_label_distinguishes_is_null_and_non_strict_full_scan_fallbacks() {
-        let is_null_predicate = ExplainPredicate::IsNull {
-            field: "group".to_string(),
-        };
-        let non_strict_predicate = ExplainPredicate::Compare {
-            field: "group".to_string(),
-            op: CompareOp::Eq,
-            value: Value::Uint(7),
-            coercion: CoercionSpec::new(CoercionId::NumericWiden),
-        };
-        let access = ExplainAccessPath::FullScan;
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&is_null_predicate, &access),
-            "fallback(is_null_full_scan)"
-        );
-        assert_eq!(
-            plan_predicate_pushdown_label(&non_strict_predicate, &access),
-            "fallback(non_strict_compare_coercion)"
-        );
-    }
-
-    #[test]
-    fn predicate_pushdown_label_reports_none_when_no_predicate_is_present() {
-        let predicate = ExplainPredicate::None;
-        let access = ExplainAccessPath::ByKey {
-            key: Value::Ulid(Ulid::from_u128(7)),
-        };
-
-        assert_eq!(plan_predicate_pushdown_label(&predicate, &access), "none");
-    }
-
-    #[test]
-    fn predicate_pushdown_label_reports_empty_access_contract_for_impossible_shapes() {
-        let predicate = ExplainPredicate::Or(vec![
-            ExplainPredicate::IsNull {
-                field: "id".to_string(),
-            },
-            ExplainPredicate::And(vec![
-                ExplainPredicate::Compare {
-                    field: "id".to_string(),
-                    op: CompareOp::In,
-                    value: Value::List(Vec::new()),
-                    coercion: CoercionSpec::new(CoercionId::Strict),
-                },
-                ExplainPredicate::True,
-            ]),
-        ]);
-        let access = ExplainAccessPath::ByKeys { keys: Vec::new() };
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&predicate, &access),
-            "applied(empty_access_contract)"
-        );
-    }
-
-    #[test]
-    fn predicate_pushdown_label_distinguishes_empty_prefix_starts_with_full_scan_fallback() {
-        let empty_prefix_predicate = ExplainPredicate::Compare {
-            field: "label".to_string(),
-            op: CompareOp::StartsWith,
-            value: Value::Text(String::new()),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        };
-        let non_empty_prefix_predicate = ExplainPredicate::Compare {
-            field: "label".to_string(),
-            op: CompareOp::StartsWith,
-            value: Value::Text("l".to_string()),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        };
-        let access = ExplainAccessPath::FullScan;
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&empty_prefix_predicate, &access),
-            "fallback(starts_with_empty_prefix)"
-        );
-        assert_eq!(
-            plan_predicate_pushdown_label(&non_empty_prefix_predicate, &access),
-            "fallback(full_scan)"
-        );
-    }
-
-    #[test]
-    fn predicate_pushdown_label_reports_text_operator_full_scan_fallback() {
-        let text_contains = ExplainPredicate::TextContainsCi {
-            field: "label".to_string(),
-            value: Value::Text("needle".to_string()),
-        };
-        let ends_with = ExplainPredicate::Compare {
-            field: "label".to_string(),
-            op: CompareOp::EndsWith,
-            value: Value::Text("fix".to_string()),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        };
-        let access = ExplainAccessPath::FullScan;
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&text_contains, &access),
-            "fallback(text_operator_full_scan)"
-        );
-        assert_eq!(
-            plan_predicate_pushdown_label(&ends_with, &access),
-            "fallback(text_operator_full_scan)"
-        );
-    }
-
-    #[test]
-    fn predicate_pushdown_label_keeps_collection_contains_on_generic_full_scan_fallback() {
-        let collection_contains = ExplainPredicate::Compare {
-            field: "tags".to_string(),
-            op: CompareOp::Contains,
-            value: Value::Uint(7),
-            coercion: CoercionSpec::new(CoercionId::CollectionElement),
-        };
-        let access = ExplainAccessPath::FullScan;
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&collection_contains, &access),
-            "fallback(non_strict_compare_coercion)"
-        );
-        assert_ne!(
-            plan_predicate_pushdown_label(&collection_contains, &access),
-            "fallback(text_operator_full_scan)"
-        );
-    }
-
-    #[test]
-    fn predicate_pushdown_label_non_strict_ends_with_uses_non_strict_fallback_precedence() {
-        let non_strict_ends_with = ExplainPredicate::Compare {
-            field: "label".to_string(),
-            op: CompareOp::EndsWith,
-            value: Value::Text("fix".to_string()),
-            coercion: CoercionSpec::new(CoercionId::TextCasefold),
-        };
-        let access = ExplainAccessPath::FullScan;
-
-        assert_eq!(
-            plan_predicate_pushdown_label(&non_strict_ends_with, &access),
-            "fallback(non_strict_compare_coercion)"
-        );
-        assert_ne!(
-            plan_predicate_pushdown_label(&non_strict_ends_with, &access),
-            "fallback(text_operator_full_scan)"
-        );
+        Self::from_inner(inner.only(E::Key::default().to_value()))
     }
 }

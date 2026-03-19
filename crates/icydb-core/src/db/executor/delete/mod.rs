@@ -7,9 +7,9 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
+        data::{DataKey, DataRow, PersistedEntityRow, RawRow, decode_persisted_entity_ref},
         executor::{
-            ExecutablePlan, ExecutionKernel, ExecutionPreparation, ExecutorError, PlanRow,
+            ExecutablePlan, ExecutionKernel, ExecutionPreparation, PlanRow,
             mutation::{
                 commit_delete_row_ops_with_window, mutation_write_context, preflight_mutation_plan,
             },
@@ -52,27 +52,13 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
     rows: Vec<DataRow>,
 ) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
-        .map(|(dk, raw)| {
-            let expected = dk.try_key::<E>()?;
-            let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
-                expected,
-                || raw.try_decode::<E>(),
-                |err| {
-                    ExecutorError::serialize_corruption(format!(
-                        "failed to deserialize row: {dk} ({err})"
-                    ))
-                    .into()
-                },
-                |expected, actual| {
-                    ExecutorError::store_corruption(format!(
-                        "row key mismatch: expected {expected:?}, found {actual:?}"
-                    ))
-                    .into()
-                },
-            )?;
+        .map(|row| {
+            let row = PersistedEntityRow::from_data_row(row);
+            let (_, entity) = decode_persisted_entity_ref::<E>(row.as_ref())?;
+            let (key, raw) = row.into_parts();
 
             Ok(DeleteRow {
-                key: dk,
+                key,
                 raw: Some(raw),
                 entity,
             })

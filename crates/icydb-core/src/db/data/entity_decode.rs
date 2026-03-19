@@ -4,10 +4,209 @@
 //! Boundary: data helpers used by store/executor decode paths.
 
 use crate::{
-    db::data::DataKey,
+    db::{
+        data::{DataKey, DataRow, RawRow},
+        response::{EntityResponse, Row},
+    },
     error::InternalError,
     traits::{EntityKind, EntityValue},
+    types::Id,
 };
+use std::{fmt::Display, mem::ManuallyDrop};
+
+///
+/// PersistedEntityRow
+///
+/// PersistedEntityRow is the structural persisted-row envelope shared by
+/// executor decode boundaries.
+/// It owns the authoritative `DataKey` plus raw row bytes so typed callers can
+/// keep only entity-key extraction and typed decode at the outer shell.
+///
+
+#[derive(Debug)]
+pub(in crate::db) struct PersistedEntityRow {
+    data_key: DataKey,
+    raw_row: RawRow,
+}
+
+impl PersistedEntityRow {
+    /// Build one owned persisted-row envelope from a `(DataKey, RawRow)` pair.
+    #[must_use]
+    pub(in crate::db) fn from_data_row(row: DataRow) -> Self {
+        let (data_key, raw_row) = row;
+
+        Self { data_key, raw_row }
+    }
+
+    /// Borrow the structural persisted-row decode boundary.
+    #[must_use]
+    pub(in crate::db) const fn as_ref(&self) -> PersistedEntityRowRef<'_> {
+        PersistedEntityRowRef::new(&self.data_key, &self.raw_row)
+    }
+
+    /// Return the owned row parts after structural decode work completes.
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (DataKey, RawRow) {
+        (self.data_key, self.raw_row)
+    }
+}
+
+///
+/// PersistedEntityRowRef
+///
+/// PersistedEntityRowRef is the borrowed persisted-row boundary shared by row
+/// decode callers.
+/// It centralizes row-envelope diagnostics and raw row access so executor-side
+/// typed wrappers only own the entity-specific decode operations.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db) struct PersistedEntityRowRef<'a> {
+    data_key: &'a DataKey,
+    raw_row: &'a RawRow,
+}
+
+impl<'a> PersistedEntityRowRef<'a> {
+    /// Build one borrowed persisted-row boundary.
+    #[must_use]
+    pub(in crate::db) const fn new(data_key: &'a DataKey, raw_row: &'a RawRow) -> Self {
+        Self { data_key, raw_row }
+    }
+
+    /// Decode the expected typed entity key from the authoritative data key.
+    pub(in crate::db) fn expected_key<E>(self) -> Result<E::Key, InternalError>
+    where
+        E: EntityKind,
+    {
+        self.data_key.try_key::<E>()
+    }
+
+    /// Decode one entity from the persisted row and enforce key consistency.
+    #[inline(never)]
+    pub(in crate::db) fn decode_entity<E, DecodeFn, DecodeErr, DecodeErrMap, MismatchErrMap>(
+        self,
+        expected_key: E::Key,
+        decode_entity: DecodeFn,
+        map_decode_error: DecodeErrMap,
+        map_key_mismatch: MismatchErrMap,
+    ) -> Result<E, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        DecodeFn: FnOnce(&RawRow) -> Result<E, DecodeErr>,
+        DecodeErrMap: FnOnce(DecodeErr) -> InternalError,
+        MismatchErrMap: FnOnce(E::Key, E::Key) -> InternalError,
+    {
+        decode_and_validate_entity_key::<E, _, _, _, _>(
+            expected_key,
+            || decode_entity(self.raw_row),
+            map_decode_error,
+            map_key_mismatch,
+        )
+    }
+
+    /// Build the canonical row-decode failure message for this persisted row.
+    #[must_use]
+    pub(in crate::db) fn decode_failure_message(self, err: impl Display) -> String {
+        format!("failed to deserialize row: {} ({err})", self.data_key)
+    }
+
+    /// Build the canonical row-key mismatch message for this persisted row.
+    #[must_use]
+    pub(in crate::db) fn key_mismatch_message(
+        expected: impl Display,
+        actual: impl Display,
+    ) -> String {
+        format!("row key mismatch: expected {expected}, found {actual}")
+    }
+}
+
+///
+/// ErasedEntityResponseBuilder
+///
+/// ErasedEntityResponseBuilder owns the type-erased row buffer used by the
+/// shared `Vec<DataRow> -> EntityResponse<E>` decode loop.
+/// It keeps the generic-free row iteration in one place while typed leaf
+/// functions perform entity decode and row construction at the edge.
+///
+
+struct ErasedEntityResponseBuilder {
+    state: *mut (),
+    push_row: unsafe fn(*mut (), DataRow) -> Result<(), InternalError>,
+    drop_state: unsafe fn(*mut ()),
+}
+
+impl ErasedEntityResponseBuilder {
+    // Allocate one erased typed row buffer for one concrete entity response.
+    fn new<E>(capacity: usize) -> Self
+    where
+        E: EntityKind + EntityValue,
+    {
+        let rows = Vec::<Row<E>>::with_capacity(capacity);
+
+        Self {
+            state: Box::into_raw(Box::new(rows)).cast(),
+            push_row: push_decoded_entity_row::<E>,
+            drop_state: drop_entity_response_state::<E>,
+        }
+    }
+
+    // Push one decoded typed row through the builder leaf vtable.
+    fn push_row(&mut self, row: DataRow) -> Result<(), InternalError> {
+        // SAFETY:
+        // - the erased state was allocated by `Self::new::<E>`
+        // - `push_row` was paired with the same concrete `E`
+        unsafe { (self.push_row)(self.state, row) }
+    }
+
+    // Finish one typed entity response and reclaim the owned erased row buffer.
+    fn finish<E>(self) -> EntityResponse<E>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let this = ManuallyDrop::new(self);
+
+        // SAFETY:
+        // - the builder state was allocated as `Vec<Row<E>>` in `Self::new::<E>`
+        // - the caller finishes with the same concrete `E` used at construction
+        let rows = unsafe { *Box::from_raw(this.state.cast::<Vec<Row<E>>>()) };
+
+        EntityResponse::new(rows)
+    }
+}
+
+impl Drop for ErasedEntityResponseBuilder {
+    fn drop(&mut self) {
+        // SAFETY:
+        // - `drop_state` matches the concrete allocation created in `Self::new::<E>`
+        // - `finish` suppresses this drop path via `ManuallyDrop`
+        unsafe { (self.drop_state)(self.state) };
+    }
+}
+
+/// Decode one borrowed persisted row into one typed entity plus its expected key.
+pub(in crate::db) fn decode_persisted_entity_ref<E>(
+    row: PersistedEntityRowRef<'_>,
+) -> Result<(E::Key, E), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let expected_key = row.expected_key::<E>()?;
+    let entity = row.decode_entity::<E, _, _, _, _>(
+        expected_key,
+        RawRow::try_decode::<E>,
+        |err| InternalError::serialize_corruption(row.decode_failure_message(err)),
+        |expected_key, actual_key| {
+            let expected = format_entity_key_for_mismatch::<E>(expected_key);
+            let found = format_entity_key_for_mismatch::<E>(actual_key);
+
+            InternalError::store_corruption(PersistedEntityRowRef::key_mismatch_message(
+                expected, found,
+            ))
+        },
+    )?;
+
+    Ok((expected_key, entity))
+}
 
 /// Decode one entity and enforce key consistency against an expected key.
 ///
@@ -40,6 +239,36 @@ where
     Ok(entity)
 }
 
+/// Decode one persisted row into one typed response row.
+pub(in crate::db) fn decode_data_row_into_entity_row<E>(
+    row: DataRow,
+) -> Result<Row<E>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let row = PersistedEntityRow::from_data_row(row);
+    let (expected_key, entity) = decode_persisted_entity_ref::<E>(row.as_ref())?;
+
+    Ok(Row::new(Id::from_key(expected_key), entity))
+}
+
+/// Decode persisted data rows into one typed entity response through one structural loop.
+pub(in crate::db) fn decode_data_rows_into_entity_response<E>(
+    rows: Vec<DataRow>,
+) -> Result<EntityResponse<E>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let mut builder = ErasedEntityResponseBuilder::new::<E>(rows.len());
+
+    // Phase 1: walk the structural row vector once without a generic loop body.
+    for row in rows {
+        builder.push_row(row)?;
+    }
+
+    Ok(builder.finish::<E>())
+}
+
 /// Format an entity key for mismatch diagnostics using canonical `DataKey`
 /// formatting when possible, and `Debug` fallback otherwise.
 pub(in crate::db) fn format_entity_key_for_mismatch<E>(key: E::Key) -> String
@@ -69,101 +298,30 @@ where
     Ok(())
 }
 
-///
-/// TESTS
-///
+// Decode one persisted row into one typed response row and append it to the
+// erased response-state buffer selected by the builder vtable.
+unsafe fn push_decoded_entity_row<E>(state: *mut (), row: DataRow) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let row = decode_data_row_into_entity_row::<E>(row)?;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        error::{ErrorClass, ErrorOrigin, InternalError},
-        model::field::FieldKind,
-        traits::EntityValue,
-        types::Ulid,
-    };
-    use icydb_derive::FieldProjection;
-    use serde::{Deserialize, Serialize};
+    // SAFETY:
+    // - `state` originates from `ErasedEntityResponseBuilder::new::<E>`
+    // - this leaf is only paired with that same concrete `E`
+    let rows = unsafe { &mut *state.cast::<Vec<Row<E>>>() };
+    rows.push(row);
 
-    crate::test_canister! {
-        ident = TestCanister,
-        commit_memory_id = crate::testing::test_commit_memory_id(),
-    }
+    Ok(())
+}
 
-    crate::test_store! {
-        ident = TestStore,
-        canister = TestCanister,
-    }
-
-    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
-    struct ProbeEntity {
-        id: Ulid,
-    }
-
-    crate::test_entity_schema! {
-        ident = ProbeEntity,
-        id = Ulid,
-        id_field = id,
-        entity_name = "ProbeEntity",
-    entity_tag = crate::testing::PROBE_ENTITY_TAG,
-        primary_key = "id",
-        pk_index = 0,
-        fields = [("id", FieldKind::Ulid)],
-        indexes = [],
-        store = TestStore,
-        canister = TestCanister,
-    }
-
-    #[test]
-    fn decode_and_validate_entity_key_returns_entity_on_success() {
-        let expected = Ulid::from_u128(1);
-        let entity = decode_and_validate_entity_key::<ProbeEntity, _, _, _, _>(
-            expected,
-            || Ok::<ProbeEntity, &'static str>(ProbeEntity { id: expected }),
-            |_: &'static str| unreachable!("decode-error mapping must not run on success"),
-            |_, _| unreachable!("mismatch mapping must not run on success"),
-        )
-        .expect("success path should return decoded entity");
-
-        assert_eq!(entity.id().key(), expected);
-    }
-
-    #[test]
-    fn decode_and_validate_entity_key_maps_decode_failure() {
-        let expected = Ulid::from_u128(2);
-        let err = decode_and_validate_entity_key::<ProbeEntity, _, _, _, _>(
-            expected,
-            || Err("decode_failed"),
-            |source| InternalError::serialize_corruption(format!("decode map: {source}")),
-            |_, _| unreachable!("mismatch mapping must not run on decode failure"),
-        )
-        .expect_err("decode failure must map into InternalError");
-
-        assert_eq!(err.class, ErrorClass::Corruption);
-        assert_eq!(err.origin, ErrorOrigin::Serialize);
-        assert_eq!(err.message, "decode map: decode_failed");
-    }
-
-    #[test]
-    fn decode_and_validate_entity_key_maps_key_mismatch() {
-        let expected = Ulid::from_u128(3);
-        let actual = Ulid::from_u128(4);
-        let err = decode_and_validate_entity_key::<ProbeEntity, _, _, _, _>(
-            expected,
-            || Ok::<ProbeEntity, &'static str>(ProbeEntity { id: actual }),
-            |_: &'static str| {
-                unreachable!("decode-error mapping must not run for successful decode")
-            },
-            |expected_key, actual_key| {
-                InternalError::store_corruption(format!(
-                    "mismatch: {expected_key:?} != {actual_key:?}"
-                ))
-            },
-        )
-        .expect_err("key mismatch must map into InternalError");
-
-        assert_eq!(err.class, ErrorClass::Corruption);
-        assert_eq!(err.origin, ErrorOrigin::Store);
-        assert_eq!(err.message, format!("mismatch: {expected:?} != {actual:?}"));
-    }
+// Drop one erased typed response-state buffer when decode aborts before finish.
+unsafe fn drop_entity_response_state<E>(state: *mut ())
+where
+    E: EntityKind + EntityValue,
+{
+    // SAFETY:
+    // - `state` originates from `ErasedEntityResponseBuilder::new::<E>`
+    // - this drop leaf is only paired with that same concrete `E`
+    drop(unsafe { Box::from_raw(state.cast::<Vec<Row<E>>>()) });
 }

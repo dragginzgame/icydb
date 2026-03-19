@@ -93,16 +93,3 @@ pub(in crate::db::executor) enum RouteShapeKind {
     AggregateGrouped,
     MutationDelete,
 }
-
-#[cfg(test)]
-pub(in crate::db::executor) const fn route_shape_kind_count_guard() -> usize {
-    let _ = [
-        RouteShapeKind::LoadScalar,
-        RouteShapeKind::AggregateCount,
-        RouteShapeKind::AggregateNonCount,
-        RouteShapeKind::AggregateGrouped,
-        RouteShapeKind::MutationDelete,
-    ];
-
-    5
-}

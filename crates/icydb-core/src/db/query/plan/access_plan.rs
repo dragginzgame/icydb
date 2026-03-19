@@ -60,13 +60,6 @@ impl AccessPlannedQuery {
         plan
     }
 
-    /// Decompose the canonical structural plan into its stable planner-owned parts.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn into_parts(self) -> (LogicalPlan, AccessPlan<Value>, ProjectionSelection) {
-        (self.logical, self.access, self.projection_selection)
-    }
-
     /// Convert this plan into grouped logical form with one explicit group spec.
     #[must_use]
     pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
@@ -125,17 +118,5 @@ impl AccessPlannedQuery {
             access: AccessPlan::path(access),
             projection_selection: ProjectionSelection::All,
         }
-    }
-
-    /// Construct one minimal access-planned query from one typed access path.
-    ///
-    /// This is transitional boundary glue for tests and typed planner call sites
-    /// that still express primary-key access using one concrete key type.
-    #[cfg(test)]
-    pub(crate) fn new_typed<K>(access: AccessPath<K>, consistency: MissingRowPolicy) -> Self
-    where
-        K: FieldValue,
-    {
-        Self::new(access.into_value_path(), consistency)
     }
 }

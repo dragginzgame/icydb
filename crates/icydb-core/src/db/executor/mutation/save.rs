@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, RawRow, decode_and_validate_entity_key},
+        data::{DataKey, PersistedEntityRowRef, RawRow, decode_persisted_entity_ref},
         executor::{
             Context, ExecutorError,
             mutation::{commit_save_row_ops_with_window, mutation_write_context},
@@ -343,23 +343,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
     ) -> Result<(), InternalError> {
-        let expected = data_key.try_key::<E>()?;
-        let decoded = decode_and_validate_entity_key::<E, _, _, _, _>(
-            expected,
-            || row.try_decode::<E>(),
-            |err| {
-                ExecutorError::serialize_corruption(format!(
-                    "failed to deserialize row: {data_key} ({err})"
-                ))
-                .into()
-            },
-            |expected, actual| {
-                ExecutorError::store_corruption(format!(
-                    "row key mismatch: expected {expected:?}, found {actual:?}"
-                ))
-                .into()
-            },
-        )?;
+        let (_, decoded) =
+            decode_persisted_entity_ref::<E>(PersistedEntityRowRef::new(data_key, row))?;
         Self::ensure_entity_invariants(&decoded).map_err(|err| {
             InternalError::from(ExecutorError::store_corruption(format!(
                 "persisted row invariant violation: {data_key} ({})",

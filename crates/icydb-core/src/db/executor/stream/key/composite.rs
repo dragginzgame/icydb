@@ -3,8 +3,6 @@
 //! Does not own: physical key production or access-path traversal.
 //! Boundary: comparator-driven stream composition with monotonicity guards.
 
-#[cfg(test)]
-use crate::db::direction::Direction;
 use crate::{
     db::{
         data::{DataKey, StorageKey},
@@ -186,13 +184,6 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
-    /// Construct one merge stream using traversal direction.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn new(left: A, right: B, direction: Direction) -> Self {
-        Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
-    }
-
     /// Construct one merge stream using explicit key comparator policy.
     #[must_use]
     pub(in crate::db::executor) const fn new_with_comparator(
@@ -296,13 +287,6 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
-    /// Construct one intersection stream using traversal direction.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn new(left: A, right: B, direction: Direction) -> Self {
-        Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
-    }
-
     /// Construct one intersection stream using explicit key comparator policy.
     #[must_use]
     pub(in crate::db::executor) const fn new_with_comparator(

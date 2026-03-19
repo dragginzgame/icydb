@@ -3,8 +3,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(test)]
-use crate::db::index::IndexKey;
 use crate::db::{
     access::LoweredKey,
     cursor::{IndexRangeCursorAnchor, ValidatedInEnvelopeIndexRangeCursorAnchor},
@@ -57,13 +55,6 @@ impl RangeToken {
     pub(in crate::db) const fn anchor(&self) -> &LogicalKeyHandle {
         &self.anchor
     }
-}
-
-/// Build a continuation anchor from one canonical index key.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn cursor_anchor_from_index_key(index_key: &IndexKey) -> IndexRangeCursorAnchor {
-    IndexRangeCursorAnchor::new(index_key.to_raw().as_bytes().to_vec())
 }
 
 /// Build a continuation anchor directly from one raw index key.

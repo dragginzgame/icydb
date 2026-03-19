@@ -16,7 +16,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter,
+            ExecutablePlan, ExecutionKernel,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
@@ -272,7 +272,6 @@ where
                         &prepared, context, window,
                     )?
                 {
-                    Self::record_covering_index_projection_fast_path_hit_for_tests();
                     return Ok(ScalarProjectionBoundaryOutput::Values(
                         covering_projection.values,
                     ));
@@ -284,7 +283,6 @@ where
                         &prepared, context, window,
                     )?
                 {
-                    Self::record_covering_index_projection_fast_path_hit_for_tests();
                     let values = match distinct {
                         Some(PreparedCoveringDistinctStrategy::Adjacent) => {
                             dedup_adjacent_values(covering_projection.values)
@@ -308,7 +306,6 @@ where
                         &prepared, context, window,
                     )?
                 {
-                    Self::record_covering_index_projection_fast_path_hit_for_tests();
                     let values = match distinct {
                         Some(PreparedCoveringDistinctStrategy::Adjacent) => {
                             dedup_adjacent_values(covering_projection.values)
@@ -332,7 +329,6 @@ where
                 if let Some(values) = Self::covering_index_projection_values_with_ids_from_context(
                     &prepared, context, window,
                 )? {
-                    Self::record_covering_index_projection_fast_path_hit_for_tests();
                     return Ok(ScalarProjectionBoundaryOutput::ValuesWithIds(values));
                 }
             }
@@ -342,7 +338,6 @@ where
                         &prepared, context, window,
                     )?
                 {
-                    Self::record_covering_index_projection_fast_path_hit_for_tests();
                     let value = match terminal_kind {
                         AggregateKind::First => covering_projection.values.first().cloned(),
                         AggregateKind::Last => covering_projection.values.last().cloned(),
@@ -369,8 +364,6 @@ where
         prepared: PreparedAggregateStreamingInputs<'_, E>,
         value: Value,
     ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
-        Self::record_covering_constant_projection_fast_path_hit_for_tests();
-
         match boundary.op {
             PreparedScalarProjectionOp::Values => {
                 let row_count = self.aggregate_count_from_prepared(prepared)?;
@@ -405,22 +398,6 @@ where
                 ))
             }
         }
-    }
-
-    // Record one covering index projection fast-path hit in tests.
-    #[allow(clippy::missing_const_for_fn)]
-    fn record_covering_index_projection_fast_path_hit_for_tests() {
-        Self::record_execution_optimization_hit_for_tests(
-            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
-        );
-    }
-
-    // Record one constant covering projection fast-path hit in tests.
-    #[allow(clippy::missing_const_for_fn)]
-    fn record_covering_constant_projection_fast_path_hit_for_tests() {
-        Self::record_execution_optimization_hit_for_tests(
-            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
-        );
     }
 
     // Execute one prepared materialized projection contract.
@@ -514,12 +491,18 @@ where
 
         let ctx = self.recovered_context()?;
         let key = DataKey::new(E::ENTITY_TAG, selected_key);
-        let Some(entity) = Self::read_entity_for_field_extrema(&ctx, consistency, &key)? else {
+        let Some(value) = Self::read_field_value_for_aggregate(
+            &ctx,
+            consistency,
+            &key,
+            target_field,
+            field_slot,
+        )?
+        else {
             return Ok(None);
         };
-        extract_orderable_field_value(&entity, target_field, field_slot)
-            .map_err(Self::map_aggregate_field_value_error)
-            .map(Some)
+
+        Ok(Some(value))
     }
 
     // Project one materialized response into one field value vector while

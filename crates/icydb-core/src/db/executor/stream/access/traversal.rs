@@ -3,8 +3,6 @@
 //! Does not own: access-plan construction or planner routing semantics.
 //! Boundary: lowers executable access contracts into ordered key/data stream traversal.
 
-#[cfg(test)]
-use crate::db::access::{AccessPath, lower_executable_access_path};
 use crate::{
     db::{
         access::AccessPlan,
@@ -145,28 +143,6 @@ impl<E> Context<'_, E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Resolve one access path into an ordered key stream with optional
-    /// index-lowered constraints and execution hints.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn ordered_key_stream_from_access(
-        &self,
-        access: &AccessPath<E::Key>,
-        constraints: IndexStreamConstraints<'_>,
-        continuation: AccessScanContinuationInput<'_>,
-        hints: StreamExecutionHints<'_>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        let executable_access = lower_executable_access_path(access);
-        self.ordered_key_stream_from_executable_access(
-            &executable_access,
-            constraints,
-            continuation,
-            hints,
-        )
-    }
-
     /// Resolve one executable access path into an ordered key stream.
     pub(in crate::db::executor) fn ordered_key_stream_from_executable_access(
         &self,

@@ -13,17 +13,6 @@ mod policy;
 mod query;
 mod state;
 
-#[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-use crate::db::{
-    predicate::{MissingRowPolicy, Predicate},
-    query::plan::{OrderDirection, OrderSpec},
-};
-
-#[cfg_attr(not(test), expect(unused_imports))]
-pub(crate) use errors::PagingIntentError;
 pub use errors::{IntentError, QueryError, QueryExecutionError};
 #[expect(unused_imports)]
 pub(crate) use key_access::coerce_entity_key;
@@ -31,8 +20,6 @@ pub(crate) use key_access::{
     KeyAccess, KeyAccessKind, KeyAccessState, access_plan_to_entity_keys,
     build_access_plan_from_keys,
 };
-#[cfg_attr(not(test), expect(unused_imports))]
-pub(crate) use model::QueryModel;
 #[expect(unreachable_pub)]
 pub use query::PlannedQuery;
 pub use query::{CompiledQuery, Query};

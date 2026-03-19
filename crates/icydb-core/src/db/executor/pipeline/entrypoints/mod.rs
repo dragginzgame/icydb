@@ -23,10 +23,6 @@ use crate::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     LoadExecutionMode, LoadTracingMode,
 };
-#[cfg(test)]
-pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
-    load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
-};
 pub(in crate::db::executor) use scalar::PreparedScalarMaterializedBoundary;
 
 impl<E> LoadExecutor<E>
@@ -53,17 +49,6 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
         self.execute_load_scalar_rows(plan, LoadCursorInput::scalar(PlannedCursor::none()))
-    }
-
-    // Execute one scalar load plan with optional cursor input.
-    // Retained as a direct scalar pagination adapter for executor-level tests.
-    #[cfg(test)]
-    pub(in crate::db) fn execute_paged_with_cursor(
-        &self,
-        plan: ExecutablePlan<E>,
-        cursor: impl Into<PlannedCursor>,
-    ) -> Result<CursorPage<E>, InternalError> {
-        self.execute_load_scalar_page(plan, LoadCursorInput::scalar(cursor))
     }
 
     // Execute one scalar load plan and optionally emit execution trace output.

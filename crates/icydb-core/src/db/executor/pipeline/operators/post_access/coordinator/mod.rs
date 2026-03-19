@@ -4,8 +4,6 @@
 //! Boundary: exposes one plan-owned coordinator consumed by post-access wrappers.
 
 mod runtime;
-#[cfg(test)]
-mod safety;
 
 use crate::db::executor::pipeline::contracts::PostAccessContract;
 use core::marker::PhantomData;

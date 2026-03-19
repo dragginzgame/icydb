@@ -75,15 +75,3 @@ pub(super) const fn grouped_execution_strategy_for_runtime(
 
     grouped_execution_strategy_for_plan_hint(grouped_ordered_eligibility)
 }
-
-#[cfg(test)]
-pub(in crate::db::executor) const fn grouped_ordered_runtime_revalidation_flag_count_guard() -> usize
-{
-    let _ = GroupedOrderedEligibility {
-        ordered_hint: false,
-        direction_compatible: false,
-        stream_order_contract_safe: false,
-    };
-
-    3
-}

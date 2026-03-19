@@ -15,7 +15,8 @@ use crate::{
                 AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput,
                 field::{
                     AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
-                    compare_entities_by_orderable_field, compare_entities_for_field_extrema,
+                    compare_entities_for_field_extrema, compare_orderable_field_values,
+                    extract_orderable_field_value_with_slot_reader,
                     resolve_orderable_aggregate_target_slot,
                 },
             },
@@ -29,7 +30,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    value::StorageKey,
+    value::{StorageKey, Value},
 };
 use std::cmp::Ordering;
 
@@ -262,58 +263,62 @@ where
         }
 
         let mut keys_scanned = 0usize;
-        let mut selected: Option<(StorageKey, E)> = None;
+        let mut selected: Option<(StorageKey, Value)> = None;
         let mut pre_key = || KeyStreamLoopControl::Emit;
-        let mut on_key =
-            |data_key: DataKey, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
-                keys_scanned = keys_scanned.saturating_add(1);
-                let Some(entity) = entity else {
-                    return Ok(KeyStreamLoopControl::Emit);
-                };
-                let key = data_key.storage_key();
-                let selected_was_empty = selected.is_none();
-                let candidate_replaces = match selected.as_ref() {
-                    Some((_, current)) => {
-                        compare_entities_for_field_extrema(
-                            &entity,
-                            current,
-                            target_field,
-                            field_slot,
-                            direction,
-                        )
-                        .map_err(AggregateFieldValueError::into_internal_error)?
-                            == Ordering::Less
-                    }
-                    None => true,
-                };
-                if candidate_replaces {
-                    selected = Some((key, entity));
-                    if selected_was_empty && matches!(kind, AggregateKind::Min) {
-                        // MIN(field) under ascending index-leading traversal is resolved
-                        // by the first in-window existing row.
-                        return Ok(KeyStreamLoopControl::Stop);
-                    }
+        let mut on_key = |data_key: DataKey,
+                          row: Option<crate::db::executor::terminal::page::KernelRow>|
+         -> Result<KeyStreamLoopControl, InternalError> {
+            keys_scanned = keys_scanned.saturating_add(1);
+            let Some(row) = row else {
+                return Ok(KeyStreamLoopControl::Emit);
+            };
+            let key = data_key.storage_key();
+            let value = extract_orderable_field_value_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let selected_was_empty = selected.is_none();
+            let candidate_replaces = match selected.as_ref() {
+                Some((current_key, current_value)) => {
+                    let field_order =
+                        compare_orderable_field_values(target_field, &value, current_value)
+                            .map_err(AggregateFieldValueError::into_internal_error)?;
+                    let directional_field_order = apply_aggregate_direction(field_order, direction);
 
-                    return Ok(KeyStreamLoopControl::Emit);
+                    directional_field_order == Ordering::Less
+                        || (directional_field_order == Ordering::Equal && key < *current_key)
                 }
-
-                let Some((_, current)) = selected.as_ref() else {
-                    return Ok(KeyStreamLoopControl::Emit);
-                };
-                let field_order =
-                    compare_entities_by_orderable_field(&entity, current, target_field, field_slot)
-                        .map_err(AggregateFieldValueError::into_internal_error)?;
-                let directional_field_order = apply_aggregate_direction(field_order, direction);
-
-                // Once traversal leaves the winning field-value group, the ordered
-                // stream cannot produce a better extrema candidate.
-                if directional_field_order == Ordering::Greater {
+                None => true,
+            };
+            if candidate_replaces {
+                selected = Some((key, value));
+                if selected_was_empty && matches!(kind, AggregateKind::Min) {
+                    // MIN(field) under ascending index-leading traversal is resolved
+                    // by the first in-window existing row.
                     return Ok(KeyStreamLoopControl::Stop);
                 }
 
-                Ok(KeyStreamLoopControl::Emit)
+                return Ok(KeyStreamLoopControl::Emit);
+            }
+
+            let Some((_, current_value)) = selected.as_ref() else {
+                return Ok(KeyStreamLoopControl::Emit);
             };
-        Self::drive_field_entity_stream(ctx, consistency, key_stream, &mut pre_key, &mut on_key)?;
+            let field_order = compare_orderable_field_values(target_field, &value, current_value)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+            let directional_field_order = apply_aggregate_direction(field_order, direction);
+
+            // Once traversal leaves the winning field-value group, the ordered
+            // stream cannot produce a better extrema candidate.
+            if directional_field_order == Ordering::Greater {
+                return Ok(KeyStreamLoopControl::Stop);
+            }
+
+            Ok(KeyStreamLoopControl::Emit)
+        };
+        Self::drive_field_row_stream(ctx, consistency, key_stream, &mut pre_key, &mut on_key)?;
 
         let selected_key = selected.map(|(key, _)| key);
         let output = kind.extrema_output(selected_key).ok_or_else(|| {
