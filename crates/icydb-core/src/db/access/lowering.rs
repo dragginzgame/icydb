@@ -18,7 +18,7 @@ use crate::{
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::EntityKind,
+    types::EntityTag,
     value::Value,
 };
 use std::ops::Bound;
@@ -230,55 +230,60 @@ impl LoweredIndexRangeSpec {
 }
 
 // Lower semantic index-prefix access into byte bounds at lowering time.
-pub(in crate::db) fn lower_index_prefix_specs<E: EntityKind>(
-    access_plan: &AccessPlan<E::Key>,
+pub(in crate::db) fn lower_index_prefix_specs<K>(
+    entity_tag: EntityTag,
+    access_plan: &AccessPlan<K>,
 ) -> Result<Vec<LoweredIndexPrefixSpec>, InternalError> {
     // Phase 1: collect semantic prefix specs from access-plan tree.
     let mut specs = Vec::new();
-    collect_index_prefix_specs::<E>(access_plan, &mut specs)?;
+    collect_index_prefix_specs(entity_tag, access_plan, &mut specs)?;
 
     Ok(specs)
 }
 
 // Lower semantic index-range access into byte bounds at lowering time.
-pub(in crate::db) fn lower_index_range_specs<E: EntityKind>(
-    access_plan: &AccessPlan<E::Key>,
+pub(in crate::db) fn lower_index_range_specs<K>(
+    entity_tag: EntityTag,
+    access_plan: &AccessPlan<K>,
 ) -> Result<Vec<LoweredIndexRangeSpec>, InternalError> {
     // Phase 1: collect semantic range specs from access-plan tree.
     let mut specs = Vec::new();
-    collect_index_range_specs::<E>(access_plan, &mut specs)?;
+    collect_index_range_specs(entity_tag, access_plan, &mut specs)?;
 
     Ok(specs)
 }
 
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
-fn lower_index_range_bounds_for_scope<E: EntityKind>(
+fn lower_index_range_bounds_for_scope(
+    entity_tag: EntityTag,
     index: &IndexModel,
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
     scope: LoweredIndexNotIndexableReasonScope,
 ) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), &'static str> {
-    let index_id = IndexId::new(E::ENTITY_TAG, index.ordinal());
+    let index_id = IndexId::new(entity_tag, index.ordinal());
 
     raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
         .map_err(|err| map_index_range_not_indexable_reason(scope, err))
 }
 
 // Collect index-prefix specs in deterministic depth-first traversal order.
-fn collect_index_prefix_specs<E: EntityKind>(
-    access: &AccessPlan<E::Key>,
+fn collect_index_prefix_specs<K>(
+    entity_tag: EntityTag,
+    access: &AccessPlan<K>,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
     match dispatch_access_plan(access) {
         AccessPlanDispatch::Path(path) => {
             match path {
                 AccessPathDispatch::IndexPrefix { index, values } => {
-                    lower_index_prefix_values_for_specs::<E>(index, values, specs)?;
+                    lower_index_prefix_values_for_specs(entity_tag, index, values, specs)?;
                 }
                 AccessPathDispatch::IndexMultiLookup { index, values } => {
                     for value in values {
-                        lower_index_prefix_values_for_specs::<E>(
+                        lower_index_prefix_values_for_specs(
+                            entity_tag,
                             index,
                             std::slice::from_ref(value),
                             specs,
@@ -296,7 +301,7 @@ fn collect_index_prefix_specs<E: EntityKind>(
         }
         AccessPlanDispatch::Union(children) | AccessPlanDispatch::Intersection(children) => {
             for child in children {
-                collect_index_prefix_specs::<E>(child, specs)?;
+                collect_index_prefix_specs(entity_tag, child, specs)?;
             }
 
             Ok(())
@@ -304,7 +309,8 @@ fn collect_index_prefix_specs<E: EntityKind>(
     }
 }
 
-fn lower_index_prefix_values_for_specs<E: EntityKind>(
+fn lower_index_prefix_values_for_specs(
+    entity_tag: EntityTag,
     index: IndexModel,
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
@@ -312,7 +318,7 @@ fn lower_index_prefix_values_for_specs<E: EntityKind>(
     let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
         crate::db::error::query_executor_invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE)
     })?;
-    let index_id = IndexId::new(E::ENTITY_TAG, index.ordinal());
+    let index_id = IndexId::new(entity_tag, index.ordinal());
     let (lower, upper) =
         raw_keys_for_encoded_prefix(&index_id, &index, prefix_components.as_slice());
     specs.push(LoweredIndexPrefixSpec::new(
@@ -325,8 +331,9 @@ fn lower_index_prefix_values_for_specs<E: EntityKind>(
 }
 
 // Collect index-range specs in deterministic depth-first traversal order.
-fn collect_index_range_specs<E: EntityKind>(
-    access: &AccessPlan<E::Key>,
+fn collect_index_range_specs<K>(
+    entity_tag: EntityTag,
+    access: &AccessPlan<K>,
     specs: &mut Vec<LoweredIndexRangeSpec>,
 ) -> Result<(), InternalError> {
     match dispatch_access_plan(access) {
@@ -337,7 +344,8 @@ fn collect_index_range_specs<E: EntityKind>(
                     spec.prefix_values().len().saturating_add(1),
                     "semantic range field-slot arity must remain prefix_len + range slot",
                 );
-                let (lower, upper) = lower_index_range_bounds_for_scope::<E>(
+                let (lower, upper) = lower_index_range_bounds_for_scope(
+                    entity_tag,
                     spec.index(),
                     spec.prefix_values(),
                     spec.lower(),
@@ -352,7 +360,7 @@ fn collect_index_range_specs<E: EntityKind>(
         }
         AccessPlanDispatch::Union(children) | AccessPlanDispatch::Intersection(children) => {
             for child in children {
-                collect_index_range_specs::<E>(child, specs)?;
+                collect_index_range_specs(entity_tag, child, specs)?;
             }
 
             Ok(())

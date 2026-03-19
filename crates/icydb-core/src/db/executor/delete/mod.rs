@@ -118,7 +118,7 @@ where
             // Phase 1: preflight plan + context setup before any commit-window work.
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
-            let (plan, typed_access) = plan.into_plan_and_access();
+            let plan = plan.into_plan();
             let execution_preparation = ExecutionPreparation::from_plan(
                 E::MODEL,
                 &plan,
@@ -128,11 +128,11 @@ where
             let ctx = mutation_write_context::<E>(&self.db)?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);
-            record_plan_metrics(&typed_access);
+            record_plan_metrics(&plan.access);
 
             // Access phase: resolve candidate rows before delete filtering.
-            let data_rows = ctx.rows_from_access_plan(
-                &typed_access,
+            let data_rows = ctx.rows_from_structural_access_plan(
+                &plan.access,
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
                 row_read_consistency_for_plan(&plan),

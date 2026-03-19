@@ -15,8 +15,7 @@ mod state;
 
 pub use errors::{IntentError, QueryError, QueryExecutionError};
 pub(crate) use key_access::{
-    KeyAccess, KeyAccessKind, KeyAccessState, access_plan_to_entity_keys,
-    build_access_plan_from_keys,
+    KeyAccess, KeyAccessKind, KeyAccessState, build_access_plan_from_keys,
 };
 #[expect(unreachable_pub)]
 pub use query::PlannedQuery;

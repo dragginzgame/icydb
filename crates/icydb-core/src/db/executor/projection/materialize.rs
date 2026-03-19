@@ -6,7 +6,9 @@
 #[cfg(feature = "sql")]
 use crate::{
     db::{
+        data::DataRow,
         executor::ExecutablePlan,
+        executor::terminal::{RowDecoder, RowLayout},
         response::{ProjectedRow, ProjectionResponse},
     },
     types::Id,
@@ -40,17 +42,13 @@ where
         // Phase 1: derive projection semantics from the planned query contract.
         let projection = plan.logical_plan().projection_spec(E::MODEL);
 
-        // Phase 2: execute canonical scalar load to preserve existing route/runtime semantics.
-        let rows = self.execute(plan)?;
-        let rows = rows
-            .rows()
-            .into_iter()
-            .map(crate::db::response::Row::into_parts)
-            .collect::<Vec<_>>();
+        // Phase 2: execute the scalar path structurally so projection does not
+        // rebuild typed entity rows before expression evaluation.
+        let prepared = self.prepare_scalar_materialized_boundary(plan)?;
+        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
         // Phase 3: materialize projection payloads in declaration order.
-        let projected = project_rows_from_projection::<E>(&projection, rows.as_slice())
-            .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        let projected = project_data_rows_from_projection::<E>(&projection, page.data_rows())?;
 
         Ok(ProjectionResponse::new(projected))
     }
@@ -95,7 +93,7 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
     Ok(projected_values)
 }
 
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", test))]
 pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
     projection: &ProjectionSpec,
     rows: &[(Id<E>, E)],
@@ -114,6 +112,36 @@ where
             &mut |value| values.push(value),
         )?;
         projected_rows.push(ProjectedRow::new(*id, values));
+    }
+
+    Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db::executor::projection) fn project_data_rows_from_projection<E>(
+    projection: &ProjectionSpec,
+    rows: &[DataRow],
+) -> Result<Vec<ProjectedRow<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let row_layout = RowLayout::from_model(E::MODEL);
+    let row_decoder = RowDecoder::structural();
+    let mut projected_rows = Vec::with_capacity(rows.len());
+
+    for (data_key, raw_row) in rows {
+        let id = Id::from_key(data_key.try_key::<E>()?);
+        let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
+        let mut values = Vec::with_capacity(projection.len());
+        let mut read_slot = |slot| row.slot(slot);
+        visit_projection_values_with_slot_reader(
+            projection,
+            E::MODEL,
+            &mut read_slot,
+            &mut |value| values.push(value),
+        )
+        .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        projected_rows.push(ProjectedRow::new(id, values));
     }
 
     Ok(projected_rows)

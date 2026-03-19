@@ -6,10 +6,11 @@
 use crate::{
     db::{
         access::ExecutionPathPayload,
+        data::DataKey,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
-            ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
+            ExecutionKernel, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, PreparedAggregateStreamingInputs,
                 PreparedScalarTerminalBoundary, PreparedScalarTerminalExecutionState,
@@ -273,7 +274,7 @@ where
 
     // Phase 2: resolve the access key stream directly from index-backed bindings.
     let access = ExecutableAccess::new(
-        &prepared.typed_access,
+        &prepared.logical_plan.access,
         AccessStreamBindings::new(
             prepared.index_prefix_specs.as_slice(),
             prepared.index_range_specs.as_slice(),
@@ -284,7 +285,7 @@ where
     );
     let mut key_stream = prepared
         .ctx
-        .ordered_key_stream_from_runtime_access(access)?;
+        .ordered_key_stream_from_structural_runtime_access(access)?;
 
     // Phase 3: fold through existing-row semantics and record scan metrics.
     let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
@@ -310,7 +311,7 @@ where
 {
     // Phase 1: snapshot pagination + access payload before resolving store cardinality.
     let page = prepared.logical_plan.scalar_plan().page.as_ref();
-    let access_strategy = prepared.typed_access.resolve_strategy();
+    let access_strategy = prepared.logical_plan.access.resolve_strategy();
     let Some(path) = access_strategy.as_path() else {
         return Err(crate::db::error::query_executor_invariant(
             "pk cardinality COUNT fast path requires single-path access strategy",
@@ -332,8 +333,9 @@ where
             prepared
                 .ctx
                 .with_store(|store| -> Result<usize, InternalError> {
-                    let start_raw = Context::<E>::data_key_from_key(**start)?.to_raw()?;
-                    let end_raw = Context::<E>::data_key_from_key(**end)?.to_raw()?;
+                    let start_raw =
+                        DataKey::try_from_structural_key(E::ENTITY_TAG, start)?.to_raw()?;
+                    let end_raw = DataKey::try_from_structural_key(E::ENTITY_TAG, end)?.to_raw()?;
                     let count = store
                         .range((Bound::Included(start_raw), Bound::Included(end_raw)))
                         .count();

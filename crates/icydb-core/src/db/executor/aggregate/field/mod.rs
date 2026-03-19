@@ -17,7 +17,7 @@ use crate::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
     },
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
     types::Decimal,
     value::Value,
 };
@@ -282,17 +282,6 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planne
     Ok(FieldSlot {
         index: field_slot.index(),
         kind: field.kind,
-    })
-}
-
-/// Extract one field value from an entity and enforce the declared runtime field kind.
-pub(in crate::db::executor) fn extract_orderable_field_value<E: EntityKind + EntityValue>(
-    entity: &E,
-    target_field: &str,
-    field_slot: FieldSlot,
-) -> Result<Value, AggregateFieldValueError> {
-    extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |index| {
-        entity.get_value_by_index(index)
     })
 }
 

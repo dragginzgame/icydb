@@ -8,7 +8,7 @@ mod surface;
 
 use crate::{
     db::{
-        access::{AccessPlan, single_path_capabilities},
+        access::single_path_capabilities,
         cursor::PlannedCursor,
         direction::Direction,
         executor::{
@@ -27,7 +27,6 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
-        response::EntityResponse,
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -79,7 +78,7 @@ struct ScalarPathExecution {
 ///
 /// PreparedScalarMaterializedBoundary is the neutral typed boundary payload for
 /// non-aggregate scalar materialized terminal families.
-/// It owns the typed context, logical plan, typed access, and lowered specs
+/// It owns the typed context, structural logical plan, and lowered specs
 /// needed to execute structural scalar materialization without reusing
 /// `ExecutablePlan<E>` as the internal working contract.
 ///
@@ -90,7 +89,6 @@ pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<
 > {
     pub(in crate::db::executor) ctx: Context<'ctx, E>,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
-    pub(in crate::db::executor) typed_access: AccessPlan<E::Key>,
     pub(in crate::db::executor) index_prefix_specs:
         Vec<crate::db::executor::LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
@@ -100,12 +98,6 @@ impl<E> PreparedScalarMaterializedBoundary<'_, E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Borrow typed access state at the non-aggregate scalar boundary.
-    #[must_use]
-    pub(in crate::db::executor) const fn access(&self) -> &AccessPlan<E::Key> {
-        &self.typed_access
-    }
-
     /// Borrow scalar row-consistency policy for boundary-owned row reads.
     #[must_use]
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
@@ -241,7 +233,6 @@ fn execute_scalar_materialized_rows_boundary<E>(
     executor: &LoadExecutor<E>,
     ctx: Context<'_, E>,
     logical_plan: AccessPlannedQuery,
-    _typed_access: AccessPlan<E::Key>,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
 ) -> Result<StructuralCursorPage, InternalError>
@@ -318,7 +309,7 @@ where
     ) -> Result<PreparedScalarMaterializedBoundary<'_, E>, InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let (logical_plan, typed_access) = plan.into_plan_and_access();
+        let logical_plan = plan.into_plan();
 
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
@@ -326,7 +317,6 @@ where
         Ok(PreparedScalarMaterializedBoundary {
             ctx,
             logical_plan,
-            typed_access,
             index_prefix_specs,
             index_range_specs,
         })
@@ -345,7 +335,7 @@ where
     ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let (logical_plan, _typed_access) = plan.into_plan_and_access();
+        let logical_plan = plan.into_plan();
 
         // Phase 1: resolve all typed execution authority once at the boundary.
         validate_executor_plan::<E>(&logical_plan)?;
@@ -404,27 +394,23 @@ where
             self,
             prepared.ctx,
             prepared.logical_plan,
-            prepared.typed_access,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
         )
     }
 
-    // Materialize scalar rows directly from one typed executable plan without
-    // routing through the generic `execute(plan)` wrapper surface.
-    pub(in crate::db::executor) fn execute_scalar_materialized_rows_boundary(
+    // Materialize one scalar page structurally from the neutral non-aggregate
+    // prepared boundary without forcing typed entity response assembly.
+    pub(in crate::db::executor) fn execute_scalar_materialized_page_boundary(
         &self,
         prepared: PreparedScalarMaterializedBoundary<'_, E>,
-    ) -> Result<EntityResponse<E>, InternalError> {
-        let page = execute_scalar_materialized_rows_boundary(
+    ) -> Result<StructuralCursorPage, InternalError> {
+        execute_scalar_materialized_rows_boundary(
             self,
             prepared.ctx,
             prepared.logical_plan,
-            prepared.typed_access,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
-        )?;
-
-        page.into_entity_response::<E>()
+        )
     }
 }

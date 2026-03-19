@@ -218,7 +218,7 @@ where
             return false;
         }
 
-        let access_strategy = prepared.typed_access.resolve_strategy();
+        let access_strategy = prepared.logical_plan.access.resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
             return false;
         };
@@ -279,7 +279,6 @@ where
         let PreparedAggregateStreamingInputs {
             ctx,
             logical_plan,
-            typed_access,
             index_prefix_specs,
             index_range_specs,
         } = prepared;
@@ -300,7 +299,7 @@ where
             }
         });
         let access = ExecutableAccess::new(
-            &typed_access,
+            &logical_plan.access,
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
@@ -309,7 +308,7 @@ where
             None,
             index_predicate_execution,
         );
-        let mut key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
+        let mut key_stream = ctx.ordered_key_stream_from_structural_runtime_access(access)?;
 
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;

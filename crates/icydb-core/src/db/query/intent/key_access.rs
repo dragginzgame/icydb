@@ -4,12 +4,8 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        access::{AccessPlan, AccessPlanError, normalize_access_plan_value},
-        query::plan::PlanError,
-    },
-    model::entity::EntityModel,
-    traits::{EntityKind, FieldValue},
+    db::access::{AccessPlan, normalize_access_plan_value},
+    traits::FieldValue,
     value::Value,
 };
 
@@ -65,35 +61,4 @@ where
 
     // Phase 2: canonicalize the access shape via the shared access boundary.
     normalize_access_plan_value(plan)
-}
-
-/// Convert model-level access plans into entity-keyed access plans.
-pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
-    model: &EntityModel,
-    access: AccessPlan<Value>,
-) -> Result<AccessPlan<E::Key>, PlanError> {
-    access.into_executable::<E>(model)
-}
-
-/// Convert model-level key values into typed entity keys.
-pub(crate) fn coerce_entity_key<E: EntityKind>(
-    model: &EntityModel,
-    key: &Value,
-) -> Result<E::Key, PlanError> {
-    E::Key::from_value(key).ok_or_else(|| {
-        PlanError::from(AccessPlanError::PrimaryKeyMismatch {
-            field: model.primary_key.name.to_string(),
-            key: key.clone(),
-        })
-    })
-}
-
-impl AccessPlan<Value> {
-    /// Convert model-level access plans into typed executable access plans.
-    pub(crate) fn into_executable<E: EntityKind>(
-        self,
-        model: &EntityModel,
-    ) -> Result<AccessPlan<E::Key>, PlanError> {
-        self.map_keys(|key| coerce_entity_key::<E>(model, &key))
-    }
 }

@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         direction::Direction,
         executor::{
@@ -32,13 +31,12 @@ use crate::{
         query::{
             builder::AggregateExpr,
             explain::{ExplainExecutionDescriptor, ExplainExecutionNodeDescriptor},
-            intent::access_plan_to_entity_keys,
         },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    value::Value,
 };
+use std::marker::PhantomData;
 ///
 /// ExecutionStrategy
 ///
@@ -65,45 +63,6 @@ pub(in crate::db) enum BytesByProjectionMode {
     Materialized,
     CoveringIndex,
     CoveringConstant,
-}
-
-///
-/// ExecutableAccessSidecar
-///
-/// Boundary-owned typed access support derived once from the canonical
-/// structural access plan. This sidecar exists only to keep transitional
-/// executor paths working while the canonical plan representation becomes
-/// fully structural.
-///
-
-#[derive(Debug)]
-struct ExecutableAccessSidecar<K> {
-    access: AccessPlan<K>,
-}
-
-impl<K> ExecutableAccessSidecar<K> {
-    /// Borrow the typed access helper plan.
-    #[must_use]
-    const fn access(&self) -> &AccessPlan<K> {
-        &self.access
-    }
-}
-
-impl<K> ExecutableAccessSidecar<K> {
-    // Reconstruct one typed access helper plan from the canonical structural plan.
-    fn build<E>(access: &AccessPlan<Value>) -> Self
-    where
-        E: EntityKind<Key = K>,
-    {
-        let access =
-            access_plan_to_entity_keys::<E>(E::MODEL, access.clone()).unwrap_or_else(|err| {
-                panic!(
-                    "executable access sidecar reconstruction failed for validated plan: {err:?}"
-                )
-            });
-
-        Self { access }
-    }
 }
 
 /// ExecutablePlanCore
@@ -337,7 +296,7 @@ impl ExecutablePlanCore {
 #[derive(Debug)]
 pub(in crate::db) struct ExecutablePlan<E: EntityKind> {
     core: ExecutablePlanCore,
-    sidecar: ExecutableAccessSidecar<E::Key>,
+    marker: PhantomData<fn() -> E>,
 }
 
 impl<E: EntityKind> ExecutablePlan<E> {
@@ -348,18 +307,17 @@ impl<E: EntityKind> ExecutablePlan<E> {
     fn build(plan: AccessPlannedQuery) -> Self {
         // Phase 0: derive immutable continuation contract once from planner semantics.
         let continuation = plan.continuation_contract(E::PATH);
-        let sidecar = ExecutableAccessSidecar::build::<E>(&plan.access);
 
         // Phase 1: Lower index-prefix specs once and retain invariant state.
         let (index_prefix_specs, index_prefix_spec_invalid) =
-            match lower_index_prefix_specs::<E>(sidecar.access()) {
+            match lower_index_prefix_specs(E::ENTITY_TAG, &plan.access) {
                 Ok(specs) => (specs, false),
                 Err(_) => (Vec::new(), true),
             };
 
         // Phase 2: Lower index-range specs once and retain invariant state.
         let (index_range_specs, index_range_spec_invalid) =
-            match lower_index_range_specs::<E>(sidecar.access()) {
+            match lower_index_range_specs(E::ENTITY_TAG, &plan.access) {
                 Ok(specs) => (specs, false),
                 Err(_) => (Vec::new(), true),
             };
@@ -373,7 +331,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
                 index_range_specs,
                 index_range_spec_invalid,
             ),
-            sidecar,
+            marker: PhantomData,
         }
     }
 
@@ -452,8 +410,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.execution_strategy()
     }
 
-    pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
-        self.sidecar.access()
+    pub(in crate::db) const fn access(
+        &self,
+    ) -> &crate::db::access::AccessPlan<crate::value::Value> {
+        &self.core.plan().access
     }
 
     /// Borrow scalar row-consistency policy for runtime row reads.
@@ -590,13 +550,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.index_range_specs()
     }
 
-    /// Split the executable plan into the canonical structural plan plus the
-    /// already-derived typed access sidecar.
+    /// Split the executable plan into its canonical structural logical plan.
     ///
-    /// Callers that still need typed access after consuming `ExecutablePlan`
-    /// must prefer this helper over reconstructing from the structural plan.
-    pub(in crate::db) fn into_plan_and_access(self) -> (AccessPlannedQuery, AccessPlan<E::Key>) {
-        (self.core.into_inner(), self.sidecar.access)
+    /// Aggregate/scalar prepared boundaries should prefer this helper when they
+    /// no longer need the typed `ExecutablePlan<E>` shell after entering
+    /// structural execution preparation.
+    pub(in crate::db) fn into_plan(self) -> AccessPlannedQuery {
+        self.core.into_inner()
     }
 
     /// Build grouped executor handoff from this executable plan using one

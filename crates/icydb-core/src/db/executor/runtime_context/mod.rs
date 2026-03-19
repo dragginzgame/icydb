@@ -187,14 +187,6 @@ where
     // Helpers
     // ------------------------------------------------------------------
 
-    /// Build one `DataKey` from entity key type.
-    pub(super) fn data_key_from_key(key: E::Key) -> Result<DataKey, InternalError>
-    where
-        E: EntityKind,
-    {
-        DataKey::try_from_field_value(E::ENTITY_TAG, &key)
-    }
-
     /// Deduplicate entity keys using canonical key ordering.
     pub(super) fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
         let mut set = BTreeSet::new();

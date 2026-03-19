@@ -156,6 +156,12 @@ impl StructuralCursorPage {
         self.data_rows.len()
     }
 
+    /// Borrow structural scalar rows without forcing typed response assembly.
+    #[must_use]
+    pub(in crate::db::executor) fn data_rows(&self) -> &[DataRow] {
+        &self.data_rows
+    }
+
     /// Consume one structural scalar page into rows plus cursor state.
     #[must_use]
     pub(in crate::db::executor) fn into_parts(
@@ -248,9 +254,9 @@ pub(in crate::db::executor) trait ExecutionRuntime {
 ///
 /// ExecutionRuntimeAdapter
 ///
-/// Typed runtime adapter that captures recovered context plus typed access
-/// helpers once at the execution boundary and exposes one monomorphic runtime
-/// trait surface to shared executor code.
+/// Typed runtime adapter that captures recovered context plus structural
+/// runtime helpers once at the execution boundary and exposes one monomorphic
+/// runtime trait surface to shared executor code.
 ///
 
 ///

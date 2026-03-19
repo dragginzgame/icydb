@@ -6,7 +6,6 @@
 use crate::{
     db::{
         Context,
-        access::AccessPlan,
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -106,7 +105,6 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
 > {
     pub(in crate::db::executor) ctx: Context<'ctx, E>,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
-    pub(in crate::db::executor) typed_access: AccessPlan<E::Key>,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
 }

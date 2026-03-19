@@ -74,8 +74,9 @@ where
             &grouped_pagination_window,
         );
         let continuation_applied = continuation_capabilities.applied();
-        let execution_trace =
-            debug.then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
+        let execution_trace = debug.then(|| {
+            ExecutionTrace::new(&plan.logical_plan().access, direction, continuation_applied)
+        });
         let continuation_signature = plan.continuation_signature_for_runtime()?;
         let continuation_boundary_arity = plan.grouped_cursor_boundary_arity()?;
         let continuation = GroupedContinuationContext::new(
@@ -86,7 +87,7 @@ where
         );
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let (plan, _) = plan.into_plan_and_access();
+        let plan = plan.into_plan();
 
         Ok(GroupedRouteStage {
             planner_payload: GroupedPlannerPayload {

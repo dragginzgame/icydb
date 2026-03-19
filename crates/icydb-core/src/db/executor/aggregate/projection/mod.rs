@@ -208,7 +208,7 @@ where
     ) -> PreparedScalarProjectionStrategy {
         if !prepared.has_predicate()
             && let Some(context) = covering_index_projection_context(
-                &prepared.typed_access,
+                &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
                 E::MODEL.primary_key.name,
@@ -563,7 +563,7 @@ where
             return None;
         }
 
-        constant_covering_projection_value_from_access(&prepared.typed_access, target_field)
+        constant_covering_projection_value_from_access(&prepared.logical_plan.access, target_field)
     }
 
     // Resolve one index-covered projection value vector from already-prepared

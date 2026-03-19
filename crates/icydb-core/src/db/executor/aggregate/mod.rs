@@ -184,7 +184,7 @@ impl ExecutionKernel {
     {
         let slot_map = crate::db::executor::preparation::resolved_index_slots_for_access_path(
             E::MODEL,
-            prepared.typed_access.resolve_strategy().executable(),
+            prepared.logical_plan.access.resolve_strategy().executable(),
         );
         let execution_preparation =
             ExecutionPreparation::from_plan(E::MODEL, &prepared.logical_plan, slot_map);
@@ -223,9 +223,9 @@ impl ExecutionKernel {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
 
-        // Move into logical + typed access state together so aggregate paths
-        // do not reconstruct typed access after consuming `ExecutablePlan`.
-        let (logical_plan, typed_access) = plan.into_plan_and_access();
+        // Move into logical plan form once so aggregate paths keep setup
+        // structural after the typed executor boundary.
+        let logical_plan = plan.into_plan();
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan::<E>(&logical_plan)?;
@@ -237,7 +237,6 @@ impl ExecutionKernel {
         Ok(PreparedAggregateStreamingInputs {
             ctx,
             logical_plan,
-            typed_access,
             index_prefix_specs,
             index_range_specs,
         })

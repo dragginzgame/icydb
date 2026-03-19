@@ -7,17 +7,19 @@ use crate::{
     db::{
         access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
         cursor::IndexScanContinuationInput,
-        data::DataKey,
+        data::{DataKey, DataRow},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
             ExecutableAccess, ExecutablePlan,
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot, extract_orderable_field_value,
+                AggregateFieldValueError, FieldSlot,
+                extract_orderable_field_value_with_slot_reader,
                 resolve_any_aggregate_target_slot_from_planner_slot,
             },
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             route::BytesTerminalFastPathContract,
+            terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
         query::plan::{
@@ -55,7 +57,11 @@ where
             return BytesByProjectionMode::Materialized;
         }
 
-        if constant_covering_projection_value_from_access(prepared.access(), target_field).is_some()
+        if constant_covering_projection_value_from_access(
+            &prepared.logical_plan.access,
+            target_field,
+        )
+        .is_some()
         {
             return BytesByProjectionMode::CoveringConstant;
         }
@@ -65,7 +71,7 @@ where
         }
 
         if covering_index_projection_context(
-            prepared.access(),
+            &prepared.logical_plan.access,
             prepared.order_spec(),
             target_field,
             E::MODEL.primary_key.name,
@@ -86,7 +92,7 @@ where
         prepared.has_no_predicate_or_distinct().then_some(())?;
 
         let direction = prepared.unordered_or_primary_key_order_direction()?;
-        let access_strategy = prepared.access().resolve_strategy();
+        let access_strategy = prepared.logical_plan.access.resolve_strategy();
         let capabilities = access_strategy
             .as_path()
             .map(crate::db::access::single_path_capabilities)?;
@@ -137,18 +143,11 @@ where
                     };
                 }
 
-                let response = self.execute_scalar_materialized_rows_boundary(prepared)?;
-                let ctx = self.recovered_context()?;
-                let mut total = 0u64;
+                let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
-                // Sum persisted row payload sizes for the effective response window.
-                for id in response.ids() {
-                    let key = DataKey::try_new::<E>(id.key())?;
-                    let row = ctx.read(&key)?;
-                    total = saturating_add_payload_len(total, row.len());
-                }
-
-                Ok(total)
+                Ok(page.data_rows().iter().fold(0u64, |total, (_, row)| {
+                    saturating_add_payload_len(total, row.len())
+                }))
             }
             BytesTerminalBoundaryRequest::BySlot { target_field } => {
                 let projection_mode =
@@ -156,7 +155,7 @@ where
                 match projection_mode {
                     BytesByProjectionMode::CoveringConstant => {
                         let constant_value = constant_covering_projection_value_from_access(
-                            prepared.access(),
+                            &prepared.logical_plan.access,
                             target_field.field(),
                         )
                         .ok_or_else(|| {
@@ -165,8 +164,8 @@ where
                             )
                         })?;
                         let value_len = serialized_value_len(&constant_value)?;
-                        let response = self.execute_scalar_materialized_rows_boundary(prepared)?;
-                        let row_count = u64::try_from(response.len()).unwrap_or(u64::MAX);
+                        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+                        let row_count = u64::try_from(page.data_rows().len()).unwrap_or(u64::MAX);
 
                         Ok(crate::db::executor::saturating_row_len(value_len)
                             .saturating_mul(row_count))
@@ -181,10 +180,10 @@ where
                         let field_slot =
                             resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                                 .map_err(AggregateFieldValueError::into_internal_error)?;
-                        let response = self.execute_scalar_materialized_rows_boundary(prepared)?;
+                        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
-                        Self::bytes_by_materialized_response(
-                            response,
+                        Self::bytes_by_materialized_rows(
+                            page.data_rows(),
                             target_field.field(),
                             field_slot,
                         )
@@ -193,10 +192,10 @@ where
                         let field_slot =
                             resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                                 .map_err(AggregateFieldValueError::into_internal_error)?;
-                        let response = self.execute_scalar_materialized_rows_boundary(prepared)?;
+                        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
-                        Self::bytes_by_materialized_response(
-                            response,
+                        Self::bytes_by_materialized_rows(
+                            page.data_rows(),
                             target_field.field(),
                             field_slot,
                         )
@@ -206,18 +205,26 @@ where
         }
     }
 
-    // Fold `bytes(field)` over one already materialized canonical response window.
-    fn bytes_by_materialized_response(
-        response: crate::db::response::EntityResponse<E>,
+    // Fold `bytes(field)` over one already materialized structural row window.
+    fn bytes_by_materialized_rows(
+        rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u64, InternalError> {
+        let row_layout = RowLayout::from_model(E::MODEL);
+        let row_decoder = RowDecoder::structural();
         let mut total = 0u64;
 
-        // Fold serialized field payload sizes over the effective response window.
-        for row in response {
-            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+        // Fold serialized field payload sizes over the effective response
+        // window without rebuilding typed entity responses.
+        for (data_key, raw_row) in rows {
+            let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
+            let value = extract_orderable_field_value_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
             total = saturating_add_payload_len(total, serialized_value_len(&value)?);
         }
 
@@ -231,7 +238,7 @@ where
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<u64>, InternalError> {
         let Some(context) = covering_index_projection_context(
-            prepared.access(),
+            &prepared.logical_plan.access,
             prepared.order_spec(),
             target_field.field(),
             E::MODEL.primary_key.name,
@@ -403,7 +410,7 @@ where
     ) -> Result<u64, InternalError> {
         // Phase 1: snapshot paging + executable payload before store traversal.
         let page = prepared.page_spec().cloned();
-        let access_strategy = prepared.access().resolve_strategy();
+        let access_strategy = prepared.logical_plan.access.resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
             return Err(crate::db::error::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
@@ -418,8 +425,8 @@ where
                 ctx.sum_row_payload_bytes_full_scan_window(direction, offset, limit)
             }
             ExecutableAccessPathDispatch::KeyRange { start, end } => {
-                let start_key = DataKey::try_new::<E>(*start)?;
-                let end_key = DataKey::try_new::<E>(*end)?;
+                let start_key = DataKey::try_from_structural_key(E::ENTITY_TAG, start)?;
+                let end_key = DataKey::try_from_structural_key(E::ENTITY_TAG, end)?;
                 ctx.sum_row_payload_bytes_key_range_window(
                     &start_key, &end_key, direction, offset, limit,
                 )
@@ -441,7 +448,7 @@ where
         let page = prepared.page_spec().cloned();
         let consistency = prepared.consistency();
         let access = ExecutableAccess::new(
-            prepared.access(),
+            &prepared.logical_plan.access,
             AccessStreamBindings::new(
                 prepared.index_prefix_specs.as_slice(),
                 prepared.index_range_specs.as_slice(),
@@ -454,7 +461,7 @@ where
 
         // Phase 2: stream keys and sum persisted payload lengths over the page window.
         let ctx = self.recovered_context()?;
-        let mut key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
+        let mut key_stream = ctx.ordered_key_stream_from_structural_runtime_access(access)?;
 
         ctx.sum_row_payload_bytes_from_ordered_key_stream(
             key_stream.as_mut(),

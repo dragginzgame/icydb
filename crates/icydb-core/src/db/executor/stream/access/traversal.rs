@@ -241,10 +241,10 @@ where
         })
     }
 
-    /// Resolve an access plan to rows using default ascending traversal with no anchor.
-    pub(in crate::db) fn rows_from_access_plan(
+    /// Resolve structural access-plan rows using default ascending traversal with no anchor.
+    pub(in crate::db) fn rows_from_structural_access_plan(
         &self,
-        access: &AccessPlan<E::Key>,
+        access: &AccessPlan<StructuralKey>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_specs: &[LoweredIndexRangeSpec],
         consistency: MissingRowPolicy,
@@ -252,7 +252,7 @@ where
     where
         E: EntityKind,
     {
-        self.rows_from_access_plan_with_scan_continuation(
+        self.rows_from_structural_access_plan_with_scan_continuation(
             access,
             index_prefix_specs,
             index_range_specs,
@@ -318,10 +318,10 @@ where
         Ok(key_stream)
     }
 
-    /// Resolve rows from an access plan with explicit continuation scan bindings.
-    pub(in crate::db) fn rows_from_access_plan_with_scan_continuation(
+    /// Resolve rows from a structural access plan with explicit continuation scan bindings.
+    pub(in crate::db) fn rows_from_structural_access_plan_with_scan_continuation(
         &self,
-        access: &AccessPlan<E::Key>,
+        access: &AccessPlan<StructuralKey>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_specs: &[LoweredIndexRangeSpec],
         consistency: MissingRowPolicy,
@@ -336,7 +336,8 @@ where
             continuation,
         };
         let executable_access = ExecutableAccess::new(access, bindings, None, None);
-        let mut key_stream = self.ordered_key_stream_from_runtime_access(executable_access)?;
+        let mut key_stream =
+            self.ordered_key_stream_from_structural_runtime_access(executable_access)?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }
