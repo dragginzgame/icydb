@@ -9,6 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            StructuralStoreResolver,
             aggregate::{
                 AggregateKind, field::FieldSlot, projection::ScalarProjectionBoundaryRequest,
             },
@@ -23,8 +24,11 @@ use crate::{
                 AccessPlannedQuery, CoveringProjectionContext, OrderDirection, OrderSpec, PageSpec,
             },
         },
+        registry::StoreHandle,
     },
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
+    types::EntityTag,
     value::Value,
 };
 
@@ -35,10 +39,11 @@ use crate::{
 /// Keeps branch routing parameters aligned between aggregate path helpers.
 ///
 
-pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue>
-{
-    pub(in crate::db::executor) ctx: &'exec Context<'ctx, E>,
+pub(in crate::db::executor) struct AggregateFastPathInputs<'exec> {
     pub(in crate::db::executor) logical_plan: &'exec AccessPlannedQuery,
+    pub(in crate::db::executor) model: &'static EntityModel,
+    pub(in crate::db::executor) entity_tag: EntityTag,
+    pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) route_plan: &'exec ExecutionPlan,
     pub(in crate::db::executor) index_prefix_specs: &'exec [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) index_range_specs: &'exec [LoweredIndexRangeSpec],
@@ -49,10 +54,7 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: Entit
     pub(in crate::db::executor) fold_mode: super::AggregateFoldMode,
 }
 
-impl<E> AggregateFastPathInputs<'_, '_, E>
-where
-    E: EntityKind + EntityValue,
-{
+impl AggregateFastPathInputs<'_> {
     /// Return row-read missing-row policy for this aggregate fast-path attempt.
     #[must_use]
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
@@ -104,6 +106,30 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
     E: EntityKind + EntityValue,
 > {
     pub(in crate::db::executor) ctx: Context<'ctx, E>,
+    pub(in crate::db::executor) store_resolver: StructuralStoreResolver<'ctx>,
+    pub(in crate::db::executor) model: &'static EntityModel,
+    pub(in crate::db::executor) entity_tag: EntityTag,
+    pub(in crate::db::executor) store: StoreHandle,
+    pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
+    pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+    pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
+}
+
+///
+/// PreparedAggregateStreamingInputsCore
+///
+/// PreparedAggregateStreamingInputsCore is the generic-free aggregate runtime
+/// payload consumed by structural aggregate execution families.
+/// It keeps only model/store/access authority plus normalized planner inputs,
+/// so execution kernels no longer need to carry `Context<E>` when they only
+/// operate on structural rows, keys, and slots.
+///
+
+pub(in crate::db::executor) struct PreparedAggregateStreamingInputsCore {
+    pub(in crate::db::executor) model: &'static EntityModel,
+    pub(in crate::db::executor) entity_tag: EntityTag,
+    pub(in crate::db::executor) entity_path: &'static str,
+    pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
@@ -169,6 +195,34 @@ where
                 OrderDirection::Asc => Direction::Asc,
                 OrderDirection::Desc => Direction::Desc,
             })
+    }
+
+    /// Return row-read missing-row policy for prepared aggregate streaming.
+    #[must_use]
+    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(&self.logical_plan)
+    }
+
+    /// Consume typed aggregate streaming inputs into the generic-free runtime core.
+    #[must_use]
+    pub(in crate::db::executor) fn into_core(self) -> PreparedAggregateStreamingInputsCore {
+        PreparedAggregateStreamingInputsCore {
+            model: self.model,
+            entity_tag: self.entity_tag,
+            entity_path: E::PATH,
+            store: self.store,
+            logical_plan: self.logical_plan,
+            index_prefix_specs: self.index_prefix_specs,
+            index_range_specs: self.index_range_specs,
+        }
+    }
+}
+
+impl PreparedAggregateStreamingInputsCore {
+    /// Borrow scalar ORDER BY semantics for prepared aggregate execution.
+    #[must_use]
+    pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
+        self.logical_plan.scalar_plan().order.as_ref()
     }
 
     /// Return row-read missing-row policy for prepared aggregate streaming.

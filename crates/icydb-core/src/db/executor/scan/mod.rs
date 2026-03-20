@@ -6,7 +6,8 @@
 mod fast_stream;
 mod fast_stream_route;
 mod index_range_limit;
-mod pk_stream;
 mod secondary_index;
 
-pub(in crate::db::executor) use fast_stream_route::{FastStreamRouteKind, FastStreamRouteRequest};
+pub(in crate::db::executor) use fast_stream_route::{
+    FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route,
+};

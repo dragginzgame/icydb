@@ -10,6 +10,7 @@ use crate::db::executor::route::ensure_load_fast_path_spec_arity;
 use crate::{
     db::executor::{
         ExecutionTrace,
+        aggregate::runtime::finalize_path_outcome_for_path,
         pipeline::contracts::ExecutionOutcomeMetrics,
         pipeline::contracts::{LoadExecutor, StructuralCursorPage},
         plan_metrics::set_rows_from_len,
@@ -30,7 +31,13 @@ where
         execution_trace: &mut Option<ExecutionTrace>,
         execution_time_micros: u64,
     ) -> StructuralCursorPage {
-        Self::finalize_path_outcome(execution_trace, metrics, false, execution_time_micros);
+        finalize_path_outcome_for_path(
+            E::PATH,
+            execution_trace,
+            metrics,
+            false,
+            execution_time_micros,
+        );
         set_rows_from_len(span, page.row_count());
 
         page

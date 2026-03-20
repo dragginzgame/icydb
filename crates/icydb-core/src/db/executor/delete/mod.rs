@@ -9,7 +9,7 @@ use crate::{
         commit::CommitRowOp,
         data::{DataKey, DataRow, PersistedEntityRow, RawRow, decode_raw_row_for_entity_key},
         executor::{
-            ExecutablePlan, ExecutionKernel, ExecutionPreparation, PlanRow,
+            ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             mutation::{
                 commit_delete_row_ops_with_window, mutation_write_context, preflight_mutation_plan,
             },
@@ -32,7 +32,7 @@ use std::collections::BTreeSet;
 /// Row wrapper used during delete planning and execution.
 ///
 
-pub(super) struct DeleteRow<E>
+pub(in crate::db::executor) struct DeleteRow<E>
 where
     E: EntityKind,
 {
@@ -41,8 +41,8 @@ where
     pub(super) entity: E,
 }
 
-impl<E: EntityKind> PlanRow<E> for DeleteRow<E> {
-    fn entity(&self) -> &E {
+impl<E: EntityKind> DeleteRow<E> {
+    pub(in crate::db::executor) const fn entity_ref(&self) -> &E {
         &self.entity
     }
 }

@@ -22,7 +22,7 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    traits::{EntityKind, EntitySchema, EntityValue},
+    traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
@@ -47,16 +47,6 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
         access_order_satisfied_by_path,
         requires_post_access_sort,
     )
-}
-
-/// Derive budget-safety flags for one plan at the route capability boundary.
-pub(in crate::db::executor) fn derive_budget_safety_flags<E>(
-    plan: &AccessPlannedQuery,
-) -> (bool, bool, bool)
-where
-    E: EntitySchema,
-{
-    derive_budget_safety_flags_for_model(E::MODEL, plan)
 }
 
 /// Return whether one plan shape is safe for direct streaming execution.

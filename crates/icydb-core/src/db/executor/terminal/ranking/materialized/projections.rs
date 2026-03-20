@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::DataRow,
+        data::{DataKey, DataRow},
         executor::{aggregate::field::FieldSlot, pipeline::contracts::LoadExecutor},
         response::EntityResponse,
     },
@@ -60,14 +60,14 @@ where
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let ordered_rows =
-            Self::top_k_ranked_rows_from_materialized(rows, target_field, field_slot, take_count)?;
-        let projected_values = ordered_rows
-            .into_iter()
-            .map(|((data_key, _), value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
-            .collect::<Result<Vec<_>, InternalError>>()?;
+        let projected_values = field_values_with_data_keys_from_ranked_rows(
+            Self::top_k_ranked_rows_from_materialized(rows, target_field, field_slot, take_count)?,
+        );
 
-        Ok(projected_values)
+        projected_values
+            .into_iter()
+            .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
+            .collect()
     }
 
     // Reduce one materialized response into a deterministic bottom-k response
@@ -119,17 +119,27 @@ where
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
-            rows,
-            target_field,
-            field_slot,
-            take_count,
-        )?;
-        let projected_values = ordered_rows
-            .into_iter()
-            .map(|((data_key, _), value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
-            .collect::<Result<Vec<_>, InternalError>>()?;
+        let projected_values = field_values_with_data_keys_from_ranked_rows(
+            Self::bottom_k_ranked_rows_from_materialized(
+                rows,
+                target_field,
+                field_slot,
+                take_count,
+            )?,
+        );
 
-        Ok(projected_values)
+        projected_values
+            .into_iter()
+            .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
+            .collect()
     }
+}
+
+fn field_values_with_data_keys_from_ranked_rows(
+    ordered_rows: Vec<(DataRow, Value)>,
+) -> Vec<(DataKey, Value)> {
+    ordered_rows
+        .into_iter()
+        .map(|((data_key, _), value)| (data_key, value))
+        .collect()
 }

@@ -12,6 +12,7 @@ mod explain;
 pub(in crate::db) mod group;
 mod kernel;
 mod mutation;
+mod order;
 mod pipeline;
 mod plan_metrics;
 mod plan_validate;
@@ -50,11 +51,14 @@ pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTr
 pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
+pub(in crate::db::executor) use order::{
+    OrderReadableRow, apply_structural_order, apply_structural_order_bounded,
+    compare_orderable_row_with_boundary, resolve_structural_order,
+};
 pub(super) use pipeline::contracts::LoadExecutor;
-pub(in crate::db::executor) use pipeline::operators::PlanRow;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
-pub(super) use runtime_context::*;
+pub(in crate::db) use runtime_context::*;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,

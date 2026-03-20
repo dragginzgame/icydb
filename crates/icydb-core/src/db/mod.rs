@@ -171,6 +171,12 @@ impl<C: CanisterKind> Db<C> {
         self.store.with(|reg| f(reg))
     }
 
+    /// Build one structural named-store resolver for executor/runtime helpers.
+    #[must_use]
+    pub(in crate::db) fn structural_store_resolver(&self) -> executor::StructuralStoreResolver<'_> {
+        executor::StructuralStoreResolver::new(self)
+    }
+
     /// Build one storage diagnostics report for registered stores/entities.
     pub(crate) fn storage_report(
         &self,

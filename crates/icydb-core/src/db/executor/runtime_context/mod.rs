@@ -9,7 +9,7 @@ use crate::{
     db::{
         Db,
         cursor::IndexScanContinuationInput,
-        data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
+        data::{DataKey, DataRow, DataStore, RawRow},
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
         index::{
@@ -17,12 +17,15 @@ use crate::{
             SealedIndexEntryReader, SealedPrimaryRowReader,
         },
         predicate::MissingRowPolicy,
+        registry::StoreHandle,
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue, Path},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
-use std::{collections::BTreeSet, ops::Bound};
+#[cfg(test)]
+use std::collections::BTreeSet;
+use std::ops::Bound;
 
 // -----------------------------------------------------------------------------
 // Context Subdomains
@@ -35,8 +38,56 @@ use std::{collections::BTreeSet, ops::Bound};
 /// Context
 ///
 
+#[derive(Clone, Copy)]
 pub(in crate::db) struct Context<'a, E: EntityKind + EntityValue> {
     pub(in crate::db::executor) db: &'a Db<E::Canister>,
+}
+
+///
+/// StoreLookup
+///
+/// StoreLookup is the object-safe store-registry lookup boundary used when
+/// executor helpers need to resolve an arbitrary named store without carrying
+/// a typed `Context<E>` through the call chain.
+///
+
+pub(in crate::db) trait StoreLookup {
+    fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError>;
+}
+
+impl<C> StoreLookup for Db<C>
+where
+    C: CanisterKind,
+{
+    fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
+        self.with_store_registry(|registry| registry.try_get_store(path))
+    }
+}
+
+///
+/// StructuralStoreResolver
+///
+/// StructuralStoreResolver is the non-generic named-store lookup bundle used by
+/// executor helpers that must resolve index-owned stores after the typed
+/// boundary has already chosen the entity model/runtime shell.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db) struct StructuralStoreResolver<'a> {
+    lookup: &'a dyn StoreLookup,
+}
+
+impl<'a> StructuralStoreResolver<'a> {
+    /// Build one structural named-store resolver from one object-safe lookup boundary.
+    #[must_use]
+    pub(in crate::db) const fn new(lookup: &'a dyn StoreLookup) -> Self {
+        Self { lookup }
+    }
+
+    /// Resolve one named store through the captured store-registry boundary.
+    pub(in crate::db) fn try_get_store(self, path: &str) -> Result<StoreHandle, InternalError> {
+        self.lookup.try_get_store(path)
+    }
 }
 
 impl<'a, E> Context<'a, E>
@@ -66,6 +117,12 @@ where
             reg.try_get_store(E::Store::PATH)
                 .map(|store| store.with_data(f))
         })
+    }
+
+    /// Recover the structural store handle once for generic-free executor runtime helpers.
+    pub(in crate::db::executor) fn structural_store(&self) -> Result<StoreHandle, InternalError> {
+        self.db
+            .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))
     }
 
     // ------------------------------------------------------------------
@@ -188,6 +245,7 @@ where
     // ------------------------------------------------------------------
 
     /// Deduplicate entity keys using canonical key ordering.
+    #[cfg(test)]
     pub(super) fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
         let mut set = BTreeSet::new();
         set.extend(keys);
@@ -211,26 +269,40 @@ where
             Err(err) => Err(err),
         }
     }
+}
 
-    /// Read one persisted row under one consistency contract and preserve the source data key.
-    pub(in crate::db::executor) fn read_data_row_with_consistency(
-        &self,
-        key: &DataKey,
-        consistency: MissingRowPolicy,
-    ) -> Result<Option<DataRow>, InternalError> {
-        let Some(row) = self.read_row_with_consistency_skip_not_found(key, consistency)? else {
-            return Ok(None);
-        };
+// Read one raw row under one consistency contract from structural store authority.
+pub(in crate::db::executor) fn read_row_with_consistency_from_store(
+    store: StoreHandle,
+    key: &DataKey,
+    consistency: MissingRowPolicy,
+) -> Result<Option<RawRow>, InternalError> {
+    let read_row = |key: &DataKey| -> Result<Option<RawRow>, InternalError> {
+        let raw = key.to_raw()?;
 
-        Ok(Some((key.clone(), row)))
+        Ok(store.with_data(|data| data.get(&raw)))
+    };
+
+    match consistency {
+        MissingRowPolicy::Error => match read_row(key)? {
+            Some(row) => Ok(Some(row)),
+            None => Err(ExecutorError::store_corruption(format!("missing row: {key}")).into()),
+        },
+        MissingRowPolicy::Ignore => read_row(key),
     }
+}
 
-    /// Decode one raw data key and map decode failures to executor corruption errors.
-    pub(super) fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
-        DataKey::try_from_raw(raw).map_err(|err| {
-            InternalError::identity_corruption(format!("failed to decode data key: {err}"))
-        })
-    }
+// Read one persisted row under one consistency contract and preserve the source data key.
+pub(in crate::db::executor) fn read_data_row_with_consistency_from_store(
+    store: StoreHandle,
+    key: &DataKey,
+    consistency: MissingRowPolicy,
+) -> Result<Option<DataRow>, InternalError> {
+    let Some(row) = read_row_with_consistency_from_store(store, key, consistency)? else {
+        return Ok(None);
+    };
+
+    Ok(Some((key.clone(), row)))
 }
 
 const fn payload_window_limit_exhausted(limit_remaining: Option<usize>) -> bool {

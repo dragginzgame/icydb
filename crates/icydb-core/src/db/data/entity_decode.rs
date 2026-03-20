@@ -113,6 +113,7 @@ impl Drop for ErasedEntityResponseBuilder {
 /// This is the shared typed edge for callers that already separated row
 /// ownership from executor/runtime traversal and only need canonical decode
 /// diagnostics plus key-consistency validation.
+#[inline(never)]
 pub(in crate::db) fn decode_raw_row_for_entity_key<E>(
     data_key: &DataKey,
     raw_row: &RawRow,
@@ -140,6 +141,7 @@ where
 ///
 /// Callers provide decode and error-formatting closures so boundary-specific
 /// diagnostics and error classes remain unchanged.
+#[inline(never)]
 pub(in crate::db) fn decode_and_validate_entity_key<
     E,
     DecodeFn,
@@ -168,6 +170,7 @@ where
 }
 
 /// Decode one persisted row into one typed response row.
+#[inline(never)]
 pub(in crate::db) fn decode_data_row_into_entity_row<E>(
     row: DataRow,
 ) -> Result<Row<E>, InternalError>
@@ -182,6 +185,7 @@ where
 }
 
 /// Decode persisted data rows into one typed entity response through one structural loop.
+#[inline(never)]
 pub(in crate::db) fn decode_data_rows_into_entity_response<E>(
     rows: Vec<DataRow>,
 ) -> Result<EntityResponse<E>, InternalError>

@@ -259,17 +259,15 @@ where
 
         // Phase 2: enforce existing-row policy and decode component payloads.
         let mut projected_rows = Vec::with_capacity(raw_pairs.len());
-        let ctx = &prepared.ctx;
         for (data_key, component_bytes) in raw_pairs {
-            match prepared.consistency() {
-                MissingRowPolicy::Ignore => match ctx.read(&data_key) {
-                    Ok(_) => {}
-                    Err(err) if err.is_not_found() => continue,
-                    Err(err) => return Err(err),
-                },
-                MissingRowPolicy::Error => {
-                    ctx.read_strict(&data_key)?;
-                }
+            if crate::db::executor::read_row_with_consistency_from_store(
+                prepared.store,
+                &data_key,
+                prepared.consistency(),
+            )?
+            .is_none()
+            {
+                continue;
             }
 
             let Some(value) = decode_covering_projection_component(&component_bytes)? else {
@@ -321,7 +319,7 @@ where
 
         if let [spec] = prefix_specs {
             return Self::read_bytes_covering_projection_component_pairs_for_index_bounds(
-                &prepared.ctx,
+                prepared.store_resolver,
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -337,7 +335,7 @@ where
         let range_specs = prepared.index_range_specs.as_slice();
         if let [spec] = range_specs {
             return Self::read_bytes_covering_projection_component_pairs_for_index_bounds(
-                &prepared.ctx,
+                prepared.store_resolver,
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -358,7 +356,7 @@ where
     // Resolve one bounded covering projection component stream from one
     // lowered index-bound contract.
     fn read_bytes_covering_projection_component_pairs_for_index_bounds(
-        ctx: &crate::db::executor::Context<'_, E>,
+        store_resolver: crate::db::executor::StructuralStoreResolver<'_>,
         index: &crate::model::index::IndexModel,
         bounds: (
             &std::ops::Bound<crate::db::index::RawIndexKey>,
@@ -367,9 +365,7 @@ where
         continuation: IndexScanContinuationInput<'_>,
         component_index: usize,
     ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
-        let store = ctx
-            .db
-            .with_store_registry(|registry| registry.try_get_store(index.store()))?;
+        let store = store_resolver.try_get_store(index.store())?;
         store.with_index(|index_store| {
             index_store.resolve_data_values_with_component_in_raw_range_limited(
                 E::ENTITY_TAG,

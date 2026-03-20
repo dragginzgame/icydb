@@ -12,7 +12,7 @@ mod window;
 use crate::{
     db::{
         executor::{
-            ExecutionKernel,
+            ExecutionKernel, OrderReadableRow,
             pipeline::{
                 contracts::PostAccessContract, operators::post_access::coordinator::PostAccessPlan,
             },
@@ -21,10 +21,10 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
 };
 
-pub(in crate::db::executor) use contracts::{PlanRow, PostAccessStats};
+pub(in crate::db::executor) use contracts::PostAccessStats;
 
 impl ExecutionKernel {
     pub(in crate::db::executor) fn apply_delete_post_access_with_compiled_predicate<E, R, K>(
@@ -33,8 +33,8 @@ impl ExecutionKernel {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
-        R: PlanRow<E>,
+        E: EntityKind<Key = K>,
+        R: OrderReadableRow,
     {
         PostAccessPlan::new(PostAccessContract::new(plan))
             .apply_delete_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)

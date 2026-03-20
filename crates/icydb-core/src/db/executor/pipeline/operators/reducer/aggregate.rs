@@ -1,6 +1,5 @@
 use crate::{
     db::{
-        Context,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -11,9 +10,9 @@ use crate::{
             },
         },
         query::plan::AccessPlannedQuery,
+        registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 impl ExecutionKernel {
@@ -41,17 +40,14 @@ impl ExecutionKernel {
 
     // Kernel-owned reducer runner for scalar aggregate terminals over one
     // canonical key stream. Field-target reducers stay in dedicated paths.
-    pub(in crate::db::executor) fn run_streaming_aggregate_reducer<E>(
-        ctx: &Context<'_, E>,
+    pub(in crate::db::executor) fn run_streaming_aggregate_reducer(
+        store: StoreHandle,
         plan: &AccessPlannedQuery,
         kind: AggregateKind,
         direction: Direction,
         mode: AggregateFoldMode,
         key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         if !Self::aggregate_fold_mode_matches_terminal(kind, mode) {
             return Err(crate::db::error::query_executor_invariant(
                 "aggregate fold mode must match route fold-mode contract for aggregate terminal",
@@ -65,7 +61,8 @@ impl ExecutionKernel {
         let mut ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
             let mut on_key =
                 |key: &DataKey| -> Result<FoldControl, InternalError> { engine.ingest(key) };
-            keys_scanned = Self::run_aggregate_key_fold(ctx, plan, mode, key_stream, &mut on_key)?;
+            keys_scanned =
+                Self::run_aggregate_key_fold(store, plan, mode, key_stream, &mut on_key)?;
 
             Ok(())
         };

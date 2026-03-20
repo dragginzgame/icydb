@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        Context,
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
@@ -26,6 +25,7 @@ use crate::{
         },
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
+        registry::StoreHandle,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -189,7 +189,15 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.logical_plan.access)?;
+        let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+            &prepared.logical_plan.access,
+            crate::db::executor::StructuralTraversalRuntime::new(
+                prepared.store,
+                prepared.entity_tag,
+            ),
+            prepared.store,
+            prepared.model,
+        );
         let execution_preparation = ExecutionPreparation::from_plan(
             E::MODEL,
             &prepared.logical_plan,
@@ -211,7 +219,7 @@ impl ExecutionKernel {
             IndexCompilePolicy::StrictAllOrNone,
         )?;
         let (aggregate_output, keys_scanned) = LoadExecutor::<E>::fold_streaming_field_extrema(
-            &prepared.ctx,
+            prepared.store,
             consistency,
             resolved.key_stream_mut(),
             target_field,
@@ -259,7 +267,7 @@ where
     // Streaming reducer for index-leading field extrema. This keeps execution in
     // key-stream mode and stops once the first non-tie worse field value appears.
     pub(in crate::db::executor) fn fold_streaming_field_extrema(
-        ctx: &Context<'_, E>,
+        store: StoreHandle,
         consistency: MissingRowPolicy,
         key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
         target_field: &str,
@@ -329,7 +337,7 @@ where
 
             Ok(KeyStreamLoopControl::Emit)
         };
-        Self::drive_field_row_stream(ctx, consistency, key_stream, &mut pre_key, &mut on_key)?;
+        Self::drive_field_row_stream(store, consistency, key_stream, &mut pre_key, &mut on_key)?;
 
         let selected_key = selected.map(|(key, _)| key);
         let output = kind.extrema_output(selected_key).ok_or_else(|| {

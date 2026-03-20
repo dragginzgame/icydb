@@ -267,27 +267,25 @@ pub(in crate::db::executor) trait ExecutionRuntime {
 /// monomorphic after the typed boundary computes access-specific inputs.
 ///
 
-struct ExecutionRuntimeAdapterCore {
+struct ExecutionRuntimeAdapterCore<'a> {
     runtime: ErasedRuntimeBindings,
+    access: &'a crate::db::access::AccessPlan<crate::value::Value>,
     model: &'static EntityModel,
     slot_map: Option<Vec<usize>>,
     scalar_row_runtime: ScalarRowRuntimeState,
 }
 
-impl ExecutionRuntimeAdapterCore {
-    #[must_use]
-    fn new<'a, E>(
-        ctx: &'a Context<'_, E>,
+impl ExecutionRuntimeAdapterCore<'_> {
+    fn new<'a>(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
+        runtime: ErasedRuntimeBindings,
         store: StoreHandle,
         model: &'static EntityModel,
         slot_map: Option<Vec<usize>>,
-    ) -> Self
-    where
-        E: EntityKind + EntityValue,
-    {
-        Self {
-            runtime: ErasedRuntimeBindings::new(ctx, access),
+    ) -> ExecutionRuntimeAdapterCore<'a> {
+        ExecutionRuntimeAdapterCore {
+            runtime,
+            access,
             model,
             slot_map,
             scalar_row_runtime: ScalarRowRuntimeState::new(store, model),
@@ -349,6 +347,7 @@ impl ExecutionRuntimeAdapterCore {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.runtime.fallback_execution_keys(
+            self.access,
             bindings,
             physical_fetch_hint,
             index_predicate_execution,
@@ -357,11 +356,33 @@ impl ExecutionRuntimeAdapterCore {
 }
 
 pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a> {
-    core: ExecutionRuntimeAdapterCore,
+    core: ExecutionRuntimeAdapterCore<'a>,
     marker: PhantomData<(&'a (), &'ctx ())>,
 }
 
 impl<'ctx, 'a> ExecutionRuntimeAdapter<'ctx, 'a> {
+    /// Build one structural runtime adapter from structural runtime authority plus access plan.
+    pub(in crate::db::executor) fn from_runtime_parts(
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
+        runtime: crate::db::executor::stream::access::StructuralTraversalRuntime,
+        store: StoreHandle,
+        model: &'static EntityModel,
+    ) -> Self {
+        let slot_map =
+            resolved_index_slots_for_access_path(model, access.resolve_strategy().executable());
+
+        Self {
+            core: ExecutionRuntimeAdapterCore::new(
+                access,
+                ErasedRuntimeBindings::from_runtime(runtime),
+                store,
+                model,
+                slot_map,
+            ),
+            marker: PhantomData,
+        }
+    }
+
     /// Build one typed runtime adapter from recovered context plus structural access plan.
     pub(in crate::db::executor) fn new<E>(
         ctx: &'a Context<'ctx, E>,
@@ -371,16 +392,12 @@ impl<'ctx, 'a> ExecutionRuntimeAdapter<'ctx, 'a> {
         E: EntityKind + EntityValue,
     {
         let model = E::MODEL;
-        let slot_map =
-            resolved_index_slots_for_access_path(model, access.resolve_strategy().executable());
         let store = ctx
             .db
             .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
+        let runtime = ctx.structural_traversal_runtime()?;
 
-        Ok(Self {
-            core: ExecutionRuntimeAdapterCore::new(ctx, access, store, model, slot_map),
-            marker: PhantomData,
-        })
+        Ok(Self::from_runtime_parts(access, runtime, store, model))
     }
 
     /// Borrow the precomputed slot map for this typed adapter.

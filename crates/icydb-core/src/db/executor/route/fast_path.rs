@@ -4,13 +4,9 @@
 //! Boundary: precedence runner and fast-path eligibility helpers for route planning.
 
 use crate::{
-    db::{
-        executor::{ExecutionPreparation, pipeline::contracts::LoadExecutor},
-        query::plan::AccessPlannedQuery,
-    },
+    db::{executor::ExecutionPreparation, query::plan::AccessPlannedQuery},
     error::InternalError,
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::FastPathOrder;
@@ -42,43 +38,38 @@ where
     Ok(None)
 }
 
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Validate routed access-path shape for PK stream fast-path execution.
-    pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
-        plan: &AccessPlannedQuery,
-    ) -> Result<(), InternalError> {
-        let access_strategy = plan.access_strategy();
-        let access_class = access_strategy.class();
-        access_class.single_path().then_some(()).ok_or_else(|| {
+/// Validate routed access-path shape for PK stream fast-path execution.
+pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
+    plan: &AccessPlannedQuery,
+) -> Result<(), InternalError> {
+    let access_strategy = plan.access_strategy();
+    let access_class = access_strategy.class();
+    access_class.single_path().then_some(()).ok_or_else(|| {
+        crate::db::error::query_executor_invariant(
+            "pk stream fast-path requires direct access-path execution",
+        )
+    })?;
+    access_class
+        .single_path_supports_pk_stream_access()
+        .then_some(())
+        .ok_or_else(|| {
             crate::db::error::query_executor_invariant(
-                "pk stream fast-path requires direct access-path execution",
+                "pk stream fast-path requires full-scan/key-range access path",
             )
         })?;
-        access_class
-            .single_path_supports_pk_stream_access()
-            .then_some(())
-            .ok_or_else(|| {
-                crate::db::error::query_executor_invariant(
-                    "pk stream fast-path requires full-scan/key-range access path",
-                )
-            })?;
 
-        let access = access_strategy.as_path().ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
-                "pk stream fast-path requires direct access-path execution",
-            )
-        })?;
-        debug_assert_eq!(
-            access.capabilities().supports_pk_stream_access(),
-            access_class.single_path_supports_pk_stream_access(),
-            "route invariant: descriptor and path capability snapshots must stay aligned",
-        );
+    let access = access_strategy.as_path().ok_or_else(|| {
+        crate::db::error::query_executor_invariant(
+            "pk stream fast-path requires direct access-path execution",
+        )
+    })?;
+    debug_assert_eq!(
+        access.capabilities().supports_pk_stream_access(),
+        access_class.single_path_supports_pk_stream_access(),
+        "route invariant: descriptor and path capability snapshots must stay aligned",
+    );
 
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.

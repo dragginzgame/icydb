@@ -233,6 +233,7 @@ impl<R: ResponseRow> std::ops::Deref for Response<R> {
 
 impl<E: EntityKind> Response<Row<E>> {
     /// Decode ordered persisted data rows into one typed entity response.
+    #[inline(never)]
     pub(in crate::db) fn from_data_rows(
         rows: Vec<DataRow>,
     ) -> Result<Self, crate::error::InternalError>

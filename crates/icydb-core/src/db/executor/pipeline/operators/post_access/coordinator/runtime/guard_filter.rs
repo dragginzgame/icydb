@@ -1,13 +1,10 @@
 use crate::{
     db::{
-        cursor::CursorBoundary,
-        executor::pipeline::operators::post_access::{
-            contracts::PlanRow, coordinator::PostAccessPlan,
-        },
+        cursor::CursorBoundary, executor::OrderReadableRow,
+        executor::pipeline::operators::post_access::coordinator::PostAccessPlan,
         predicate::PredicateProgram,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 impl<K> PostAccessPlan<'_, K> {
@@ -27,7 +24,6 @@ impl<K> PostAccessPlan<'_, K> {
 
     // Predicate phase (already normalized and validated during planning).
     pub(in crate::db::executor::pipeline::operators::post_access::coordinator::runtime) fn apply_filter_phase<
-        E,
         R,
     >(
         &self,
@@ -36,8 +32,7 @@ impl<K> PostAccessPlan<'_, K> {
         predicate_preapplied: bool,
     ) -> Result<(bool, usize), InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
-        R: PlanRow<E>,
+        R: OrderReadableRow,
     {
         let filtered = if self.contract.has_predicate() {
             if predicate_preapplied {
@@ -50,7 +45,9 @@ impl<K> PostAccessPlan<'_, K> {
                 ));
             };
 
-            rows.retain(|row| compiled_predicate.eval(row.entity()));
+            rows.retain(|row| {
+                compiled_predicate.eval_with_slot_reader(&mut |slot| row.read_order_slot(slot))
+            });
             true
         } else {
             false

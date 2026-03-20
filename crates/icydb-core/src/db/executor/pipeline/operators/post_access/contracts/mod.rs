@@ -6,5 +6,4 @@
 mod row;
 mod stats;
 
-pub(in crate::db::executor) use row::PlanRow;
 pub(in crate::db::executor) use stats::PostAccessStats;

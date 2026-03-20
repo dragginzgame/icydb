@@ -7,7 +7,7 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
+            ExecutionPlan, ExecutionPreparation,
             continuation::ScalarContinuationContext,
             pipeline::contracts::LoadExecutor,
             preparation::resolved_index_slots_for_access_path,
@@ -37,22 +37,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Resolve one routed key stream through the canonical stream-construction
-    /// facade so route consumers do not call context stream builders directly.
-    pub(in crate::db::executor) fn resolve_routed_key_stream(
-        ctx: &Context<'_, E>,
-        request: crate::db::executor::route::RoutedKeyStreamRequest<'_, E::Key>,
-    ) -> Result<OrderedKeyStreamBox, InternalError> {
-        match request {
-            crate::db::executor::route::RoutedKeyStreamRequest::ExecutableAccess(access) => {
-                ctx.ordered_key_stream_from_runtime_access(access)
-            }
-            crate::db::executor::route::RoutedKeyStreamRequest::StructuralExecutableAccess(
-                access,
-            ) => ctx.ordered_key_stream_from_structural_runtime_access(access),
-        }
-    }
-
     /// Build canonical execution routing for load execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
         plan: &AccessPlannedQuery,

@@ -5,27 +5,26 @@
 
 use crate::{
     db::{
-        cursor::{
-            CursorBoundary, CursorBoundarySlot, MaterializedCursorRow, apply_order_direction,
-            compare_boundary_slots, next_cursor_for_materialized_rows,
-        },
+        cursor::{CursorBoundary, MaterializedCursorRow, next_cursor_for_materialized_rows},
         data::{DataKey, DataRow},
         executor::{
-            BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
-            ScalarContinuationBindings, compute_page_keep_count,
+            BudgetedOrderedKeyStream, ExecutionKernel, OrderReadableRow, OrderedKeyStream,
+            ScalarContinuationBindings, apply_structural_order, apply_structural_order_bounded,
+            compare_orderable_row_with_boundary, compute_page_keep_count,
             pipeline::contracts::{PageCursor, StructuralCursorPage},
             projection::validate_projection_over_slot_rows,
+            resolve_structural_order,
             route::access_order_satisfied_by_route_contract_for_model,
         },
         index::IndexKey,
         predicate::{MissingRowPolicy, PredicateProgram},
-        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    model::entity::{EntityModel, resolve_field_slot},
+    model::entity::EntityModel,
     value::Value,
 };
-use std::{cmp::Ordering, marker::PhantomData};
+use std::marker::PhantomData;
 
 ///
 /// KernelRow
@@ -57,6 +56,12 @@ impl KernelRow {
 
     pub(in crate::db::executor) fn into_slots(self) -> Vec<Option<Value>> {
         self.slots
+    }
+}
+
+impl OrderReadableRow for KernelRow {
+    fn read_order_slot(&self, slot: usize) -> Option<Value> {
+        self.slot(slot)
     }
 }
 
@@ -318,14 +323,14 @@ fn apply_post_access_to_kernel_rows_dyn(
 
         ordered = true;
         if !access_order_satisfied_by_route_contract_for_model(model, plan) {
-            let resolved_order = resolve_order_fields(model, order);
+            let resolved_order = resolve_structural_order(model, order);
             let ordered_total = rows.len();
 
             if rows.len() > 1 {
                 if let Some(keep_count) = ExecutionKernel::bounded_order_keep_count(plan, cursor) {
-                    apply_kernel_order_bounded(rows, resolved_order.as_slice(), keep_count);
+                    apply_structural_order_bounded(rows, &resolved_order, keep_count);
                 } else {
-                    apply_kernel_order(rows, resolved_order.as_slice());
+                    apply_structural_order(rows, &resolved_order);
                 }
             }
             rows_after_order = ordered_total;
@@ -345,9 +350,9 @@ fn apply_post_access_to_kernel_rows_dyn(
                     "cursor boundary must run after ordering",
                 ));
             }
-            let resolved_order = resolve_order_fields(model, order);
+            let resolved_order = resolve_structural_order(model, order);
             rows.retain(|row| {
-                compare_kernel_row_with_boundary(row, resolved_order.as_slice(), boundary).is_gt()
+                compare_orderable_row_with_boundary(row, &resolved_order, boundary).is_gt()
             });
             rows.len()
         } else {
@@ -466,87 +471,6 @@ fn scan_rows_into_kernel(
     }
 
     Ok((rows, rows_scanned))
-}
-
-fn resolve_order_fields(
-    model: &EntityModel,
-    order: &OrderSpec,
-) -> Vec<(Option<usize>, OrderDirection)> {
-    order
-        .fields
-        .iter()
-        .map(|(field, direction)| (resolve_field_slot(model, field), *direction))
-        .collect()
-}
-
-fn boundary_slot_for_kernel_row(row: &KernelRow, field_index: Option<usize>) -> CursorBoundarySlot {
-    let value = field_index.and_then(|field_index| row.slot(field_index));
-
-    match value {
-        Some(value) => CursorBoundarySlot::Present(value),
-        None => CursorBoundarySlot::Missing,
-    }
-}
-
-fn compare_kernel_rows(
-    left: &KernelRow,
-    right: &KernelRow,
-    resolved_order: &[(Option<usize>, OrderDirection)],
-) -> Ordering {
-    for (field_index, direction) in resolved_order {
-        let left_slot = boundary_slot_for_kernel_row(left, *field_index);
-        let right_slot = boundary_slot_for_kernel_row(right, *field_index);
-        let ordering =
-            apply_order_direction(compare_boundary_slots(&left_slot, &right_slot), *direction);
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
-}
-
-fn compare_kernel_row_with_boundary(
-    row: &KernelRow,
-    resolved_order: &[(Option<usize>, OrderDirection)],
-    boundary: &CursorBoundary,
-) -> Ordering {
-    for ((field_index, direction), boundary_slot) in
-        resolved_order.iter().zip(boundary.slots.iter())
-    {
-        let row_slot = boundary_slot_for_kernel_row(row, *field_index);
-        let ordering =
-            apply_order_direction(compare_boundary_slots(&row_slot, boundary_slot), *direction);
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
-}
-
-fn apply_kernel_order(rows: &mut [KernelRow], resolved_order: &[(Option<usize>, OrderDirection)]) {
-    rows.sort_by(|left, right| compare_kernel_rows(left, right, resolved_order));
-}
-
-fn apply_kernel_order_bounded(
-    rows: &mut Vec<KernelRow>,
-    resolved_order: &[(Option<usize>, OrderDirection)],
-    keep_count: usize,
-) {
-    if keep_count == 0 {
-        rows.clear();
-        return;
-    }
-
-    if rows.len() > keep_count {
-        rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-            compare_kernel_rows(left, right, resolved_order)
-        });
-        rows.truncate(keep_count);
-    }
-
-    rows.sort_by(|left, right| compare_kernel_rows(left, right, resolved_order));
 }
 
 #[expect(clippy::cast_possible_truncation)]

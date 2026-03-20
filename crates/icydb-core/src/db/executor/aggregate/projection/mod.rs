@@ -37,6 +37,7 @@ use crate::{
             },
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
+            read_row_with_consistency_from_store,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -55,6 +56,7 @@ use crate::{
 };
 
 type IdValueProjection<E> = Vec<(Id<E>, Value)>;
+type StructuralValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
 type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
@@ -419,32 +421,49 @@ where
 
         let page = self.execute_scalar_materialized_page_stage(prepared)?;
         let (rows, _) = page.into_parts();
-        let projected_values = Self::project_field_values_with_ids_from_materialized(
-            rows,
-            &boundary.target_field_name,
-            boundary.field_slot,
-        )?;
 
         match boundary.op {
-            PreparedScalarProjectionOp::Values => Ok(ScalarProjectionBoundaryOutput::Values(
-                Self::field_values_from_projection(projected_values),
-            )),
+            PreparedScalarProjectionOp::Values => {
+                let projected_values = Self::project_field_values_from_materialized_structural(
+                    rows,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )?;
+
+                Ok(ScalarProjectionBoundaryOutput::Values(
+                    Self::field_values_from_projection(projected_values),
+                ))
+            }
             PreparedScalarProjectionOp::DistinctValues => {
-                Self::project_distinct_field_values_from_materialized(projected_values)
-                    .map(ScalarProjectionBoundaryOutput::Values)
+                Self::project_field_values_from_materialized_structural(
+                    rows,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )
+                .and_then(Self::project_distinct_field_values_from_materialized)
+                .map(ScalarProjectionBoundaryOutput::Values)
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                Self::project_distinct_field_values_from_materialized(projected_values).map(
-                    |values| {
-                        ScalarProjectionBoundaryOutput::Count(
-                            u32::try_from(values.len()).unwrap_or(u32::MAX),
-                        )
-                    },
+                Self::project_field_values_from_materialized_structural(
+                    rows,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
                 )
+                .and_then(Self::project_distinct_field_values_from_materialized)
+                .map(|values| {
+                    ScalarProjectionBoundaryOutput::Count(
+                        u32::try_from(values.len()).unwrap_or(u32::MAX),
+                    )
+                })
             }
-            PreparedScalarProjectionOp::ValuesWithIds => Ok(
-                ScalarProjectionBoundaryOutput::ValuesWithIds(projected_values),
-            ),
+            PreparedScalarProjectionOp::ValuesWithIds => {
+                Self::project_field_values_with_ids_from_materialized(
+                    rows,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )
+                .map(ScalarProjectionBoundaryOutput::ValuesWithIds)
+            }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
                 Err(crate::db::error::query_executor_invariant(
                     "terminal value projection materialized branch must execute before row materialization",
@@ -464,6 +483,7 @@ where
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
         let consistency = prepared.consistency();
+        let store = prepared.store;
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
             terminal_expr_for_kind(terminal_kind),
@@ -480,10 +500,9 @@ where
             return Ok(None);
         };
 
-        let ctx = self.recovered_context()?;
         let key = DataKey::new(E::ENTITY_TAG, selected_key);
         let Some(value) = Self::read_field_value_for_aggregate(
-            &ctx,
+            store,
             consistency,
             &key,
             target_field,
@@ -498,7 +517,7 @@ where
 
     // Project one materialized `(id, value)` vector into one field value vector while
     // preserving the effective response row order.
-    fn field_values_from_projection(projected_values: IdValueProjection<E>) -> Vec<Value> {
+    fn field_values_from_projection(projected_values: StructuralValueProjection) -> Vec<Value> {
         projected_values
             .into_iter()
             .map(|(_, value)| value)
@@ -509,18 +528,9 @@ where
     // preserving first-observed order within the effective response window.
     // This is value DISTINCT semantics via canonical `GroupKey` equality.
     fn project_distinct_field_values_from_materialized(
-        projected_values: IdValueProjection<E>,
+        projected_values: StructuralValueProjection,
     ) -> Result<Vec<Value>, InternalError> {
-        let mut distinct_values = GroupKeySet::default();
-        let mut distinct_projected_values = Vec::new();
-        for (_, value) in projected_values {
-            if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
-                continue;
-            }
-            distinct_projected_values.push(value);
-        }
-
-        Ok(distinct_projected_values)
+        project_distinct_field_values_from_structural_projection(projected_values)
     }
 
     // Project materialized structural rows into id/value pairs while
@@ -530,19 +540,37 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<IdValueProjection<E>, InternalError> {
+        let projected_values = Self::project_field_values_from_materialized_structural(
+            rows,
+            target_field,
+            field_slot,
+        )?;
+
+        projected_values
+            .into_iter()
+            .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
+            .collect()
+    }
+
+    // Project materialized structural rows into structural `(data_key, value)`
+    // pairs while preserving the effective response row order.
+    fn project_field_values_from_materialized_structural(
+        rows: Vec<DataRow>,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<StructuralValueProjection, InternalError> {
         let row_layout = RowLayout::from_model(E::MODEL);
         let row_decoder = RowDecoder::structural();
 
         rows.into_iter()
             .map(|(data_key, raw_row)| {
-                let id = Id::from_key(data_key.try_key::<E>()?);
-                let row = row_decoder.decode(&row_layout, (data_key, raw_row))?;
+                let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row))?;
                 extract_orderable_field_value_with_slot_reader(
                     target_field,
                     field_slot,
                     &mut |index| row.slot(index),
                 )
-                .map(|value| (id, value))
+                .map(|value| (data_key, value))
                 .map_err(Self::map_aggregate_field_value_error)
             })
             .collect()
@@ -594,13 +622,15 @@ where
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
     ) -> Result<Option<IdValueProjection<E>>, InternalError> {
-        let Some(projected_pairs) =
-            Self::covering_index_projection_pairs_from_context(prepared, context, window)?
+        let Some(projected_values) =
+            Self::covering_index_projection_values_from_context_structural(
+                prepared, context, window,
+            )?
         else {
             return Ok(None);
         };
 
-        let projected_values = projected_pairs
+        let projected_values = projected_values
             .into_iter()
             .map(|(data_key, value)| {
                 data_key
@@ -611,6 +641,16 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Some(projected_values))
+    }
+
+    // Resolve one index-covered structural `(data_key, value)` projection
+    // vector from already prepared covering strategy metadata.
+    fn covering_index_projection_values_from_context_structural(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        context: CoveringProjectionContext,
+        window: ScalarProjectionWindow,
+    ) -> Result<Option<StructuralValueProjection>, InternalError> {
+        Self::covering_index_projection_pairs_from_context(prepared, context, window)
     }
 
     // Resolve one covering projection pair vector from already prepared
@@ -633,17 +673,15 @@ where
 
         // Phase 2: enforce missing-row policy and decode projection components.
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        let ctx = &prepared.ctx;
         for (data_key, component_bytes) in raw_pairs {
-            match prepared.consistency() {
-                MissingRowPolicy::Ignore => match ctx.read(&data_key) {
-                    Ok(_) => {}
-                    Err(err) if err.is_not_found() => continue,
-                    Err(err) => return Err(err),
-                },
-                MissingRowPolicy::Error => {
-                    ctx.read_strict(&data_key)?;
-                }
+            if read_row_with_consistency_from_store(
+                prepared.store,
+                &data_key,
+                prepared.consistency(),
+            )?
+            .is_none()
+            {
+                continue;
             }
 
             let Some(value) = decode_covering_projection_component(&component_bytes)? else {
@@ -682,13 +720,13 @@ where
         component_index: usize,
         direction: Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        let ctx = &prepared.ctx;
         let continuation = IndexScanContinuationInput::new(None, direction);
 
         let prefix_specs = prepared.index_prefix_specs.as_slice();
         if let [spec] = prefix_specs {
             return Self::read_covering_projection_component_pairs_for_index_bounds(
-                ctx,
+                prepared.store_resolver,
+                prepared.entity_tag,
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -704,7 +742,8 @@ where
         let range_specs = prepared.index_range_specs.as_slice();
         if let [spec] = range_specs {
             return Self::read_covering_projection_component_pairs_for_index_bounds(
-                ctx,
+                prepared.store_resolver,
+                prepared.entity_tag,
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -761,7 +800,8 @@ where
     // Resolve one covering projection component stream for one lowered
     // index-prefix/index-range bounds contract.
     fn read_covering_projection_component_pairs_for_index_bounds(
-        ctx: &crate::db::executor::Context<'_, E>,
+        store_resolver: crate::db::executor::StructuralStoreResolver<'_>,
+        entity_tag: crate::types::EntityTag,
         index: &crate::model::index::IndexModel,
         bounds: (
             &std::ops::Bound<crate::db::index::RawIndexKey>,
@@ -770,12 +810,10 @@ where
         continuation: IndexScanContinuationInput,
         component_index: usize,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        let store = ctx
-            .db
-            .with_store_registry(|registry| registry.try_get_store(index.store()))?;
+        let store = store_resolver.try_get_store(index.store())?;
         store.with_index(|index_store| {
             index_store.resolve_data_values_with_component_in_raw_range_limited(
-                E::ENTITY_TAG,
+                entity_tag,
                 index,
                 bounds,
                 continuation,
@@ -785,4 +823,22 @@ where
             )
         })
     }
+}
+
+fn project_distinct_field_values_from_structural_projection(
+    projected_values: StructuralValueProjection,
+) -> Result<Vec<Value>, InternalError> {
+    let mut distinct_values = GroupKeySet::default();
+    let mut distinct_projected_values = Vec::new();
+
+    // Phase 1: preserve first-observed order while deduplicating on canonical
+    // group-key equality over structural projection values.
+    for (_, value) in projected_values {
+        if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
+            continue;
+        }
+        distinct_projected_values.push(value);
+    }
+
+    Ok(distinct_projected_values)
 }

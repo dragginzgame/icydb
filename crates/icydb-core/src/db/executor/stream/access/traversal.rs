@@ -93,6 +93,7 @@ trait AccessTraversalRuntime<K> {
 /// traversal recursion stays generic only over key shape.
 ///
 
+#[cfg(test)]
 struct ContextTraversalRuntime<'ctx, 'a, E>
 where
     E: EntityKind + EntityValue,
@@ -100,6 +101,7 @@ where
     ctx: &'a Context<'ctx, E>,
 }
 
+#[cfg(test)]
 impl<'ctx, 'a, E> ContextTraversalRuntime<'ctx, 'a, E>
 where
     E: EntityKind + EntityValue,
@@ -110,6 +112,7 @@ where
     }
 }
 
+#[cfg(test)]
 impl<E> AccessTraversalRuntime<E::Key> for ContextTraversalRuntime<'_, '_, E>
 where
     E: EntityKind + EntityValue,
@@ -140,35 +143,57 @@ where
 }
 
 ///
-/// ContextStructuralTraversalRuntime
+/// StructuralTraversalRuntime
 ///
-/// ContextStructuralTraversalRuntime binds one recovered typed context to the
-/// structural planner-key executable-access boundary.
-/// This keeps structural fast-path traversal separate from the ordinary typed
-/// runtime access path without reintroducing typed access-plan reconstruction.
+/// StructuralTraversalRuntime carries the structural store/index authority
+/// needed to resolve planner-key executable access paths without recovering
+/// `Context<'_, E>` inside the execution hot path.
+/// It is the structural fast-path/runtime leaf used by erased execution
+/// adapters and typed context shells alike.
 ///
 
-struct ContextStructuralTraversalRuntime<'ctx, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    ctx: &'a Context<'ctx, E>,
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct StructuralTraversalRuntime {
+    pub(in crate::db::executor) store: crate::db::registry::StoreHandle,
+    pub(in crate::db::executor) entity_tag: crate::types::EntityTag,
 }
 
-impl<'ctx, 'a, E> ContextStructuralTraversalRuntime<'ctx, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build one structural traversal runtime from one recovered executor context.
-    const fn new(ctx: &'a Context<'ctx, E>) -> Self {
-        Self { ctx }
+impl StructuralTraversalRuntime {
+    /// Build one structural traversal runtime from canonical store authority.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        store: crate::db::registry::StoreHandle,
+        entity_tag: crate::types::EntityTag,
+    ) -> Self {
+        Self { store, entity_tag }
+    }
+
+    /// Resolve one structural executable access binding into an ordered key stream.
+    pub(in crate::db::executor) fn ordered_key_stream_from_structural_runtime_access(
+        &self,
+        request: ExecutableAccess<'_, StructuralKey>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let inputs = TraversalInputs {
+            index_prefix_specs: request.bindings.index_prefix_specs,
+            index_range_specs: request.bindings.index_range_specs,
+            continuation: request.bindings.continuation,
+            physical_fetch_hint: request.physical_fetch_hint,
+            index_predicate_execution: request.index_predicate_execution,
+        };
+        let mut spec_cursor = inputs.spec_cursor();
+        let key_stream = AccessPlanStreamResolver::produce_key_stream(
+            self,
+            &request.plan,
+            inputs,
+            &mut spec_cursor,
+        )?;
+        spec_cursor.validate_consumed()?;
+
+        Ok(key_stream)
     }
 }
 
-impl<E> AccessTraversalRuntime<StructuralKey> for ContextStructuralTraversalRuntime<'_, '_, E>
-where
-    E: EntityKind + EntityValue,
-{
+impl AccessTraversalRuntime<StructuralKey> for StructuralTraversalRuntime {
     fn lower_path_access(
         &self,
         path: &ExecutableAccessPath<'_, StructuralKey>,
@@ -185,13 +210,15 @@ where
             predicate_execution: inputs.index_predicate_execution,
         };
 
-        self.ctx
-            .ordered_key_stream_from_structural_executable_access(
-                path,
-                constraints,
-                inputs.continuation,
-                hints,
-            )
+        path.resolve_structural_physical_key_stream(physical::StructuralPhysicalStreamRequest {
+            store: self.store,
+            entity_tag: self.entity_tag,
+            index_prefix_specs: constraints.prefixes,
+            index_range_spec: constraints.range,
+            continuation: inputs.continuation,
+            physical_fetch_hint: hints.physical_fetch_hint,
+            index_predicate_execution: hints.predicate_execution,
+        })
     }
 }
 
@@ -200,6 +227,7 @@ where
     E: EntityKind + EntityValue,
 {
     /// Resolve one executable access path into an ordered key stream.
+    #[cfg(test)]
     pub(in crate::db::executor) fn ordered_key_stream_from_executable_access(
         &self,
         access: &ExecutableAccessPath<'_, E::Key>,
@@ -211,27 +239,6 @@ where
         E: EntityKind,
     {
         access.resolve_physical_key_stream(physical::PhysicalStreamRequest {
-            ctx: self,
-            index_prefix_specs: constraints.prefixes,
-            index_range_spec: constraints.range,
-            continuation,
-            physical_fetch_hint: hints.physical_fetch_hint,
-            index_predicate_execution: hints.predicate_execution,
-        })
-    }
-
-    /// Resolve one structural executable access path into an ordered key stream.
-    pub(in crate::db::executor) fn ordered_key_stream_from_structural_executable_access(
-        &self,
-        access: &ExecutableAccessPath<'_, StructuralKey>,
-        constraints: IndexStreamConstraints<'_>,
-        continuation: AccessScanContinuationInput<'_>,
-        hints: StreamExecutionHints<'_>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        access.resolve_structural_physical_key_stream::<E>(physical::PhysicalStreamRequest {
             ctx: self,
             index_prefix_specs: constraints.prefixes,
             index_range_spec: constraints.range,
@@ -263,6 +270,7 @@ where
 
     /// Resolve an access plan to an ordered key stream while consuming lowered specs
     /// in traversal order, including optional index-range pagination anchor.
+    #[cfg(test)]
     pub(in crate::db::executor) fn ordered_key_stream_from_runtime_access(
         &self,
         request: ExecutableAccess<'_, E::Key>,
@@ -298,24 +306,8 @@ where
     where
         E: EntityKind,
     {
-        let inputs = TraversalInputs {
-            index_prefix_specs: request.bindings.index_prefix_specs,
-            index_range_specs: request.bindings.index_range_specs,
-            continuation: request.bindings.continuation,
-            physical_fetch_hint: request.physical_fetch_hint,
-            index_predicate_execution: request.index_predicate_execution,
-        };
-        let runtime = ContextStructuralTraversalRuntime::new(self);
-        let mut spec_cursor = inputs.spec_cursor();
-        let key_stream = AccessPlanStreamResolver::produce_key_stream(
-            &runtime,
-            &request.plan,
-            inputs,
-            &mut spec_cursor,
-        )?;
-        spec_cursor.validate_consumed()?;
-
-        Ok(key_stream)
+        self.structural_traversal_runtime()?
+            .ordered_key_stream_from_structural_runtime_access(request)
     }
 
     /// Resolve rows from a structural access plan with explicit continuation scan bindings.

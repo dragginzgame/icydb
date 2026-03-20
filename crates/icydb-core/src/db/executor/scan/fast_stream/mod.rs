@@ -10,20 +10,52 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use crate::{
+    db::{Context, executor::pipeline::contracts::LoadExecutor},
+    traits::{EntityKind, EntityValue},
+};
 use crate::{
     db::{
-        Context,
         access::StructuralKey,
         executor::{
-            ExecutableAccess, ExecutionOptimization,
-            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
-            route::RoutedKeyStreamRequest,
+            ExecutableAccess, ExecutionOptimization, OrderedKeyStreamBox,
+            pipeline::contracts::FastPathKeyResult, stream::access::StructuralTraversalRuntime,
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
+// Enforce exact row-count observability required by fast-path stream execution.
+fn finalize_fast_path_key_stream(
+    key_stream: OrderedKeyStreamBox,
+    optimization: ExecutionOptimization,
+) -> Result<FastPathKeyResult, InternalError> {
+    let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
+        crate::db::error::query_executor_invariant(
+            "fast-path stream must expose an exact key-count hint",
+        )
+    })?;
+
+    Ok(FastPathKeyResult {
+        ordered_key_stream: key_stream,
+        rows_scanned,
+        optimization,
+    })
+}
+
+/// Resolve one structural fast-path access stream without rebuilding a typed access plan.
+pub(in crate::db::executor) fn execute_structural_fast_stream_request(
+    runtime: &StructuralTraversalRuntime,
+    access: ExecutableAccess<'_, StructuralKey>,
+    optimization: ExecutionOptimization,
+) -> Result<FastPathKeyResult, InternalError> {
+    let key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
+
+    finalize_fast_path_key_stream(key_stream, optimization)
+}
+
+#[cfg(test)]
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -31,53 +63,13 @@ where
     /// Resolve one fast-path access stream without materialize/restream adapters.
     ///
     /// Fast-path streams must expose an exact key-count hint for observability parity.
-    #[cfg(test)]
     pub(super) fn execute_fast_stream_request(
         ctx: &Context<'_, E>,
         access: ExecutableAccess<'_, E::Key>,
         optimization: ExecutionOptimization,
     ) -> Result<FastPathKeyResult, InternalError> {
-        // Phase 1: resolve the ordered key stream through the routed access boundary.
-        let key_stream =
-            Self::resolve_routed_key_stream(ctx, RoutedKeyStreamRequest::ExecutableAccess(access))?;
+        let key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
 
-        // Phase 2: enforce exact row-scan count hint required by fast-path observability.
-        let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
-                "fast-path stream must expose an exact key-count hint",
-            )
-        })?;
-
-        Ok(FastPathKeyResult {
-            ordered_key_stream: key_stream,
-            rows_scanned,
-            optimization,
-        })
-    }
-
-    /// Resolve one structural fast-path access stream without rebuilding a typed access plan.
-    pub(super) fn execute_structural_fast_stream_request(
-        ctx: &Context<'_, E>,
-        access: ExecutableAccess<'_, StructuralKey>,
-        optimization: ExecutionOptimization,
-    ) -> Result<FastPathKeyResult, InternalError> {
-        // Phase 1: resolve the ordered key stream through the structural routed access boundary.
-        let key_stream = Self::resolve_routed_key_stream(
-            ctx,
-            RoutedKeyStreamRequest::StructuralExecutableAccess(access),
-        )?;
-
-        // Phase 2: enforce exact row-scan count hint required by fast-path observability.
-        let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
-                "fast-path stream must expose an exact key-count hint",
-            )
-        })?;
-
-        Ok(FastPathKeyResult {
-            ordered_key_stream: key_stream,
-            rows_scanned,
-            optimization,
-        })
+        finalize_fast_path_key_stream(key_stream, optimization)
     }
 }

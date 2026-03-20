@@ -70,32 +70,37 @@ pub(super) const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: us
 
 /// Record per-request rows scanned metrics with saturated diagnostics counts.
 pub(super) fn record_rows_scanned<E: EntityKind>(rows_scanned: usize) {
+    record_rows_scanned_for_path(E::PATH, rows_scanned);
+}
+
+/// Record per-request rows scanned metrics for one structural entity path.
+pub(super) fn record_rows_scanned_for_path(entity_path: &'static str, rows_scanned: usize) {
     record(MetricsEvent::RowsScanned {
-        entity_path: E::PATH,
+        entity_path,
         rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
     });
 }
 
-/// Record per-request rows filtered metrics.
-pub(super) fn record_rows_filtered<E: EntityKind>(rows_filtered: usize) {
+/// Record per-request rows filtered metrics for one structural entity path.
+pub(super) fn record_rows_filtered_for_path(entity_path: &'static str, rows_filtered: usize) {
     record(MetricsEvent::RowsFiltered {
-        entity_path: E::PATH,
+        entity_path,
         rows_filtered: u64::try_from(rows_filtered).unwrap_or(u64::MAX),
     });
 }
 
-/// Record per-request rows aggregated metrics.
-pub(super) fn record_rows_aggregated<E: EntityKind>(rows_aggregated: usize) {
+/// Record per-request rows aggregated metrics for one structural entity path.
+pub(super) fn record_rows_aggregated_for_path(entity_path: &'static str, rows_aggregated: usize) {
     record(MetricsEvent::RowsAggregated {
-        entity_path: E::PATH,
+        entity_path,
         rows_aggregated: u64::try_from(rows_aggregated).unwrap_or(u64::MAX),
     });
 }
 
-/// Record per-request rows emitted metrics.
-pub(super) fn record_rows_emitted<E: EntityKind>(rows_emitted: usize) {
+/// Record per-request rows emitted metrics for one structural entity path.
+pub(super) fn record_rows_emitted_for_path(entity_path: &'static str, rows_emitted: usize) {
     record(MetricsEvent::RowsEmitted {
-        entity_path: E::PATH,
+        entity_path,
         rows_emitted: u64::try_from(rows_emitted).unwrap_or(u64::MAX),
     });
 }

@@ -4,14 +4,14 @@ use crate::db::executor::pipeline::operators::post_access::terminal::{
 };
 use crate::{
     db::{
+        executor::OrderReadableRow,
         executor::pipeline::operators::post_access::{
-            contracts::{PlanRow, PostAccessStats},
-            coordinator::PostAccessPlan,
+            contracts::PostAccessStats, coordinator::PostAccessPlan,
         },
         predicate::PredicateProgram,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
 };
 use std::cell::RefCell;
 
@@ -27,8 +27,8 @@ impl<K> PostAccessPlan<'_, K> {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
-        R: PlanRow<E>,
+        E: EntityKind<Key = K>,
+        R: OrderReadableRow,
     {
         self.apply_delete_post_access_with_compiled_predicate_internal::<E, R>(
             rows,
@@ -42,8 +42,8 @@ impl<K> PostAccessPlan<'_, K> {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind<Key = K> + EntityValue,
-        R: PlanRow<E>,
+        E: EntityKind<Key = K>,
+        R: OrderReadableRow,
     {
         let cursor = None;
         self.validate_cursor_mode(cursor)?;
@@ -53,7 +53,7 @@ impl<K> PostAccessPlan<'_, K> {
         // to the shared delete-only post-access control-flow helper.
         let mut apply_filter_phase = || {
             let rows = &mut **rows.borrow_mut();
-            self.apply_filter_phase::<E, R>(rows, compiled_predicate, false)
+            self.apply_filter_phase::<R>(rows, compiled_predicate, false)
         };
         let mut apply_order_phase = |filtered| {
             let rows = &mut **rows.borrow_mut();

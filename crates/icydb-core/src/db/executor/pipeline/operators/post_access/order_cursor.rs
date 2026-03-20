@@ -1,37 +1,37 @@
 //! Module: executor::pipeline::operators::post_access::order_cursor
-//! Responsibility: post-access bridge to cursor-owned ordering helpers.
-//! Does not own: sort semantics or cursor boundary validation logic.
-//! Boundary: thin adapter layer used by post-access ordering operators.
+//! Responsibility: post-access bridge to shared structural ordering helpers.
+//! Does not own: order semantics or cursor boundary validation logic.
+//! Boundary: resolves model-owned order slots for post-access ordering operators.
 
 use crate::{
     db::{
-        cursor::{
-            apply_order_spec as apply_cursor_order_spec,
-            apply_order_spec_bounded as apply_cursor_order_spec_bounded,
+        executor::{
+            OrderReadableRow, apply_structural_order, apply_structural_order_bounded,
+            resolve_structural_order,
         },
-        executor::pipeline::operators::PlanRow,
         query::plan::OrderSpec,
     },
-    traits::{EntityKind, EntityValue},
+    model::entity::EntityModel,
 };
 
-/// Apply canonical cursor-owned ordering to post-access rows.
-pub(super) fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
+/// Apply canonical structural ordering to post-access rows.
+pub(super) fn apply_order_spec<R>(rows: &mut [R], model: &EntityModel, order: &OrderSpec)
 where
-    E: EntityKind + EntityValue,
-    R: PlanRow<E>,
+    R: OrderReadableRow,
 {
-    apply_cursor_order_spec::<E, R, _>(rows, order, |row| row.entity());
+    let resolved_order = resolve_structural_order(model, order);
+    apply_structural_order(rows, &resolved_order);
 }
 
-/// Apply bounded canonical ordering for first-page optimization paths.
-pub(super) fn apply_order_spec_bounded<E, R>(
+/// Apply bounded canonical structural ordering for first-page optimization paths.
+pub(super) fn apply_order_spec_bounded<R>(
     rows: &mut Vec<R>,
+    model: &EntityModel,
     order: &OrderSpec,
     keep_count: usize,
 ) where
-    E: EntityKind + EntityValue,
-    R: PlanRow<E>,
+    R: OrderReadableRow,
 {
-    apply_cursor_order_spec_bounded::<E, R, _>(rows, order, keep_count, |row| row.entity());
+    let resolved_order = resolve_structural_order(model, order);
+    apply_structural_order_bounded(rows, &resolved_order, keep_count);
 }

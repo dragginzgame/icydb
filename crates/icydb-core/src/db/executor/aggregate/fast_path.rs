@@ -5,29 +5,27 @@
 
 use crate::{
     db::{
-        Context,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, ScalarAggregateOutput,
             },
-            pipeline::{
-                contracts::{FastPathKeyResult, LoadExecutor},
-                operators::decorate_key_stream_for_plan,
-            },
+            pipeline::{contracts::FastPathKeyResult, operators::decorate_key_stream_for_plan},
             route::{
-                FastPathOrder, RoutedKeyStreamRequest, derive_budget_safety_flags,
+                FastPathOrder, derive_budget_safety_flags_for_model,
                 ensure_index_range_aggregate_fast_path_specs,
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
+            scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
+            stream::access::StructuralTraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
+        registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 ///
@@ -43,22 +41,21 @@ struct VerifiedAggregateFastPathRoute {
 }
 
 impl ExecutionKernel {
-    /// Resolve one routed stream request and fold one aggregate terminal from it.
-    pub(in crate::db::executor) fn fold_aggregate_from_routed_stream_request<E>(
-        ctx: &Context<'_, E>,
+    /// Resolve one structural access request and fold one aggregate terminal from it.
+    pub(in crate::db::executor) fn fold_aggregate_from_structural_access(
+        traversal_runtime: StructuralTraversalRuntime,
+        store: StoreHandle,
         plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
-        stream_request: RoutedKeyStreamRequest<'_, E::Key>,
-    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let mut key_stream = LoadExecutor::<E>::resolve_routed_key_stream(ctx, stream_request)?;
+        access: ExecutableAccess<'_, crate::db::access::StructuralKey>,
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
+        let mut key_stream =
+            traversal_runtime.ordered_key_stream_from_structural_runtime_access(access)?;
 
         Self::run_streaming_aggregate_reducer(
-            ctx,
+            store,
             plan,
             kind,
             direction,
@@ -68,28 +65,29 @@ impl ExecutionKernel {
     }
 
     /// Try one secondary-index aggregate fold attempt and preserve fast-path scan accounting.
-    pub(in crate::db::executor) fn try_fold_secondary_index_aggregate<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
+    pub(in crate::db::executor) fn try_fold_secondary_index_aggregate(
+        inputs: &AggregateFastPathInputs<'_>,
         probe_fetch_hint: Option<usize>,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let index_predicate_execution =
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
-        let Some(fast) = LoadExecutor::<E>::try_execute_secondary_index_order_stream(
-            inputs.ctx,
-            inputs.logical_plan,
-            inputs.index_prefix_specs.first(),
-            inputs.direction,
-            probe_fetch_hint,
-            index_predicate_execution,
+        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.entity_tag);
+        let Some(fast) = execute_fast_stream_route(
+            &runtime,
+            FastStreamRouteKind::SecondaryIndex,
+            FastStreamRouteRequest::SecondaryIndex {
+                plan: inputs.logical_plan,
+                index_prefix_spec: inputs.index_prefix_specs.first(),
+                stream_direction: inputs.direction,
+                probe_fetch_hint,
+                index_predicate_execution,
+            },
         )?
         else {
             return Ok(None);
         };
         let (aggregate_output, rows_scanned) = Self::fold_aggregate_from_fast_path_result(
-            inputs.ctx,
+            inputs.store,
             inputs.logical_plan,
             inputs.direction,
             inputs.kind,
@@ -111,13 +109,10 @@ impl ExecutionKernel {
     // All aggregate fast-path dispatch must pass through this gate before
     // invoking any `try_execute_*` branch so route eligibility checks, arity
     // guards, and branch preconditions cannot drift across call sites.
-    fn verify_aggregate_fast_path_eligibility<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
+    fn verify_aggregate_fast_path_eligibility(
+        inputs: &AggregateFastPathInputs<'_>,
         route: FastPathOrder,
-    ) -> Result<Option<VerifiedAggregateFastPathRoute>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<Option<VerifiedAggregateFastPathRoute>, InternalError> {
         match route {
             // Primary-key point/batch aggregate fast path is branch-local and
             // intentionally independent of route capability flags.
@@ -166,16 +161,15 @@ impl ExecutionKernel {
 
     // Execute one aggregate fast-path branch only after route verification has
     // produced a capability marker from the shared eligibility gate.
-    fn try_execute_verified_aggregate_fast_path<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
+    fn try_execute_verified_aggregate_fast_path(
+        inputs: &AggregateFastPathInputs<'_>,
         verified_route: VerifiedAggregateFastPathRoute,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         match verified_route.route {
             FastPathOrder::PrimaryKey => Self::try_execute_primary_key_access_aggregate(
-                inputs.ctx,
+                inputs.model,
+                inputs.store,
+                inputs.entity_tag,
                 inputs.logical_plan,
                 inputs.direction,
                 inputs.kind,
@@ -183,7 +177,8 @@ impl ExecutionKernel {
             ),
             FastPathOrder::SecondaryPrefix => Self::try_execute_index_prefix_aggregate(inputs),
             FastPathOrder::PrimaryScan => Self::try_execute_primary_scan_aggregate(
-                inputs.ctx,
+                inputs.store,
+                inputs.entity_tag,
                 inputs.logical_plan,
                 inputs.direction,
                 inputs.physical_fetch_hint,
@@ -196,12 +191,9 @@ impl ExecutionKernel {
     }
 
     /// Attempt aggregate fast-path execution through route-owned fast-path order.
-    pub(in crate::db::executor) fn try_fast_path_aggregate<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    pub(in crate::db::executor) fn try_fast_path_aggregate(
+        inputs: &AggregateFastPathInputs<'_>,
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let fast_path_hit = try_first_verified_fast_path_hit(
             inputs.route_plan.fast_path_order(),
             |route| Self::verify_aggregate_fast_path_eligibility(inputs, route),
@@ -222,22 +214,19 @@ impl ExecutionKernel {
 
     // Apply kernel DISTINCT decoration to one fast-path stream result, then
     // fold one aggregate terminal while preserving fast-path scan accounting.
-    fn fold_aggregate_from_fast_path_result<E>(
-        ctx: &Context<'_, E>,
+    fn fold_aggregate_from_fast_path_result(
+        store: StoreHandle,
         plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
         mut fast: FastPathKeyResult,
-    ) -> Result<(ScalarAggregateOutput, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         fast.ordered_key_stream =
             decorate_key_stream_for_plan(fast.ordered_key_stream, plan, direction);
         let rows_scanned = fast.rows_scanned;
         let (aggregate_output, _keys_scanned) = Self::run_streaming_aggregate_reducer(
-            ctx,
+            store,
             plan,
             kind,
             direction,
@@ -251,16 +240,15 @@ impl ExecutionKernel {
     // Resolve aggregate terminals for primary-key point/batch plans through the
     // canonical routed key-stream boundary so all access-shape execution uses
     // one shared stream-construction path.
-    fn try_execute_primary_key_access_aggregate<E>(
-        ctx: &Context<'_, E>,
+    fn try_execute_primary_key_access_aggregate(
+        model: &'static crate::model::entity::EntityModel,
+        store: StoreHandle,
+        entity_tag: crate::types::EntityTag,
         plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let access_strategy = plan.access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
@@ -272,7 +260,7 @@ impl ExecutionKernel {
         if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
-        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E>(plan);
+        let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(model, plan);
         if has_residual_filter {
             return Ok(None);
         }
@@ -283,13 +271,14 @@ impl ExecutionKernel {
             None,
             None,
         );
-        let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_routed_stream_request(
-            ctx,
+        let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
+            StructuralTraversalRuntime::new(store, entity_tag),
+            store,
             plan,
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::StructuralExecutableAccess(access),
+            access,
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -297,12 +286,9 @@ impl ExecutionKernel {
 
     // Resolve aggregate terminals directly for index-prefix access plans when
     // canonical secondary ordering is pushdown-eligible.
-    fn try_execute_index_prefix_aggregate<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    fn try_execute_index_prefix_aggregate(
+        inputs: &AggregateFastPathInputs<'_>,
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         // Probe hint selection is route-owned; prefer explicit aggregate seek
         // contracts, then reuse generic route scan hints.
         let probe_fetch_hint = inputs
@@ -342,17 +328,15 @@ impl ExecutionKernel {
 
     // Resolve aggregate terminals directly for full-scan/key-range access plans.
     // This keeps canonical stream semantics while avoiding generic route assembly.
-    fn try_execute_primary_scan_aggregate<E>(
-        ctx: &Context<'_, E>,
+    fn try_execute_primary_scan_aggregate(
+        store: StoreHandle,
+        entity_tag: crate::types::EntityTag,
         plan: &AccessPlannedQuery,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let access_strategy = plan.access.resolve_strategy();
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
@@ -364,19 +348,18 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_routed_stream_request(
-            ctx,
+        let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
+            StructuralTraversalRuntime::new(store, entity_tag),
+            store,
             plan,
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::StructuralExecutableAccess(
-                ExecutableAccess::from_executable_plan(
-                    access_strategy.into_executable(),
-                    AccessStreamBindings::no_index(direction),
-                    physical_fetch_hint,
-                    None,
-                ),
+            ExecutableAccess::from_executable_plan(
+                access_strategy.into_executable(),
+                AccessStreamBindings::no_index(direction),
+                physical_fetch_hint,
+                None,
             ),
         )?;
 
@@ -385,29 +368,32 @@ impl ExecutionKernel {
 
     // Resolve aggregate terminals directly for index-range access plans.
     // This reuses canonical range traversal while preserving one fold engine.
-    fn try_execute_index_range_aggregate<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    fn try_execute_index_range_aggregate(
+        inputs: &AggregateFastPathInputs<'_>,
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let Some(index_range_limit_spec) = inputs.route_plan.index_range_limit_spec.as_ref() else {
             return Ok(None);
         };
 
-        let Some(fast) = LoadExecutor::<E>::try_execute_index_range_limit_pushdown_stream(
-            inputs.ctx,
-            inputs.logical_plan,
-            inputs.index_range_specs.first(),
-            AccessScanContinuationInput::new(None, inputs.direction),
-            index_range_limit_spec.fetch,
-            Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
+        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.entity_tag);
+        let Some(fast) = execute_fast_stream_route(
+            &runtime,
+            FastStreamRouteKind::IndexRangeLimitPushdown,
+            FastStreamRouteRequest::IndexRangeLimitPushdown {
+                plan: inputs.logical_plan,
+                index_range_spec: inputs.index_range_specs.first(),
+                continuation: AccessScanContinuationInput::new(None, inputs.direction),
+                effective_fetch: index_range_limit_spec.fetch,
+                index_predicate_execution: Self::aggregate_index_predicate_execution(
+                    inputs.index_predicate_program,
+                ),
+            },
         )?
         else {
             return Ok(None);
         };
         let (aggregate_output, rows_scanned) = Self::fold_aggregate_from_fast_path_result(
-            inputs.ctx,
+            inputs.store,
             inputs.logical_plan,
             inputs.direction,
             inputs.kind,
@@ -419,12 +405,9 @@ impl ExecutionKernel {
 
     // Resolve aggregate terminals directly for composite access plans by
     // reusing canonical composite stream production.
-    fn try_execute_composite_aggregate<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
-    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    fn try_execute_composite_aggregate(
+        inputs: &AggregateFastPathInputs<'_>,
+    ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let access = ExecutableAccess::from_executable_plan(
             inputs
                 .logical_plan
@@ -439,13 +422,14 @@ impl ExecutionKernel {
             inputs.physical_fetch_hint,
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
         );
-        let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_routed_stream_request(
-            inputs.ctx,
+        let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
+            StructuralTraversalRuntime::new(inputs.store, inputs.entity_tag),
+            inputs.store,
             inputs.logical_plan,
             inputs.direction,
             inputs.kind,
             inputs.fold_mode,
-            RoutedKeyStreamRequest::StructuralExecutableAccess(access),
+            access,
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))

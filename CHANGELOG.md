@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.59.x] - 2026-03-18 - Execution De-Monomorphization Open
 
+- `0.59.5` keeps the execution engine on shared structural runtime paths by replacing more typed fast-path plumbing with structural traversal/runtime helpers, moving shared ordering logic into executor-owned helpers, and tightening store/index access so only scan boundaries touch the registry directly.
+- `0.59.4` publishes the `0.59.3` execution-core checkpoint as a release cut without additional runtime behavior changes.
 - `0.59.3` keeps pushing query execution toward one shared structural runtime by removing more typed access-plan baggage, moving projection, ranking, and `bytes(field)` materialization off full entity reconstruction, and keeping large test-only helpers out of production files.
 - `0.59.2` keeps shrinking query execution by moving key handling, materialized aggregate loops, and final typed response assembly onto structural or outer-edge boundaries, reorganizing test-only helpers out of runtime files, and remeasuring both canister harnesses in `debug` and `wasm-release`.
 - `0.59.1` moves scalar execution much further onto shared prepared runtime contracts by removing more plan-owned scalar branching, making scalar row decoding structural, and updating fresh developer setup to install the required `ripgrep` tool for invariant checks.
@@ -19,10 +21,10 @@ See detailed breakdown:
 
 ## [0.58.x] - 2026-03-18 - Runtime Size-Reduction Closeout
 
-- `0.58.0` completes the runtime size-reduction line by removing the highest-value generic orchestration and adapter duplication, flattening structural execution boundaries around entity tags and cursor/index identity, and closing the line once the remaining binary size was confirmed to come from typed execution kernels rather than more safe local cleanup.
-- `0.58.1` hardens the release with SQL dispatch consistency fixes (`DELETE` now works through the unified query-lane surface), safer generated code and Clippy cleanup, and PocketIC integration tests that no longer fail the whole workspace when the local PocketIC server binary is not configured.
-- `0.58.2` removes dead executor pipeline scaffolding left behind by the size-reduction refactor, recovers cleanly from poisoned schema-cache locks during save validation, and keeps test-only cursor and entrypoint helpers out of release builds.
 - `0.58.3` adds a default-on `sql` feature so non-SQL builds can compile out the SQL frontend, public SQL APIs, and generated canister SQL glue, moves shared reduced-SQL lexer/error plumbing onto one neutral core boundary, and adds an optional SQL-on / SQL-off mode to the wasm size scripts for side-by-side footprint checks.
+- `0.58.2` removes dead executor pipeline scaffolding left behind by the size-reduction refactor, recovers cleanly from poisoned schema-cache locks during save validation, and keeps test-only cursor and entrypoint helpers out of release builds.
+- `0.58.1` hardens the release with SQL dispatch consistency fixes (`DELETE` now works through the unified query-lane surface), safer generated code and Clippy cleanup, and PocketIC integration tests that no longer fail the whole workspace when the local PocketIC server binary is not configured.
+- `0.58.0` completes the runtime size-reduction line by removing the highest-value generic orchestration and adapter duplication, flattening structural execution boundaries around entity tags and cursor/index identity, and closing the line once the remaining binary size was confirmed to come from typed execution kernels rather than more safe local cleanup.
 
 See detailed breakdown:
 [docs/changelog/0.58.md](docs/changelog/0.58.md)
@@ -31,8 +33,8 @@ See detailed breakdown:
 
 ## [0.57.x] - 2026-03-16 - Reduced SQL Closure Follow-Ups
 
-- `0.57.0` lets SQL users run `SHOW TABLES` as an alias for `SHOW ENTITIES` and adds bounded `LOWER(field) LIKE 'prefix%'` lowering to case-insensitive prefix matching while keeping out-of-scope SQL shapes fail-closed.
 - `0.57.1` expands `bytes_by(field)` index-only/constant covering fast paths, adds `explain_bytes_by(field)` terminal metadata with stable projection-mode labels, and keeps strict-mode shapes fail-closed with dedicated BYTES-by diagnostics counters.
+- `0.57.0` lets SQL users run `SHOW TABLES` as an alias for `SHOW ENTITIES` and adds bounded `LOWER(field) LIKE 'prefix%'` lowering to case-insensitive prefix matching while keeping out-of-scope SQL shapes fail-closed.
 
 See detailed breakdown:
 [docs/changelog/0.57.md](docs/changelog/0.57.md)
@@ -41,13 +43,13 @@ See detailed breakdown:
 
 ## [0.56.x] - 2026-03-16 - Reduced SQL Introspection and Entity Listing
 
-- `0.56.0` adds reduced-SQL `DESCRIBE <entity>` and `SHOW INDEXES <entity>` introspection lanes across parser/lowering/session/facade, expands generated `sql_dispatch` with typed and shell-friendly describe/index helpers plus `SHOW ENTITIES` support, and keeps `query_rows` projection-only with deterministic introspection-lane rejections.
-- `0.56.1` hardens the introspection surfaces by locking `DESCRIBE`/`SHOW INDEXES` shell output vectors in tests, broadening canister integration coverage for mixed-case/schema-qualified/semicolon forms, and removing version-specific wording from generated helper error messages.
-- `0.56.2` replaces split SQL canister helpers with one `query(...)` enum envelope (`SqlQueryResult`) across projection/explain/describe/show-indexes/show-entities, updates local shell rendering flows around that unified result, and fixes generated empty-entity route stubs so downstream builds do not emit unused-`sql` warnings.
-- `0.56.3` makes `SHOW ENTITIES` a first-class reduced-SQL route across parser/lowering/session/generated dispatch and adds constrained grouped `HAVING` execution for SQL `GROUP BY` shapes, while keeping unsupported HAVING boolean forms fail-closed.
-- `0.56.4` consolidates duplicated reduced-SQL lane plumbing by centralizing core wrong-lane gating, simplifying generated `sql_dispatch` route branching, and moving core/facade wrong-lane SQL tests to matrix coverage, while keeping SQL behavior and fail-closed contracts unchanged.
-- `0.56.5` adds reduced-SQL `SHOW COLUMNS <entity>` end-to-end, expands grouped SQL `HAVING` with bounded `IS NULL` / `IS NOT NULL` support, and extends existing `LOWER(field)` expression indexes to support case-insensitive prefix filters (`starts_with_ci`) via bounded index-range planning with fail-closed unsupported-expression behavior.
 - `0.56.6` hardens the new case-insensitive expression-prefix path with extra planner/access/runtime parity tests (including one-character and empty-prefix edges), locks residual-filter diagnostics for deterministic routing, and stabilizes PocketIC SQL integration runs by serializing test bodies and reusing one built test-canister WASM payload per process.
+- `0.56.5` adds reduced-SQL `SHOW COLUMNS <entity>` end-to-end, expands grouped SQL `HAVING` with bounded `IS NULL` / `IS NOT NULL` support, and extends existing `LOWER(field)` expression indexes to support case-insensitive prefix filters (`starts_with_ci`) via bounded index-range planning with fail-closed unsupported-expression behavior.
+- `0.56.4` consolidates duplicated reduced-SQL lane plumbing by centralizing core wrong-lane gating, simplifying generated `sql_dispatch` route branching, and moving core/facade wrong-lane SQL tests to matrix coverage, while keeping SQL behavior and fail-closed contracts unchanged.
+- `0.56.3` makes `SHOW ENTITIES` a first-class reduced-SQL route across parser/lowering/session/generated dispatch and adds constrained grouped `HAVING` execution for SQL `GROUP BY` shapes, while keeping unsupported HAVING boolean forms fail-closed.
+- `0.56.2` replaces split SQL canister helpers with one `query(...)` enum envelope (`SqlQueryResult`) across projection/explain/describe/show-indexes/show-entities, updates local shell rendering flows around that unified result, and fixes generated empty-entity route stubs so downstream builds do not emit unused-`sql` warnings.
+- `0.56.1` hardens the introspection surfaces by locking `DESCRIBE`/`SHOW INDEXES` shell output vectors in tests, broadening canister integration coverage for mixed-case/schema-qualified/semicolon forms, and removing version-specific wording from generated helper error messages.
+- `0.56.0` adds reduced-SQL `DESCRIBE <entity>` and `SHOW INDEXES <entity>` introspection lanes across parser/lowering/session/facade, expands generated `sql_dispatch` with typed and shell-friendly describe/index helpers plus `SHOW ENTITIES` support, and keeps `query_rows` projection-only with deterministic introspection-lane rejections.
 
 See detailed breakdown:
 [docs/changelog/0.56.md](docs/changelog/0.56.md)
@@ -56,14 +58,14 @@ See detailed breakdown:
 
 ## [0.55.x] - 2026-03-15 - Expression Indexes
 
-- `0.55.0` ships the initial expression-index foundation line with canonical index key-item metadata, validated expression-key derivation, and shared planner/EXPLAIN eligibility for the first supported deterministic subset.
-- `0.55.1` hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.
-- `0.55.2` expands expression-index planning/runtime parity for supported `LOWER(field)` case-insensitive `Eq`/`In` lookups, while keeping unsupported-expression and range-family shapes fail-closed.
-- `0.55.3` closes the line with unsupported-expression fail-closed recovery/runtime parity coverage and adds a recurring canonical semantic-authority crosscutting audit track.
-- `0.55.4` completes the predicate semantic-authority audit by centralizing OR-equality canonicalization and identifier rewrites in predicate-owned boundaries, and makes PocketIC canister tests deterministic in `make test`/CI by resolving `POCKET_IC_BIN` explicitly.
-- `0.55.5` consolidates continuation-envelope semantics under one index-owned boundary, hardens layer-authority leak detection for generic helper signatures, makes PocketIC integration teardown keep primary failures visible, and publishes the 2026-03-15 canonical-semantic-authority and DRY-consolidation audit reports.
-- `0.55.6` continues load-pipeline containment by splitting post-access, orchestrator, reducer, distinct, and terminal execution seams into smaller owner modules, and keeps invariant gates green by fixing a pipeline planner-import leak in post-access coordination.
 - `0.55.7` removes remaining legacy/shim compatibility aliases and stale wording (including `Date::get` and the PocketIC staging alias), while keeping persisted row and commit decode compatibility fallbacks in place.
+- `0.55.6` continues load-pipeline containment by splitting post-access, orchestrator, reducer, distinct, and terminal execution seams into smaller owner modules, and keeps invariant gates green by fixing a pipeline planner-import leak in post-access coordination.
+- `0.55.5` consolidates continuation-envelope semantics under one index-owned boundary, hardens layer-authority leak detection for generic helper signatures, makes PocketIC integration teardown keep primary failures visible, and publishes the 2026-03-15 canonical-semantic-authority and DRY-consolidation audit reports.
+- `0.55.4` completes the predicate semantic-authority audit by centralizing OR-equality canonicalization and identifier rewrites in predicate-owned boundaries, and makes PocketIC canister tests deterministic in `make test`/CI by resolving `POCKET_IC_BIN` explicitly.
+- `0.55.3` closes the line with unsupported-expression fail-closed recovery/runtime parity coverage and adds a recurring canonical semantic-authority crosscutting audit track.
+- `0.55.2` expands expression-index planning/runtime parity for supported `LOWER(field)` case-insensitive `Eq`/`In` lookups, while keeping unsupported-expression and range-family shapes fail-closed.
+- `0.55.1` hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.
+- `0.55.0` ships the initial expression-index foundation line with canonical index key-item metadata, validated expression-key derivation, and shared planner/EXPLAIN eligibility for the first supported deterministic subset.
 
 See detailed breakdown:
 [docs/changelog/0.55.md](docs/changelog/0.55.md)
@@ -72,8 +74,8 @@ See detailed breakdown:
 
 ## [0.54.x] - 2026-03-13 - Filtered Indexes Line Open
 
-- `0.54.0` ships filtered/conditional indexes end-to-end: optional index predicates in schema/runtime metadata, schema-time predicate validation, mutation-path membership gating, planner implication-based index eligibility, and replay/startup recovery parity tests that lock live-vs-replay behavior.
 - `0.54.1` adds generated canister-local SQL dispatch helpers (`sql_dispatch`) with deterministic entity-keyed routing, shell-friendly `query` output plus structured `query_rows` payloads, clearer `EXPLAIN` rejection guidance for unordered pagination, and actionable reduced-SQL clause-order parse diagnostics.
+- `0.54.0` ships filtered/conditional indexes end-to-end: optional index predicates in schema/runtime metadata, schema-time predicate validation, mutation-path membership gating, planner implication-based index eligibility, and replay/startup recovery parity tests that lock live-vs-replay behavior.
 
 See detailed breakdown:
 [docs/changelog/0.54.md](docs/changelog/0.54.md)
@@ -82,9 +84,9 @@ See detailed breakdown:
 
 ## [0.53.x] - 2026-03-12 - Data Survivability Line Planned
 
-- `0.53.0` reframes the `0.53` design contract around data survivability and upgrade safety, with explicit persisted-format compatibility-window guarantees, migration resume/recovery safety language, and clearer corruption-vs-compatibility error-taxonomy boundaries.
-- `0.53.1` splits the session runtime into smaller facades and tightens ownership boundaries so canonicalization, continuation, and index-range validation each stay in one authority layer with stronger guard coverage.
 - `0.53.2` lands the data-survivability runtime hardening pass with versioned row and commit-marker envelopes, durable migration-step resume state bound to commit markers, integrity reporting, and fail-closed startup recovery checks that prevent silent row orphaning/discard.
+- `0.53.1` splits the session runtime into smaller facades and tightens ownership boundaries so canonicalization, continuation, and index-range validation each stay in one authority layer with stronger guard coverage.
+- `0.53.0` reframes the `0.53` design contract around data survivability and upgrade safety, with explicit persisted-format compatibility-window guarantees, migration resume/recovery safety language, and clearer corruption-vs-compatibility error-taxonomy boundaries.
 
 See detailed breakdown:
 [docs/changelog/0.53.md](docs/changelog/0.53.md)
@@ -93,10 +95,10 @@ See detailed breakdown:
 
 ## [0.52.x] - 2026-03-12 - Reduced SQL Parser Line Open
 
-- `0.52.0` opens the reduced SQL parser line with deterministic reduced-SQL parsing plus initial SQL-to-query lowering and session entrypoints (`query_from_sql`, `execute_sql`, `explain_sql`) for the minimum executable subset (`SELECT *` and constrained `DELETE`) while broader SQL projection/grouping semantics remain gated for follow-up patches.
-- `0.52.1` adds executable SQL field-list projection lowering, a new projection-shaped SQL session API (`execute_sql_projection`), facade projection-response iteration support (`IntoIterator`), parity tests that lock SQL/fluent projection identity and fingerprints, and clearer SQL subset docs for what remains gated.
-- `0.52.2` adds reduced SQL grouped execution (`execute_sql_grouped`), a constrained global aggregate SQL surface (`execute_sql_aggregate` for `COUNT(*)`/`COUNT(field)`/`SUM(field)`/`AVG(field)`/`MIN(field)`/`MAX(field)`), `EXPLAIN` support for those constrained aggregate selects, constrained scalar `SELECT DISTINCT` support (`DISTINCT *` or field lists including primary key), qualified identifier normalization (`schema.Entity`, `Entity.field`) for executable SQL surfaces, and tighter fail-closed parser boundaries with stable unsupported-feature labels (table aliases, quoted identifiers, and `COUNT(DISTINCT ...)` plus other out-of-scope grammar branches).
 - `0.52.3` expands SQL-first matrix coverage across scalar/projection/grouped/aggregate/explain paths, adds grouped cursor fail-closed regression checks for invalid payloads and query-signature mismatch, extends facade SQL matrix coverage for `query_from_sql` and `explain_sql` surfaces, and adds a test-canister-only `sql(...)` query endpoint for quick ad-hoc SQL checks.
+- `0.52.2` adds reduced SQL grouped execution (`execute_sql_grouped`), a constrained global aggregate SQL surface (`execute_sql_aggregate` for `COUNT(*)`/`COUNT(field)`/`SUM(field)`/`AVG(field)`/`MIN(field)`/`MAX(field)`), `EXPLAIN` support for those constrained aggregate selects, constrained scalar `SELECT DISTINCT` support (`DISTINCT *` or field lists including primary key), qualified identifier normalization (`schema.Entity`, `Entity.field`) for executable SQL surfaces, and tighter fail-closed parser boundaries with stable unsupported-feature labels (table aliases, quoted identifiers, and `COUNT(DISTINCT ...)` plus other out-of-scope grammar branches).
+- `0.52.1` adds executable SQL field-list projection lowering, a new projection-shaped SQL session API (`execute_sql_projection`), facade projection-response iteration support (`IntoIterator`), parity tests that lock SQL/fluent projection identity and fingerprints, and clearer SQL subset docs for what remains gated.
+- `0.52.0` opens the reduced SQL parser line with deterministic reduced-SQL parsing plus initial SQL-to-query lowering and session entrypoints (`query_from_sql`, `execute_sql`, `explain_sql`) for the minimum executable subset (`SELECT *` and constrained `DELETE`) while broader SQL projection/grouping semantics remain gated for follow-up patches.
 
 See detailed breakdown:
 [docs/changelog/0.52.md](docs/changelog/0.52.md)
@@ -105,9 +107,9 @@ See detailed breakdown:
 
 ## [0.51.x] - 2026-03-12 - Engine Contract Stabilization Line Open
 
-- `0.51.0` starts the `0.51` stabilization line by freezing deterministic query-plan snapshot surfaces (`query -> executable plan -> explain`), adding baseline snapshots for core execution shapes, locking ordering-contract guards for `ORDER`/`LIMIT`/cursor behavior, and adding continuation-envelope replay/version fail-closed regression coverage on fluent pagination paths.
-- `0.51.1` completes stabilization work through Slice F by locking projection and aggregate strategy surfaces, continuation and ordering determinism, and numeric comparison/arithmetic authority alignment across planner, executor, grouped ordering, and index-ordering contracts.
 - `0.51.2` removes another internal execution-planning wrapper by routing key-stream execution through one `ExecutableAccess` contract (instead of a separate descriptor layer), reducing route/executor indirection while keeping query behavior unchanged.
+- `0.51.1` completes stabilization work through Slice F by locking projection and aggregate strategy surfaces, continuation and ordering determinism, and numeric comparison/arithmetic authority alignment across planner, executor, grouped ordering, and index-ordering contracts.
+- `0.51.0` starts the `0.51` stabilization line by freezing deterministic query-plan snapshot surfaces (`query -> executable plan -> explain`), adding baseline snapshots for core execution shapes, locking ordering-contract guards for `ORDER`/`LIMIT`/cursor behavior, and adding continuation-envelope replay/version fail-closed regression coverage on fluent pagination paths.
 
 See detailed breakdown:
 [docs/changelog/0.51.md](docs/changelog/0.51.md)
@@ -116,9 +118,9 @@ See detailed breakdown:
 
 ## [0.50.x] - 2026-03-11 - Executor Simplification Line Open
 
-- `0.50.0` opens the `0.50` line with design and preparation artifacts (slice plans, invariants, and baseline trackers) to guide executor simplification work; runtime behavior is unchanged.
-- `0.50.1` expands Slice E mechanical cleanup across aggregate terminals/projection helpers, runtime payload-window helpers, post-access operator plumbing, commit-window metrics wiring, and EXPLAIN descriptor helper paths, reducing executor maintenance surface without changing query behavior.
 - `0.50.2` records the pre-`0.51` contract lock by explicitly freezing `is_not_null()` and `between(...)`, planner projection selection shapes (`All`/`Fields`/`Expression`), and grouped `AVG` planner support (including global DISTINCT policy/invariant alignment).
+- `0.50.1` expands Slice E mechanical cleanup across aggregate terminals/projection helpers, runtime payload-window helpers, post-access operator plumbing, commit-window metrics wiring, and EXPLAIN descriptor helper paths, reducing executor maintenance surface without changing query behavior.
+- `0.50.0` opens the `0.50` line with design and preparation artifacts (slice plans, invariants, and baseline trackers) to guide executor simplification work; runtime behavior is unchanged.
 
 See detailed breakdown:
 [docs/changelog/0.50.md](docs/changelog/0.50.md)
@@ -127,10 +129,10 @@ See detailed breakdown:
 
 ## [0.49.x] - 2026-03-11 - Executor Architecture Stabilization
 
-- `0.49.0` stabilizes the post-`load` executor architecture by locking scan/pipeline/aggregate/terminal boundaries, expanding EXPLAIN execution metadata (including deterministic node IDs and layer/fast-path/pushdown visibility), hardening continuation fail-closed checks across grouped shape drift, and adding additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`) without introducing new query language features.
-- `0.49.1` removes the remaining internal `db::executor::shared` bucket by moving contracts and helpers to owner modules (`pipeline::contracts`, `projection`, and `context`) and adds guardrails so the old namespace cannot return.
-- `0.49.2` stabilizes executor observability and orchestration internals by splitting EXPLAIN JSON/node ownership, adding executor diagnostics node/counter contracts, and moving load orchestration to a deterministic stage-descriptor loop while keeping query behavior unchanged.
 - `0.49.3` hardens EXPLAIN execution consistency by adding cross-node-family JSON schema guards, locking text/JSON parity for additive execution metadata, and tightening explain-to-diagnostics node correlation checks without changing query behavior.
+- `0.49.2` stabilizes executor observability and orchestration internals by splitting EXPLAIN JSON/node ownership, adding executor diagnostics node/counter contracts, and moving load orchestration to a deterministic stage-descriptor loop while keeping query behavior unchanged.
+- `0.49.1` removes the remaining internal `db::executor::shared` bucket by moving contracts and helpers to owner modules (`pipeline::contracts`, `projection`, and `context`) and adds guardrails so the old namespace cannot return.
+- `0.49.0` stabilizes the post-`load` executor architecture by locking scan/pipeline/aggregate/terminal boundaries, expanding EXPLAIN execution metadata (including deterministic node IDs and layer/fast-path/pushdown visibility), hardening continuation fail-closed checks across grouped shape drift, and adding additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`) without introducing new query language features.
 
 See detailed breakdown:
 [docs/changelog/0.49.md](docs/changelog/0.49.md)
@@ -139,14 +141,14 @@ See detailed breakdown:
 
 ## [0.48.x] - 2026-03-11 - EXPLAIN and Other Features
 
-- `0.48.0` makes plan hashes and continuation signatures independent from EXPLAIN formatting, keeps cursor continuation safety checks fail-closed under one cursor-owned contract, and preserves explain/runtime parity with expanded regression coverage.
-- `0.48.1` expands EXPLAIN observability for index routes with clearer predicate/order/fetch metadata and planner-derived access-choice reason codes, without changing query execution behavior.
-- `0.48.2` adds clearer EXPLAIN execution diagnostics (covering-scan eligibility, cursor resume metadata, and fast-path reason codes) and fixes a DB codegen bug so generated `icydb_snapshot()` uses the active database handle correctly.
-- `0.48.3` removes the internal `db::error` wrapper module so DB runtime code now constructs invariant errors directly through `InternalError` constructors with unchanged formatting and behavior.
-- `0.48.4` splits EXPLAIN into smaller focused modules, consolidates runtime schema contracts under `db::schema`, replaces ad-hoc EXPLAIN JSON object assembly with one deterministic writer, and renames the advanced metrics namespace from `obs` to `metrics`.
-- `0.48.5` continues boundary cleanup by making `value` own `StorageKey` (removing the `value -> db` dependency), moving DB-only executor/query/planner/cursor error constructors out of `InternalError`, and organizing `db::error` into smaller subsystem modules.
-- `0.48.6` finishes the executor-load refactor by removing the old `db::executor::load` module tree, moving internals to clearer modules (`stream/access`, `scan`, `pipeline` plus owner-named contracts/projection modules, and `terminal`), and updating invariant checks and structural tests to the new layout.
 - `0.48.7` hardens the new executor architecture by adding stricter cross-layer guard checks, fail-closed grouped cursor compatibility tests for projection-shape drift, richer EXPLAIN execution metadata (including stable node IDs and fast-path/pushdown mode fields), and additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`).
+- `0.48.6` finishes the executor-load refactor by removing the old `db::executor::load` module tree, moving internals to clearer modules (`stream/access`, `scan`, `pipeline` plus owner-named contracts/projection modules, and `terminal`), and updating invariant checks and structural tests to the new layout.
+- `0.48.5` continues boundary cleanup by making `value` own `StorageKey` (removing the `value -> db` dependency), moving DB-only executor/query/planner/cursor error constructors out of `InternalError`, and organizing `db::error` into smaller subsystem modules.
+- `0.48.4` splits EXPLAIN into smaller focused modules, consolidates runtime schema contracts under `db::schema`, replaces ad-hoc EXPLAIN JSON object assembly with one deterministic writer, and renames the advanced metrics namespace from `obs` to `metrics`.
+- `0.48.3` removes the internal `db::error` wrapper module so DB runtime code now constructs invariant errors directly through `InternalError` constructors with unchanged formatting and behavior.
+- `0.48.2` adds clearer EXPLAIN execution diagnostics (covering-scan eligibility, cursor resume metadata, and fast-path reason codes) and fixes a DB codegen bug so generated `icydb_snapshot()` uses the active database handle correctly.
+- `0.48.1` expands EXPLAIN observability for index routes with clearer predicate/order/fetch metadata and planner-derived access-choice reason codes, without changing query execution behavior.
+- `0.48.0` makes plan hashes and continuation signatures independent from EXPLAIN formatting, keeps cursor continuation safety checks fail-closed under one cursor-owned contract, and preserves explain/runtime parity with expanded regression coverage.
 
 See detailed breakdown:
 [docs/changelog/0.48.md](docs/changelog/0.48.md)
@@ -156,15 +158,15 @@ See detailed breakdown:
 ## [0.47.x] - 2026-03-10 - Audit Pass
 
 
-- `0.47.0` establishes the audit-pass baseline with prep work, expanded recurring audit coverage, an initial risk summary, and a cleaner docs layout for audits/design tracking.
-- `0.47.1` continues audit-pass hardening by splitting load and grouped-contract execution hotspots, tightening grouped DISTINCT planner/runtime contracts, and updating invariant/guard checks so CI stays aligned with the refactor.
-- `0.47.2` continues structural containment by further splitting route execution, route hinting, and grouped runtime/load contract hubs, making ownership boundaries clearer while keeping query behavior unchanged.
-- `0.47.3` closes the cursor edge-case checklist with explicit composite-anchor and DESC-resume verification, reducing continuation regression risk without changing query behavior.
-- `0.47.4` adds a live-vs-replay unique-conflict parity lock, hardens recurring index-integrity parity checks, and reduces route/planner structural pressure by splitting planner type inference and simplifying aggregate route-hint branching.
-- `0.47.5` continues structural containment by reducing route/validation branch pressure (including another route-planner/cursor-policy trim pass), splitting load projection/ranking terminals and grouped validation modules into clearer runtime boundaries, tightening route fast-path guard contracts, and requiring explicit DRY follow-ups whenever high-risk divergence seams are detected.
-- `0.47.6` continues load-hub decomposition by splitting scalar/orchestrate/fast-path/fast-stream-route/candidate/projection operator modules, updates audit governance so same-day reruns always compare to the day baseline, and re-runs crosscutting audits with stable risk scores (`complexity 6/10`, `velocity 5/10`, `module 5/10`, `layer 4/10`, `DRY 5/10`).
-- `0.47.7` ⚠️ introduces breaking temporal API-boundary contract enforcement: `Date` now must be `"YYYY-MM-DD"`, `Timestamp` must be RFC3339 text, and `Duration` remains integer milliseconds in JSON payloads.
 - `0.47.8` removes internal shim/wrapper layers in planner and executor paths so grouped policy/projection validation and access-descriptor wiring now call their semantic owners directly, reducing indirection without changing query behavior.
+- `0.47.7` ⚠️ introduces breaking temporal API-boundary contract enforcement: `Date` now must be `"YYYY-MM-DD"`, `Timestamp` must be RFC3339 text, and `Duration` remains integer milliseconds in JSON payloads.
+- `0.47.6` continues load-hub decomposition by splitting scalar/orchestrate/fast-path/fast-stream-route/candidate/projection operator modules, updates audit governance so same-day reruns always compare to the day baseline, and re-runs crosscutting audits with stable risk scores (`complexity 6/10`, `velocity 5/10`, `module 5/10`, `layer 4/10`, `DRY 5/10`).
+- `0.47.5` continues structural containment by reducing route/validation branch pressure (including another route-planner/cursor-policy trim pass), splitting load projection/ranking terminals and grouped validation modules into clearer runtime boundaries, tightening route fast-path guard contracts, and requiring explicit DRY follow-ups whenever high-risk divergence seams are detected.
+- `0.47.4` adds a live-vs-replay unique-conflict parity lock, hardens recurring index-integrity parity checks, and reduces route/planner structural pressure by splitting planner type inference and simplifying aggregate route-hint branching.
+- `0.47.3` closes the cursor edge-case checklist with explicit composite-anchor and DESC-resume verification, reducing continuation regression risk without changing query behavior.
+- `0.47.2` continues structural containment by further splitting route execution, route hinting, and grouped runtime/load contract hubs, making ownership boundaries clearer while keeping query behavior unchanged.
+- `0.47.1` continues audit-pass hardening by splitting load and grouped-contract execution hotspots, tightening grouped DISTINCT planner/runtime contracts, and updating invariant/guard checks so CI stays aligned with the refactor.
+- `0.47.0` establishes the audit-pass baseline with prep work, expanded recurring audit coverage, an initial risk summary, and a cleaner docs layout for audits/design tracking.
 
 See detailed breakdown:
 [docs/changelog/0.47.md](docs/changelog/0.47.md)
@@ -173,20 +175,20 @@ See detailed breakdown:
 
 ## [0.46.x] - 2026-03-08 - Standards Alignment
 
-- `0.46.0` adds early planner/runtime shortcuts for queries that cannot return rows, reducing work while keeping query results unchanged.
-- `0.46.1` adds `select_one` for constant scalar reads and tightens `exists` early-stop behavior for offset windows.
-- `0.46.2` removes duplicate window/covering logic between planner and executor, including shared `count_distinct_by` reuse.
-- `0.46.3` tightens executor boundaries and structural guards so internal APIs do not widen accidentally.
-- `0.46.4` makes ordered `LIMIT` pushdown safer with deterministic `ORDER BY` checks and short-circuits strict empty `IN ()`.
-- `0.46.5` speeds up safe `sum_by`/`avg_by` streaming paths and adds stronger fail-closed checks for duplicate-risk routes.
-- `0.46.6` centralizes deterministic `IN (...)` planning helpers and renames route execution mode types for clearer ownership.
-- `0.46.7` renames query execution errors for clearer ownership and adds stronger complexity-drift guard coverage.
-- `0.46.8` aligns `exists`/`not_exists`/`is_empty` behavior across load APIs, expands date/time edge coverage, and improves verbose fallback diagnostics.
-- `0.46.9` locks strict `starts_with` index-lowering parity, adds clearer verbose text-operator fallback reasons, and keeps non-strict fallback precedence stable.
-- `0.46.10` adds temporal grouped-key and distinct-projection locks so `Date`/`Timestamp`/`Duration` values stay semantic at runtime boundaries.
-- `0.46.11` adds temporal projection, ranked-row terminal, and explain parity locks (including `explain_first`/`explain_last`) so first/last, id/value, and ranked outputs keep semantic `Date`/`Timestamp`/`Duration` values, and closes the `0.46` standards-alignment track matrix.
-- `0.46.12` is a metadata-only patch created during release-script correction; runtime behavior is unchanged.
 - `0.46.13` finalizes version-sequence alignment after that script error; runtime behavior is unchanged.
+- `0.46.12` is a metadata-only patch created during release-script correction; runtime behavior is unchanged.
+- `0.46.11` adds temporal projection, ranked-row terminal, and explain parity locks (including `explain_first`/`explain_last`) so first/last, id/value, and ranked outputs keep semantic `Date`/`Timestamp`/`Duration` values, and closes the `0.46` standards-alignment track matrix.
+- `0.46.10` adds temporal grouped-key and distinct-projection locks so `Date`/`Timestamp`/`Duration` values stay semantic at runtime boundaries.
+- `0.46.9` locks strict `starts_with` index-lowering parity, adds clearer verbose text-operator fallback reasons, and keeps non-strict fallback precedence stable.
+- `0.46.8` aligns `exists`/`not_exists`/`is_empty` behavior across load APIs, expands date/time edge coverage, and improves verbose fallback diagnostics.
+- `0.46.7` renames query execution errors for clearer ownership and adds stronger complexity-drift guard coverage.
+- `0.46.6` centralizes deterministic `IN (...)` planning helpers and renames route execution mode types for clearer ownership.
+- `0.46.5` speeds up safe `sum_by`/`avg_by` streaming paths and adds stronger fail-closed checks for duplicate-risk routes.
+- `0.46.4` makes ordered `LIMIT` pushdown safer with deterministic `ORDER BY` checks and short-circuits strict empty `IN ()`.
+- `0.46.3` tightens executor boundaries and structural guards so internal APIs do not widen accidentally.
+- `0.46.2` removes duplicate window/covering logic between planner and executor, including shared `count_distinct_by` reuse.
+- `0.46.1` adds `select_one` for constant scalar reads and tightens `exists` early-stop behavior for offset windows.
+- `0.46.0` adds early planner/runtime shortcuts for queries that cannot return rows, reducing work while keeping query results unchanged.
 
 See detailed breakdown:
 [docs/changelog/0.46.md](docs/changelog/0.46.md)
@@ -195,15 +197,15 @@ See detailed breakdown:
 
 ## [0.45.x] - 2026-03-07 - Feature Cleanup
 
-- `0.45.0` tightens internal API and error/serialization contracts, enforces schema relation naming checks, and reduces duplicate planner/executor routing.
-- `0.45.1` stabilizes cursor and EXPLAIN behavior under refactors, consolidates hashing/encoding helpers, and splits large executor modules.
-- `0.45.2` continues module splitting, adds DTO serialization-shape regression tests, and fixes CI invariant paths after file moves.
-- `0.45.3` tightens grouped-query planner validation, locks equivalent cursor replay behavior, and reduces response DTO field coupling.
-- `0.45.4` keeps equivalent numeric/text coercion filters on the same fingerprint/cursor signature and adds compile-fail relation naming tests.
-- `0.45.5` moves almost all schema-node public fields behind constructors/accessors, reducing coupling while keeping behavior unchanged.
-- `0.45.6` finishes shared SHA256 helper cleanup and reduces planner/runtime overlap in post-access and residual-filter routing.
-- `0.45.7` reduces access-path fan-out by consolidating executor dispatch behind shared capability checks and adds a drift-audit metric.
 - `0.45.8` unifies fast-stream route execution and explain traversal helpers, and deduplicates shared invariant/resume-boundary logic.
+- `0.45.7` reduces access-path fan-out by consolidating executor dispatch behind shared capability checks and adds a drift-audit metric.
+- `0.45.6` finishes shared SHA256 helper cleanup and reduces planner/runtime overlap in post-access and residual-filter routing.
+- `0.45.5` moves almost all schema-node public fields behind constructors/accessors, reducing coupling while keeping behavior unchanged.
+- `0.45.4` keeps equivalent numeric/text coercion filters on the same fingerprint/cursor signature and adds compile-fail relation naming tests.
+- `0.45.3` tightens grouped-query planner validation, locks equivalent cursor replay behavior, and reduces response DTO field coupling.
+- `0.45.2` continues module splitting, adds DTO serialization-shape regression tests, and fixes CI invariant paths after file moves.
+- `0.45.1` stabilizes cursor and EXPLAIN behavior under refactors, consolidates hashing/encoding helpers, and splits large executor modules.
+- `0.45.0` tightens internal API and error/serialization contracts, enforces schema relation naming checks, and reduces duplicate planner/executor routing.
 
 See detailed breakdown:
 [docs/changelog/0.45.md](docs/changelog/0.45.md)
@@ -212,10 +214,10 @@ See detailed breakdown:
 
 ## [0.44.x] - 2026-03-07 - Optimization Closure
 
-- `0.44.0` speeds up common `count()`/`bytes()` queries on primary-key scans and key ranges, improves LIMIT/covering diagnostics, and moves the workspace to Rust `1.94.0`.
-- `0.44.1` expands safe index-backed fast paths for `count()` and `exists()`, with unchanged fallback behavior when fast-path eligibility is not met.
-- `0.44.2` expands safe `bytes()` fast paths for unordered secondary-index windows, while ordered/predicate-heavy shapes stay on canonical fallback execution.
 - `0.44.3` centralizes access-capability checks and expands `count()`/`bytes()` `.by_ids(...)` speedups for both unordered and `ORDER BY id` windows.
+- `0.44.2` expands safe `bytes()` fast paths for unordered secondary-index windows, while ordered/predicate-heavy shapes stay on canonical fallback execution.
+- `0.44.1` expands safe index-backed fast paths for `count()` and `exists()`, with unchanged fallback behavior when fast-path eligibility is not met.
+- `0.44.0` speeds up common `count()`/`bytes()` queries on primary-key scans and key ranges, improves LIMIT/covering diagnostics, and moves the workspace to Rust `1.94.0`.
 
 See detailed breakdown:
 [docs/changelog/0.44.md](docs/changelog/0.44.md)
@@ -224,7 +226,9 @@ See detailed breakdown:
 
 ## [0.43.x] - 2026-03-07 - BYTES and Audits
 
-- `0.43.0` adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, and starts a dated crosscutting audit cycle for this line.
+- `0.43.4` tightens internal API boundaries by moving diagnostics/trace/explain DTO reads to accessor methods and reducing direct field coupling, with no query behavior changes.
+- `0.43.3` continues the architecture cleanup by removing duplicate access-shape type definitions, eliminating dead plan-shape storage, and dropping no-op wrapper layers while keeping query and cursor behavior unchanged.
+- `0.43.2` improves runtime plan stability by centralizing access-shape capability checks behind one shared access boundary, reducing duplicate routing logic and tightening guard coverage for raw access-path usage.
 - `0.43.1` adds scalar field-size measurement with `BYTES(field)` (`bytes_by("field")`) so you can identify which field dominates storage in a filtered query window.
 
 ```rust
@@ -232,9 +236,7 @@ let total_bytes = session.load::<Event>().bytes()?;
 let payload_bytes = session.load::<Event>().bytes_by("payload")?;
 ```
 
-- `0.43.2` improves runtime plan stability by centralizing access-shape capability checks behind one shared access boundary, reducing duplicate routing logic and tightening guard coverage for raw access-path usage.
-- `0.43.3` continues the architecture cleanup by removing duplicate access-shape type definitions, eliminating dead plan-shape storage, and dropping no-op wrapper layers while keeping query and cursor behavior unchanged.
-- `0.43.4` tightens internal API boundaries by moving diagnostics/trace/explain DTO reads to accessor methods and reducing direct field coupling, with no query behavior changes.
+- `0.43.0` adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, and starts a dated crosscutting audit cycle for this line.
 
 
 See detailed breakdown:
@@ -244,10 +246,10 @@ See detailed breakdown:
 
 ## [0.42.x] - 2026-03-06 - EXPLAIN
 
-- `0.42.0` adds `EXPLAIN` execution output so you can see how a query will run (index/path, filtering stage, ordering, and limit handling) before execution.
-- `0.42.1` completes the EXPLAIN follow-up by freezing descriptor vocabulary, adding fluent/runtime explain adapters (text/json/verbose), and surfacing deterministic verbose route diagnostics with guard coverage for deferred scalar node families.
-- `0.42.2` strengthens EXPLAIN stability by refactoring runtime explain tests around stable output surfaces and broadening aggregate-path regression matrices.
 - `0.42.3` keeps the EXPLAIN release line warning-clean by removing an unused internal explain helper that broke strict `-D warnings` test builds.
+- `0.42.2` strengthens EXPLAIN stability by refactoring runtime explain tests around stable output surfaces and broadening aggregate-path regression matrices.
+- `0.42.1` completes the EXPLAIN follow-up by freezing descriptor vocabulary, adding fluent/runtime explain adapters (text/json/verbose), and surfacing deterministic verbose route diagnostics with guard coverage for deferred scalar node families.
+- `0.42.0` adds `EXPLAIN` execution output so you can see how a query will run (index/path, filtering stage, ordering, and limit handling) before execution.
 
 See detailed breakdown:
 [docs/changelog/0.42.md](docs/changelog/0.42.md)
@@ -256,11 +258,11 @@ See detailed breakdown:
 
 ## [0.41.x] - 2026-03-05 - Minor Features & Pre-EXPLAIN
 
-- `0.41.0` improved basic `LIMIT` handling and added the first index-covering projection fast paths for common scalar value terminals.
-- `0.41.1` sped up index-backed aggregate terminals (`count`, `exists`, and targeted `min`) while keeping strict correctness and stale-key safety checks.
-- `0.41.2` improved ordered-query execution and predicate pushdown groundwork for the next observability slice.
-- `0.41.3` added pre-EXPLAIN developer diagnostics and introspection surfaces, including stable execution descriptors, plan-hash/trace output, execution metrics, and schema inspection helpers.
 - `0.41.4` finished the last pre-EXPLAIN execution-shape contracts from the `0.41` design scope, including strict `COUNT(predicate)` prefilter pushdown, secondary `IN` multi-lookup, index-range order satisfaction, and top-N seek routing.
+- `0.41.3` added pre-EXPLAIN developer diagnostics and introspection surfaces, including stable execution descriptors, plan-hash/trace output, execution metrics, and schema inspection helpers.
+- `0.41.2` improved ordered-query execution and predicate pushdown groundwork for the next observability slice.
+- `0.41.1` sped up index-backed aggregate terminals (`count`, `exists`, and targeted `min`) while keeping strict correctness and stale-key safety checks.
+- `0.41.0` improved basic `LIMIT` handling and added the first index-covering projection fast paths for common scalar value terminals.
 
 See detailed breakdown:
 [docs/changelog/0.41.md](docs/changelog/0.41.md)

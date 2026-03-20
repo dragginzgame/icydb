@@ -3,11 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::{
-    access::StructuralKey,
-    executor::ExecutableAccess,
-    query::{builder::AggregateExpr, plan::GroupedPlanStrategyHint},
-};
+use crate::db::query::{builder::AggregateExpr, plan::GroupedPlanStrategyHint};
 
 ///
 /// FastPathOrder
@@ -50,19 +46,6 @@ pub(in crate::db::executor) const GROUPED_AGGREGATE_FAST_PATH_ORDER: [FastPathOr
 // Contract: mutation routes are materialized-only and do not participate in
 // load/aggregate fast-path precedence.
 pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
-
-///
-/// RoutedKeyStreamRequest
-///
-/// Canonical stream-construction request variants for route-owned key-stream
-/// resolution across load and aggregate execution paths.
-///
-
-pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
-    #[allow(dead_code)]
-    ExecutableAccess(ExecutableAccess<'a, K>),
-    StructuralExecutableAccess(ExecutableAccess<'a, StructuralKey>),
-}
 
 ///
 /// RouteIntent

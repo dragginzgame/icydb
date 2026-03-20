@@ -1,17 +1,24 @@
-use crate::{traits::EntityKind, types::Id};
+use crate::{
+    db::executor::{OrderReadableRow, delete::DeleteRow},
+    traits::{EntityKind, EntityValue},
+    types::Id,
+    value::Value,
+};
 
-///
-/// PlanRow
-///
-/// Row abstraction for applying plan semantics to executor rows.
-///
-
-pub(in crate::db::executor) trait PlanRow<E: EntityKind> {
-    fn entity(&self) -> &E;
+impl<E> OrderReadableRow for (Id<E>, E)
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_order_slot(&self, slot: usize) -> Option<Value> {
+        self.1.get_value_by_index(slot)
+    }
 }
 
-impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
-    fn entity(&self) -> &E {
-        &self.1
+impl<E> OrderReadableRow for DeleteRow<E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_order_slot(&self, slot: usize) -> Option<Value> {
+        self.entity_ref().get_value_by_index(slot)
     }
 }

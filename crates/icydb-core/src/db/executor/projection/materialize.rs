@@ -6,7 +6,7 @@
 #[cfg(feature = "sql")]
 use crate::{
     db::{
-        data::DataRow,
+        data::{DataKey, DataRow},
         executor::ExecutablePlan,
         executor::terminal::{RowDecoder, RowLayout},
         response::{ProjectedRow, ProjectionResponse},
@@ -125,26 +125,16 @@ pub(in crate::db::executor::projection) fn project_data_rows_from_projection<E>(
 where
     E: EntityKind + EntityValue,
 {
-    let row_layout = RowLayout::from_model(E::MODEL);
-    let row_decoder = RowDecoder::structural();
-    let mut projected_rows = Vec::with_capacity(rows.len());
+    let projected_rows = project_data_rows_from_projection_structural(E::MODEL, projection, rows)?;
 
-    for (data_key, raw_row) in rows {
-        let id = Id::from_key(data_key.try_key::<E>()?);
-        let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
-        let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot| row.slot(slot);
-        visit_projection_values_with_slot_reader(
-            projection,
-            E::MODEL,
-            &mut read_slot,
-            &mut |value| values.push(value),
-        )
-        .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
-        projected_rows.push(ProjectedRow::new(id, values));
-    }
+    projected_rows
+        .into_iter()
+        .map(|(data_key, values)| {
+            let id = Id::from_key(data_key.try_key::<E>()?);
 
-    Ok(projected_rows)
+            Ok(ProjectedRow::new(id, values))
+        })
+        .collect()
 }
 
 // Walk one projection spec through one slot-reader boundary so validation and
@@ -185,4 +175,30 @@ fn projection_is_model_identity_for_model(
     }
 
     true
+}
+
+#[cfg(feature = "sql")]
+fn project_data_rows_from_projection_structural(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+    rows: &[DataRow],
+) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+    let row_layout = RowLayout::from_model(model);
+    let row_decoder = RowDecoder::structural();
+    let mut projected_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: decode each materialized row structurally and evaluate the
+    // projection expressions without introducing typed entity rows.
+    for (data_key, raw_row) in rows {
+        let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
+        let mut values = Vec::with_capacity(projection.len());
+        let mut read_slot = |slot| row.slot(slot);
+        visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |value| {
+            values.push(value);
+        })
+        .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        projected_rows.push((data_key.clone(), values));
+    }
+
+    Ok(projected_rows)
 }

@@ -29,9 +29,8 @@ use crate::{
             },
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter, GroupedCursorPage,
-                GroupedFoldStage, GroupedRouteStage, GroupedRowRuntime, GroupedStreamStage,
-                LoadExecutor, TypedGroupedRowRuntime,
+                ExecutionInputs, ExecutionRuntime, GroupedCursorPage, GroupedFoldStage,
+                GroupedRouteStage, GroupedRowRuntime, GroupedStreamStage,
             },
             plan_metrics::record_grouped_plan_metrics,
         },
@@ -39,7 +38,6 @@ use crate::{
     },
     error::InternalError,
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
 };
 
 // Build one grouped key stream from route-owned grouped execution metadata
@@ -191,26 +189,4 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
         &stream,
         scanned_rows,
     ))
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build one grouped key stream from route-owned grouped execution metadata.
-    pub(in crate::db::executor) fn build_grouped_stream<'a>(
-        &'a self,
-        route: &GroupedRouteStage,
-    ) -> Result<GroupedStreamStage<'a>, InternalError> {
-        let ctx = self.db.recovered_context::<E>()?;
-        let row_ctx = self.db.recovered_context::<E>()?;
-        let runtime = ExecutionRuntimeAdapter::new(&ctx, &route.plan().access)?;
-        build_grouped_stream_with_runtime(
-            route,
-            &runtime,
-            E::MODEL,
-            runtime.slot_map().map(<[usize]>::to_vec),
-            Box::new(TypedGroupedRowRuntime::new(row_ctx)),
-        )
-    }
 }

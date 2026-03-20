@@ -10,30 +10,51 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation,
+            ExecutionKernel, ExecutionPreparation, StructuralTraversalRuntime,
             aggregate::{
                 AggregateFoldMode, AggregateKind, PreparedAggregateStreamingInputs,
-                PreparedScalarTerminalBoundary, PreparedScalarTerminalExecutionState,
-                PreparedScalarTerminalOp, PreparedScalarTerminalStrategy, ScalarAggregateOutput,
+                PreparedAggregateStreamingInputsCore, PreparedScalarTerminalBoundary,
+                PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp,
+                PreparedScalarTerminalStrategy, ScalarAggregateOutput,
                 field::resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             pipeline::contracts::LoadExecutor,
-            plan_metrics::record_rows_scanned,
-            preparation::slot_map_for_entity_plan,
+            plan_metrics::record_rows_scanned_for_path,
+            preparation::resolved_index_slots_for_access_path,
             route::{CountTerminalFastPathContract, ExistsTerminalFastPathContract},
         },
         index::predicate::IndexPredicateExecution,
         query::builder::aggregate::{field_target_extrema_expr_for_kind, terminal_expr_for_kind},
         query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
+        registry::StoreHandle,
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue, FieldValue},
-    types::Id,
+    types::{EntityTag, Id},
     value::StorageKey,
 };
 use std::ops::Bound;
 
 type IdPairTerminalOutput<E> = Option<(Id<E>, Id<E>)>;
+
+///
+/// ExistingRowsTerminalRuntime
+///
+/// ExistingRowsTerminalRuntime bundles the structural runtime inputs needed by
+/// existing-row aggregate terminals.
+/// This keeps COUNT/EXISTS helpers generic-free without widening the public
+/// aggregate boundary surface.
+///
+
+struct ExistingRowsTerminalRuntime<'a> {
+    model: &'static EntityModel,
+    entity_tag: EntityTag,
+    store: StoreHandle,
+    logical_plan: &'a crate::db::query::plan::AccessPlannedQuery,
+    index_prefix_specs: &'a [crate::db::executor::LoweredIndexPrefixSpec],
+    index_range_specs: &'a [crate::db::executor::LoweredIndexRangeSpec],
+}
 
 // Typed boundary request for one public scalar aggregate terminal family call.
 pub(in crate::db) enum ScalarTerminalBoundaryRequest {
@@ -144,14 +165,16 @@ where
             execute_kernel_terminal_request(executor, prepared, boundary.op)
         }
         PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality => {
-            execute_count_primary_key_cardinality_terminal_request::<E>(prepared)
+            execute_count_primary_key_cardinality_terminal_request(prepared.into_core())
         }
         PreparedScalarTerminalStrategy::CountExistingRows {
             direction,
             covering,
-        } => execute_count_existing_rows_terminal_request::<E>(prepared, direction, covering),
+        } => {
+            execute_count_existing_rows_terminal_request(prepared.into_core(), direction, covering)
+        }
         PreparedScalarTerminalStrategy::ExistsExistingRows { direction } => {
-            execute_exists_existing_rows_terminal_request::<E>(prepared, direction)
+            execute_exists_existing_rows_terminal_request(prepared.into_core(), direction)
         }
     }
 }
@@ -203,29 +226,43 @@ where
 }
 
 // Execute prepared COUNT through store-cardinality fast-path semantics.
-fn execute_count_primary_key_cardinality_terminal_request<E>(
-    prepared: PreparedAggregateStreamingInputs<'_, E>,
-) -> Result<ScalarAggregateOutput, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let count = aggregate_count_from_pk_cardinality(&prepared)?;
+fn execute_count_primary_key_cardinality_terminal_request(
+    prepared: PreparedAggregateStreamingInputsCore,
+) -> Result<ScalarAggregateOutput, InternalError> {
+    let (count, rows_scanned) = aggregate_count_from_pk_cardinality_with_store(
+        &prepared.logical_plan,
+        prepared.entity_tag,
+        prepared.store,
+    )?;
+    record_rows_scanned_for_path(prepared.entity_path, rows_scanned);
 
     Ok(ScalarAggregateOutput::Count(count))
 }
 
 // Execute prepared COUNT through one streaming existing-row fold without
 // materializing the effective window.
-fn execute_count_existing_rows_terminal_request<E>(
-    prepared: PreparedAggregateStreamingInputs<'_, E>,
+fn execute_count_existing_rows_terminal_request(
+    prepared: PreparedAggregateStreamingInputsCore,
     direction: Direction,
     _covering: bool,
-) -> Result<ScalarAggregateOutput, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Result<ScalarAggregateOutput, InternalError> {
     let count = expect_count_output(
-        aggregate_existing_rows_terminal_output(&prepared, AggregateKind::Count, direction)?,
+        aggregate_existing_rows_terminal_output_with_runtime(
+            ExistingRowsTerminalRuntime {
+                model: prepared.model,
+                entity_tag: prepared.entity_tag,
+                store: prepared.store,
+                logical_plan: &prepared.logical_plan,
+                index_prefix_specs: prepared.index_prefix_specs.as_slice(),
+                index_range_specs: prepared.index_range_specs.as_slice(),
+            },
+            AggregateKind::Count,
+            direction,
+        )
+        .map(|(output, rows_scanned)| {
+            record_rows_scanned_for_path(prepared.entity_path, rows_scanned);
+            output
+        })?,
         "existing-row COUNT reducer result kind mismatch",
     )?;
 
@@ -234,15 +271,27 @@ where
 
 // Execute prepared EXISTS through one streaming existing-row fold without
 // materializing the effective window.
-fn execute_exists_existing_rows_terminal_request<E>(
-    prepared: PreparedAggregateStreamingInputs<'_, E>,
+fn execute_exists_existing_rows_terminal_request(
+    prepared: PreparedAggregateStreamingInputsCore,
     direction: Direction,
-) -> Result<ScalarAggregateOutput, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Result<ScalarAggregateOutput, InternalError> {
     let exists = expect_exists_output(
-        aggregate_existing_rows_terminal_output(&prepared, AggregateKind::Exists, direction)?,
+        aggregate_existing_rows_terminal_output_with_runtime(
+            ExistingRowsTerminalRuntime {
+                model: prepared.model,
+                entity_tag: prepared.entity_tag,
+                store: prepared.store,
+                logical_plan: &prepared.logical_plan,
+                index_prefix_specs: prepared.index_prefix_specs.as_slice(),
+                index_range_specs: prepared.index_range_specs.as_slice(),
+            },
+            AggregateKind::Exists,
+            direction,
+        )
+        .map(|(output, rows_scanned)| {
+            record_rows_scanned_for_path(prepared.entity_path, rows_scanned);
+            output
+        })?,
         "covering EXISTS reducer result kind mismatch",
     )?;
 
@@ -250,19 +299,28 @@ where
 }
 
 // Resolve an index-backed existing-row key stream and execute one reducer kind.
-fn aggregate_existing_rows_terminal_output<E>(
-    prepared: &PreparedAggregateStreamingInputs<'_, E>,
+fn aggregate_existing_rows_terminal_output_with_runtime(
+    runtime: ExistingRowsTerminalRuntime<'_>,
     kind: AggregateKind,
     direction: Direction,
-) -> Result<ScalarAggregateOutput, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Result<(ScalarAggregateOutput, usize), InternalError> {
+    let ExistingRowsTerminalRuntime {
+        model,
+        entity_tag,
+        store,
+        logical_plan,
+        index_prefix_specs,
+        index_range_specs,
+    } = runtime;
+
     // Phase 1: compile predicate/runtime inputs over the prepared logical plan.
     let execution_preparation = ExecutionPreparation::from_plan(
-        E::MODEL,
-        &prepared.logical_plan,
-        slot_map_for_entity_plan::<E>(&prepared.logical_plan),
+        model,
+        logical_plan,
+        resolved_index_slots_for_access_path(
+            model,
+            logical_plan.access.resolve_strategy().executable(),
+        ),
     );
     let index_predicate_execution =
         execution_preparation
@@ -274,44 +332,41 @@ where
 
     // Phase 2: resolve the access key stream directly from index-backed bindings.
     let access = ExecutableAccess::new(
-        &prepared.logical_plan.access,
+        &logical_plan.access,
         AccessStreamBindings::new(
-            prepared.index_prefix_specs.as_slice(),
-            prepared.index_range_specs.as_slice(),
+            index_prefix_specs,
+            index_range_specs,
             AccessScanContinuationInput::new(None, direction),
         ),
         None,
         index_predicate_execution,
     );
-    let mut key_stream = prepared
-        .ctx
-        .ordered_key_stream_from_structural_runtime_access(access)?;
+    let runtime = StructuralTraversalRuntime::new(store, entity_tag);
+    let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
 
     // Phase 3: fold through existing-row semantics and record scan metrics.
     let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
-        &prepared.ctx,
-        &prepared.logical_plan,
+        store,
+        logical_plan,
         kind,
         direction,
         AggregateFoldMode::ExistingRows,
         key_stream.as_mut(),
     )?;
-    record_rows_scanned::<E>(rows_scanned);
 
-    Ok(aggregate_output)
+    Ok((aggregate_output, rows_scanned))
 }
 
 // Resolve COUNT for PK full-scan/key-range shapes from store cardinality while
 // preserving canonical page-window and scan-accounting semantics.
-fn aggregate_count_from_pk_cardinality<E>(
-    prepared: &PreparedAggregateStreamingInputs<'_, E>,
-) -> Result<u32, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
+fn aggregate_count_from_pk_cardinality_with_store(
+    logical_plan: &crate::db::query::plan::AccessPlannedQuery,
+    entity_tag: EntityTag,
+    store: StoreHandle,
+) -> Result<(u32, usize), InternalError> {
     // Phase 1: snapshot pagination + access payload before resolving store cardinality.
-    let page = prepared.logical_plan.scalar_plan().page.as_ref();
-    let access_strategy = prepared.logical_plan.access.resolve_strategy();
+    let page = logical_plan.scalar_plan().page.as_ref();
+    let access_strategy = logical_plan.access.resolve_strategy();
     let Some(path) = access_strategy.as_path() else {
         return Err(crate::db::error::query_executor_invariant(
             "pk cardinality COUNT fast path requires single-path access strategy",
@@ -320,28 +375,19 @@ where
 
     // Phase 2: read candidate-row cardinality directly from primary storage.
     let available_rows = match path.payload() {
-        ExecutionPathPayload::FullScan => {
-            prepared
-                .ctx
-                .with_store(|store| -> Result<usize, InternalError> {
-                    let store_len = store.len();
+        ExecutionPathPayload::FullScan => store.with_data(|data| {
+            let store_len = data.len();
 
-                    Ok(usize::try_from(store_len).unwrap_or(usize::MAX))
-                })??
-        }
+            usize::try_from(store_len).unwrap_or(usize::MAX)
+        }),
         ExecutionPathPayload::KeyRange { start, end } => {
-            prepared
-                .ctx
-                .with_store(|store| -> Result<usize, InternalError> {
-                    let start_raw =
-                        DataKey::try_from_structural_key(E::ENTITY_TAG, start)?.to_raw()?;
-                    let end_raw = DataKey::try_from_structural_key(E::ENTITY_TAG, end)?.to_raw()?;
-                    let count = store
-                        .range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                        .count();
+            let start_raw = DataKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
+            let end_raw = DataKey::try_from_structural_key(entity_tag, end)?.to_raw()?;
 
-                    Ok(count)
-                })??
+            store.with_data(|data| {
+                data.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .count()
+            })
         }
         _ => {
             return Err(crate::db::error::query_executor_invariant(
@@ -352,9 +398,8 @@ where
 
     // Phase 3: apply canonical COUNT window semantics and emit scan metrics.
     let (count, rows_scanned) = count_window_result_from_page(page, available_rows);
-    record_rows_scanned::<E>(rows_scanned);
 
-    Ok(count)
+    Ok((count, rows_scanned))
 }
 
 // Decode COUNT outputs while preserving call-site mismatch context.

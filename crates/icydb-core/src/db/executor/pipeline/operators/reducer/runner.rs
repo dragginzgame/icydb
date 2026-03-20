@@ -1,6 +1,5 @@
 use crate::{
     db::{
-        Context,
         cursor::{ContinuationRuntime, LoopAction},
         data::DataKey,
         executor::{
@@ -11,9 +10,9 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
+        registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 use std::cell::RefCell;
 
@@ -28,56 +27,53 @@ impl ExecutionKernel {
 
     // Determine whether one key is eligible for aggregate folding in the
     // selected mode. Key-only mode intentionally skips row reads.
-    fn key_qualifies_for_fold<E>(
-        ctx: &Context<'_, E>,
+    fn key_qualifies_for_fold(
+        store: StoreHandle,
         consistency: MissingRowPolicy,
         mode: AggregateFoldMode,
         key: &DataKey,
-    ) -> Result<bool, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<bool, InternalError> {
         match mode {
             AggregateFoldMode::KeysOnly => Ok(true),
-            AggregateFoldMode::ExistingRows => Self::row_exists_for_key(ctx, consistency, key),
+            AggregateFoldMode::ExistingRows => Self::row_exists_for_key(store, consistency, key),
         }
     }
 
     // Keep read-consistency behavior aligned with materialized row reads.
-    fn row_exists_for_key<E>(
-        ctx: &Context<'_, E>,
+    fn row_exists_for_key(
+        store: StoreHandle,
         consistency: MissingRowPolicy,
         key: &DataKey,
-    ) -> Result<bool, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<bool, InternalError> {
+        let read_row = |key: &DataKey| -> Result<Option<crate::db::data::RawRow>, InternalError> {
+            let raw_key = key.to_raw()?;
+
+            Ok(store.with_data(|data| data.get(&raw_key)))
+        };
+
         match consistency {
             MissingRowPolicy::Error => {
-                let _ = ctx.read_strict(key)?;
+                let Some(_) = read_row(key)? else {
+                    return Err(InternalError::store_corruption(format!(
+                        "missing row: {key}"
+                    )));
+                };
 
                 Ok(true)
             }
-            MissingRowPolicy::Ignore => match ctx.read(key) {
-                Ok(_) => Ok(true),
-                Err(err) if err.is_not_found() => Ok(false),
-                Err(err) => Err(err),
-            },
+            MissingRowPolicy::Ignore => Ok(read_row(key)?.is_some()),
         }
     }
 
     // Run one scalar aggregate key fold under canonical aggregate window and
     // read-consistency eligibility contracts.
-    pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold<E>(
-        ctx: &Context<'_, E>,
+    pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold(
+        store: StoreHandle,
         plan: &AccessPlannedQuery,
         mode: AggregateFoldMode,
         key_stream: &mut dyn OrderedKeyStream,
         on_key: &mut dyn FnMut(&DataKey) -> Result<FoldControl, InternalError>,
-    ) -> Result<usize, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<usize, InternalError> {
         let continuation = RefCell::new(ContinuationRuntime::from_window(
             Self::window_cursor_contract(plan, None),
         ));
@@ -94,7 +90,7 @@ impl ExecutionKernel {
             },
             &mut |key| {
                 keys_scanned = keys_scanned.saturating_add(1);
-                if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
+                if !Self::key_qualifies_for_fold(store, consistency, mode, &key)? {
                     return Ok(KeyStreamLoopControl::Skip);
                 }
                 match continuation.borrow_mut().accept_row() {

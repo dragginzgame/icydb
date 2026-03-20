@@ -14,7 +14,7 @@ use crate::{
         executor::{
             AccessStreamBindings, ContinuationEngine, ExecutablePlan, ExecutionKernel,
             ExecutionPlan, ExecutionPreparation, ExecutionTrace, ResolvedScalarContinuationContext,
-            ScalarRouteContinuationInvariantProjection,
+            ScalarRouteContinuationInvariantProjection, StructuralStoreResolver,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
                 ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
@@ -27,6 +27,7 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+        registry::StoreHandle,
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -88,6 +89,8 @@ pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<
     E: EntityKind + EntityValue,
 > {
     pub(in crate::db::executor) ctx: Context<'ctx, E>,
+    pub(in crate::db::executor) store: StoreHandle,
+    pub(in crate::db::executor) store_resolver: StructuralStoreResolver<'ctx>,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
     pub(in crate::db::executor) index_prefix_specs:
         Vec<crate::db::executor::LoweredIndexPrefixSpec>,
@@ -313,9 +316,13 @@ where
 
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
+        let store = ctx.structural_store()?;
+        let store_resolver = self.db.structural_store_resolver();
 
         Ok(PreparedScalarMaterializedBoundary {
             ctx,
+            store,
+            store_resolver,
             logical_plan,
             index_prefix_specs,
             index_range_specs,

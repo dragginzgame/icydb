@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        Context,
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
@@ -18,10 +17,12 @@ use crate::{
             },
             drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
+            read_data_row_with_consistency_from_store,
             route::aggregate_extrema_direction,
             terminal::{RowDecoder, RowLayout, page::KernelRow},
         },
         predicate::MissingRowPolicy,
+        registry::StoreHandle,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -258,13 +259,13 @@ where
     // Load one structural row for field aggregates while preserving read
     // consistency classification behavior.
     pub(in crate::db::executor) fn read_kernel_row_for_field_aggregate(
-        ctx: &Context<'_, E>,
+        store: StoreHandle,
         row_layout: &RowLayout,
         row_decoder: RowDecoder,
         consistency: MissingRowPolicy,
         key: &DataKey,
     ) -> Result<Option<KernelRow>, InternalError> {
-        let Some(row) = ctx.read_data_row_with_consistency(key, consistency)? else {
+        let Some(row) = read_data_row_with_consistency_from_store(store, key, consistency)? else {
             return Ok(None);
         };
 
@@ -274,7 +275,7 @@ where
     // Load one projected field value from one persisted row while preserving
     // read consistency classification behavior at the outer aggregate edge.
     pub(in crate::db::executor) fn read_field_value_for_aggregate(
-        ctx: &Context<'_, E>,
+        store: StoreHandle,
         consistency: MissingRowPolicy,
         key: &DataKey,
         target_field: &str,
@@ -283,7 +284,7 @@ where
         let row_layout = RowLayout::from_model(E::MODEL);
         let row_decoder = RowDecoder::structural();
         let Some(row) = Self::read_kernel_row_for_field_aggregate(
-            ctx,
+            store,
             &row_layout,
             row_decoder,
             consistency,
@@ -307,7 +308,7 @@ where
     // This keeps stream control-flow ownership in one helper so aggregate
     // terminals do not duplicate key-stream/read scaffolding.
     pub(in crate::db::executor) fn drive_field_row_stream(
-        ctx: &Context<'_, E>,
+        store: StoreHandle,
         consistency: MissingRowPolicy,
         key_stream: &mut dyn OrderedKeyStream,
         pre_key: &mut dyn FnMut() -> KeyStreamLoopControl,
@@ -321,7 +322,7 @@ where
 
         drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut |data_key| {
             let row = Self::read_kernel_row_for_field_aggregate(
-                ctx,
+                store,
                 &row_layout,
                 row_decoder,
                 consistency,

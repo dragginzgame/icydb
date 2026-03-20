@@ -27,7 +27,7 @@ pub(in crate::db::executor) use execution::{
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
-    GroupedRowRuntime, GroupedStreamStage, IndexSpecBundle, RowView, TypedGroupedRowRuntime,
+    GroupedRowRuntime, GroupedStreamStage, IndexSpecBundle, RowView, StructuralGroupedRowRuntime,
 };
 pub(in crate::db::executor) use post_access::PostAccessContract;
 
@@ -93,6 +93,7 @@ where
     E: EntityKind + EntityValue,
 {
     /// Build one typed cursor page from structural rows plus cursor state.
+    #[inline(never)]
     pub(in crate::db::executor) fn from_data_rows(
         data_rows: Vec<DataRow>,
         next_cursor: Option<PageCursor>,
@@ -105,6 +106,7 @@ where
 
 impl StructuralCursorPage {
     /// Decode one structural scalar page into one typed entity response.
+    #[inline(never)]
     pub(in crate::db::executor) fn into_entity_response<E>(
         self,
     ) -> Result<EntityResponse<E>, InternalError>
@@ -117,6 +119,7 @@ impl StructuralCursorPage {
     }
 
     /// Decode one structural scalar page into one typed cursor page.
+    #[inline(never)]
     pub(in crate::db::executor) fn into_cursor_page<E>(self) -> Result<CursorPage<E>, InternalError>
     where
         E: EntityKind + EntityValue,

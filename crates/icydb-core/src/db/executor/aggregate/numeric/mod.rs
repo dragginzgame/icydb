@@ -19,18 +19,19 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl,
-            aggregate::PreparedAggregateStreamingInputs,
+            StructuralTraversalRuntime,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal_with_slot_reader,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
             aggregate::{
+                PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
                 PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState,
                 PreparedScalarNumericOp, PreparedScalarNumericStrategy,
             },
             pipeline::contracts::LoadExecutor,
-            plan_metrics::record_rows_scanned,
-            preparation::slot_map_for_entity_plan,
+            plan_metrics::record_rows_scanned_for_path,
+            preparation::resolved_index_slots_for_access_path,
             terminal::{RowDecoder, RowLayout},
         },
         numeric::{add_decimal_terms, average_decimal_terms},
@@ -152,7 +153,7 @@ where
                 match boundary.strategy {
                     PreparedScalarNumericStrategy::Streaming => {
                         Self::aggregate_numeric_field_from_streaming(
-                            prepared,
+                            prepared.into_core(),
                             &boundary.target_field_name,
                             boundary.field_slot,
                             boundary.op,
@@ -268,7 +269,7 @@ where
     // Fold numeric field aggregates directly from one ordered key stream without
     // materializing the full response window.
     fn aggregate_numeric_field_from_streaming(
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputsCore,
         target_field: &str,
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
@@ -276,16 +277,23 @@ where
         // Phase 1: consume prepared aggregate stage state into one direct stream fold.
         let consistency = prepared.consistency();
         let direction = Self::aggregate_numeric_stream_direction(&prepared);
-        let PreparedAggregateStreamingInputs {
-            ctx,
+        let PreparedAggregateStreamingInputsCore {
+            store,
+            model,
+            entity_tag,
+            entity_path,
             logical_plan,
             index_prefix_specs,
             index_range_specs,
+            ..
         } = prepared;
         let execution_preparation = ExecutionPreparation::from_plan(
-            E::MODEL,
+            model,
             &logical_plan,
-            slot_map_for_entity_plan::<E>(&logical_plan),
+            resolved_index_slots_for_access_path(
+                model,
+                logical_plan.access.resolve_strategy().executable(),
+            ),
         );
         let continuation = RefCell::new(ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
@@ -308,7 +316,8 @@ where
             None,
             index_predicate_execution,
         );
-        let mut key_stream = ctx.ordered_key_stream_from_structural_runtime_access(access)?;
+        let runtime = StructuralTraversalRuntime::new(store, entity_tag);
+        let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
 
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;
@@ -338,20 +347,20 @@ where
             Ok(KeyStreamLoopControl::Emit)
         };
         Self::drive_field_row_stream(
-            &ctx,
+            store,
             consistency,
             key_stream.as_mut(),
             &mut pre_key,
             &mut on_key,
         )?;
-        record_rows_scanned::<E>(rows_scanned);
+        record_rows_scanned_for_path(entity_path, rows_scanned);
 
         // Phase 4: finish SUM/AVG output with shared numeric arithmetic semantics.
         finalize_numeric_field_output(accumulator, kind)
     }
 
     fn aggregate_numeric_stream_direction(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputsCore,
     ) -> Direction {
         ExecutionOrderContract::from_plan(false, prepared.order_spec()).primary_scan_direction()
     }

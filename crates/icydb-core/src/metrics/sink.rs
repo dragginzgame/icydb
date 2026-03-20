@@ -441,11 +441,25 @@ pub(crate) fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T
 /// Ensures finish accounting happens even on unwind.
 
 pub(crate) struct Span<E: EntityKind> {
+    inner: PathSpan,
+    _marker: PhantomData<E>,
+}
+
+///
+/// PathSpan
+///
+/// PathSpan is the structural metrics span used when execution observability
+/// already resolved the target entity path at a non-generic boundary.
+/// It preserves the same start/finish accounting contract as `Span<E>` without
+/// requiring an entity-typed caller.
+///
+
+pub(crate) struct PathSpan {
     kind: ExecKind,
+    entity_path: &'static str,
     start: u64,
     rows: u64,
     finished: bool,
-    _marker: PhantomData<E>,
 }
 
 #[expect(clippy::missing_const_for_fn)]
@@ -464,17 +478,35 @@ impl<E: EntityKind> Span<E> {
     /// Start a metrics span for a specific entity and executor kind.
     #[must_use]
     pub(crate) fn new(kind: ExecKind) -> Self {
-        record(MetricsEvent::ExecStart {
-            kind,
-            entity_path: E::PATH,
-        });
+        Self {
+            inner: PathSpan::new(kind, E::PATH),
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) const fn set_rows(&mut self, rows: u64) {
+        self.inner.set_rows(rows);
+    }
+}
+
+impl<E: EntityKind> Drop for Span<E> {
+    fn drop(&mut self) {
+        self.inner.finish();
+    }
+}
+
+impl PathSpan {
+    /// Start a metrics span for one structural entity path and executor kind.
+    #[must_use]
+    pub(crate) fn new(kind: ExecKind, entity_path: &'static str) -> Self {
+        record(MetricsEvent::ExecStart { kind, entity_path });
 
         Self {
             kind,
+            entity_path,
             start: read_perf_counter(),
             rows: 0,
             finished: false,
-            _marker: PhantomData,
         }
     }
 
@@ -488,19 +520,23 @@ impl<E: EntityKind> Span<E> {
 
         record(MetricsEvent::ExecFinish {
             kind: self.kind,
-            entity_path: E::PATH,
+            entity_path: self.entity_path,
             rows_touched: self.rows,
             inst_delta: delta,
         });
     }
-}
 
-impl<E: EntityKind> Drop for Span<E> {
-    fn drop(&mut self) {
+    fn finish(&mut self) {
         if !self.finished {
             self.finish_inner();
             self.finished = true;
         }
+    }
+}
+
+impl Drop for PathSpan {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 

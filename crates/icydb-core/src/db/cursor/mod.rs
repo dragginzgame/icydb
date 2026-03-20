@@ -10,7 +10,6 @@ mod anchor;
 pub(crate) mod boundary;
 mod continuation;
 mod error;
-mod order;
 mod planned;
 mod range_token;
 mod runtime;
@@ -47,7 +46,6 @@ pub(in crate::db) use continuation::{
     effective_page_offset_for_window, next_cursor_for_materialized_rows,
 };
 pub(crate) use error::CursorPlanError;
-pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_raw_index_key, range_token_anchor_key,

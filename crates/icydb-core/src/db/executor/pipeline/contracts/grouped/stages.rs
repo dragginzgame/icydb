@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        Context,
         data::{DataKey, RawRow},
         executor::{
             ExecutionOptimization, ExecutionPreparation,
@@ -17,9 +16,9 @@ use crate::{
         },
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::FieldSlot as PlannedFieldSlot,
+        registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 
@@ -110,31 +109,30 @@ pub(in crate::db::executor) trait GroupedRowRuntime {
 }
 
 ///
-/// TypedGroupedRowRuntime
+/// StructuralGroupedRowRuntime
 ///
-/// TypedGroupedRowRuntime keeps entity-typed row decode at the boundary and
-/// projects grouped runtime rows into structural slot-indexed payloads.
+/// StructuralGroupedRowRuntime keeps grouped row reads on store-handle and
+/// structural decode metadata only.
+/// Grouped fold/runtime code receives slot-indexed `RowView` payloads without
+/// carrying `Context<'_, E>` or any entity-typed row adapter in production.
 ///
 
-pub(in crate::db::executor) struct TypedGroupedRowRuntime<'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    ctx: Context<'a, E>,
+pub(in crate::db::executor) struct StructuralGroupedRowRuntime {
+    store: StoreHandle,
     row_layout: RowLayout,
     row_decoder: RowDecoder,
 }
 
-impl<'a, E> TypedGroupedRowRuntime<'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Build one grouped row runtime from one recovered typed context.
+impl StructuralGroupedRowRuntime {
+    /// Build one grouped row runtime from structural store authority and model metadata.
     #[must_use]
-    pub(in crate::db::executor) fn new(ctx: Context<'a, E>) -> Self {
+    pub(in crate::db::executor) fn new(
+        store: StoreHandle,
+        model: &'static crate::model::entity::EntityModel,
+    ) -> Self {
         Self {
-            ctx,
-            row_layout: RowLayout::from_model(E::MODEL),
+            store,
+            row_layout: RowLayout::from_model(model),
             row_decoder: RowDecoder::structural(),
         }
     }
@@ -146,19 +144,37 @@ where
 
         Ok(RowView::new(kernel_row.into_slots()))
     }
+
+    // Read one persisted row under the grouped consistency contract while
+    // preserving fail-closed executor corruption handling.
+    fn read_data_row(
+        &self,
+        consistency: MissingRowPolicy,
+        key: &DataKey,
+    ) -> Result<Option<(DataKey, RawRow)>, InternalError> {
+        let raw_key = key.to_raw()?;
+        let row = self.store.with_data(|store| store.get(&raw_key));
+
+        match (consistency, row) {
+            (MissingRowPolicy::Ignore, None) => Ok(None),
+            (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => {
+                Ok(Some((key.clone(), row)))
+            }
+            (MissingRowPolicy::Error, None) => Err(
+                crate::db::executor::ExecutorError::store_corruption(format!("missing row: {key}"))
+                    .into(),
+            ),
+        }
+    }
 }
 
-impl<E> GroupedRowRuntime for TypedGroupedRowRuntime<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
+impl GroupedRowRuntime for StructuralGroupedRowRuntime {
     fn read_row_view(
         &self,
         consistency: MissingRowPolicy,
         key: &DataKey,
     ) -> Result<Option<RowView>, InternalError> {
-        self.ctx
-            .read_data_row_with_consistency(key, consistency)?
+        self.read_data_row(consistency, key)?
             .map(|row| self.row_view_from_data_row(row))
             .transpose()
     }

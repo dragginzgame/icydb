@@ -7,17 +7,21 @@ mod handlers;
 
 use crate::{
     db::{
-        Context,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
+            pipeline::contracts::FastPathKeyResult,
+            scan::{
+                fast_stream_route::handlers::execute_primary_key_fast_stream_route,
+                index_range_limit::execute_index_range_fast_stream_route,
+                secondary_index::execute_secondary_index_fast_stream_route,
+            },
+            stream::access::StructuralTraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 ///
@@ -61,67 +65,59 @@ pub(in crate::db::executor) enum FastStreamRouteRequest<'a> {
     },
 }
 
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Execute one verified fast-stream route through the shared load dispatch boundary.
-    pub(in crate::db::executor) fn execute_fast_stream_route(
-        ctx: &Context<'_, E>,
-        route_kind: FastStreamRouteKind,
-        request: FastStreamRouteRequest<'_>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        match (route_kind, request) {
-            (
-                FastStreamRouteKind::PrimaryKey,
-                FastStreamRouteRequest::PrimaryKey {
-                    plan,
-                    stream_direction,
-                    probe_fetch_hint,
-                },
-            ) => Self::execute_primary_key_fast_stream_route(
-                ctx,
+/// Execute one verified fast-stream route through the structural load dispatch boundary.
+pub(in crate::db::executor) fn execute_fast_stream_route(
+    runtime: &StructuralTraversalRuntime,
+    route_kind: FastStreamRouteKind,
+    request: FastStreamRouteRequest<'_>,
+) -> Result<Option<FastPathKeyResult>, InternalError> {
+    match (route_kind, request) {
+        (
+            FastStreamRouteKind::PrimaryKey,
+            FastStreamRouteRequest::PrimaryKey {
                 plan,
                 stream_direction,
                 probe_fetch_hint,
-            ),
-            (
-                FastStreamRouteKind::SecondaryIndex,
-                FastStreamRouteRequest::SecondaryIndex {
-                    plan,
-                    index_prefix_spec,
-                    stream_direction,
-                    probe_fetch_hint,
-                    index_predicate_execution,
-                },
-            ) => Self::execute_secondary_index_fast_stream_route(
-                ctx,
+            },
+        ) => {
+            execute_primary_key_fast_stream_route(runtime, plan, stream_direction, probe_fetch_hint)
+        }
+        (
+            FastStreamRouteKind::SecondaryIndex,
+            FastStreamRouteRequest::SecondaryIndex {
                 plan,
                 index_prefix_spec,
                 stream_direction,
                 probe_fetch_hint,
                 index_predicate_execution,
-            ),
-            (
-                FastStreamRouteKind::IndexRangeLimitPushdown,
-                FastStreamRouteRequest::IndexRangeLimitPushdown {
-                    plan,
-                    index_range_spec,
-                    continuation,
-                    effective_fetch,
-                    index_predicate_execution,
-                },
-            ) => Self::execute_index_range_fast_stream_route(
-                ctx,
+            },
+        ) => execute_secondary_index_fast_stream_route(
+            runtime,
+            plan,
+            index_prefix_spec,
+            stream_direction,
+            probe_fetch_hint,
+            index_predicate_execution,
+        ),
+        (
+            FastStreamRouteKind::IndexRangeLimitPushdown,
+            FastStreamRouteRequest::IndexRangeLimitPushdown {
                 plan,
                 index_range_spec,
                 continuation,
                 effective_fetch,
                 index_predicate_execution,
-            ),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "fast-stream route kind/request mismatch",
-            )),
-        }
+            },
+        ) => execute_index_range_fast_stream_route(
+            runtime,
+            plan,
+            index_range_spec,
+            continuation,
+            effective_fetch,
+            index_predicate_execution,
+        ),
+        _ => Err(crate::db::error::query_executor_invariant(
+            "fast-stream route kind/request mismatch",
+        )),
     }
 }

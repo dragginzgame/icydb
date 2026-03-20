@@ -50,11 +50,11 @@ pub(in crate::db::executor) use contracts::{
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateExecutionState,
-    PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
-    PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState, PreparedScalarNumericOp,
-    PreparedScalarNumericStrategy, PreparedScalarProjectionBoundary,
-    PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
-    PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
+    PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
+    PreparedCoveringDistinctStrategy, PreparedScalarNumericBoundary,
+    PreparedScalarNumericExecutionState, PreparedScalarNumericOp, PreparedScalarNumericStrategy,
+    PreparedScalarProjectionBoundary, PreparedScalarProjectionExecutionState,
+    PreparedScalarProjectionOp, PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
     PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp, PreparedScalarTerminalStrategy,
     ScalarProjectionWindow,
 };
@@ -232,10 +232,16 @@ impl ExecutionKernel {
 
         // Recover read context and record plan metrics before stream resolution.
         let ctx = executor.recovered_context()?;
+        let store = ctx.structural_store()?;
+        let store_resolver = executor.db.structural_store_resolver();
         record_plan_metrics(&logical_plan.access);
 
         Ok(PreparedAggregateStreamingInputs {
             ctx,
+            store_resolver,
+            model: E::MODEL,
+            entity_tag: E::ENTITY_TAG,
+            store,
             logical_plan,
             index_prefix_specs,
             index_range_specs,
@@ -333,8 +339,10 @@ impl ExecutionKernel {
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
 
         let fast_path_inputs = AggregateFastPathInputs {
-            ctx: &prepared.ctx,
             logical_plan: &prepared.logical_plan,
+            model: prepared.model,
+            entity_tag: prepared.entity_tag,
+            store: prepared.store,
             route_plan: &descriptor.route_plan,
             index_prefix_specs: prepared.index_prefix_specs.as_slice(),
             index_range_specs: prepared.index_range_specs.as_slice(),
@@ -356,7 +364,15 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let runtime = ExecutionRuntimeAdapter::new(&prepared.ctx, &prepared.logical_plan.access)?;
+        let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+            &prepared.logical_plan.access,
+            crate::db::executor::StructuralTraversalRuntime::new(
+                prepared.store,
+                prepared.entity_tag,
+            ),
+            prepared.store,
+            prepared.model,
+        );
         let execution_inputs = ExecutionInputs::new(
             &runtime,
             &prepared.logical_plan,
@@ -378,7 +394,7 @@ impl ExecutionKernel {
         // Fold through the canonical kernel reducer runner. Dispatch-level
         // field-target/materialized decisions were already handled above.
         let (aggregate_output, keys_scanned) = Self::run_streaming_aggregate_reducer(
-            &prepared.ctx,
+            prepared.store,
             &prepared.logical_plan,
             kind,
             descriptor.direction,

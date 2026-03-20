@@ -11,4 +11,3 @@ mod terminal;
 pub(in crate::db::executor) use distinct::{
     decorate_key_stream_for_plan, decorate_resolved_execution_key_stream,
 };
-pub(in crate::db::executor) use post_access::PlanRow;
