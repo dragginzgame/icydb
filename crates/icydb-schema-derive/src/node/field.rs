@@ -57,7 +57,11 @@ impl HasSchemaPart for FieldList {
         let fields = quote_slice(&self.fields, Field::schema_part);
 
         quote! {
-            ::icydb::schema::node::FieldList::new(#fields)
+            {
+                const __FIELDS: &'static [::icydb::schema::node::Field] = #fields;
+
+                ::icydb::schema::node::FieldList::new(__FIELDS)
+            }
         }
     }
 }

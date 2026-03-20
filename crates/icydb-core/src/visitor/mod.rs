@@ -200,6 +200,70 @@ pub fn drive_visitable_fields_mut<T>(
     }
 }
 
+///
+/// SanitizeFieldDescriptor
+///
+/// Runtime sanitization descriptor for one generated struct field.
+/// Generated code uses this to replace repeated per-field `sanitize_self`
+/// bodies with one shared descriptor loop while preserving typed field access
+/// at the boundary.
+///
+
+pub struct SanitizeFieldDescriptor<T> {
+    sanitize: fn(&mut T, &mut dyn VisitorContext),
+}
+
+impl<T> SanitizeFieldDescriptor<T> {
+    /// Construct one sanitization descriptor for one generated field.
+    #[must_use]
+    pub const fn new(sanitize: fn(&mut T, &mut dyn VisitorContext)) -> Self {
+        Self { sanitize }
+    }
+}
+
+/// Drive one generated field table through sanitization dispatch.
+pub fn drive_sanitize_fields<T>(
+    node: &mut T,
+    ctx: &mut dyn VisitorContext,
+    fields: &[SanitizeFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.sanitize)(node, ctx);
+    }
+}
+
+///
+/// ValidateFieldDescriptor
+///
+/// Runtime validation descriptor for one generated struct field.
+/// Generated code uses this to replace repeated per-field `validate_self`
+/// bodies with one shared descriptor loop while preserving typed field access
+/// at the boundary.
+///
+
+pub struct ValidateFieldDescriptor<T> {
+    validate: fn(&T, &mut dyn VisitorContext),
+}
+
+impl<T> ValidateFieldDescriptor<T> {
+    /// Construct one validation descriptor for one generated field.
+    #[must_use]
+    pub const fn new(validate: fn(&T, &mut dyn VisitorContext)) -> Self {
+        Self { validate }
+    }
+}
+
+/// Drive one generated field table through validation dispatch.
+pub fn drive_validate_fields<T>(
+    node: &T,
+    ctx: &mut dyn VisitorContext,
+    fields: &[ValidateFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.validate)(node, ctx);
+    }
+}
+
 // ============================================================================
 // Internal adapter context (fixes borrow checker)
 // ============================================================================

@@ -30,22 +30,28 @@ macro_rules! impl_sanitize_auto {
     };
 }
 
-impl_sanitize_auto!(Entity, Enum, List, Map, Newtype, Record, Set);
+impl_sanitize_auto!(Enum, List, Map, Newtype, Set);
 
 /// ---------------------------------------------------------------------------
 /// Entity / Record
 /// ---------------------------------------------------------------------------
 /// Apply field-level sanitizers directly to owned fields.
 /// Do NOT recurse.
-impl SanitizeAutoFn for Entity {
-    fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_sanitize_self(field_list(&node.fields))
+impl Imp<Entity> for SanitizeAutoTrait {
+    fn strategy(node: &Entity) -> Option<TraitStrategy> {
+        Some(TraitStrategy::from_impl(field_list(
+            node.def(),
+            &node.fields,
+        )))
     }
 }
 
-impl SanitizeAutoFn for Record {
-    fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_sanitize_self(field_list(&node.fields))
+impl Imp<Record> for SanitizeAutoTrait {
+    fn strategy(node: &Record) -> Option<TraitStrategy> {
+        Some(TraitStrategy::from_impl(field_list(
+            node.def(),
+            &node.fields,
+        )))
     }
 }
 
@@ -135,30 +141,68 @@ fn container_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Op
 
 /// Field-level sanitizers for Entity / Record.
 /// Applies directly to owned fields.
-fn field_list(fields: &FieldList) -> Option<TokenStream> {
+fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
     let bindings = field_walk_bindings(fields);
+    let field_table_ident = format_ident!("__SANITIZE_FIELDS");
 
-    let rules: Vec<TokenStream> = fields
+    let sanitize_helpers = fields
         .iter()
         .zip(bindings.iter())
         .filter_map(|(field, binding)| {
-            let target = binding.self_mut();
-            let seg = binding.path_segment();
-
-            let stmts = generate_sanitizers(&field.value.item.sanitizers, target, Some(seg));
+            let stmts = generate_sanitizers(
+                &field.value.item.sanitizers,
+                binding.member_mut_from(quote!(node)),
+                Some(binding.path_segment()),
+            );
+            let fn_ident = binding.sanitize_fn_ident();
 
             if stmts.is_empty() {
                 None
             } else {
-                Some(quote! { #(#stmts)* })
+                Some(quote! {
+                    fn #fn_ident(
+                        node: &mut Self,
+                        ctx: &mut dyn ::icydb::visitor::VisitorContext,
+                    ) {
+                        #(#stmts)*
+                    }
+                })
             }
-        })
-        .collect();
+        });
 
-    if rules.is_empty() {
-        None
-    } else {
-        Some(quote! { #(#rules)* })
+    let descriptors = bindings
+        .iter()
+        .zip(fields.iter())
+        .filter_map(|(binding, field)| {
+            if field.value.item.sanitizers.is_empty() {
+                None
+            } else {
+                let sanitize_fn = binding.sanitize_fn_ident();
+
+                Some(quote! {
+                    ::icydb::visitor::SanitizeFieldDescriptor::new(Self::#sanitize_fn)
+                })
+            }
+        });
+
+    let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
+        .set_tokens(quote! {
+            #(#sanitize_helpers)*
+
+            const #field_table_ident: &'static [::icydb::visitor::SanitizeFieldDescriptor<Self>] =
+                &[#(#descriptors),*];
+        })
+        .to_token_stream();
+
+    let trait_tokens = Implementor::new(def, TraitKind::SanitizeAuto)
+        .add_tokens(fn_wrap_sanitize_self(Some(quote! {
+            ::icydb::visitor::drive_sanitize_fields(self, ctx, Self::#field_table_ident);
+        })))
+        .to_token_stream();
+
+    quote! {
+        #inherent_tokens
+        #trait_tokens
     }
 }
 

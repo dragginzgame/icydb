@@ -353,15 +353,19 @@ impl HasSchemaPart for Entity {
 
         // quote
         quote! {
-            ::icydb::schema::node::Entity::new(
-                #def,
-                #store,
-                #primary_key,
-                #name,
-                #indexes,
-                #fields,
-                #ty,
-            )
+            {
+                const __INDEXES: &'static [::icydb::schema::node::Index] = #indexes;
+
+                ::icydb::schema::node::Entity::new(
+                    #def,
+                    #store,
+                    #primary_key,
+                    #name,
+                    __INDEXES,
+                    #fields,
+                    #ty,
+                )
+            }
         }
     }
 }

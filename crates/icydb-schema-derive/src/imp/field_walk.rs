@@ -24,22 +24,6 @@ impl FieldWalkBinding {
         }
     }
 
-    /// Borrow this field by immutable reference from `self`.
-    #[must_use]
-    pub fn self_ref(&self) -> TokenStream {
-        let ident = &self.ident;
-
-        quote!(&self.#ident)
-    }
-
-    /// Borrow this field by mutable reference from `self`.
-    #[must_use]
-    pub fn self_mut(&self) -> TokenStream {
-        let ident = &self.ident;
-
-        quote!(&mut self.#ident)
-    }
-
     /// Borrow this field by immutable reference from the provided receiver.
     #[must_use]
     pub fn member_ref_from(&self, receiver: TokenStream) -> TokenStream {
@@ -80,6 +64,18 @@ impl FieldWalkBinding {
     #[must_use]
     pub fn visit_mut_fn_ident(&self) -> Ident {
         format_ident!("__visit_field_{}_mut", self.ident)
+    }
+
+    /// Return one stable generated helper name for sanitization dispatch.
+    #[must_use]
+    pub fn sanitize_fn_ident(&self) -> Ident {
+        format_ident!("__sanitize_field_{}", self.ident)
+    }
+
+    /// Return one stable generated helper name for validation dispatch.
+    #[must_use]
+    pub fn validate_fn_ident(&self) -> Ident {
+        format_ident!("__validate_field_{}", self.ident)
     }
 }
 

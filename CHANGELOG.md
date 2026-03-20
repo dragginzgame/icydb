@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.61.x] - 2026-03-20 - Entity Macro Compression Open
 
-- `next patch` starts the post-`0.60` macro-compression line by shrinking entity macro output instead of redesigning the runtime again: entity models now emit one direct `__MODEL_FIELDS` array instead of one constant per field, and generated entity/record traversal now runs through a shared field-descriptor loop instead of spelling out per-field `drive` bodies inline.
+- `0.61.1` keeps the macro-compression line moving by lifting generated entity and record sanitization and validation onto shared field-descriptor loops, reshaping schema AST emission around local const tables for repeated slices, and confirming with a fresh `minimal` vs `twenty` wasm audit that the remaining per-entity growth is still large.
+- `0.61.0` opens the post-`0.60` macro-compression line by shrinking repeated entity macro output in the runtime model and traversal paths: entity models now emit one direct `__MODEL_FIELDS` array, and generated entity and record traversal now runs through a shared field-descriptor loop instead of repeating inline per-field `drive` bodies.
 
 See detailed breakdown:
 [docs/changelog/0.61.md](docs/changelog/0.61.md)
@@ -16,7 +17,7 @@ See detailed breakdown:
 
 ## [0.60.x] - 2026-03-20 - Generated View Removal Open
 
-- `next patch` removes the generated entity `View`/`Create`/`Update` DTO families, makes entities the direct public read/write payloads, deletes the old internal patch/view layer, and cleans the remaining live API/docs surfaces so the crate no longer advertises the removed model.
+- `0.60.0` removes the generated entity `View`/`Create`/`Update` DTO families, makes entities the direct public read/write payloads, deletes the old internal patch/view layer, and cleans the remaining live API/docs surfaces so the crate no longer advertises the removed model.
 
 See detailed breakdown:
 [docs/changelog/0.60.md](docs/changelog/0.60.md)

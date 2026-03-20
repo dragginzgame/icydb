@@ -33,7 +33,7 @@ macro_rules! impl_validate_auto {
     };
 }
 
-impl_validate_auto!(Entity, Enum, List, Map, Newtype, Record, Set);
+impl_validate_auto!(Enum, List, Map, Newtype, Set);
 
 ///
 /// ---------------------------------------------------------------------------
@@ -41,15 +41,21 @@ impl_validate_auto!(Entity, Enum, List, Map, Newtype, Record, Set);
 /// ---------------------------------------------------------------------------
 ///
 
-impl ValidateAutoFn for Entity {
-    fn self_tokens(node: &Self) -> TokenStream {
-        wrap_validate_self_fn(field_list(&node.fields))
+impl Imp<Entity> for ValidateAutoTrait {
+    fn strategy(node: &Entity) -> Option<TraitStrategy> {
+        Some(TraitStrategy::from_impl(field_list(
+            node.def(),
+            &node.fields,
+        )))
     }
 }
 
-impl ValidateAutoFn for Record {
-    fn self_tokens(node: &Self) -> TokenStream {
-        wrap_validate_self_fn(field_list(&node.fields))
+impl Imp<Record> for ValidateAutoTrait {
+    fn strategy(node: &Record) -> Option<TraitStrategy> {
+        Some(TraitStrategy::from_impl(field_list(
+            node.def(),
+            &node.fields,
+        )))
     }
 }
 
@@ -232,25 +238,64 @@ fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenSt
 }
 
 /// Field-level validators for Records / Entities
-fn field_list(fields: &FieldList) -> Option<TokenStream> {
+fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
     let bindings = field_walk_bindings(fields);
+    let field_table_ident = format_ident!("__VALIDATE_FIELDS");
 
-    let validations: Vec<_> = fields
+    let validate_helpers = fields
         .iter()
         .zip(bindings.iter())
         .filter_map(|(field, binding)| {
-            generate_field_value_validation_inner(
+            let validation = generate_field_value_validation_inner(
                 &field.value,
-                binding.self_ref(),
+                binding.member_ref_from(quote!(node)),
                 binding.path_segment(),
-            )
-        })
-        .collect();
+            )?;
+            let fn_ident = binding.validate_fn_ident();
 
-    if validations.is_empty() {
-        None
-    } else {
-        Some(quote! { #(#validations)* })
+            Some(quote! {
+                fn #fn_ident(
+                    node: &Self,
+                    ctx: &mut dyn ::icydb::visitor::VisitorContext,
+                ) {
+                    #validation
+                }
+            })
+        });
+
+    let descriptors = bindings
+        .iter()
+        .zip(fields.iter())
+        .filter_map(|(binding, field)| {
+            if field.value.item.validators.is_empty() {
+                None
+            } else {
+                let validate_fn = binding.validate_fn_ident();
+
+                Some(quote! {
+                    ::icydb::visitor::ValidateFieldDescriptor::new(Self::#validate_fn)
+                })
+            }
+        });
+
+    let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
+        .set_tokens(quote! {
+            #(#validate_helpers)*
+
+            const #field_table_ident: &'static [::icydb::visitor::ValidateFieldDescriptor<Self>] =
+                &[#(#descriptors),*];
+        })
+        .to_token_stream();
+
+    let trait_tokens = Implementor::new(def, TraitKind::ValidateAuto)
+        .set_tokens(wrap_validate_self_fn(Some(quote! {
+            ::icydb::visitor::drive_validate_fields(self, ctx, Self::#field_table_ident);
+        })))
+        .to_token_stream();
+
+    quote! {
+        #inherent_tokens
+        #trait_tokens
     }
 }
 
