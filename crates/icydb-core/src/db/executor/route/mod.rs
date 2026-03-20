@@ -41,6 +41,7 @@ pub(in crate::db::executor::route) use mode::{
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_aggregate_spec_with_model;
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_grouped_plan;
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_load_with_model;
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_mutation_with_model;
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract_for_model;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;

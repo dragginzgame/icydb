@@ -12,7 +12,7 @@ use crate::{
             prepare_row_commit_for_entity_with_readers, rollback_prepared_row_ops_reverse,
             snapshot_row_rollback,
         },
-        data::{RawDataKey, RawRow},
+        data::{RawDataKey, RawRow, StorageKey},
         index::{
             IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
             SealedIndexEntryReader, SealedPrimaryRowReader, key_within_envelope,
@@ -21,7 +21,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, EntityValue},
 };
 use std::{cell::RefCell, collections::BTreeMap, ops::Bound, ptr, thread::LocalKey};
 
@@ -152,7 +152,7 @@ where
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
-    ) -> Result<Vec<E::Key>, InternalError> {
+    ) -> Result<Vec<StorageKey>, InternalError> {
         let mut effective_entries = store
             .with_borrow(IndexStore::entries)
             .into_iter()
@@ -186,16 +186,6 @@ where
             })?;
 
             for key in entry.iter_ids() {
-                let value = key.as_value();
-                let Some(key) = <E::Key as FieldValue>::from_value(&value) else {
-                    return Err(InternalError::index_plan_index_corruption(format!(
-                        "index corrupted: {} ({}) -> invalid key {:?}",
-                        E::PATH,
-                        index.fields().join(", "),
-                        value
-                    )));
-                };
-
                 out.push(key);
                 if out.len() >= limit {
                     return Ok(out);

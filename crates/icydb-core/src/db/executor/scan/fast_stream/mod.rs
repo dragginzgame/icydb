@@ -10,11 +10,6 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use crate::{
-    db::{Context, executor::pipeline::contracts::LoadExecutor},
-    traits::{EntityKind, EntityValue},
-};
 use crate::{
     db::{
         access::StructuralKey,
@@ -53,23 +48,4 @@ pub(in crate::db::executor) fn execute_structural_fast_stream_request(
     let key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
 
     finalize_fast_path_key_stream(key_stream, optimization)
-}
-
-#[cfg(test)]
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Resolve one fast-path access stream without materialize/restream adapters.
-    ///
-    /// Fast-path streams must expose an exact key-count hint for observability parity.
-    pub(super) fn execute_fast_stream_request(
-        ctx: &Context<'_, E>,
-        access: ExecutableAccess<'_, E::Key>,
-        optimization: ExecutionOptimization,
-    ) -> Result<FastPathKeyResult, InternalError> {
-        let key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
-
-        finalize_fast_path_key_stream(key_stream, optimization)
-    }
 }

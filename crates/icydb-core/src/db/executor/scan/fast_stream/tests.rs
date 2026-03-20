@@ -7,19 +7,26 @@ use crate::{
     db::{
         Db,
         access::AccessPlan,
+        data::DataStore,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
-            ExecutionOptimization, pipeline::contracts::LoadExecutor,
+            ExecutionOptimization, stream::access::StructuralTraversalRuntime,
         },
+        index::IndexStore,
         registry::StoreRegistry,
     },
     error::ErrorClass,
     model::field::FieldKind,
+    testing::test_memory,
+    traits::{EntityKind, Path},
     types::Ulid,
 };
 use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+
+use crate::db::executor::scan::fast_stream::execute_structural_fast_stream_request;
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct FastStreamInvariantEntity {
@@ -51,7 +58,20 @@ crate::test_entity_schema! {
 }
 
 thread_local! {
-    static FAST_STREAM_INVARIANT_REGISTRY: StoreRegistry = StoreRegistry::new();
+    static FAST_STREAM_INVARIANT_DATA_STORE: RefCell<DataStore> =
+        RefCell::new(DataStore::init(test_memory(170)));
+    static FAST_STREAM_INVARIANT_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(171)));
+    static FAST_STREAM_INVARIANT_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(
+            FastStreamInvariantStore::PATH,
+            &FAST_STREAM_INVARIANT_DATA_STORE,
+            &FAST_STREAM_INVARIANT_INDEX_STORE,
+        )
+        .expect("fast-stream invariant test store registration should succeed");
+        reg
+    };
 }
 
 static FAST_STREAM_INVARIANT_DB: Db<FastStreamInvariantCanister> =
@@ -62,7 +82,8 @@ fn fast_stream_requires_exact_key_count_hint() {
     let ctx = Context::<FastStreamInvariantEntity>::new(&FAST_STREAM_INVARIANT_DB);
     let id1 = Ulid::from_u128(1);
     let id2 = Ulid::from_u128(2);
-    let access = AccessPlan::Union(vec![AccessPlan::by_key(id1), AccessPlan::by_key(id2)]);
+    let access =
+        AccessPlan::Union(vec![AccessPlan::by_key(id1), AccessPlan::by_key(id2)]).into_value_plan();
     let access = ExecutableAccess::from_executable_plan(
         access.resolve_strategy().into_executable(),
         AccessStreamBindings {
@@ -73,12 +94,14 @@ fn fast_stream_requires_exact_key_count_hint() {
         None,
         None,
     );
+    let runtime = StructuralTraversalRuntime::new(
+        ctx.structural_store().expect("test store should resolve"),
+        FastStreamInvariantEntity::ENTITY_TAG,
+    );
 
-    let Err(err) = LoadExecutor::<FastStreamInvariantEntity>::execute_fast_stream_request(
-        &ctx,
-        access,
-        ExecutionOptimization::PrimaryKey,
-    ) else {
+    let Err(err) =
+        execute_structural_fast_stream_request(&runtime, access, ExecutionOptimization::PrimaryKey)
+    else {
         panic!("fast-path execution must reject streams without exact count hints")
     };
 

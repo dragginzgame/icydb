@@ -11,9 +11,8 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
         AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_mutation(&plan)
-            .expect("mutation route plan should build");
+    let route_plan = build_mutation_route_plan_for_entity::<RouteMatrixEntity>(&plan)
+        .expect("mutation route plan should build");
 
     assert_eq!(
         route_plan.shape().execution_mode(),
@@ -37,7 +36,7 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
 fn route_plan_mutation_rejects_non_delete_mode() {
     let plan =
         AccessPlannedQuery::new_typed(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    let result = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_mutation(&plan);
+    let result = build_mutation_route_plan_for_entity::<RouteMatrixEntity>(&plan);
     let Err(err) = result else {
         panic!("mutation route must reject non-delete plans")
     };

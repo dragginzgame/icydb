@@ -11,7 +11,10 @@ use crate::{
     db::{
         Db,
         commit::CommitIndexOp,
+        cursor::IndexScanContinuationInput,
         data::{DataKey, RawRow, StorageKey},
+        direction::Direction,
+        executor::Context,
         index::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
             canonical_index_predicate,
@@ -79,15 +82,72 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError>;
 
-    /// Return up to `limit` entity keys resolved from `store` in raw key range.
+    /// Return up to `limit` structural primary-key values resolved from `store`
+    /// in raw key range.
     fn read_index_keys_in_raw_range(
         &self,
         store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
-    ) -> Result<Vec<E::Key>, InternalError>;
+    ) -> Result<Vec<StorageKey>, InternalError>;
 }
+
+impl<E> PrimaryRowReader<E> for Context<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        match self.read(key) {
+            Ok(row) => Ok(Some(row)),
+            Err(err) if err.is_not_found() => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+impl<E> SealedPrimaryRowReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
+
+impl<E> IndexEntryReader<E> for Context<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        Ok(store.with_borrow(|index_store| index_store.get(key)))
+    }
+
+    fn read_index_keys_in_raw_range(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<StorageKey>, InternalError> {
+        let data_keys = store.with_borrow(|index_store| {
+            index_store.resolve_data_values_in_raw_range_limited(
+                E::ENTITY_TAG,
+                index,
+                bounds,
+                IndexScanContinuationInput::new(None, Direction::Asc),
+                limit,
+                None,
+            )
+        })?;
+
+        let mut out = Vec::with_capacity(data_keys.len());
+        for data_key in data_keys {
+            out.push(data_key.storage_key());
+        }
+
+        Ok(out)
+    }
+}
+
+impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
 
 /// Compile the optional conditional-index predicate into one runtime program.
 pub(in crate::db) fn compile_index_membership_predicate<E: EntityKind>(

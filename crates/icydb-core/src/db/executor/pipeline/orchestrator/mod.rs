@@ -10,7 +10,7 @@ mod strategy;
 
 use crate::{
     db::executor::{
-        ExecutablePlan, LoadCursorInput, pipeline::contracts::LoadExecutor,
+        LoadCursorInput, PreparedLoadPlan, pipeline::contracts::LoadExecutor,
         pipeline::orchestrator::state::LoadPayloadState,
     },
     error::InternalError,
@@ -114,12 +114,11 @@ where
     /// Execute one load plan through the canonical structural load surface path.
     pub(in crate::db::executor) fn execute_load_surface(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadExecutionSurface, InternalError> {
-        let prepared_plan = plan.into_prepared_load_plan();
-        let access_state = self.build_execution_context(prepared_plan, cursor, execution_mode)?;
+        let access_state = self.build_execution_context(plan, cursor, execution_mode)?;
         let payload_state = Self::apply_grouping_projection(access_state)?;
         let payload_state = apply_runtime_paging(payload_state)?;
         let payload_state = apply_runtime_tracing(payload_state);

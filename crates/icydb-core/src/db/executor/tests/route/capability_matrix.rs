@@ -16,10 +16,9 @@ fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
         limit: Some(3),
         offset: 2,
     });
-    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let route_plan = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &plan,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build");
 
@@ -52,10 +51,9 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
         limit: Some(2),
         offset: 1,
     });
-    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let route_plan = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &plan,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build");
 
@@ -87,10 +85,9 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let route_plan = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &plan,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build");
 
@@ -110,10 +107,9 @@ fn route_capabilities_index_range_without_order_remains_limit_pushdown_eligible(
         ),
         MissingRowPolicy::Ignore,
     );
-    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let route_plan = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &plan,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build");
 
@@ -138,10 +134,9 @@ fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape(
     // must still fail closed if a bypassed plan shape reaches this boundary.
     plan.scalar_plan_mut().order = Some(OrderSpec { fields: Vec::new() });
 
-    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let route_plan = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &plan,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build");
 
@@ -167,10 +162,9 @@ fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() 
         ],
     });
 
-    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let route_plan = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &plan,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build");
 

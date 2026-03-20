@@ -11,7 +11,10 @@ use crate::{
     db::{
         Db,
         commit::ensure_recovered,
-        executor::{Context, pipeline::contracts::LoadExecutor, validate_executor_plan},
+        executor::{
+            Context, route::build_execution_route_plan_for_mutation_with_model,
+            validate_executor_plan,
+        },
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -42,7 +45,7 @@ where
     E: EntityKind + EntityValue,
 {
     validate_executor_plan::<E>(plan)?;
-    let _ = LoadExecutor::<E>::build_execution_route_plan_for_mutation(plan)?;
+    let _ = build_execution_route_plan_for_mutation_with_model(E::MODEL, plan)?;
 
     Ok(())
 }

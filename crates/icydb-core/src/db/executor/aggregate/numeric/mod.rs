@@ -18,7 +18,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl,
+            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, PreparedAggregatePlan,
             StructuralTraversalRuntime,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal_with_slot_reader,
@@ -81,7 +81,11 @@ where
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<Option<Decimal>, InternalError> {
-        let prepared = self.prepare_scalar_numeric_boundary(plan, target_field, request)?;
+        let prepared = self.prepare_scalar_numeric_boundary(
+            plan.into_prepared_aggregate_plan(),
+            target_field,
+            request,
+        )?;
 
         self.execute_prepared_scalar_numeric_boundary(prepared)
     }
@@ -90,11 +94,10 @@ where
     // non-generic contract plus the runtime payload needed to execute it.
     fn prepare_scalar_numeric_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedAggregatePlan,
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericExecutionState<'_>, InternalError> {
-        let plan = plan.into_prepared_aggregate_plan();
         let target_field_name = target_field.field().to_string();
         let authority = plan.authority();
         let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(

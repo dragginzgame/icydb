@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        data::DataKey,
+        data::{DataKey, StorageKey},
         index::{
             IndexEntryCorruption, IndexEntryReader, IndexId, IndexKey, IndexStore, PrimaryRowReader,
         },
@@ -54,6 +54,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
             "missing entity key during unique validation".to_string(),
         ));
     };
+    let new_storage_key = StorageKey::try_from_value(&new_key.to_value())?;
 
     // Phase 2: build canonical unique-prefix components for the incoming row.
     let Some(new_index_key) = IndexKey::new(new_entity, index)? else {
@@ -85,14 +86,14 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     // Unique validation only needs to distinguish 0, 1, or "more than 1".
     // Capping this probe avoids scanning large corrupted buckets.
     let unique_probe_limit = 2usize;
-    let matching_data_keys = index_reader.read_index_keys_in_raw_range(
+    let matching_storage_keys = index_reader.read_index_keys_in_raw_range(
         store,
         index,
         (&lower, &upper),
         unique_probe_limit,
     )?;
     let mut matching_keys = BTreeSet::new();
-    for key in matching_data_keys {
+    for key in matching_storage_keys {
         matching_keys.insert(key);
     }
 
@@ -109,7 +110,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         )));
     }
 
-    if matching_keys.contains(new_key) {
+    if matching_keys.contains(&new_storage_key) {
         return Ok(());
     }
 
@@ -123,7 +124,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
 
     // Phase 3: verify the stored row still belongs to this key and value.
     let stored = {
-        let data_key = DataKey::try_new::<E>(existing_key)?;
+        let data_key = DataKey::new(E::ENTITY_TAG, existing_key);
         let row = row_reader.read_primary_row(&data_key)?.ok_or_else(|| {
             InternalError::index_plan_store_corruption(format!("missing row: {data_key}"))
         })?;
@@ -134,7 +135,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         })?
     };
 
-    let stored_key = stored.id().key();
+    let stored_key = StorageKey::try_from_value(&stored.id().key().to_value())?;
     if stored_key != existing_key {
         // Stored row decoded successfully but key disagreement is a cross-component invariant
         // failure, not a structural decode/persistence corruption.
@@ -143,8 +144,8 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
             E::PATH,
             index.fields().join(", "),
             IndexEntryCorruption::RowKeyMismatch {
-                indexed_key: Box::new(existing_key.to_value()),
-                row_key: Box::new(stored_key.to_value()),
+                indexed_key: Box::new(existing_key.as_value()),
+                row_key: Box::new(stored_key.as_value()),
             }
         )));
     }

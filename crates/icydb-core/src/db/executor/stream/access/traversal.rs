@@ -85,64 +85,6 @@ trait AccessTraversalRuntime<K> {
 }
 
 ///
-/// ContextTraversalRuntime
-///
-/// ContextTraversalRuntime binds one recovered typed context to the
-/// `AccessTraversalRuntime` leaf-resolution contract.
-/// This keeps context-owned physical stream resolution typed while the parent
-/// traversal recursion stays generic only over key shape.
-///
-
-#[cfg(test)]
-struct ContextTraversalRuntime<'ctx, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    ctx: &'a Context<'ctx, E>,
-}
-
-#[cfg(test)]
-impl<'ctx, 'a, E> ContextTraversalRuntime<'ctx, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build one typed traversal runtime from one recovered executor context.
-    const fn new(ctx: &'a Context<'ctx, E>) -> Self {
-        Self { ctx }
-    }
-}
-
-#[cfg(test)]
-impl<E> AccessTraversalRuntime<E::Key> for ContextTraversalRuntime<'_, '_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn lower_path_access(
-        &self,
-        path: &ExecutableAccessPath<'_, E::Key>,
-        inputs: TraversalInputs<'_>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-    ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let constraints = IndexStreamConstraints {
-            prefixes: index_prefix_specs,
-            range: index_range_spec,
-        };
-        let hints = StreamExecutionHints {
-            physical_fetch_hint: inputs.physical_fetch_hint,
-            predicate_execution: inputs.index_predicate_execution,
-        };
-
-        self.ctx.ordered_key_stream_from_executable_access(
-            path,
-            constraints,
-            inputs.continuation,
-            hints,
-        )
-    }
-}
-
-///
 /// StructuralTraversalRuntime
 ///
 /// StructuralTraversalRuntime carries the structural store/index authority
@@ -226,28 +168,6 @@ impl<E> Context<'_, E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Resolve one executable access path into an ordered key stream.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn ordered_key_stream_from_executable_access(
-        &self,
-        access: &ExecutableAccessPath<'_, E::Key>,
-        constraints: IndexStreamConstraints<'_>,
-        continuation: AccessScanContinuationInput<'_>,
-        hints: StreamExecutionHints<'_>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        access.resolve_physical_key_stream(physical::PhysicalStreamRequest {
-            ctx: self,
-            index_prefix_specs: constraints.prefixes,
-            index_range_spec: constraints.range,
-            continuation,
-            physical_fetch_hint: hints.physical_fetch_hint,
-            index_predicate_execution: hints.predicate_execution,
-        })
-    }
-
     /// Resolve structural access-plan rows using default ascending traversal with no anchor.
     pub(in crate::db) fn rows_from_structural_access_plan(
         &self,
@@ -266,36 +186,6 @@ where
             consistency,
             AccessScanContinuationInput::initial_asc(),
         )
-    }
-
-    /// Resolve an access plan to an ordered key stream while consuming lowered specs
-    /// in traversal order, including optional index-range pagination anchor.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn ordered_key_stream_from_runtime_access(
-        &self,
-        request: ExecutableAccess<'_, E::Key>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        let inputs = TraversalInputs {
-            index_prefix_specs: request.bindings.index_prefix_specs,
-            index_range_specs: request.bindings.index_range_specs,
-            continuation: request.bindings.continuation,
-            physical_fetch_hint: request.physical_fetch_hint,
-            index_predicate_execution: request.index_predicate_execution,
-        };
-        let runtime = ContextTraversalRuntime::new(self);
-        let mut spec_cursor = inputs.spec_cursor();
-        let key_stream = AccessPlanStreamResolver::produce_key_stream(
-            &runtime,
-            &request.plan,
-            inputs,
-            &mut spec_cursor,
-        )?;
-        spec_cursor.validate_consumed()?;
-
-        Ok(key_stream)
     }
 
     /// Resolve a structural access plan to an ordered key stream while consuming lowered specs.

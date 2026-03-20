@@ -1544,10 +1544,9 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         "aggregate route planning must force materialized execution when strict index compile fails",
     );
 
-    let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let load_route = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &strict_uncertain,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build for strict/subset parity boundary shape");
     assert_eq!(
@@ -1599,10 +1598,9 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
             &strict_uncertain,
             AggregateKind::Exists,
         );
-    let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+    let load_route = build_load_route_plan_for_entity::<RouteMatrixEntity>(
         &strict_uncertain,
         &initial_scalar_continuation_context(),
-        None,
     )
     .expect("load route plan should build for strict/subset log shape");
 

@@ -2,6 +2,7 @@
 members = [
     "canisters/minimal",
     "canisters/quickstart",
+    "canisters/twenty",
     "crates/icydb",
     "crates/icydb-build",
     "crates/icydb-core",
@@ -12,6 +13,7 @@ members = [
     "schema/minimal",
     "schema/quickstart",
     "schema/test",
+    "schema/twenty",
     "testing/macro-tests",
     "testing/pocket-ic",
 ]
@@ -46,6 +48,7 @@ icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.59.7" 
 icydb-testing-fixtures = { path = "schema/test" }
 icydb-testing-minimal-fixtures = { path = "schema/minimal" }
 icydb-testing-quickstart-fixtures = { path = "schema/quickstart" }
+icydb-testing-twenty-fixtures = { path = "schema/twenty" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 proptest = "1.9.0"

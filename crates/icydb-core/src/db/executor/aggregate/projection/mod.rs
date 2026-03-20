@@ -16,7 +16,7 @@ use crate::{
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
-            ExecutablePlan, ExecutionKernel,
+            ExecutablePlan, ExecutionKernel, PreparedAggregatePlan,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
@@ -138,7 +138,11 @@ where
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
-        let prepared = self.prepare_scalar_projection_boundary(plan, target_field, request)?;
+        let prepared = self.prepare_scalar_projection_boundary(
+            plan.into_prepared_aggregate_plan(),
+            target_field,
+            request,
+        )?;
 
         self.execute_prepared_scalar_projection_boundary(prepared)
     }
@@ -147,11 +151,10 @@ where
     // projection contract that no longer retains `ExecutablePlan<E>`.
     fn prepare_scalar_projection_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedAggregatePlan,
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
     ) -> Result<PreparedScalarProjectionExecutionState<'_>, InternalError> {
-        let plan = plan.into_prepared_aggregate_plan();
         let target_field_name = target_field.field().to_string();
         let authority = plan.authority();
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot_with_model(

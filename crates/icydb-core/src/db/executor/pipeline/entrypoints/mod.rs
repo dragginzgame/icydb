@@ -54,7 +54,10 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
-        self.execute_load_scalar_rows(plan, LoadCursorInput::scalar(PlannedCursor::none()))
+        self.execute_load_scalar_rows(
+            plan.into_prepared_load_plan(),
+            LoadCursorInput::scalar(PlannedCursor::none()),
+        )
     }
 
     // Execute one scalar load plan and optionally emit execution trace output.
@@ -63,7 +66,10 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        self.execute_load_scalar_page_with_trace(plan, LoadCursorInput::scalar(cursor))
+        self.execute_load_scalar_page_with_trace(
+            plan.into_prepared_load_plan(),
+            LoadCursorInput::scalar(cursor),
+        )
     }
 
     // Execute one grouped load plan with grouped cursor support and trace output.
@@ -72,6 +78,9 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<GroupedPlannedCursor>,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        self.execute_load_grouped_page_with_trace(plan, LoadCursorInput::grouped(cursor))
+        self.execute_load_grouped_page_with_trace(
+            plan.into_prepared_load_plan(),
+            LoadCursorInput::grouped(cursor),
+        )
     }
 }

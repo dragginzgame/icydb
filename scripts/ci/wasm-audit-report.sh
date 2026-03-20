@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
-CANISTER_NAME="${WASM_CANISTER_NAME:-minimal}"
 PROFILE="${WASM_PROFILE:-wasm-release}"
 SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
 AUDIT_DATE="${WASM_AUDIT_DATE:-$(date +%F)}"
@@ -10,6 +9,21 @@ AUDIT_MONTH="${AUDIT_DATE:0:7}"
 REPORT_DIR="${WASM_AUDIT_REPORT_DIR:-$ROOT/docs/audits/reports/$AUDIT_MONTH/$AUDIT_DATE}"
 REPORT_SCOPE="wasm-footprint"
 ARTIFACT_SCOPE_DIR="$REPORT_DIR/artifacts/$REPORT_SCOPE"
+
+if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
+    for canister_name in minimal twenty; do
+        WASM_CANISTER_NAME="$canister_name" \
+            WASM_PROFILE="$PROFILE" \
+            WASM_SQL_VARIANTS="$SQL_VARIANTS_MODE" \
+            WASM_AUDIT_DATE="$AUDIT_DATE" \
+            WASM_AUDIT_REPORT_DIR="$REPORT_DIR" \
+            WASM_AUDIT_SKIP_BUILD="${WASM_AUDIT_SKIP_BUILD:-0}" \
+            bash "$0"
+    done
+    exit 0
+fi
+
+CANISTER_NAME="${WASM_CANISTER_NAME}"
 
 case "$SQL_VARIANTS_MODE" in
     sql-on|on|enabled)

@@ -444,20 +444,18 @@ where
         plan: ExecutablePlan<E>,
         request: ScalarTerminalBoundaryRequest,
     ) -> Result<ScalarTerminalBoundaryOutput, InternalError> {
+        let plan = plan.into_prepared_aggregate_plan();
+
         match request {
             ScalarTerminalBoundaryRequest::Count
             | ScalarTerminalBoundaryRequest::Exists
             | ScalarTerminalBoundaryRequest::IdTerminal { .. }
             | ScalarTerminalBoundaryRequest::IdBySlot { .. } => {
-                let prepared = self.prepare_scalar_terminal_boundary(
-                    plan.into_prepared_aggregate_plan(),
-                    request,
-                )?;
+                let prepared = self.prepare_scalar_terminal_boundary(plan, request)?;
 
                 self.execute_prepared_scalar_terminal_boundary(prepared)
             }
             ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth } => {
-                let plan = plan.into_prepared_aggregate_plan();
                 let authority = plan.authority();
                 let field_slot =
                     resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
@@ -476,7 +474,6 @@ where
                 .map(ScalarTerminalBoundaryOutput::Id)
             }
             ScalarTerminalBoundaryRequest::MedianBySlot { target_field } => {
-                let plan = plan.into_prepared_aggregate_plan();
                 let authority = plan.authority();
                 let field_slot =
                     resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
@@ -494,7 +491,6 @@ where
                 .map(ScalarTerminalBoundaryOutput::Id)
             }
             ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field } => {
-                let plan = plan.into_prepared_aggregate_plan();
                 let authority = plan.authority();
                 let field_slot =
                     resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(

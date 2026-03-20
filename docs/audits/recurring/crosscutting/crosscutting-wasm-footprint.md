@@ -20,9 +20,9 @@ Measure and report:
 - `ic-wasm info` structure snapshots (function/data/export counts)
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution
 
-Default target:
+Default targets:
 
-- canister: `minimal`
+- canisters: `minimal` and `twenty`
 - profile: `wasm-release`
 
 ---
@@ -31,7 +31,7 @@ Default target:
 
 For each run, explicitly mark `PASS` / `PARTIAL` / `FAIL` with concrete evidence.
 
-1. Wasm artifacts were built and captured for the target canister/profile.
+1. Wasm artifacts were built and captured for each target canister/profile in scope.
 2. Artifact sizes were recorded in a machine-readable artifact.
 3. Twiggy `top` output was captured for offender ranking.
 4. Twiggy `dominators` output was captured for retained-size ownership.
@@ -52,13 +52,13 @@ Optional controls:
 
 - `WASM_AUDIT_DATE=YYYY-MM-DD` (pins report day path)
 - `WASM_AUDIT_SKIP_BUILD=1` (reuse existing artifacts in `artifacts/wasm-size`)
-- `WASM_CANISTER_NAME=<name>` and `WASM_PROFILE=<profile>` (non-default target)
+- `WASM_CANISTER_NAME=<name>` and `WASM_PROFILE=<profile>` (single-canister override)
 
 ---
 
 ## Output Contract
 
-Write one dated result file for each run:
+Write one dated result file for each canister run:
 
 - `docs/audits/reports/YYYY-MM/YYYY-MM-DD/wasm-footprint*.md`
 

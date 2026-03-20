@@ -25,6 +25,19 @@
                     "name": "candid:service"
                 }
             ]
+        },
+        "twenty": {
+            "type": "custom",
+            "candid": ".dfx/local/canisters/twenty/twenty.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- twenty'",
+            "wasm": ".dfx/local/canisters/twenty/twenty.wasm",
+            "shrink": true,
+            "gzip": true,
+            "metadata": [
+                {
+                    "name": "candid:service"
+                }
+            ]
         }
     },
     "networks": {

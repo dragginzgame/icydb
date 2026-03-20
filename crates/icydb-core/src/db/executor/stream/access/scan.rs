@@ -3,11 +3,6 @@
 //! Does not own: access routing decisions or planner spec construction.
 //! Boundary: direct scan primitives used by access-stream resolver.
 
-#[cfg(test)]
-use crate::{
-    db::executor::Context,
-    traits::{EntityKind, EntityValue, Path},
-};
 use crate::{
     db::{
         cursor::IndexScanContinuationInput,
@@ -35,28 +30,6 @@ use std::ops::Bound;
 pub(in crate::db::executor) struct PrimaryScan;
 
 impl PrimaryScan {
-    /// Resolve one inclusive primary-key range into data keys.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn range<E>(
-        ctx: &Context<'_, E>,
-        start: &DataKey,
-        end: &DataKey,
-        direction: Direction,
-        limit: Option<usize>,
-    ) -> Result<Vec<DataKey>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let store = ctx
-            .db
-            .with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
-
-        match limit {
-            Some(limit) => Self::range_limited_with_store(store, start, end, direction, limit),
-            None => Self::range_unbounded_with_store(store, start, end),
-        }
-    }
-
     /// Resolve one inclusive primary-key range through structural store authority.
     pub(in crate::db::executor) fn range_structural(
         store: StoreHandle,
@@ -155,62 +128,6 @@ impl PrimaryScan {
 pub(in crate::db::executor) struct IndexScan;
 
 impl IndexScan {
-    /// Resolve one lowered index-prefix envelope into data keys.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn prefix<E>(
-        ctx: &Context<'_, E>,
-        spec: &LoweredIndexPrefixSpec,
-        direction: Direction,
-        limit: usize,
-        predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Vec<DataKey>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let store = ctx
-            .db
-            .with_store_registry(|registry| registry.try_get_store(spec.index().store()))?;
-
-        Self::resolve_limited(
-            store,
-            E::ENTITY_TAG,
-            spec.index(),
-            spec.lower(),
-            spec.upper(),
-            IndexScanContinuationInput::new(None, direction),
-            limit,
-            predicate_execution,
-        )
-    }
-
-    /// Resolve one lowered index-range envelope (plus optional anchor) into data keys.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn range<E>(
-        ctx: &Context<'_, E>,
-        spec: &LoweredIndexRangeSpec,
-        continuation: IndexScanContinuationInput<'_>,
-        limit: usize,
-        predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Vec<DataKey>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let store = ctx
-            .db
-            .with_store_registry(|registry| registry.try_get_store(spec.index().store()))?;
-
-        Self::resolve_limited(
-            store,
-            E::ENTITY_TAG,
-            spec.index(),
-            spec.lower(),
-            spec.upper(),
-            continuation,
-            limit,
-            predicate_execution,
-        )
-    }
-
     /// Resolve one lowered index-prefix envelope through structural store authority.
     pub(in crate::db::executor) fn prefix_structural(
         store: StoreHandle,

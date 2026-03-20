@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutablePlan, ExecutionTrace, LoadCursorInput,
+            ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
             pipeline::contracts::{CursorPage, LoadExecutor},
             pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
@@ -24,7 +24,7 @@ where
     // Execute one unpaged scalar load and materialize rows.
     pub(in crate::db::executor) fn execute_load_scalar_rows(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
     ) -> Result<EntityResponse<E>, InternalError> {
         let surface =
@@ -36,7 +36,7 @@ where
     // Execute one traced paged scalar load and materialize traced page output.
     pub(in crate::db::executor) fn execute_load_scalar_page_with_trace(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let surface = self.execute_load_surface(

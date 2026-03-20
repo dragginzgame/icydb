@@ -7,9 +7,8 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation,
+            ExecutionPlan, ExecutionPreparation,
             continuation::ScalarContinuationContext,
-            pipeline::contracts::LoadExecutor,
             preparation::resolved_index_slots_for_access_path,
             route::{
                 ExecutionRoutePlan, RouteIntent,
@@ -25,7 +24,6 @@ use crate::{
     },
     error::InternalError,
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::planner::{
@@ -33,63 +31,6 @@ use crate::db::executor::route::planner::{
     derive_execution_feasibility_stage_for_model, derive_route_execution_stage,
     derive_route_intent_stage,
 };
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Build canonical execution routing for load execution.
-    pub(in crate::db::executor) fn build_execution_route_plan_for_load(
-        plan: &AccessPlannedQuery,
-        continuation: &ScalarContinuationContext,
-        probe_fetch_hint: Option<usize>,
-    ) -> Result<ExecutionPlan, InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-
-        build_execution_route_plan_for_load_with_model(
-            authority.model(),
-            plan,
-            continuation,
-            probe_fetch_hint,
-        )
-    }
-
-    /// Build canonical execution routing for mutation execution.
-    pub(in crate::db::executor) fn build_execution_route_plan_for_mutation(
-        plan: &AccessPlannedQuery,
-    ) -> Result<ExecutionPlan, InternalError> {
-        if !plan.scalar_plan().mode.is_delete() {
-            return Err(crate::db::error::query_executor_invariant(
-                "mutation route planning requires delete plans",
-            ));
-        }
-
-        let capabilities = derive_execution_capabilities_for_model(
-            EntityAuthority::for_type::<E>().model(),
-            plan,
-            Direction::Asc,
-            None,
-        );
-
-        Ok(ExecutionRoutePlan::for_mutation(capabilities))
-    }
-
-    /// Build canonical aggregate execution routing using one precomputed preparation bundle.
-    pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_with_preparation(
-        plan: &AccessPlannedQuery,
-        aggregate: AggregateExpr,
-        execution_preparation: &ExecutionPreparation,
-    ) -> ExecutionPlan {
-        let authority = EntityAuthority::for_type::<E>();
-
-        build_execution_route_plan_for_aggregate_spec_with_model(
-            authority.model(),
-            plan,
-            aggregate,
-            execution_preparation,
-        )
-    }
-}
 
 /// Build canonical execution routing for load execution from structural model authority.
 pub(in crate::db::executor) fn build_execution_route_plan_for_load_with_model(
@@ -109,6 +50,22 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_load_with_model(
         probe_fetch_hint,
         RouteIntent::Load,
     ))
+}
+
+/// Build canonical execution routing for mutation execution from structural model authority.
+pub(in crate::db::executor) fn build_execution_route_plan_for_mutation_with_model(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+) -> Result<ExecutionPlan, InternalError> {
+    if !plan.scalar_plan().mode.is_delete() {
+        return Err(crate::db::error::query_executor_invariant(
+            "mutation route planning requires delete plans",
+        ));
+    }
+
+    let capabilities = derive_execution_capabilities_for_model(model, plan, Direction::Asc, None);
+
+    Ok(ExecutionRoutePlan::for_mutation(capabilities))
 }
 
 /// Build canonical aggregate execution routing from structural model authority.

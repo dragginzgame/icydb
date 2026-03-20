@@ -6,7 +6,7 @@
 use crate::db::registry::StoreHandle;
 use crate::{
     db::executor::{
-        EntityAuthority, ExecutablePlan, ExecutionTrace, LoadCursorInput,
+        EntityAuthority, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
         aggregate::runtime::{
             GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
             execute_group_fold_stage, finalize_grouped_output_with_observer,
@@ -155,7 +155,7 @@ where
     // Execute one traced paged grouped load and materialize grouped output.
     pub(in crate::db::executor) fn execute_load_grouped_page_with_trace(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
         let surface = self.execute_load_surface(

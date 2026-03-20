@@ -11,13 +11,15 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            ExecutionPreparation, LoadExecutor,
+            ExecutionPreparation,
             aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
             preparation::slot_map_for_entity_plan,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
                 FastPathOrder, TopNSeekSpec,
+                build_execution_route_plan_for_aggregate_spec_with_model,
+                build_execution_route_plan_for_load_with_model,
             },
         },
         query::{
@@ -53,7 +55,7 @@ where
         ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
-        LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
+        build_execution_route_plan_for_load_with_model(E::MODEL, plan, &continuation, None)?;
     let route_shape = route_plan.shape();
 
     // Phase 2: seed one root access node from the canonical access plan projection.
@@ -163,7 +165,7 @@ where
         ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
-        LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
+        build_execution_route_plan_for_load_with_model(E::MODEL, plan, &continuation, None)?;
     let route_shape = route_plan.shape();
     let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
     let projected_fields = plan
@@ -258,12 +260,12 @@ where
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
     let execution_preparation =
         ExecutionPreparation::from_plan(E::MODEL, plan, slot_map_for_entity_plan::<E>(plan));
-    let route_plan =
-        LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
-            plan,
-            aggregate,
-            &execution_preparation,
-        );
+    let route_plan = build_execution_route_plan_for_aggregate_spec_with_model(
+        E::MODEL,
+        plan,
+        aggregate,
+        &execution_preparation,
+    );
     let route_shape = route_plan.shape();
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.

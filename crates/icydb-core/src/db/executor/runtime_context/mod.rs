@@ -8,23 +8,15 @@ mod load;
 use crate::{
     db::{
         Db,
-        cursor::IndexScanContinuationInput,
         data::{DataKey, DataRow, DataStore, RawRow},
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
-        index::{
-            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
-            SealedIndexEntryReader, SealedPrimaryRowReader,
-        },
         predicate::MissingRowPolicy,
         registry::StoreHandle,
     },
     error::InternalError,
-    model::index::IndexModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
-#[cfg(test)]
-use std::collections::BTreeSet;
 use std::ops::Bound;
 
 // -----------------------------------------------------------------------------
@@ -165,14 +157,6 @@ where
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
-
-    /// Deduplicate entity keys using canonical key ordering.
-    #[cfg(test)]
-    pub(super) fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
-        let mut set = BTreeSet::new();
-        set.extend(keys);
-        set.into_iter().collect()
-    }
 
     // Read one row under one consistency contract, treating not-found as skip.
     fn read_row_with_consistency_skip_not_found(
@@ -392,59 +376,3 @@ fn collect_rows_from_ordered_key_stream_shared(
 
     Ok(rows)
 }
-
-impl<E> PrimaryRowReader<E> for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
-        match self.read(key) {
-            Ok(row) => Ok(Some(row)),
-            Err(err) if err.is_not_found() => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-impl<E> SealedPrimaryRowReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> IndexEntryReader<E> for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry(
-        &self,
-        store: &'static std::thread::LocalKey<std::cell::RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
-        Ok(store.with_borrow(|index_store| index_store.get(key)))
-    }
-
-    fn read_index_keys_in_raw_range(
-        &self,
-        store: &'static std::thread::LocalKey<std::cell::RefCell<IndexStore>>,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        limit: usize,
-    ) -> Result<Vec<E::Key>, InternalError> {
-        let data_keys = store.with_borrow(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited(
-                E::ENTITY_TAG,
-                index,
-                bounds,
-                IndexScanContinuationInput::new(None, Direction::Asc),
-                limit,
-                None,
-            )
-        })?;
-
-        let mut out = Vec::with_capacity(data_keys.len());
-        for data_key in data_keys {
-            out.push(data_key.try_key::<E>()?);
-        }
-
-        Ok(out)
-    }
-}
-
-impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}

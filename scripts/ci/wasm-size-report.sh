@@ -3,9 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 OUT_DIR="$ROOT/artifacts/wasm-size"
-CANISTER_NAME="${WASM_CANISTER_NAME:-minimal}"
 PROFILE="${WASM_PROFILE:-wasm-release}"
 SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
+
+if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
+    for canister_name in minimal twenty; do
+        WASM_CANISTER_NAME="$canister_name" \
+            WASM_PROFILE="$PROFILE" \
+            WASM_SQL_VARIANTS="$SQL_VARIANTS_MODE" \
+            bash "$0"
+    done
+    exit 0
+fi
+
+CANISTER_NAME="${WASM_CANISTER_NAME}"
 
 mkdir -p "$OUT_DIR"
 

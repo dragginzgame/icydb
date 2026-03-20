@@ -16,6 +16,8 @@ use crate::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionModeRouteCase, FastPathOrder,
                 FieldExtremaIneligibilityReason, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
                 MUTATION_FAST_PATH_ORDER, RouteExecutionMode,
+                build_execution_route_plan_for_load_with_model,
+                build_execution_route_plan_for_mutation_with_model,
                 grouped_ordered_runtime_revalidation_flag_count_guard,
                 route_capability_flag_count_guard, route_execution_mode_case_count_guard,
                 route_shape_kind_count_guard,
@@ -133,6 +135,36 @@ fn grouped_field_slots(fields: &[&str]) -> Vec<FieldSlot> {
 
 fn initial_scalar_continuation_context() -> ScalarContinuationContext {
     ScalarContinuationContext::initial()
+}
+
+fn build_load_route_plan_for_entity<E>(
+    plan: &AccessPlannedQuery,
+    continuation: &ScalarContinuationContext,
+) -> Result<crate::db::executor::ExecutionPlan, crate::error::InternalError>
+where
+    E: EntitySchema,
+{
+    build_load_route_plan_for_entity_with_probe_hint::<E>(plan, continuation, None)
+}
+
+fn build_load_route_plan_for_entity_with_probe_hint<E>(
+    plan: &AccessPlannedQuery,
+    continuation: &ScalarContinuationContext,
+    probe_fetch_hint: Option<usize>,
+) -> Result<crate::db::executor::ExecutionPlan, crate::error::InternalError>
+where
+    E: EntitySchema,
+{
+    build_execution_route_plan_for_load_with_model(E::MODEL, plan, continuation, probe_fetch_hint)
+}
+
+fn build_mutation_route_plan_for_entity<E>(
+    plan: &AccessPlannedQuery,
+) -> Result<crate::db::executor::ExecutionPlan, crate::error::InternalError>
+where
+    E: EntitySchema,
+{
+    build_execution_route_plan_for_mutation_with_model(E::MODEL, plan)
 }
 
 mod aggregate_matrix;
