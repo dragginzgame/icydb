@@ -12,8 +12,8 @@ use crate::{
             decode_relation_target_data_key_for_relation,
             metadata::{StrongRelationInfo, strong_relations_for_source},
             reverse_index::{
-                decode_reverse_entry, relation_target_keys_for_source, relation_target_store,
-                reverse_index_key_for_target_value,
+                ReverseRelationSourceInfo, decode_reverse_entry, relation_target_keys_for_source,
+                relation_target_store, reverse_index_key_for_target_value,
             },
         },
     },
@@ -33,6 +33,8 @@ pub(in crate::db) fn validate_delete_strong_relations_for_source<S>(
 where
     S: EntityKind + EntityValue,
 {
+    let source_info = ReverseRelationSourceInfo::for_type::<S>();
+
     if deleted_target_keys.is_empty() {
         return Ok(());
     }
@@ -45,7 +47,7 @@ where
 
     // Phase 1: resolve reverse-index candidates for each relevant relation field.
     for relation in relations {
-        let target_index_store = relation_target_store::<S>(db, relation)?;
+        let target_index_store = relation_target_store(db, source_info, relation)?;
 
         for target_raw_key in deleted_target_keys {
             let Some(target_data_key) = decode_relation_target_data_key_for_relation::<S>(
@@ -60,7 +62,7 @@ where
 
             let target_value = target_data_key.storage_key().as_value();
             let Some(reverse_key) =
-                reverse_index_key_for_target_value::<S>(relation, &target_value)?
+                reverse_index_key_for_target_value(source_info, relation, &target_value)?
             else {
                 continue;
             };
@@ -78,7 +80,7 @@ where
                 continue;
             };
 
-            let entry = decode_reverse_entry::<S>(relation, &reverse_key, &raw_entry)?;
+            let entry = decode_reverse_entry(source_info, relation, &reverse_key, &raw_entry)?;
 
             // Phase 2: verify each candidate source row before rejecting delete.
             for source_key in entry.iter_ids() {
@@ -103,7 +105,8 @@ where
                     )
                 })?;
 
-                let source_targets = relation_target_keys_for_source(&source, relation)?;
+                let source_targets =
+                    relation_target_keys_for_source(&source, source_info, relation)?;
                 if source_targets.contains(target_raw_key) {
                     record(MetricsEvent::RelationValidation {
                         entity_path: S::PATH,

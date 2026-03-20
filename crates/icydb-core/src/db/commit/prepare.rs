@@ -23,7 +23,6 @@ use crate::{
     traits::{EntityKind, EntityValue, Path},
 };
 use std::collections::BTreeMap;
-
 /// Prepare a typed row-level commit op for one entity type.
 ///
 /// This resolves store handles and index/data mutations so commit/recovery

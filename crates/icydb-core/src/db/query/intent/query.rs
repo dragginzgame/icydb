@@ -31,13 +31,13 @@ use core::marker::PhantomData;
 ///
 
 #[derive(Debug)]
-struct StructuralQuery {
+pub(in crate::db) struct StructuralQuery {
     intent: QueryModel<'static, Value>,
 }
 
 impl StructuralQuery {
     #[must_use]
-    const fn new(
+    pub(in crate::db) const fn new(
         model: &'static crate::model::entity::EntityModel,
         consistency: MissingRowPolicy,
     ) -> Self {
@@ -70,7 +70,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    fn filter(mut self, predicate: Predicate) -> Self {
+    pub(in crate::db) fn filter(mut self, predicate: Predicate) -> Self {
         self.intent = self.intent.filter(predicate);
         self
     }
@@ -90,26 +90,26 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    fn order_by(mut self, field: impl AsRef<str>) -> Self {
+    pub(in crate::db) fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.intent = self.intent.order_by(field);
         self
     }
 
     #[must_use]
-    fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
+    pub(in crate::db) fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.intent = self.intent.order_by_desc(field);
         self
     }
 
     #[must_use]
-    fn distinct(mut self) -> Self {
+    pub(in crate::db) fn distinct(mut self) -> Self {
         self.intent = self.intent.distinct();
         self
     }
 
     #[cfg(feature = "sql")]
     #[must_use]
-    fn select_fields<I, S>(mut self, fields: I) -> Self
+    pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -118,7 +118,7 @@ impl StructuralQuery {
         self
     }
 
-    fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
+    pub(in crate::db) fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
         let Self { intent } = self;
         let intent = intent.push_group_field(field.as_ref())?;
 
@@ -126,7 +126,7 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
+    pub(in crate::db) fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
         self.intent = self.intent.push_group_aggregate(aggregate);
         self
     }
@@ -137,7 +137,7 @@ impl StructuralQuery {
         self
     }
 
-    fn having_group(
+    pub(in crate::db) fn having_group(
         self,
         field: impl AsRef<str>,
         op: CompareOp,
@@ -150,7 +150,7 @@ impl StructuralQuery {
         Ok(Self { intent })
     }
 
-    fn having_aggregate(
+    pub(in crate::db) fn having_aggregate(
         self,
         aggregate_index: usize,
         op: CompareOp,
@@ -191,24 +191,24 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    fn delete(mut self) -> Self {
+    pub(in crate::db) fn delete(mut self) -> Self {
         self.intent = self.intent.delete();
         self
     }
 
     #[must_use]
-    fn limit(mut self, limit: u32) -> Self {
+    pub(in crate::db) fn limit(mut self, limit: u32) -> Self {
         self.intent = self.intent.limit(limit);
         self
     }
 
     #[must_use]
-    fn offset(mut self, offset: u32) -> Self {
+    pub(in crate::db) fn offset(mut self, offset: u32) -> Self {
         self.intent = self.intent.offset(offset);
         self
     }
 
-    fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
+    pub(in crate::db) fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
         self.intent.build_plan_model()
     }
 }
@@ -412,7 +412,7 @@ pub struct Query<E: EntityKind> {
 
 impl<E: EntityKind> Query<E> {
     // Rebind one structural query core to the typed `Query<E>` surface.
-    const fn from_inner(inner: StructuralQuery) -> Self {
+    pub(in crate::db) const fn from_inner(inner: StructuralQuery) -> Self {
         Self {
             inner,
             _marker: PhantomData,
@@ -492,8 +492,10 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
-    /// Override scalar projection selection with one explicit field list.
+    // Keep the internal fluent SQL parity hook available for lowering tests
+    // without making generated SQL binding depend on the typed query shell.
     #[cfg(feature = "sql")]
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where

@@ -15,7 +15,7 @@ use crate::{
         identity::{EntityName, EntityNameError},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityKind,
     types::EntityTag,
     value::Value,
 };
@@ -164,14 +164,12 @@ pub(super) fn for_each_relation_target_value(
 }
 
 /// Convert a relation value to its target raw data key representation.
-fn raw_relation_target_key<S>(
+pub(in crate::db::relation) fn raw_relation_target_key(
+    source_path: &'static str,
     field_name: &str,
     relation: StrongRelationInfo,
     value: &Value,
-) -> Result<RawDataKey, InternalError>
-where
-    S: EntityKind + EntityValue,
-{
+) -> Result<RawDataKey, InternalError> {
     build_relation_target_raw_key(
         relation.target_entity_tag,
         relation.target_entity_name,
@@ -180,7 +178,7 @@ where
     .map_err(|err| {
         InternalError::relation_target_raw_key_error(
             err,
-            S::PATH,
+            source_path,
             field_name,
             relation.target_path,
             relation.target_entity_name,

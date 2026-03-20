@@ -15,7 +15,7 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
-            intent::{Query, QueryError},
+            intent::{Query, QueryError, StructuralQuery},
         },
         sql::identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
@@ -265,6 +265,32 @@ pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> Low
     }
 }
 
+pub(crate) fn render_lowered_sql_explain_plan_or_json(
+    lowered: &LoweredSqlCommand,
+    model: &'static crate::model::entity::EntityModel,
+    consistency: MissingRowPolicy,
+) -> Result<Option<String>, SqlLoweringError> {
+    let LoweredSqlCommandInner::Explain { mode, query } = &lowered.0 else {
+        return Ok(None);
+    };
+
+    let rendered = match mode {
+        SqlExplainMode::Plan | SqlExplainMode::Json => {
+            let query = bind_lowered_sql_query_structural(model, query.clone(), consistency)?;
+            let plan = query.build_plan()?;
+            let explain = plan.explain_with_model(model);
+
+            match mode {
+                SqlExplainMode::Plan => explain.render_text_canonical(),
+                SqlExplainMode::Json => explain.render_json_canonical(),
+                SqlExplainMode::Execution => unreachable!("execution mode handled by caller"),
+            }
+        }
+        SqlExplainMode::Execution => return Ok(None),
+    };
+
+    Ok(Some(rendered))
+}
 /// Bind one shared generic-free SQL command shape to the typed query surface.
 pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
     lowered: LoweredSqlCommand,
@@ -722,10 +748,10 @@ fn lower_having_clauses(
     Ok(lowered)
 }
 
-fn apply_lowered_select_shape<E: EntityKind>(
-    mut query: Query<E>,
+fn apply_lowered_select_shape(
+    mut query: StructuralQuery,
     lowered: LoweredSelectShape,
-) -> Result<Query<E>, SqlLoweringError> {
+) -> Result<StructuralQuery, SqlLoweringError> {
     // Phase 1: apply grouped declaration semantics.
     for field in lowered.group_by_fields {
         query = query.group_by(field)?;
@@ -762,7 +788,7 @@ fn apply_lowered_select_shape<E: EntityKind>(
     if let Some(predicate) = lowered.predicate {
         query = query.filter(predicate);
     }
-    query = apply_order_terms(query, lowered.order_by);
+    query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {
         query = query.limit(limit);
     }
@@ -773,14 +799,14 @@ fn apply_lowered_select_shape<E: EntityKind>(
     Ok(query)
 }
 
-fn apply_lowered_base_query_shape<E: EntityKind>(
-    mut query: Query<E>,
+fn apply_lowered_base_query_shape(
+    mut query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
-) -> Query<E> {
+) -> StructuralQuery {
     if let Some(predicate) = lowered.predicate {
         query = query.filter(predicate);
     }
-    query = apply_order_terms(query, lowered.order_by);
+    query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {
         query = query.limit(limit);
     }
@@ -791,19 +817,29 @@ fn apply_lowered_base_query_shape<E: EntityKind>(
     query
 }
 
+fn bind_lowered_sql_query_structural(
+    model: &'static crate::model::entity::EntityModel,
+    lowered: LoweredSqlQuery,
+    consistency: MissingRowPolicy,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    match lowered {
+        LoweredSqlQuery::Select(select) => {
+            apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
+        }
+        LoweredSqlQuery::Delete(delete) => Ok(apply_lowered_base_query_shape(
+            StructuralQuery::new(model, consistency).delete(),
+            delete,
+        )),
+    }
+}
+
 fn bind_lowered_sql_query<E: EntityKind>(
     lowered: LoweredSqlQuery,
     consistency: MissingRowPolicy,
 ) -> Result<Query<E>, SqlLoweringError> {
-    match lowered {
-        LoweredSqlQuery::Select(select) => {
-            apply_lowered_select_shape(Query::new(consistency), select)
-        }
-        LoweredSqlQuery::Delete(delete) => Ok(apply_lowered_base_query_shape(
-            Query::new(consistency).delete(),
-            delete,
-        )),
-    }
+    let structural = bind_lowered_sql_query_structural(E::MODEL, lowered, consistency)?;
+
+    Ok(Query::from_inner(structural))
 }
 
 fn bind_lowered_sql_global_aggregate_command<E: EntityKind>(
@@ -811,7 +847,10 @@ fn bind_lowered_sql_global_aggregate_command<E: EntityKind>(
     consistency: MissingRowPolicy,
 ) -> SqlGlobalAggregateCommand<E> {
     SqlGlobalAggregateCommand {
-        query: apply_lowered_base_query_shape(Query::new(consistency), lowered.query),
+        query: Query::from_inner(apply_lowered_base_query_shape(
+            StructuralQuery::new(E::MODEL, consistency),
+            lowered.query,
+        )),
         terminal: lowered.terminal,
     }
 }
@@ -929,10 +968,10 @@ fn lower_delete_shape(statement: SqlDeleteStatement) -> LoweredBaseQueryShape {
     }
 }
 
-fn apply_order_terms<E: EntityKind>(
-    mut query: Query<E>,
+fn apply_order_terms_structural(
+    mut query: StructuralQuery,
     order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
-) -> Query<E> {
+) -> StructuralQuery {
     for term in order_by {
         query = match term.direction {
             SqlOrderDirection::Asc => query.order_by(term.field),

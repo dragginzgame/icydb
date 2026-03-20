@@ -18,11 +18,12 @@ use crate::{
             SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
             bind_lowered_sql_command, compile_sql_command, compile_sql_global_aggregate_command,
             lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
-            prepare_sql_statement,
+            prepare_sql_statement, render_lowered_sql_explain_plan_or_json,
         },
         sql::parser::{SqlExplainMode, SqlExplainTarget, SqlStatement, parse_sql},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    model::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue},
     value::Value,
 };
@@ -862,11 +863,47 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
+        Self::explain_lowered_sql_dispatch_core(
+            lowered,
+            E::MODEL,
+            Self::explain_lowered_sql_dispatch_typed_execution::<E>,
+        )
+    }
+
+    // Share the common EXPLAIN lane work across entities, then fall back to the
+    // remaining typed execution-only shapes when structural rendering cannot.
+    fn explain_lowered_sql_dispatch_core(
+        lowered: &LoweredSqlCommand,
+        model: &'static EntityModel,
+        typed_execution_fallback: fn(&LoweredSqlCommand) -> Result<String, QueryError>,
+    ) -> Result<String, QueryError> {
+        // First validate lane selection once on the shared path so entity wrappers
+        // do not each carry the same dispatch guard.
         let lane = session_sql_lane(lowered);
         if lane != SqlLaneKind::Explain {
             return Err(unsupported_sql_lane_error(SqlSurface::Explain, lane));
         }
 
+        // Prefer the structural renderer for plan/json explain output because it
+        // avoids rebinding the full typed SQL command shape per entity.
+        if let Some(rendered) =
+            render_lowered_sql_explain_plan_or_json(lowered, model, MissingRowPolicy::Ignore)
+                .map_err(map_sql_lowering_error)?
+        {
+            return Ok(rendered);
+        }
+
+        // Only execution/global-aggregate explain still needs the typed fallback.
+        typed_execution_fallback(lowered)
+    }
+
+    // Bind only the remaining execution-specific EXPLAIN cases on the typed path.
+    fn explain_lowered_sql_dispatch_typed_execution<E>(
+        lowered: &LoweredSqlCommand,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
         let command = bind_lowered_sql_command::<E>(lowered.clone(), MissingRowPolicy::Ignore)
             .map_err(map_sql_lowering_error)?;
 
