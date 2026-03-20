@@ -7,10 +7,9 @@ use super::*;
 use crate::db::{
     executor::{
         ExecutionPreparation,
-        pipeline::contracts::LoadExecutor,
         plan_metrics::GroupedPlanMetricsStrategy,
         route::{
-            AggregateSeekSpec, GroupedExecutionStrategy,
+            AggregateSeekSpec, GroupedExecutionStrategy, build_execution_route_plan_for_grouped_plan,
             grouped_plan_metrics_strategy_for_execution_strategy,
         },
     },
@@ -35,8 +34,11 @@ fn grouped_policy_snapshot(
         grouped_plan_strategy_hint(plan).expect("grouped plans should project planner hints");
     let handoff = grouped_executor_handoff(plan).expect("grouped plans should project handoff");
     let distinct_violation = handoff.distinct_policy_violation_for_executor();
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(handoff);
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        handoff.base(),
+        handoff.grouped_plan_strategy_hint(),
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped plans should always project grouped route observability");
@@ -90,8 +92,11 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
             )
         })
         .collect::<Vec<_>>();
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(handoff);
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        handoff.base(),
+        handoff.grouped_plan_strategy_hint(),
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route snapshot requires grouped observability payload");
@@ -147,11 +152,13 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         execution: GroupedExecutionConfig::unbounded(),
     });
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build grouped handoff"),
-        );
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
 
     assert_eq!(
         route_plan.shape().execution_mode_case(),
@@ -202,11 +209,13 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         execution: GroupedExecutionConfig::with_hard_limits(1, 1),
     });
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build grouped handoff"),
-        );
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
 
     assert_eq!(
         route_plan.shape().execution_mode_case(),
@@ -259,11 +268,13 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         execution: GroupedExecutionConfig::unbounded(),
     });
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build grouped handoff"),
-        );
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should project grouped observability payload");
@@ -298,11 +309,13 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
     });
     grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build grouped handoff"),
-        );
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should project grouped observability payload");
@@ -341,11 +354,13 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
         }),
     );
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build grouped handoff"),
-        );
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should project grouped observability payload");
@@ -495,11 +510,13 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
                 execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
             });
 
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped)
-                .expect("grouped logical plans should build grouped handoff"),
-        );
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
     let observability = route_plan
         .grouped_observability()
         .expect("grouped route should always project grouped observability for grouped intents");
@@ -699,10 +716,11 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     assert_eq!(grouped_handoff.execution().max_groups(), 17);
     assert_eq!(grouped_handoff.execution().max_group_bytes(), 8192);
-    let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_handoff,
-        );
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteMatrixEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
     assert_eq!(
         route_plan.shape().execution_mode_case(),
         ExecutionModeRouteCase::AggregateGrouped

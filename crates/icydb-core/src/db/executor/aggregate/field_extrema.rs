@@ -102,7 +102,7 @@ impl ExecutionKernel {
     // Execute one route-eligible field-target extrema aggregate through kernel-
     // owned streaming setup, stream resolution, and fold orchestration.
     pub(in crate::db::executor::aggregate) fn execute_field_target_extrema_aggregate<E>(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         kind: AggregateKind,
         target_field: &str,
         direction: Direction,
@@ -133,7 +133,7 @@ impl ExecutionKernel {
 
         // Reuse shared aggregate streaming setup and route-owned stream resolution.
         let consistency = prepared.consistency();
-        let (probe_output, probe_rows_scanned) = Self::fold_field_target_extrema_for_route_plan(
+        let (probe_output, probe_rows_scanned) = Self::fold_field_target_extrema_for_route_plan::<E>(
             prepared,
             consistency,
             direction,
@@ -160,7 +160,7 @@ impl ExecutionKernel {
         fallback_route_plan.index_range_limit_spec = None;
         fallback_route_plan.aggregate_seek_spec = None;
         let (fallback_output, fallback_rows_scanned) =
-            Self::fold_field_target_extrema_for_route_plan(
+            Self::fold_field_target_extrema_for_route_plan::<E>(
                 prepared,
                 consistency,
                 direction,
@@ -178,7 +178,7 @@ impl ExecutionKernel {
     // Run one field-target extrema streaming attempt for one route plan and
     // return the aggregate output plus scan-accounting rows.
     fn fold_field_target_extrema_for_route_plan<E>(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         consistency: MissingRowPolicy,
         direction: Direction,
         route_plan: &ExecutionPlan,
@@ -193,13 +193,13 @@ impl ExecutionKernel {
             &prepared.logical_plan.access,
             crate::db::executor::StructuralTraversalRuntime::new(
                 prepared.store,
-                prepared.entity_tag,
+                prepared.authority.entity_tag(),
             ),
             prepared.store,
-            prepared.model,
+            prepared.authority.model(),
         );
         let execution_preparation = ExecutionPreparation::from_plan(
-            E::MODEL,
+            prepared.authority.model(),
             &prepared.logical_plan,
             runtime.slot_map().map(<[usize]>::to_vec),
         );

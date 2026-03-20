@@ -11,26 +11,27 @@ use crate::{
         access::single_path_capabilities,
         cursor::PlannedCursor,
         direction::Direction,
+        executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
-            AccessStreamBindings, ContinuationEngine, ExecutablePlan, ExecutionKernel,
-            ExecutionPlan, ExecutionPreparation, ExecutionTrace, ResolvedScalarContinuationContext,
-            ScalarRouteContinuationInvariantProjection, StructuralStoreResolver,
+            AccessStreamBindings, ContinuationEngine, EntityAuthority, ExecutablePlan,
+            ExecutionKernel, ExecutionPlan, ExecutionPreparation, ExecutionTrace,
+            ResolvedScalarContinuationContext, ScalarRouteContinuationInvariantProjection,
+            StructuralStoreResolver, StructuralTraversalRuntime,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
                 ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
             },
+            pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
             validate_executor_plan,
         },
-        executor::{Context, aggregate::PreparedAggregateStreamingInputs},
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
         registry::StoreHandle,
     },
     error::InternalError,
-    metrics::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
 };
 
@@ -75,20 +76,39 @@ struct ScalarPathExecution {
 }
 
 ///
+/// PreparedScalarRouteRuntime
+///
+/// PreparedScalarRouteRuntime is the generic-free scalar runtime bundle emitted
+/// once the typed boundary resolves store authority, route planning, lowered
+/// specs, and continuation inputs.
+/// Kernel dispatch consumes this bundle directly so the scalar lane no longer
+/// carries `LoadExecutor<E>` or `ExecutablePlan<E>` behind a runtime adapter.
+///
+
+pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
+    store: StoreHandle,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+    route_plan: ExecutionPlan,
+    index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
+    resolved_continuation: ResolvedScalarContinuationContext,
+    unpaged_rows_mode: bool,
+    debug: bool,
+}
+
+///
 /// PreparedScalarMaterializedBoundary
 ///
 /// PreparedScalarMaterializedBoundary is the neutral typed boundary payload for
 /// non-aggregate scalar materialized terminal families.
-/// It owns the typed context, structural logical plan, and lowered specs
+/// It owns structural runtime authority, logical plan state, and lowered specs
 /// needed to execute structural scalar materialization without reusing
 /// `ExecutablePlan<E>` as the internal working contract.
 ///
 
-pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<
-    'ctx,
-    E: EntityKind + EntityValue,
-> {
-    pub(in crate::db::executor) ctx: Context<'ctx, E>,
+pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<'ctx> {
+    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) store_resolver: StructuralStoreResolver<'ctx>,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
@@ -97,10 +117,7 @@ pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<
     pub(in crate::db::executor) index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
 }
 
-impl<E> PreparedScalarMaterializedBoundary<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
+impl PreparedScalarMaterializedBoundary<'_> {
     /// Borrow scalar row-consistency policy for boundary-owned row reads.
     #[must_use]
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
@@ -148,7 +165,7 @@ where
         };
 
         order
-            .primary_key_only_direction(E::MODEL.primary_key.name)
+            .primary_key_only_direction(self.authority.model().primary_key.name)
             .map(|direction| match direction {
                 OrderDirection::Asc => Direction::Asc,
                 OrderDirection::Desc => Direction::Desc,
@@ -230,11 +247,76 @@ fn execute_scalar_execution_stage(
     })
 }
 
+// Execute one prepared scalar runtime bundle through the canonical monomorphic
+// scalar spine without re-entering typed executor state.
+fn execute_prepared_scalar_path_execution(
+    prepared: PreparedScalarRouteRuntime,
+) -> Result<ScalarPathExecution, InternalError> {
+    let PreparedScalarRouteRuntime {
+        store,
+        authority,
+        plan,
+        route_plan,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation,
+        unpaged_rows_mode,
+        debug,
+    } = prepared;
+    let structural_access = plan.access.clone();
+    let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+        &structural_access,
+        StructuralTraversalRuntime::new(store, authority.entity_tag()),
+        store,
+        authority.model(),
+    );
+    let execution_preparation = ExecutionPreparation::from_plan(
+        authority.model(),
+        &plan,
+        runtime.slot_map().map(<[usize]>::to_vec),
+    );
+
+    execute_scalar_execution_stage(ScalarExecutionStage {
+        runtime: &runtime,
+        plan,
+        execution_preparation,
+        route_plan,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation,
+        unpaged_rows_mode,
+        debug,
+    })
+}
+
+/// Execute one prepared scalar runtime bundle and finalize the structural page.
+pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime(
+    prepared: PreparedScalarRouteRuntime,
+) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
+    let entity_path = prepared.authority.entity_path();
+    let ScalarPathExecution {
+        page,
+        metrics,
+        mut trace,
+        execution_time_micros,
+    } = execute_prepared_scalar_path_execution(prepared)?;
+    let page = finalize_structural_page_for_path(
+        entity_path,
+        page,
+        metrics,
+        &mut trace,
+        execution_time_micros,
+    );
+
+    Ok((page, trace))
+}
+
 // Execute one fully materialized scalar rows path from already-resolved typed
 // boundary inputs without re-entering the generic `execute(plan)` wrapper.
 fn execute_scalar_materialized_rows_boundary<E>(
     executor: &LoadExecutor<E>,
-    ctx: Context<'_, E>,
+    store: StoreHandle,
+    authority: EntityAuthority,
     logical_plan: AccessPlannedQuery,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
@@ -242,11 +324,13 @@ fn execute_scalar_materialized_rows_boundary<E>(
 where
     E: EntityKind + EntityValue,
 {
-    let continuation_contract = logical_plan.continuation_contract(E::PATH).ok_or_else(|| {
-        crate::db::error::query_executor_invariant(
-            "scalar materialized rows path requires load-mode continuation contract",
-        )
-    })?;
+    let continuation_contract = logical_plan
+        .continuation_contract(authority.entity_path())
+        .ok_or_else(|| {
+            crate::db::error::query_executor_invariant(
+                "scalar materialized rows path requires load-mode continuation contract",
+            )
+        })?;
     let resolved_continuation = ContinuationEngine::resolve_scalar_context(
         PlannedCursor::none(),
         continuation_contract.continuation_signature(),
@@ -254,24 +338,30 @@ where
 
     // Phase 1: resolve typed execution authority once at the boundary.
     let structural_access = logical_plan.access.clone();
-    let runtime = ExecutionRuntimeAdapter::new(&ctx, &structural_access)?;
+    let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+        &structural_access,
+        StructuralTraversalRuntime::new(store, authority.entity_tag()),
+        store,
+        authority.model(),
+    );
     let execution_preparation = ExecutionPreparation::from_plan(
-        E::MODEL,
+        authority.model(),
         &logical_plan,
         runtime.slot_map().map(<[usize]>::to_vec),
     );
-    let mut route_plan = LoadExecutor::<E>::build_execution_route_plan_for_load(
-        &logical_plan,
-        resolved_continuation.route_context(),
-        None,
-    )?;
+    let mut route_plan =
+        crate::db::executor::route::build_execution_route_plan_for_load_with_model(
+            authority.model(),
+            &logical_plan,
+            resolved_continuation.route_context(),
+            None,
+        )?;
 
     // Phase 2: clear bounded scan hints before entering the shared scalar
     // runtime so materialized callers observe full row budgets.
     route_plan.scan_hints.physical_fetch_hint = None;
     route_plan.scan_hints.load_scan_budget_hint = None;
 
-    let mut span = Span::<E>::new(ExecKind::Load);
     let ScalarPathExecution {
         page,
         metrics,
@@ -289,10 +379,10 @@ where
         debug: executor.debug,
     })?;
 
-    let page = LoadExecutor::<E>::finalize_structural_page(
+    let page = finalize_structural_page_for_path(
+        authority.entity_path(),
         page,
         metrics,
-        &mut span,
         &mut trace,
         execution_time_micros,
     );
@@ -309,7 +399,7 @@ where
     pub(in crate::db::executor) fn prepare_scalar_materialized_boundary(
         &self,
         plan: ExecutablePlan<E>,
-    ) -> Result<PreparedScalarMaterializedBoundary<'_, E>, InternalError> {
+    ) -> Result<PreparedScalarMaterializedBoundary<'_>, InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_plan();
@@ -318,9 +408,10 @@ where
         let ctx = self.db.recovered_context::<E>()?;
         let store = ctx.structural_store()?;
         let store_resolver = self.db.structural_store_resolver();
+        let authority = EntityAuthority::for_type::<E>();
 
         Ok(PreparedScalarMaterializedBoundary {
-            ctx,
+            authority,
             store,
             store_resolver,
             logical_plan,
@@ -334,12 +425,12 @@ where
     // 2) build one structural scalar execution stage
     // 3) execute the shared scalar runtime
     // 4) finalize typed page + observability
-    pub(in crate::db::executor) fn execute_scalar_path(
+    pub(in crate::db::executor) fn prepare_scalar_route_runtime(
         &self,
         plan: ExecutablePlan<E>,
         resolved_continuation: ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
-    ) -> Result<(StructuralCursorPage, Option<ExecutionTrace>), InternalError> {
+    ) -> Result<PreparedScalarRouteRuntime, InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_plan();
@@ -347,59 +438,40 @@ where
         // Phase 1: resolve all typed execution authority once at the boundary.
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
-        let structural_access = logical_plan.access.clone();
-        let runtime = ExecutionRuntimeAdapter::new(&ctx, &structural_access)?;
-        let execution_preparation = ExecutionPreparation::from_plan(
-            E::MODEL,
-            &logical_plan,
-            runtime.slot_map().map(<[usize]>::to_vec),
-        );
-        let route_plan = Self::build_execution_route_plan_for_load(
-            &logical_plan,
-            resolved_continuation.route_context(),
-            None,
-        )?;
+        let store = ctx.structural_store()?;
+        let authority = EntityAuthority::for_type::<E>();
+        let route_plan =
+            crate::db::executor::route::build_execution_route_plan_for_load_with_model(
+                authority.model(),
+                &logical_plan,
+                resolved_continuation.route_context(),
+                None,
+            )?;
 
-        // Phase 2: hand off to the structural scalar execution stage.
-        let mut span = Span::<E>::new(ExecKind::Load);
-        let ScalarPathExecution {
-            page,
-            metrics,
-            mut trace,
-            execution_time_micros,
-        } = execute_scalar_execution_stage(ScalarExecutionStage {
-            runtime: &runtime,
+        // Phase 2: hand off one generic-free scalar runtime bundle to kernel dispatch.
+        Ok(PreparedScalarRouteRuntime {
+            store,
+            authority,
             plan: logical_plan,
-            execution_preparation,
             route_plan,
             index_prefix_specs,
             index_range_specs,
             resolved_continuation,
             unpaged_rows_mode,
             debug: self.debug,
-        })?;
-
-        // Phase 3: finalize observability before the final typed surface projection.
-        let page = Self::finalize_structural_page(
-            page,
-            metrics,
-            &mut span,
-            &mut trace,
-            execution_time_micros,
-        );
-
-        Ok((page, trace))
+        })
     }
 
     // Materialize one scalar page structurally from one already-prepared
     // aggregate/load stage without forcing typed entity reconstruction.
     pub(in crate::db::executor) fn execute_scalar_materialized_page_stage(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<StructuralCursorPage, InternalError> {
         execute_scalar_materialized_rows_boundary(
             self,
-            prepared.ctx,
+            prepared.store,
+            prepared.authority,
             prepared.logical_plan,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
@@ -410,11 +482,12 @@ where
     // prepared boundary without forcing typed entity response assembly.
     pub(in crate::db::executor) fn execute_scalar_materialized_page_boundary(
         &self,
-        prepared: PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
     ) -> Result<StructuralCursorPage, InternalError> {
         execute_scalar_materialized_rows_boundary(
             self,
-            prepared.ctx,
+            prepared.store,
+            prepared.authority,
             prepared.logical_plan,
             prepared.index_prefix_specs,
             prepared.index_range_specs,

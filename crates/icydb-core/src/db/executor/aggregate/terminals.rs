@@ -133,13 +133,10 @@ where
 }
 
 // Return the canonical aggregate zero-output for one provably empty window.
-fn aggregate_zero_output_if_window_empty_logical<E>(
-    prepared: &PreparedAggregateStreamingInputs<'_, E>,
+fn aggregate_zero_output_if_window_empty_logical(
+    prepared: &PreparedAggregateStreamingInputs<'_>,
     kind: AggregateKind,
-) -> Option<ScalarAggregateOutput>
-where
-    E: EntityKind + EntityValue,
-{
+) -> Option<ScalarAggregateOutput> {
     prepared
         .window_is_provably_empty()
         .then(|| kind.zero_output())
@@ -149,7 +146,7 @@ where
 // zero-window, fast-path, and kernel dispatch boundary.
 fn run_prepared_scalar_terminal_boundary<E>(
     executor: &LoadExecutor<E>,
-    state: PreparedScalarTerminalExecutionState<'_, E>,
+    state: PreparedScalarTerminalExecutionState<'_>,
 ) -> Result<ScalarAggregateOutput, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -182,7 +179,7 @@ where
 // Execute one kernel-owned scalar terminal request from prepared terminal metadata.
 fn execute_kernel_terminal_request<E>(
     executor: &LoadExecutor<E>,
-    prepared: PreparedAggregateStreamingInputs<'_, E>,
+    prepared: PreparedAggregateStreamingInputs<'_>,
     op: PreparedScalarTerminalOp,
 ) -> Result<ScalarAggregateOutput, InternalError>
 where
@@ -231,10 +228,10 @@ fn execute_count_primary_key_cardinality_terminal_request(
 ) -> Result<ScalarAggregateOutput, InternalError> {
     let (count, rows_scanned) = aggregate_count_from_pk_cardinality_with_store(
         &prepared.logical_plan,
-        prepared.entity_tag,
+        prepared.authority.entity_tag(),
         prepared.store,
     )?;
-    record_rows_scanned_for_path(prepared.entity_path, rows_scanned);
+    record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
 
     Ok(ScalarAggregateOutput::Count(count))
 }
@@ -249,8 +246,8 @@ fn execute_count_existing_rows_terminal_request(
     let count = expect_count_output(
         aggregate_existing_rows_terminal_output_with_runtime(
             ExistingRowsTerminalRuntime {
-                model: prepared.model,
-                entity_tag: prepared.entity_tag,
+                model: prepared.authority.model(),
+                entity_tag: prepared.authority.entity_tag(),
                 store: prepared.store,
                 logical_plan: &prepared.logical_plan,
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),
@@ -260,7 +257,7 @@ fn execute_count_existing_rows_terminal_request(
             direction,
         )
         .map(|(output, rows_scanned)| {
-            record_rows_scanned_for_path(prepared.entity_path, rows_scanned);
+            record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
             output
         })?,
         "existing-row COUNT reducer result kind mismatch",
@@ -278,8 +275,8 @@ fn execute_exists_existing_rows_terminal_request(
     let exists = expect_exists_output(
         aggregate_existing_rows_terminal_output_with_runtime(
             ExistingRowsTerminalRuntime {
-                model: prepared.model,
-                entity_tag: prepared.entity_tag,
+                model: prepared.authority.model(),
+                entity_tag: prepared.authority.entity_tag(),
                 store: prepared.store,
                 logical_plan: &prepared.logical_plan,
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),
@@ -289,7 +286,7 @@ fn execute_exists_existing_rows_terminal_request(
             direction,
         )
         .map(|(output, rows_scanned)| {
-            record_rows_scanned_for_path(prepared.entity_path, rows_scanned);
+            record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
             output
         })?,
         "covering EXISTS reducer result kind mismatch",
@@ -494,7 +491,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
         request: ScalarTerminalBoundaryRequest,
-    ) -> Result<PreparedScalarTerminalExecutionState<'_, E>, InternalError> {
+    ) -> Result<PreparedScalarTerminalExecutionState<'_>, InternalError> {
         let boundary = match request {
             ScalarTerminalBoundaryRequest::Count => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::Count,
@@ -537,7 +534,7 @@ where
     // fast-path policy.
     fn execute_prepared_scalar_terminal_boundary(
         &self,
-        prepared: PreparedScalarTerminalExecutionState<'_, E>,
+        prepared: PreparedScalarTerminalExecutionState<'_>,
     ) -> Result<ScalarTerminalBoundaryOutput<E>, InternalError> {
         let boundary = prepared.boundary.clone();
         let aggregate_output = run_prepared_scalar_terminal_boundary(self, prepared)?;
@@ -567,7 +564,12 @@ where
     fn prepare_scalar_count_terminal_strategy(
         plan: &ExecutablePlan<E>,
     ) -> PreparedScalarTerminalStrategy {
-        Self::derive_count_terminal_fast_path_contract(plan).map_or(
+        crate::db::executor::route::derive_count_terminal_fast_path_contract_for_model(
+            E::MODEL,
+            plan.logical_plan(),
+            plan.execution_preparation().strict_mode().is_some(),
+        )
+        .map_or(
             PreparedScalarTerminalStrategy::KernelAggregate,
             |contract| match contract {
                 CountTerminalFastPathContract::PrimaryKeyCardinality => {
@@ -593,7 +595,11 @@ where
     fn prepare_scalar_exists_terminal_strategy(
         plan: &ExecutablePlan<E>,
     ) -> PreparedScalarTerminalStrategy {
-        Self::derive_exists_terminal_fast_path_contract(plan).map_or(
+        crate::db::executor::route::derive_exists_terminal_fast_path_contract_for_model(
+            plan.logical_plan(),
+            plan.execution_preparation().strict_mode().is_some(),
+        )
+        .map_or(
             PreparedScalarTerminalStrategy::KernelAggregate,
             |contract| match contract {
                 ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {

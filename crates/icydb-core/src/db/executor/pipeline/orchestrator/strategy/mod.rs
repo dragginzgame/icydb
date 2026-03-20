@@ -5,3 +5,5 @@
 
 mod context;
 mod grouping;
+
+pub(super) use grouping::ExecutionSpec;

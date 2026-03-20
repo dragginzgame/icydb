@@ -12,8 +12,8 @@ use crate::{
         schema::{SchemaInfo, literal_matches_type},
     },
     model::entity::{EntityModel, resolve_field_slot},
-    traits::{EntityKind, FieldValue},
-    value::Value,
+    traits::FieldValue,
+    value::{StorageKey, Value},
 };
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -277,14 +277,58 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     }
 }
 
-/// Decode one typed primary-key boundary for PK-ordered executor paths.
-pub(in crate::db) fn decode_pk_cursor_boundary<E>(
+/// Decode the structural primary-key cursor slot from one validated cursor boundary.
+pub(in crate::db) fn decode_structural_primary_key_cursor_slot(
+    model: &EntityModel,
+    order: &OrderSpec,
+    boundary: &CursorBoundary,
+) -> Result<StorageKey, CursorPlanError> {
+    let pk_field = model.primary_key.name;
+    let pk_index = order
+        .fields
+        .iter()
+        .position(|(field, _)| field == pk_field)
+        .ok_or_else(|| {
+            CursorPlanError::invalid_continuation_cursor_payload(format!(
+                "order specification must end with primary key '{pk_field}' as deterministic tie-break"
+            ))
+        })?;
+
+    let schema = SchemaInfo::from_entity_model(model)
+        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))?;
+    let expected = schema
+        .field(pk_field)
+        .ok_or_else(|| {
+            CursorPlanError::invalid_continuation_cursor_payload(format!(
+                "unknown order field '{pk_field}'"
+            ))
+        })?
+        .to_string();
+    let pk_slot = &boundary.slots[pk_index];
+
+    match pk_slot {
+        CursorBoundarySlot::Missing => Err(
+            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                pk_field.to_string(),
+                expected,
+                None,
+            ),
+        ),
+        CursorBoundarySlot::Present(value) => value.as_storage_key().ok_or_else(|| {
+            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                pk_field.to_string(),
+                expected,
+                Some(value.clone()),
+            )
+        }),
+    }
+}
+
+/// Decode one structural primary-key boundary for PK-ordered executor paths.
+pub(in crate::db) fn decode_pk_cursor_boundary_storage_key(
     boundary: Option<&CursorBoundary>,
-) -> Result<Option<E::Key>, CursorPlanError>
-where
-    E: EntityKind,
-    E::Key: FieldValue,
-{
+    model: &EntityModel,
+) -> Result<Option<StorageKey>, CursorPlanError> {
     let Some(boundary) = boundary else {
         return Ok(None);
     };
@@ -296,8 +340,8 @@ where
     );
 
     let order = OrderSpec {
-        fields: vec![(E::MODEL.primary_key.name.to_string(), OrderDirection::Asc)],
+        fields: vec![(model.primary_key.name.to_string(), OrderDirection::Asc)],
     };
 
-    decode_typed_primary_key_cursor_slot::<E::Key>(E::MODEL, &order, boundary).map(Some)
+    decode_structural_primary_key_cursor_slot(model, &order, boundary).map(Some)
 }

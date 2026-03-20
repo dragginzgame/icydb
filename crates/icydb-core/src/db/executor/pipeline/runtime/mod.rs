@@ -9,39 +9,31 @@ mod fast_path;
 use crate::db::executor::route::ensure_load_fast_path_spec_arity;
 use crate::{
     db::executor::{
-        ExecutionTrace,
-        aggregate::runtime::finalize_path_outcome_for_path,
-        pipeline::contracts::ExecutionOutcomeMetrics,
-        pipeline::contracts::{LoadExecutor, StructuralCursorPage},
-        plan_metrics::set_rows_from_len,
+        ExecutionTrace, aggregate::runtime::finalize_path_outcome_for_path,
+        pipeline::contracts::ExecutionOutcomeMetrics, pipeline::contracts::StructuralCursorPage,
     },
-    metrics::sink::Span,
-    traits::{EntityKind, EntityValue},
+    metrics::sink::{ExecKind, PathSpan},
 };
 
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Finalize one structural scalar page before typed surface projection.
-    pub(in crate::db::executor) fn finalize_structural_page(
-        page: StructuralCursorPage,
-        metrics: ExecutionOutcomeMetrics,
-        span: &mut Span<E>,
-        execution_trace: &mut Option<ExecutionTrace>,
-        execution_time_micros: u64,
-    ) -> StructuralCursorPage {
-        finalize_path_outcome_for_path(
-            E::PATH,
-            execution_trace,
-            metrics,
-            false,
-            execution_time_micros,
-        );
-        set_rows_from_len(span, page.row_count());
+/// Finalize one structural scalar page before typed or structural surface projection.
+pub(in crate::db::executor) fn finalize_structural_page_for_path(
+    entity_path: &'static str,
+    page: StructuralCursorPage,
+    metrics: ExecutionOutcomeMetrics,
+    execution_trace: &mut Option<ExecutionTrace>,
+    execution_time_micros: u64,
+) -> StructuralCursorPage {
+    finalize_path_outcome_for_path(
+        entity_path,
+        execution_trace,
+        metrics,
+        false,
+        execution_time_micros,
+    );
+    let mut span = PathSpan::new(ExecKind::Load, entity_path);
+    span.set_rows(u64::try_from(page.row_count()).unwrap_or(u64::MAX));
 
-        page
-    }
+    page
 }
 
 ///

@@ -50,7 +50,7 @@ where
     // Classify canonical `bytes_by(field)` execution mode from one neutral
     // prepared scalar boundary without reintroducing plan-owned execution.
     fn bytes_by_projection_mode_from_prepared(
-        prepared: &PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &str,
     ) -> BytesByProjectionMode {
         if !matches!(prepared.consistency(), MissingRowPolicy::Ignore) {
@@ -74,7 +74,7 @@ where
             &prepared.logical_plan.access,
             prepared.order_spec(),
             target_field,
-            E::MODEL.primary_key.name,
+            prepared.authority.model().primary_key.name,
         )
         .is_some()
         {
@@ -87,7 +87,7 @@ where
     // Derive one route-owned `bytes()` fast-path contract from the neutral
     // non-aggregate scalar materialized boundary.
     fn derive_bytes_terminal_fast_path_contract_from_prepared(
-        prepared: &PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
     ) -> Option<BytesTerminalFastPathContract> {
         prepared.has_no_predicate_or_distinct().then_some(())?;
 
@@ -125,7 +125,7 @@ where
     // non-aggregate prepared boundary payload.
     fn execute_prepared_bytes_terminal_boundary(
         &self,
-        prepared: PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
         request: BytesTerminalBoundaryRequest,
     ) -> Result<u64, InternalError> {
         match request {
@@ -234,14 +234,14 @@ where
     // Resolve one `bytes(field)` total from an index-covered projection when
     // the neutral prepared scalar boundary still satisfies the covering contract.
     fn bytes_by_covering_index_if_eligible(
-        prepared: &PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<u64>, InternalError> {
         let Some(context) = covering_index_projection_context(
             &prepared.logical_plan.access,
             prepared.order_spec(),
             target_field.field(),
-            E::MODEL.primary_key.name,
+            prepared.authority.model().primary_key.name,
         ) else {
             return Ok(None);
         };
@@ -310,7 +310,7 @@ where
     // Resolve one raw `(data_key, component_bytes)` stream for an eligible
     // covering-index `bytes(field)` path from the neutral scalar boundary.
     fn read_bytes_covering_projection_component_pairs(
-        prepared: &PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
         component_index: usize,
         direction: Direction,
     ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
@@ -401,7 +401,7 @@ where
     // page window for safe PK full-scan/key-range shapes.
     fn bytes_from_pk_store_window(
         &self,
-        prepared: &PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
         direction: Direction,
     ) -> Result<u64, InternalError> {
         // Phase 1: snapshot paging + executable payload before store traversal.
@@ -437,7 +437,7 @@ where
     // for unordered scalar shapes where row materialization is unnecessary.
     fn bytes_from_ordered_key_stream_window(
         &self,
-        prepared: &PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
         direction: Direction,
     ) -> Result<u64, InternalError> {
         // Phase 1: materialize immutable stream bindings before stream resolution.

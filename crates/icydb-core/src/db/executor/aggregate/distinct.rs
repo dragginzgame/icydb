@@ -14,7 +14,10 @@ use crate::{
         executor::{
             ExecutablePlan,
             aggregate::AggregateKind,
-            pipeline::contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
+            pipeline::{
+                contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
+                entrypoints::execute_prepared_grouped_route_runtime,
+            },
         },
         query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_semantic_aggregate},
     },
@@ -105,7 +108,8 @@ where
         &self,
         route: GroupedRouteStage,
     ) -> Result<Option<Value>, InternalError> {
-        let (page, _) = self.execute_prepared_grouped_route(route)?;
+        let (page, _) =
+            execute_prepared_grouped_route_runtime(self.prepare_grouped_route_runtime(route)?)?;
 
         Self::decode_global_distinct_grouped_output(page)
     }

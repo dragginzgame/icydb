@@ -7,9 +7,9 @@ use crate::{
     db::{
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
-            pipeline::contracts::{CursorPage, LoadExecutor, StructuralCursorPage},
+            pipeline::contracts::{CursorPage, LoadExecutor},
             pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
-            pipeline::orchestrator::ErasedLoadExecutionSurface,
+            pipeline::orchestrator::LoadExecutionSurface,
         },
         response::EntityResponse,
     },
@@ -28,7 +28,7 @@ where
         cursor: LoadCursorInput,
     ) -> Result<EntityResponse<E>, InternalError> {
         let surface =
-            self.execute_load_erased(plan, cursor, LoadExecutionMode::scalar_unpaged_rows())?;
+            self.execute_load_surface(plan, cursor, LoadExecutionMode::scalar_unpaged_rows())?;
 
         Self::expect_scalar_rows_surface(surface)
     }
@@ -39,7 +39,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: LoadCursorInput,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        let surface = self.execute_load_erased(
+        let surface = self.execute_load_surface(
             plan,
             cursor,
             LoadExecutionMode::scalar_paged(LoadTracingMode::Enabled),
@@ -50,16 +50,10 @@ where
 
     // Project one rows-only scalar load surface and classify shape mismatches.
     fn expect_scalar_rows_surface(
-        surface: ErasedLoadExecutionSurface,
+        surface: LoadExecutionSurface,
     ) -> Result<EntityResponse<E>, InternalError> {
         match surface {
-            ErasedLoadExecutionSurface::ScalarPage(page) => {
-                let page = page.into_typed::<StructuralCursorPage>(
-                    "scalar rows entrypoint must receive structural cursor page payload",
-                )?;
-
-                page.into_entity_response::<E>()
-            }
+            LoadExecutionSurface::ScalarPage(page) => page.into_entity_response::<E>(),
             _ => Err(crate::db::error::query_executor_invariant(
                 "scalar rows entrypoint must produce scalar rows surface",
             )),
@@ -68,16 +62,12 @@ where
 
     // Project one traced paged scalar load surface and classify shape mismatches.
     fn expect_scalar_traced_surface(
-        surface: ErasedLoadExecutionSurface,
+        surface: LoadExecutionSurface,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         match surface {
-            ErasedLoadExecutionSurface::ScalarPageWithTrace(page, trace) => Ok((
-                page.into_typed::<StructuralCursorPage>(
-                    "scalar traced entrypoint must receive structural cursor page payload",
-                )?
-                .into_cursor_page::<E>()?,
-                trace,
-            )),
+            LoadExecutionSurface::ScalarPageWithTrace(page, trace) => {
+                Ok((page.into_cursor_page::<E>()?, trace))
+            }
             _ => Err(crate::db::error::query_executor_invariant(
                 "scalar traced entrypoint must produce scalar traced page surface",
             )),

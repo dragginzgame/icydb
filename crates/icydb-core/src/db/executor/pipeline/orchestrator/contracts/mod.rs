@@ -8,4 +8,4 @@ mod mode;
 mod surface;
 
 pub(in crate::db::executor) use mode::{LoadExecutionMode, LoadTracingMode};
-pub(in crate::db::executor) use surface::{ErasedLoadExecutionSurface, ErasedLoadPayload};
+pub(in crate::db::executor) use surface::LoadExecutionSurface;

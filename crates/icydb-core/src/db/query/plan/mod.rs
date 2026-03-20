@@ -44,9 +44,10 @@ pub(in crate::db) use covering::{
     constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
     covering_index_projection_context, index_covering_existing_rows_terminal_eligible,
 };
+#[cfg(test)]
+pub(in crate::db) use group::GroupedExecutorHandoff;
 pub(in crate::db) use group::{
-    GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
-    grouped_executor_handoff,
+    GroupedDistinctExecutionStrategy, PlannedProjectionLayout, grouped_executor_handoff,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query) use limit_zero::is_limit_zero_load_window;

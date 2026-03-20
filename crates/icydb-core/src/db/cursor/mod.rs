@@ -27,8 +27,10 @@ use crate::{
         query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
     },
     error::InternalError,
-    traits::{EntityKind, FieldValue},
+    model::entity::EntityModel,
+    traits::FieldValue,
     types::EntityTag,
+    value::StorageKey,
 };
 
 pub(in crate::db) use crate::db::index::{
@@ -146,14 +148,13 @@ pub(in crate::db) fn revalidate_grouped_cursor(
     spine::validate_grouped_cursor_state(initial_offset, cursor)
 }
 
-/// Decode a typed primary-key cursor boundary for PK-ordered executor paths.
-pub(in crate::db) fn decode_pk_cursor_boundary<E>(
+/// Decode one structural primary-key cursor boundary for PK-ordered executor paths.
+pub(in crate::db) fn decode_pk_cursor_boundary_storage_key(
     boundary: Option<&CursorBoundary>,
-) -> Result<Option<E::Key>, InternalError>
-where
-    E: EntityKind,
-{
-    boundary::decode_pk_cursor_boundary::<E>(boundary).map_err(map_pk_cursor_decode_error)
+    model: &EntityModel,
+) -> Result<Option<StorageKey>, InternalError> {
+    boundary::decode_pk_cursor_boundary_storage_key(boundary, model)
+        .map_err(map_pk_cursor_decode_error)
 }
 
 // Map cursor decode variants into explicit pk-cursor invariant taxonomy.

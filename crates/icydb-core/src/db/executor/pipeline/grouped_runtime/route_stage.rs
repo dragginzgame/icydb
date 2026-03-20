@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutablePlan, ExecutionTrace, GroupedContinuationCapabilities,
+            EntityAuthority, ExecutablePlan, ExecutionTrace, GroupedContinuationCapabilities,
             GroupedContinuationContext,
             pipeline::contracts::{
                 GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
@@ -15,10 +15,13 @@ use crate::{
             },
             pipeline::grouped_runtime::GroupedExecutionContext,
             route::{
-                RouteExecutionMode, grouped_plan_metrics_strategy_for_execution_strategy,
+                RouteExecutionMode, build_execution_route_plan_for_grouped_plan,
+                grouped_plan_metrics_strategy_for_execution_strategy,
                 grouped_route_observability_for_runtime,
             },
+            validate_executor_plan_for_authority,
         },
+        query::plan::grouped_executor_handoff,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -34,7 +37,10 @@ where
         cursor: GroupedPlannedCursor,
         debug: bool,
     ) -> Result<GroupedRouteStage, InternalError> {
-        let grouped_handoff = plan.grouped_handoff()?;
+        let authority = EntityAuthority::for_type::<E>();
+
+        validate_executor_plan_for_authority(authority, plan.logical_plan())?;
+        let grouped_handoff = grouped_executor_handoff(plan.logical_plan())?;
         if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
             return Err(crate::db::error::query_executor_invariant(
                 reason.invariant_message(),
@@ -51,8 +57,11 @@ where
         let grouped_distinct_execution_strategy =
             grouped_handoff.distinct_execution_strategy().clone();
         let grouped_having = grouped_handoff.having().cloned();
-        let grouped_route_plan =
-            Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
+        let grouped_route_plan = build_execution_route_plan_for_grouped_plan(
+            authority.model(),
+            grouped_handoff.base(),
+            grouped_handoff.grouped_plan_strategy_hint(),
+        );
         let grouped_route_observability =
             grouped_route_observability_for_runtime(&grouped_route_plan)?;
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
@@ -92,7 +101,7 @@ where
         Ok(GroupedRouteStage {
             planner_payload: GroupedPlannerPayload {
                 plan,
-                entity_model: E::MODEL,
+                entity_model: authority.model(),
                 grouped_execution,
                 group_fields,
                 grouped_aggregate_exprs,

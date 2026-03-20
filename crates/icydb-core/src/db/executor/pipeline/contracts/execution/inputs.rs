@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         executor::pipeline::contracts::{FastPathKeyResult, execution::ErasedRuntimeBindings},
         executor::{
-            AccessStreamBindings, Context, ExecutionKernel, ExecutionPreparation, ExecutorError,
+            AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
             preparation::resolved_index_slots_for_access_path,
             terminal::{
@@ -29,7 +29,6 @@ use crate::{
     },
     error::InternalError,
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue, Path},
 };
 use std::marker::PhantomData;
 
@@ -360,7 +359,7 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a> {
     marker: PhantomData<(&'a (), &'ctx ())>,
 }
 
-impl<'ctx, 'a> ExecutionRuntimeAdapter<'ctx, 'a> {
+impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
     /// Build one structural runtime adapter from structural runtime authority plus access plan.
     pub(in crate::db::executor) fn from_runtime_parts(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
@@ -382,24 +381,6 @@ impl<'ctx, 'a> ExecutionRuntimeAdapter<'ctx, 'a> {
             marker: PhantomData,
         }
     }
-
-    /// Build one typed runtime adapter from recovered context plus structural access plan.
-    pub(in crate::db::executor) fn new<E>(
-        ctx: &'a Context<'ctx, E>,
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
-    ) -> Result<Self, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let model = E::MODEL;
-        let store = ctx
-            .db
-            .with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
-        let runtime = ctx.structural_traversal_runtime()?;
-
-        Ok(Self::from_runtime_parts(access, runtime, store, model))
-    }
-
     /// Borrow the precomputed slot map for this typed adapter.
     #[must_use]
     pub(in crate::db::executor) fn slot_map(&self) -> Option<&[usize]> {

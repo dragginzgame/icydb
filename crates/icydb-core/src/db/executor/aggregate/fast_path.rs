@@ -71,7 +71,7 @@ impl ExecutionKernel {
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let index_predicate_execution =
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
-        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.entity_tag);
+        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.authority.entity_tag());
         let Some(fast) = execute_fast_stream_route(
             &runtime,
             FastStreamRouteKind::SecondaryIndex,
@@ -167,9 +167,9 @@ impl ExecutionKernel {
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         match verified_route.route {
             FastPathOrder::PrimaryKey => Self::try_execute_primary_key_access_aggregate(
-                inputs.model,
+                inputs.authority.model(),
                 inputs.store,
-                inputs.entity_tag,
+                inputs.authority.entity_tag(),
                 inputs.logical_plan,
                 inputs.direction,
                 inputs.kind,
@@ -178,7 +178,7 @@ impl ExecutionKernel {
             FastPathOrder::SecondaryPrefix => Self::try_execute_index_prefix_aggregate(inputs),
             FastPathOrder::PrimaryScan => Self::try_execute_primary_scan_aggregate(
                 inputs.store,
-                inputs.entity_tag,
+                inputs.authority.entity_tag(),
                 inputs.logical_plan,
                 inputs.direction,
                 inputs.physical_fetch_hint,
@@ -375,7 +375,7 @@ impl ExecutionKernel {
             return Ok(None);
         };
 
-        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.entity_tag);
+        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.authority.entity_tag());
         let Some(fast) = execute_fast_stream_route(
             &runtime,
             FastStreamRouteKind::IndexRangeLimitPushdown,
@@ -423,7 +423,7 @@ impl ExecutionKernel {
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
         );
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
-            StructuralTraversalRuntime::new(inputs.store, inputs.entity_tag),
+            StructuralTraversalRuntime::new(inputs.store, inputs.authority.entity_tag()),
             inputs.store,
             inputs.logical_plan,
             inputs.direction,

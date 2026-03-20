@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        access::validate_access_structure_model, query::plan::AccessPlannedQuery,
-        schema::SchemaInfo,
+        access::validate_access_structure_model, executor::EntityAuthority,
+        query::plan::AccessPlannedQuery, schema::SchemaInfo,
     },
     error::InternalError,
     traits::EntityKind,
@@ -23,11 +23,20 @@ use crate::{
 pub(in crate::db::executor) fn validate_executor_plan<E: EntityKind>(
     plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError> {
-    let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
-        crate::db::error::query_invariant(format!("entity schema invalid for {}: {err}", E::PATH))
+    validate_executor_plan_for_authority(EntityAuthority::for_type::<E>(), plan)
+}
+
+/// Validate plans at executor boundaries using structural entity authority.
+pub(in crate::db::executor) fn validate_executor_plan_for_authority(
+    authority: EntityAuthority,
+    plan: &AccessPlannedQuery,
+) -> Result<(), InternalError> {
+    let entity_path = authority.entity_path();
+    let schema = SchemaInfo::from_entity_model(authority.model()).map_err(|err| {
+        crate::db::error::query_invariant(format!("entity schema invalid for {entity_path}: {err}"))
     })?;
 
-    validate_access_structure_model(&schema, E::MODEL, &plan.access)
+    validate_access_structure_model(&schema, authority.model(), &plan.access)
         .map_err(crate::db::error::from_executor_access_plan_error)?;
 
     Ok(())

@@ -31,15 +31,10 @@ pub(in crate::db::executor) struct GroupedOutputRuntimeObserverBindings {
 }
 
 impl GroupedOutputRuntimeObserverBindings {
-    /// Build one grouped output observer bundle from one typed executor boundary.
+    /// Build one grouped output observer bundle from one structural entity path.
     #[must_use]
-    pub(in crate::db::executor) const fn new<E>() -> Self
-    where
-        E: crate::traits::EntityKind + crate::traits::EntityValue,
-    {
-        Self {
-            entity_path: E::PATH,
-        }
+    pub(in crate::db::executor) const fn for_path(entity_path: &'static str) -> Self {
+        Self { entity_path }
     }
 
     /// Record grouped output metrics and execution-trace outcome for one completed page.

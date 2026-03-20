@@ -93,7 +93,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
-    ) -> Result<PreparedScalarNumericExecutionState<'_, E>, InternalError> {
+    ) -> Result<PreparedScalarNumericExecutionState<'_>, InternalError> {
         let target_field_name = target_field.field().to_string();
         let field_slot =
             resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
@@ -141,7 +141,7 @@ where
     // strategy from the original plan.
     fn execute_prepared_scalar_numeric_boundary(
         &self,
-        prepared_state: PreparedScalarNumericExecutionState<'_, E>,
+        prepared_state: PreparedScalarNumericExecutionState<'_>,
     ) -> Result<Option<Decimal>, InternalError> {
         match prepared_state {
             PreparedScalarNumericExecutionState::Aggregate { boundary, prepared } => {
@@ -213,7 +213,7 @@ where
 
     // Return whether numeric field aggregates can use one direct key-stream fold.
     fn streaming_numeric_field_aggregate_eligible(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
     ) -> bool {
         if !Self::aggregate_predicate_safe(prepared) {
             return false;
@@ -233,7 +233,7 @@ where
 
     // Return whether predicate and distinct planner flags preserve one
     // canonical direct stream-fold contract.
-    const fn aggregate_predicate_safe(prepared: &PreparedAggregateStreamingInputs<'_, E>) -> bool {
+    const fn aggregate_predicate_safe(prepared: &PreparedAggregateStreamingInputs<'_>) -> bool {
         prepared.has_no_predicate_or_distinct()
     }
 
@@ -246,7 +246,7 @@ where
     // Return whether one paged ORDER BY window preserves one direct numeric
     // stream-fold contract under primary-key order constraints.
     fn aggregate_page_window_safe(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         path_kind: AccessPathKind,
     ) -> bool {
         if prepared.page_spec().is_none() {
@@ -278,20 +278,18 @@ where
         let consistency = prepared.consistency();
         let direction = Self::aggregate_numeric_stream_direction(&prepared);
         let PreparedAggregateStreamingInputsCore {
+            authority,
             store,
-            model,
-            entity_tag,
-            entity_path,
             logical_plan,
             index_prefix_specs,
             index_range_specs,
             ..
         } = prepared;
         let execution_preparation = ExecutionPreparation::from_plan(
-            model,
+            authority.model(),
             &logical_plan,
             resolved_index_slots_for_access_path(
-                model,
+                authority.model(),
                 logical_plan.access.resolve_strategy().executable(),
             ),
         );
@@ -316,7 +314,7 @@ where
             None,
             index_predicate_execution,
         );
-        let runtime = StructuralTraversalRuntime::new(store, entity_tag);
+        let runtime = StructuralTraversalRuntime::new(store, authority.entity_tag());
         let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
 
         // Phase 3: stream-fold numeric values directly from row reads.
@@ -353,7 +351,7 @@ where
             &mut pre_key,
             &mut on_key,
         )?;
-        record_rows_scanned_for_path(entity_path, rows_scanned);
+        record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
 
         // Phase 4: finish SUM/AVG output with shared numeric arithmetic semantics.
         finalize_numeric_field_output(accumulator, kind)

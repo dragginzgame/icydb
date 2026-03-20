@@ -8,7 +8,7 @@ use crate::{
         access::LoweredKey,
         cursor::{
             ContinuationSignature, CursorBoundary, PlannedCursor, RangeToken,
-            decode_pk_cursor_boundary,
+            decode_pk_cursor_boundary_storage_key,
             effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
             range_token_anchor_key, range_token_from_validated_cursor_anchor,
@@ -21,7 +21,7 @@ use crate::{
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
     error::InternalError,
-    traits::EntityKind,
+    model::entity::EntityModel,
 };
 
 ///
@@ -78,10 +78,11 @@ impl ScalarContinuationContext {
     ///
     /// This preserves PK fast-path cursor error classification while keeping
     /// boundary decode authority in continuation runtime.
-    pub(in crate::db::executor) fn validate_pk_fast_path_boundary<E: EntityKind>(
+    pub(in crate::db::executor) fn validate_pk_fast_path_boundary_for_model(
         &self,
+        model: &EntityModel,
     ) -> Result<(), InternalError> {
-        let _ = decode_pk_cursor_boundary::<E>(self.cursor_boundary())?;
+        let _ = decode_pk_cursor_boundary_storage_key(self.cursor_boundary(), model)?;
 
         Ok(())
     }

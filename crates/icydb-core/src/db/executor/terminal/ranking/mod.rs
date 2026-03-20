@@ -131,7 +131,7 @@ where
     // non-aggregate prepared boundary payload.
     fn execute_prepared_ranking_terminal_boundary(
         &self,
-        prepared: PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
         request: RankingTerminalBoundaryRequest,
     ) -> Result<RankingTerminalBoundaryOutput<E>, InternalError> {
         match request {
@@ -214,7 +214,7 @@ where
     // boundary and project the requested output shape.
     fn execute_ranked_field_boundary(
         &self,
-        prepared: PreparedScalarMaterializedBoundary<'_, E>,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
         target_field: PlannedFieldSlot,
         take_count: u32,
         direction: RankedFieldBoundaryDirection,

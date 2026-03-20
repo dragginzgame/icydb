@@ -10,6 +10,10 @@ use crate::db::query::plan::expr::{ProjectionField, ProjectionSpec};
 use crate::db::{
     IndexStore,
     data::DataKey,
+    executor::{
+        EntityAuthority, build_execution_route_plan_for_grouped_plan,
+        validate_executor_plan_for_authority,
+    },
     query::explain::{ExplainAccessPath, ExplainExecutionNodeType},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -213,13 +217,20 @@ where
         .plan()
         .expect("grouped execution pipeline snapshot should build compiled query");
     let executable = crate::db::executor::ExecutablePlan::from(compiled);
-    let grouped_handoff = executable
-        .grouped_handoff()
+    validate_executor_plan_for_authority(
+        EntityAuthority::for_type::<E>(),
+        executable.logical_plan(),
+    )
+        .expect("grouped execution pipeline snapshot should validate executor boundary");
+    let grouped_handoff = grouped_executor_handoff(executable.logical_plan())
         .expect("grouped execution pipeline snapshot should project grouped handoff");
 
     // Phase 2: derive grouped route observability from grouped handoff contracts.
-    let route_plan =
-        LoadExecutor::<E>::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        E::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy_hint(),
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped execution pipeline snapshot should project grouped observability");

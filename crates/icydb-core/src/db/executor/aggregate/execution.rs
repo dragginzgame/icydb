@@ -5,11 +5,10 @@
 
 use crate::{
     db::{
-        Context,
         direction::Direction,
         executor::{
-            ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            StructuralStoreResolver,
+            EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, StructuralStoreResolver,
             aggregate::{
                 AggregateKind, field::FieldSlot, projection::ScalarProjectionBoundaryRequest,
             },
@@ -26,9 +25,6 @@ use crate::{
         },
         registry::StoreHandle,
     },
-    model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
-    types::EntityTag,
     value::Value,
 };
 
@@ -41,8 +37,7 @@ use crate::{
 
 pub(in crate::db::executor) struct AggregateFastPathInputs<'exec> {
     pub(in crate::db::executor) logical_plan: &'exec AccessPlannedQuery,
-    pub(in crate::db::executor) model: &'static EntityModel,
-    pub(in crate::db::executor) entity_tag: EntityTag,
+    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) route_plan: &'exec ExecutionPlan,
     pub(in crate::db::executor) index_prefix_specs: &'exec [LoweredIndexPrefixSpec],
@@ -86,12 +81,9 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
 /// inputs so downstream execution no longer reconstructs typed plan shells.
 ///
 
-pub(in crate::db::executor) struct PreparedAggregateExecutionState<
-    'ctx,
-    E: EntityKind + EntityValue,
-> {
+pub(in crate::db::executor) struct PreparedAggregateExecutionState<'ctx> {
     pub(in crate::db::executor) descriptor: AggregateExecutionDescriptor,
-    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx, E>,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 ///
@@ -101,14 +93,9 @@ pub(in crate::db::executor) struct PreparedAggregateExecutionState<
 /// state after `ExecutablePlan` is consumed into logical plan form.
 ///
 
-pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
-    'ctx,
-    E: EntityKind + EntityValue,
-> {
-    pub(in crate::db::executor) ctx: Context<'ctx, E>,
+pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
     pub(in crate::db::executor) store_resolver: StructuralStoreResolver<'ctx>,
-    pub(in crate::db::executor) model: &'static EntityModel,
-    pub(in crate::db::executor) entity_tag: EntityTag,
+    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
@@ -126,19 +113,14 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
 ///
 
 pub(in crate::db::executor) struct PreparedAggregateStreamingInputsCore {
-    pub(in crate::db::executor) model: &'static EntityModel,
-    pub(in crate::db::executor) entity_tag: EntityTag,
-    pub(in crate::db::executor) entity_path: &'static str,
+    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
 }
 
-impl<E> PreparedAggregateStreamingInputs<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
+impl PreparedAggregateStreamingInputs<'_> {
     /// Return whether normalized plan semantics prove the aggregate window is empty.
     #[must_use]
     pub(in crate::db::executor) fn window_is_provably_empty(&self) -> bool {
@@ -207,9 +189,7 @@ where
     #[must_use]
     pub(in crate::db::executor) fn into_core(self) -> PreparedAggregateStreamingInputsCore {
         PreparedAggregateStreamingInputsCore {
-            model: self.model,
-            entity_tag: self.entity_tag,
-            entity_path: E::PATH,
+            authority: self.authority,
             store: self.store,
             logical_plan: self.logical_plan,
             index_prefix_specs: self.index_prefix_specs,
@@ -306,13 +286,10 @@ pub(in crate::db::executor) struct PreparedScalarNumericBoundary {
 /// The boundary itself is plan-free; only the runtime payload remains typed.
 ///
 
-pub(in crate::db::executor) enum PreparedScalarNumericExecutionState<
-    'ctx,
-    E: EntityKind + EntityValue,
-> {
+pub(in crate::db::executor) enum PreparedScalarNumericExecutionState<'ctx> {
     Aggregate {
         boundary: PreparedScalarNumericBoundary,
-        prepared: Box<PreparedAggregateStreamingInputs<'ctx, E>>,
+        prepared: Box<PreparedAggregateStreamingInputs<'ctx>>,
     },
     GlobalDistinct {
         boundary: PreparedScalarNumericBoundary,
@@ -411,12 +388,9 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
 /// opaque runtime dependency rather than a policy source.
 ///
 
-pub(in crate::db::executor) struct PreparedScalarProjectionExecutionState<
-    'ctx,
-    E: EntityKind + EntityValue,
-> {
+pub(in crate::db::executor) struct PreparedScalarProjectionExecutionState<'ctx> {
     pub(in crate::db::executor) boundary: PreparedScalarProjectionBoundary,
-    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx, E>,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 ///
@@ -499,12 +473,9 @@ pub(in crate::db::executor) struct PreparedScalarTerminalBoundary {
 /// receives plan-owned fast-path policy.
 ///
 
-pub(in crate::db::executor) struct PreparedScalarTerminalExecutionState<
-    'ctx,
-    E: EntityKind + EntityValue,
-> {
+pub(in crate::db::executor) struct PreparedScalarTerminalExecutionState<'ctx> {
     pub(in crate::db::executor) boundary: PreparedScalarTerminalBoundary,
-    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx, E>,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 impl PreparedScalarProjectionOp {

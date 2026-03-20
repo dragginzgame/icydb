@@ -25,8 +25,8 @@ use crate::{
         data::DataRow,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
-            ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, EntityAuthority, ExecutablePlan,
+            ExecutionKernel, ExecutionPreparation,
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::aggregate_materialized_fold_direction,
@@ -92,9 +92,9 @@ enum AggregateReducerDispatch<'a> {
 ///
 
 #[expect(clippy::large_enum_variant)]
-enum AggregateReducerSelection<'ctx, E: EntityKind + EntityValue> {
+enum AggregateReducerSelection<'ctx> {
     Completed(ScalarAggregateOutput),
-    Streaming(PreparedAggregateExecutionState<'ctx, E>),
+    Streaming(PreparedAggregateExecutionState<'ctx>),
 }
 
 impl<'a> AggregateReducerDispatch<'a> {
@@ -122,8 +122,8 @@ impl<'a> AggregateReducerDispatch<'a> {
         self,
         executor: &LoadExecutor<E>,
         descriptor: AggregateExecutionDescriptor,
-        prepared: PreparedAggregateStreamingInputs<'ctx, E>,
-    ) -> Result<AggregateReducerSelection<'ctx, E>, InternalError>
+        prepared: PreparedAggregateStreamingInputs<'ctx>,
+    ) -> Result<AggregateReducerSelection<'ctx>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -139,7 +139,7 @@ impl<'a> AggregateReducerDispatch<'a> {
                 direction,
                 route_plan,
             } => Ok(AggregateReducerSelection::Completed(
-                ExecutionKernel::execute_field_target_extrema_aggregate(
+                ExecutionKernel::execute_field_target_extrema_aggregate::<E>(
                     &prepared,
                     kind,
                     target_field,
@@ -167,7 +167,7 @@ where
     pub(in crate::db::executor::aggregate) fn prepare_scalar_aggregate_boundary(
         &self,
         plan: ExecutablePlan<E>,
-    ) -> Result<PreparedAggregateStreamingInputs<'_, E>, InternalError> {
+    ) -> Result<PreparedAggregateStreamingInputs<'_>, InternalError> {
         ExecutionKernel::prepare_aggregate_streaming_inputs(self, plan)
     }
 }
@@ -175,24 +175,25 @@ where
 impl ExecutionKernel {
     // Build one canonical aggregate descriptor from already-prepared aggregate
     // inputs so execution no longer reconstructs `ExecutablePlan<E>` shells.
-    pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared<E>(
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+    pub(in crate::db::executor::aggregate) fn prepare_aggregate_execution_state_from_prepared(
+        prepared: PreparedAggregateStreamingInputs<'_>,
         aggregate: AggregateExpr,
-    ) -> PreparedAggregateExecutionState<'_, E>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> PreparedAggregateExecutionState<'_> {
         let slot_map = crate::db::executor::preparation::resolved_index_slots_for_access_path(
-            E::MODEL,
+            prepared.authority.model(),
             prepared.logical_plan.access.resolve_strategy().executable(),
         );
-        let execution_preparation =
-            ExecutionPreparation::from_plan(E::MODEL, &prepared.logical_plan, slot_map);
+        let execution_preparation = ExecutionPreparation::from_plan(
+            prepared.authority.model(),
+            &prepared.logical_plan,
+            slot_map,
+        );
 
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
         let route_plan =
-            LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
+            crate::db::executor::route::build_execution_route_plan_for_aggregate_spec_with_model(
+                prepared.authority.model(),
                 &prepared.logical_plan,
                 aggregate.clone(),
                 &execution_preparation,
@@ -215,7 +216,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor::aggregate) fn prepare_aggregate_streaming_inputs<E>(
         executor: &'_ LoadExecutor<E>,
         plan: ExecutablePlan<E>,
-    ) -> Result<PreparedAggregateStreamingInputs<'_, E>, InternalError>
+    ) -> Result<PreparedAggregateStreamingInputs<'_>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -234,13 +235,12 @@ impl ExecutionKernel {
         let ctx = executor.recovered_context()?;
         let store = ctx.structural_store()?;
         let store_resolver = executor.db.structural_store_resolver();
+        let authority = EntityAuthority::for_type::<E>();
         record_plan_metrics(&logical_plan.access);
 
         Ok(PreparedAggregateStreamingInputs {
-            ctx,
             store_resolver,
-            model: E::MODEL,
-            entity_tag: E::ENTITY_TAG,
+            authority,
             store,
             logical_plan,
             index_prefix_specs,
@@ -252,7 +252,7 @@ impl ExecutionKernel {
     // Kernel owns field-target vs non-field reducer selection for this branch.
     fn execute_materialized_aggregate_spec<E>(
         executor: &LoadExecutor<E>,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         aggregate: &AggregateExpr,
     ) -> Result<ScalarAggregateOutput, InternalError>
     where
@@ -311,7 +311,7 @@ impl ExecutionKernel {
     // behavior.
     pub(in crate::db::executor::aggregate) fn execute_prepared_aggregate_state<E>(
         executor: &LoadExecutor<E>,
-        state: PreparedAggregateExecutionState<'_, E>,
+        state: PreparedAggregateExecutionState<'_>,
     ) -> Result<ScalarAggregateOutput, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -340,8 +340,7 @@ impl ExecutionKernel {
 
         let fast_path_inputs = AggregateFastPathInputs {
             logical_plan: &prepared.logical_plan,
-            model: prepared.model,
-            entity_tag: prepared.entity_tag,
+            authority: prepared.authority,
             store: prepared.store,
             route_plan: &descriptor.route_plan,
             index_prefix_specs: prepared.index_prefix_specs.as_slice(),
@@ -368,10 +367,10 @@ impl ExecutionKernel {
             &prepared.logical_plan.access,
             crate::db::executor::StructuralTraversalRuntime::new(
                 prepared.store,
-                prepared.entity_tag,
+                prepared.authority.entity_tag(),
             ),
             prepared.store,
-            prepared.model,
+            prepared.authority.model(),
         );
         let execution_inputs = ExecutionInputs::new(
             &runtime,

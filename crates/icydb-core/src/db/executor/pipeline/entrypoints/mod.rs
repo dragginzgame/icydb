@@ -23,7 +23,13 @@ use crate::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     LoadExecutionMode, LoadTracingMode,
 };
-pub(in crate::db::executor) use scalar::PreparedScalarMaterializedBoundary;
+pub(in crate::db::executor) use grouped::{
+    PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
+};
+pub(in crate::db::executor) use scalar::{
+    PreparedScalarMaterializedBoundary, PreparedScalarRouteRuntime,
+    execute_prepared_scalar_route_runtime,
+};
 
 impl<E> LoadExecutor<E>
 where

@@ -19,7 +19,7 @@ use crate::{
         },
         query::{
             builder::AggregateExpr,
-            plan::{AccessPlannedQuery, GroupedExecutorHandoff, PlannerRouteProfile},
+            plan::{AccessPlannedQuery, PlannerRouteProfile},
         },
     },
     error::InternalError,
@@ -43,17 +43,12 @@ where
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
-        if pk_order_stream_fast_path_shape_supported_for_model(E::MODEL, plan) {
-            continuation.validate_pk_fast_path_boundary::<E>()?;
-        }
-
-        Ok(build_execution_route_plan_for_model(
+        build_execution_route_plan_for_load_with_model(
             E::MODEL,
             plan,
             continuation,
             probe_fetch_hint,
-            RouteIntent::Load,
-        ))
+        )
     }
 
     /// Build canonical execution routing for mutation execution.
@@ -77,33 +72,57 @@ where
         aggregate: AggregateExpr,
         execution_preparation: &ExecutionPreparation,
     ) -> ExecutionPlan {
-        let continuation = ScalarContinuationContext::initial();
-
-        build_execution_route_plan_for_model(
+        build_execution_route_plan_for_aggregate_spec_with_model(
             E::MODEL,
             plan,
-            &continuation,
-            None,
-            RouteIntent::Aggregate {
-                aggregate,
-                aggregate_force_materialized_due_to_predicate_uncertainty:
-                    aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-                        execution_preparation,
-                    ),
-            },
+            aggregate,
+            execution_preparation,
         )
+    }
+}
+
+/// Build canonical execution routing for load execution from structural model authority.
+pub(in crate::db::executor) fn build_execution_route_plan_for_load_with_model(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    continuation: &ScalarContinuationContext,
+    probe_fetch_hint: Option<usize>,
+) -> Result<ExecutionPlan, InternalError> {
+    if pk_order_stream_fast_path_shape_supported_for_model(model, plan) {
+        continuation.validate_pk_fast_path_boundary_for_model(model)?;
     }
 
-    /// Build canonical grouped aggregate routing from one grouped executor handoff.
-    pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
-        grouped: GroupedExecutorHandoff<'_>,
-    ) -> ExecutionPlan {
-        build_execution_route_plan_for_grouped_plan(
-            E::MODEL,
-            grouped.base(),
-            grouped.grouped_plan_strategy_hint(),
-        )
-    }
+    Ok(build_execution_route_plan_for_model(
+        model,
+        plan,
+        continuation,
+        probe_fetch_hint,
+        RouteIntent::Load,
+    ))
+}
+
+/// Build canonical aggregate execution routing from structural model authority.
+pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_with_model(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    aggregate: AggregateExpr,
+    execution_preparation: &ExecutionPreparation,
+) -> ExecutionPlan {
+    let continuation = ScalarContinuationContext::initial();
+
+    build_execution_route_plan_for_model(
+        model,
+        plan,
+        &continuation,
+        None,
+        RouteIntent::Aggregate {
+            aggregate,
+            aggregate_force_materialized_due_to_predicate_uncertainty:
+                aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                    execution_preparation,
+                ),
+        },
+    )
 }
 
 fn build_execution_route_plan_for_model(

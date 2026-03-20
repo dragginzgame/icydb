@@ -6,7 +6,6 @@
 use crate::{
     db::{
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
-        direction::Direction,
         executor::{
             ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
@@ -17,16 +16,12 @@ use crate::{
                 assemble_load_execution_verbose_diagnostics,
             },
             lower_index_prefix_specs, lower_index_range_specs,
-            preparation::resolved_index_slots_for_access_path,
             traversal::row_read_consistency_for_plan,
-            validate_executor_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedExecutorHandoff,
-            OrderDirection, OrderSpec, QueryMode, constant_covering_projection_value_from_access,
-            covering_index_projection_context, grouped_executor_handoff,
-            index_covering_existing_rows_terminal_eligible,
+            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, OrderSpec, QueryMode,
+            constant_covering_projection_value_from_access, covering_index_projection_context,
         },
         query::{
             builder::AggregateExpr,
@@ -149,16 +144,6 @@ impl ExecutablePlanCore {
     #[must_use]
     const fn has_predicate(&self) -> bool {
         self.plan.scalar_plan().predicate.is_some()
-    }
-
-    #[must_use]
-    const fn is_distinct(&self) -> bool {
-        self.plan.scalar_plan().distinct
-    }
-
-    #[must_use]
-    const fn has_no_predicate_or_distinct(&self) -> bool {
-        !self.has_predicate() && !self.is_distinct()
     }
 
     fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
@@ -478,31 +463,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.has_predicate()
     }
 
-    /// Return whether this plan clears both residual-predicate and DISTINCT
-    /// gates required by route-owned scalar fast-path contracts.
-    #[must_use]
-    pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
-        self.core.has_no_predicate_or_distinct()
-    }
-
-    /// Return one canonical scan direction for unordered plans (`Asc`) or
-    /// explicit primary-key-only ordering; return `None` for non-PK ordering.
-    #[must_use]
-    pub(in crate::db::executor) fn unordered_or_primary_key_order_direction(
-        &self,
-    ) -> Option<Direction> {
-        let Some(order) = self.order_spec() else {
-            return Some(Direction::Asc);
-        };
-
-        order
-            .primary_key_only_direction(E::MODEL.primary_key.name)
-            .map(|direction| match direction {
-                OrderDirection::Asc => Direction::Asc,
-                OrderDirection::Desc => Direction::Desc,
-            })
-    }
-
     /// Build canonical execution preparation for this executable plan.
     #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation
@@ -512,24 +472,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         ExecutionPreparation::from_plan(
             E::MODEL,
             self.core.plan(),
-            resolved_index_slots_for_access_path(
+            crate::db::executor::preparation::resolved_index_slots_for_access_path(
                 E::MODEL,
                 self.access().resolve_strategy().executable(),
             ),
-        )
-    }
-
-    /// Return whether COUNT/EXISTS can keep one index-covering existing-row terminal path.
-    #[must_use]
-    pub(in crate::db::executor) fn index_covering_existing_rows_terminal_eligible(&self) -> bool
-    where
-        E: EntityValue,
-    {
-        let strict_predicate_compatible = self.execution_preparation().strict_mode().is_some();
-
-        index_covering_existing_rows_terminal_eligible(
-            self.core.plan(),
-            strict_predicate_compatible,
         )
     }
 
@@ -557,15 +503,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// structural execution preparation.
     pub(in crate::db) fn into_plan(self) -> AccessPlannedQuery {
         self.core.into_inner()
-    }
-
-    /// Build grouped executor handoff from this executable plan using one
-    /// canonical executor-boundary validation pass.
-    pub(in crate::db) fn grouped_handoff(
-        &self,
-    ) -> Result<GroupedExecutorHandoff<'_>, InternalError> {
-        validate_executor_plan::<E>(self.core.plan())?;
-        grouped_executor_handoff(self.core.plan())
     }
 
     /// Revalidate executor-provided cursor state through the canonical cursor spine.

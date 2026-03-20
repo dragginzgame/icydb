@@ -17,7 +17,7 @@ const LOAD_PIPELINE_OPTIONAL_STAGE_SLOT_BASELINE_0250: usize = 0;
 
 #[test]
 fn load_pipeline_optional_stage_slots_stay_within_soft_delta() {
-    let optional_slots = load_pipeline_state_optional_slot_count_guard::<SimpleEntity>();
+    let optional_slots = load_pipeline_state_optional_slot_count_guard();
     let max_slots = LOAD_PIPELINE_OPTIONAL_STAGE_SLOT_BASELINE_0250
         + LOAD_PIPELINE_STAGE_ARTIFACT_SOFT_BUDGET_DELTA;
 

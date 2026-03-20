@@ -4,6 +4,7 @@
 //! Boundary: consumes query/access/cursor contracts and drives load/delete/aggregate runtime.
 
 mod aggregate;
+mod authority;
 mod continuation;
 mod delete;
 pub(in crate::db::executor) mod diagnostics;
@@ -39,6 +40,7 @@ pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
     ScalarTerminalBoundaryRequest,
 };
+pub(in crate::db::executor) use authority::EntityAuthority;
 pub(in crate::db::executor) use continuation::{
     AccessWindow, ContinuationCapabilities, ContinuationEngine, ContinuationMode,
     GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
@@ -57,6 +59,7 @@ pub(in crate::db::executor) use order::{
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
+pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
 pub(in crate::db) use runtime_context::*;
 pub(super) use stream::access::*;

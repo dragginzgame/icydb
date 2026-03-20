@@ -38,6 +38,9 @@ pub(in crate::db::executor) use mode::{
 pub(in crate::db::executor::route) use mode::{
     derive_aggregate_route_direction, derive_load_route_direction,
 };
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_aggregate_spec_with_model;
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_grouped_plan;
+pub(in crate::db::executor) use planner::build_execution_route_plan_for_load_with_model;
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract_for_model;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
@@ -47,4 +50,6 @@ pub(in crate::db::executor) use semantics::{
 };
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
+    derive_count_terminal_fast_path_contract_for_model,
+    derive_exists_terminal_fast_path_contract_for_model,
 };

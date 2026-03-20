@@ -148,7 +148,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
-    ) -> Result<PreparedScalarProjectionExecutionState<'_, E>, InternalError> {
+    ) -> Result<PreparedScalarProjectionExecutionState<'_>, InternalError> {
         let target_field_name = target_field.field().to_string();
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
@@ -180,7 +180,7 @@ where
     // access-path, covering, or distinct policy from the original plan.
     fn execute_prepared_scalar_projection_boundary(
         &self,
-        prepared_state: PreparedScalarProjectionExecutionState<'_, E>,
+        prepared_state: PreparedScalarProjectionExecutionState<'_>,
     ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
         let PreparedScalarProjectionExecutionState { boundary, prepared } = prepared_state;
 
@@ -204,7 +204,7 @@ where
     // Resolve one non-generic execution strategy for the prepared projection
     // contract before runtime execution begins.
     fn prepare_scalar_projection_strategy(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         op: PreparedScalarProjectionOp,
     ) -> PreparedScalarProjectionStrategy {
@@ -262,7 +262,7 @@ where
     fn execute_covering_scalar_projection_boundary(
         &self,
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
         distinct: Option<PreparedCoveringDistinctStrategy>,
@@ -363,7 +363,7 @@ where
     fn execute_constant_scalar_projection_boundary(
         &self,
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         value: Value,
     ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
         match boundary.op {
@@ -406,7 +406,7 @@ where
     fn execute_materialized_scalar_projection_boundary(
         &self,
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
         if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = boundary.op {
             return self
@@ -477,7 +477,7 @@ where
     // first/last row selection semantics.
     fn execute_terminal_value_field_projection_with_slot(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
         terminal_kind: AggregateKind,
@@ -584,7 +584,7 @@ where
     //   missing-row corruption surfacing behavior.
     // - only applies when the target field is bound by index-prefix equality.
     fn constant_covering_projection_value_if_eligible(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
     ) -> Option<Value> {
         if !matches!(prepared.consistency(), MissingRowPolicy::Ignore) {
@@ -597,7 +597,7 @@ where
     // Resolve one index-covered projection value vector from already-prepared
     // covering strategy metadata.
     fn covering_index_projection_values_with_context_from_prepared(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
     ) -> Result<Option<CoveringProjectionValues>, InternalError> {
@@ -618,7 +618,7 @@ where
     // Resolve one index-covered `(id, value)` projection vector from already
     // prepared covering strategy metadata.
     fn covering_index_projection_values_with_ids_from_context(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
     ) -> Result<Option<IdValueProjection<E>>, InternalError> {
@@ -646,7 +646,7 @@ where
     // Resolve one index-covered structural `(data_key, value)` projection
     // vector from already prepared covering strategy metadata.
     fn covering_index_projection_values_from_context_structural(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
     ) -> Result<Option<StructuralValueProjection>, InternalError> {
@@ -656,7 +656,7 @@ where
     // Resolve one covering projection pair vector from already prepared
     // covering-index strategy metadata.
     fn covering_index_projection_pairs_from_context(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
     ) -> CoveringProjectionPairsResolution {
@@ -716,7 +716,7 @@ where
     // Read one index-backed `(data_key, encoded_component)` stream for covering
     // projection decoding.
     fn read_covering_projection_component_pairs(
-        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
         component_index: usize,
         direction: Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
@@ -726,7 +726,7 @@ where
         if let [spec] = prefix_specs {
             return Self::read_covering_projection_component_pairs_for_index_bounds(
                 prepared.store_resolver,
-                prepared.entity_tag,
+                prepared.authority.entity_tag(),
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -743,7 +743,7 @@ where
         if let [spec] = range_specs {
             return Self::read_covering_projection_component_pairs_for_index_bounds(
                 prepared.store_resolver,
-                prepared.entity_tag,
+                prepared.authority.entity_tag(),
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -765,7 +765,7 @@ where
     // fast paths do not re-enter the plan-owned terminal wrapper surface.
     fn aggregate_count_from_prepared(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<u32, InternalError> {
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
@@ -783,7 +783,7 @@ where
     // fast paths do not re-enter the plan-owned terminal wrapper surface.
     fn aggregate_exists_from_prepared(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<bool, InternalError> {
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,

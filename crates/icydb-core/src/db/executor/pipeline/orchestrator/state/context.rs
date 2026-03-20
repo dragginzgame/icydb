@@ -1,10 +1,8 @@
-use crate::{
-    db::executor::{
-        ExecutablePlan, ExecutionTrace, PreparedLoadCursor,
-        pipeline::orchestrator::LoadExecutionMode,
-        pipeline::{contracts::GroupedCursorPage, orchestrator::ErasedLoadPayload},
-    },
-    traits::EntityKind,
+use crate::db::executor::{
+    ExecutionTrace,
+    pipeline::contracts::{GroupedCursorPage, StructuralCursorPage},
+    pipeline::orchestrator::LoadExecutionMode,
+    pipeline::orchestrator::strategy::ExecutionSpec,
 };
 
 ///
@@ -34,9 +32,8 @@ impl LoadExecutionContext {
 /// Carries normalized plan/cursor artifacts into grouping/projection stage.
 ///
 
-pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessInputs<E: EntityKind> {
-    pub(in crate::db::executor::pipeline::orchestrator) plan: ExecutablePlan<E>,
-    pub(in crate::db::executor::pipeline::orchestrator) cursor: PreparedLoadCursor,
+pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessInputs {
+    pub(in crate::db::executor::pipeline::orchestrator) execution_spec: ExecutionSpec,
 }
 
 ///
@@ -46,9 +43,9 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessInputs<E: E
 /// Carries normalized context and one required access-stage payload.
 ///
 
-pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessState<E: EntityKind> {
+pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessState {
     pub(in crate::db::executor::pipeline::orchestrator) context: LoadExecutionContext,
-    pub(in crate::db::executor::pipeline::orchestrator) access_inputs: LoadAccessInputs<E>,
+    pub(in crate::db::executor::pipeline::orchestrator) access_inputs: LoadAccessInputs,
 }
 
 ///
@@ -71,6 +68,6 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState {
 ///
 
 pub(in crate::db::executor::pipeline::orchestrator) enum LoadExecutionPayload {
-    Scalar(ErasedLoadPayload),
+    Scalar(StructuralCursorPage),
     Grouped(GroupedCursorPage),
 }

@@ -61,7 +61,7 @@ where
     // materialized fallback semantics using one planner-resolved field slot.
     pub(in crate::db::executor::aggregate) fn execute_nth_field_aggregate_with_slot(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
         nth: usize,
@@ -77,7 +77,7 @@ where
     // field slot.
     pub(in crate::db::executor::aggregate) fn execute_median_field_aggregate_with_slot(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
@@ -92,7 +92,7 @@ where
     // planner-resolved field slot.
     pub(in crate::db::executor::aggregate) fn execute_min_max_field_aggregate_with_slot(
         &self,
-        prepared: PreparedAggregateStreamingInputs<'_, E>,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
