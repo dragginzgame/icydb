@@ -5,8 +5,8 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
-        Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive, Repr,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -220,18 +220,6 @@ impl SubAssign for Duration {
     }
 }
 
-impl AsView for Duration {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
 impl Serialize for Duration {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -392,14 +380,6 @@ mod tests {
         assert_eq!(a + b, Duration::from_millis(2_750));
         assert_eq!(a - b, Duration::from_millis(1_250));
         assert_eq!(b - a, Duration::ZERO);
-    }
-
-    #[test]
-    fn test_as_view_roundtrip_preserves_semantic_duration_type() {
-        let value = Duration::from_millis(3_333);
-        let view: Duration = value.as_view();
-        assert_eq!(view, value);
-        assert_eq!(Duration::from_view(view), value);
     }
 
     #[test]

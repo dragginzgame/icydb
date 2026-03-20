@@ -1,18 +1,18 @@
 pub mod implementor;
 
-use crate::{prelude::*, view::*};
+use crate::prelude::*;
 
 pub use implementor::*;
 
 ///
 /// Common interface for all node generators.
 ///
-/// Each generator emits both the base node and all its derived representations
-/// (views, create/update types, etc.).
+/// Each generator emits the base node plus any supporting impls or schema items
+/// attached to that node.
 ///
 
 pub trait NodeGen {
-    /// Emit the code for this node and all derived forms.
+    /// Emit the complete code for this node.
     fn generate(&self) -> TokenStream;
 }
 
@@ -21,48 +21,12 @@ pub trait NodeGen {
 ///
 
 macro_rules! define_gen {
-    (
-        $gen:ident, $node:ty,
-        view = $view:tt,
-        create = $create:tt,
-        update = $update:tt $(,)?
-    ) => {
+    ($gen:ident, $node:ty $(,)?) => {
         pub struct $gen<'a>(pub &'a $node);
 
         impl NodeGen for $gen<'_> {
             fn generate(&self) -> TokenStream {
-                let node = self.0;
-
-                // Expand helper
-                macro_rules! expand {
-                    (_) => {
-                        TokenStream::new()
-                    };
-                    ($path:ident) => {
-                        $path(node).to_token_stream()
-                    };
-                }
-
-                let view = expand!($view);
-                let create = expand!($create);
-                let update = expand!($update);
-                let views_mod_ident = node.views_mod_ident();
-                let views_mod = if view.is_empty() && create.is_empty() && update.is_empty() {
-                    quote!()
-                } else {
-                    quote! {
-                        pub mod #views_mod_ident {
-                            #view
-                            #create
-                            #update
-                        }
-                    }
-                };
-
-                quote! {
-                    #node
-                    #views_mod
-                }
+                self.0.to_token_stream()
             }
         }
 
@@ -78,63 +42,20 @@ macro_rules! define_gen {
 // Types
 //
 
-define_gen!(
-    EntityGen,
-    Entity,
-    view = EntityView,
-    create = EntityCreate,
-    update = EntityUpdate,
-);
-
-define_gen!(
-    EnumGen,
-    Enum,
-    view = EnumView,
-    create = _,
-    update = EnumUpdate,
-);
-
-define_gen!(
-    ListGen,
-    List,
-    view = ListView,
-    create = _,
-    update = ListUpdate,
-);
-
-define_gen!(MapGen, Map, view = MapView, create = _, update = MapUpdate,);
-
-define_gen!(
-    NewtypeGen,
-    Newtype,
-    view = NewtypeView,
-    create = _,
-    update = NewtypeUpdate,
-);
-
-define_gen!(
-    RecordGen,
-    Record,
-    view = RecordView,
-    create = _,
-    update = RecordUpdate,
-);
-
-define_gen!(SetGen, Set, view = SetView, create = _, update = SetUpdate,);
-
-define_gen!(
-    TupleGen,
-    Tuple,
-    view = TupleView,
-    create = _,
-    update = TupleUpdate,
-);
+define_gen!(EntityGen, Entity);
+define_gen!(EnumGen, Enum);
+define_gen!(ListGen, List);
+define_gen!(MapGen, Map);
+define_gen!(NewtypeGen, Newtype);
+define_gen!(RecordGen, Record);
+define_gen!(SetGen, Set);
+define_gen!(TupleGen, Tuple);
 
 //
 // Infrastructure
 //
 
-define_gen!(CanisterGen, Canister, view = _, create = _, update = _,);
-define_gen!(SanitizerGen, Sanitizer, view = _, create = _, update = _,);
-define_gen!(StoreGen, Store, view = _, create = _, update = _,);
-define_gen!(ValidatorGen, Validator, view = _, create = _, update = _,);
+define_gen!(CanisterGen, Canister);
+define_gen!(SanitizerGen, Sanitizer);
+define_gen!(StoreGen, Store);
+define_gen!(ValidatorGen, Validator);

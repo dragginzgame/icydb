@@ -7,7 +7,6 @@
 #[cfg(test)]
 mod tests;
 
-use crate::patch::MergePatchError;
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -421,8 +420,6 @@ pub enum ErrorDetail {
     #[error("{0}")]
     Store(StoreError),
     #[error("{0}")]
-    ViewPatch(crate::patch::MergePatchError),
-    #[error("{0}")]
     Query(QueryErrorDetail),
     // Future-proofing:
     // #[error("{0}")]
@@ -430,17 +427,6 @@ pub enum ErrorDetail {
     //
     // #[error("{0}")]
     // Executor(ExecutorErrorDetail),
-}
-
-impl From<MergePatchError> for InternalError {
-    fn from(err: MergePatchError) -> Self {
-        Self {
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Interface,
-            message: err.to_string(),
-            detail: Some(ErrorDetail::ViewPatch(err)),
-        }
-    }
 }
 
 ///

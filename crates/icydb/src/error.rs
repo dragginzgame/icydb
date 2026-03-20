@@ -3,7 +3,6 @@ use derive_more::Display;
 use icydb_core::{
     db::{QueryError, QueryExecutionError, ResponseError},
     error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
-    patch::MergePatchError as CoreMergePatchError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -29,16 +28,6 @@ impl Error {
             origin,
             message: message.into(),
         }
-    }
-
-    pub(crate) fn from_merge_patch_error(err: CoreMergePatchError) -> Self {
-        let message = err.to_string();
-        let patch_error = PatchError::from_merge_patch_error(err);
-        Self::new(
-            ErrorKind::Update(UpdateErrorKind::Patch(patch_error)),
-            ErrorOrigin::Interface,
-            message,
-        )
     }
 
     fn from_response_error(err: ResponseError) -> Self {
@@ -152,7 +141,6 @@ impl From<ResponseError> for Error {
 #[serde(rename_all = "PascalCase")]
 pub enum ErrorKind {
     Query(QueryErrorKind),
-    Update(UpdateErrorKind),
 
     /// Runtime failure preserving the core semantic error class.
     Runtime(RuntimeErrorKind),
@@ -204,39 +192,6 @@ pub enum QueryErrorKind {
     NotUnique,
 }
 
-///
-/// UpdateErrorKind
-///
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum UpdateErrorKind {
-    /// Patch application failed for semantic reasons.
-    Patch(PatchError),
-}
-
-///
-/// PatchError
-///
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum PatchError {
-    InvalidShape,
-    CardinalityViolation,
-}
-
-impl PatchError {
-    pub(crate) fn from_merge_patch_error(err: CoreMergePatchError) -> Self {
-        match err {
-            CoreMergePatchError::InvalidShape { .. } => Self::InvalidShape,
-            CoreMergePatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
-            CoreMergePatchError::Context { source, .. } => Self::from_merge_patch_error(*source),
-        }
-    }
-}
-
-///
 /// ErrorOrigin
 /// Public origin taxonomy for callers and canister interfaces.
 ///
@@ -504,16 +459,11 @@ mod tests {
 
     #[test]
     fn error_kind_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&ErrorKind::Update(UpdateErrorKind::Patch(
-            PatchError::InvalidShape,
-        )));
+        let encoded = to_cbor_value(&ErrorKind::Runtime(RuntimeErrorKind::Internal));
         let root = expect_cbor_map(&encoded);
-        let update_payload =
-            map_field(root, "Update").expect("expected externally-tagged Update variant");
-        let update_map = expect_cbor_map(update_payload);
         assert!(
-            map_field(update_map, "Patch").is_some(),
-            "Update payload must keep Patch variant key",
+            map_field(root, "Runtime").is_some(),
+            "ErrorKind must keep `Runtime` variant key",
         );
     }
 
@@ -558,29 +508,6 @@ mod tests {
         assert_eq!(
             to_cbor_value(&QueryErrorKind::NotUnique),
             CborValue::Text("NotUnique".to_string())
-        );
-    }
-
-    #[test]
-    fn patch_error_variant_labels_are_stable() {
-        assert_eq!(
-            to_cbor_value(&PatchError::InvalidShape),
-            CborValue::Text("InvalidShape".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&PatchError::CardinalityViolation),
-            CborValue::Text("CardinalityViolation".to_string())
-        );
-    }
-
-    #[test]
-    fn update_error_kind_patch_payload_shape_is_stable() {
-        let encoded = to_cbor_value(&UpdateErrorKind::Patch(PatchError::CardinalityViolation));
-        let root = expect_cbor_map(&encoded);
-
-        assert!(
-            map_field(root, "Patch").is_some(),
-            "UpdateErrorKind::Patch must keep `Patch` payload key",
         );
     }
 }

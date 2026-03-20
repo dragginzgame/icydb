@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, PrincipalEncodeError, Subaccount},
@@ -185,18 +185,6 @@ impl Account {
         };
 
         Ok(Self { owner, subaccount })
-    }
-}
-
-impl AsView for Account {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

@@ -4,7 +4,7 @@
 
 use ic_cdk::export_candid;
 #[cfg(feature = "sql")]
-use ic_cdk::query as ic_query;
+use ic_cdk::query;
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
 
@@ -12,7 +12,7 @@ icydb::start!();
 
 /// Execute one reduced SQL statement against the twenty-entity audit set.
 #[cfg(feature = "sql")]
-#[ic_query]
+#[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
 }

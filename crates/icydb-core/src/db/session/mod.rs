@@ -136,16 +136,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_with(op, WriteBatchResponse::new)
     }
 
-    fn execute_save_view<E>(
-        &self,
-        op: impl FnOnce(SaveExecutor<E>) -> Result<E::ViewType, InternalError>,
-    ) -> Result<E::ViewType, InternalError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        self.execute_save_with(op, std::convert::identity)
-    }
-
     // ---------------------------------------------------------------------
     // Query entry points (public, fluent)
     // ---------------------------------------------------------------------

@@ -5,7 +5,6 @@ mod node;
 mod trait_kind;
 mod types;
 mod validate;
-mod view;
 
 use crate::node::{Def, ValidateNode};
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
@@ -28,7 +27,7 @@ mod prelude {
             as_tokens, quote_one, quote_option, quote_slice, split_idents, to_path, to_str_lit,
         },
         node::*,
-        trait_kind::{TraitBuilder, TraitKind, TraitSet},
+        trait_kind::{TraitBuilder, TraitKind},
         types::TraitStrategy,
     };
     pub use icydb_schema::{

@@ -198,44 +198,6 @@ macro_rules! impl_session_materialization_methods {
         {
             Ok(self.inner.execute()?.entities())
         }
-
-        /// Materialize one view.
-        pub fn view(&self) -> Result<View<E>, Error>
-        where
-            E: EntityValue,
-        {
-            let response = self.inner.execute()?;
-            icydb_core::db::ResponseCardinalityExt::require_one(&response)
-                .map_err(crate::error::Error::from)?;
-
-            Ok(response
-                .views()
-                .next()
-                .expect("require_one guarantees one row"))
-        }
-
-        /// Materialize an optional view.
-        pub fn view_opt(&self) -> Result<Option<View<E>>, Error>
-        where
-            E: EntityValue,
-        {
-            let response = self.inner.execute()?;
-            if response.is_empty() {
-                return Ok(None);
-            }
-            icydb_core::db::ResponseCardinalityExt::require_one(&response)
-                .map_err(crate::error::Error::from)?;
-
-            Ok(response.views().next())
-        }
-
-        /// Materialize all views.
-        pub fn views(&self) -> Result<Vec<View<E>>, Error>
-        where
-            E: EntityValue,
-        {
-            Ok(self.inner.execute()?.views().collect())
-        }
     };
 }
 

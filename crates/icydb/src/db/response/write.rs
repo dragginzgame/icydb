@@ -1,5 +1,5 @@
 use crate::{
-    traits::{AsView, EntityKind, EntityValue, View},
+    traits::{EntityKind, EntityValue},
     types::Id,
 };
 use icydb_core::db::WriteBatchResponse as CoreWriteBatchResponse;
@@ -36,15 +36,6 @@ impl<E: EntityKind> WriteResponse<E> {
         E: EntityValue,
     {
         self.entity.id()
-    }
-
-    /// Return the stored entity as its view type.
-    #[must_use]
-    pub fn view(&self) -> View<E>
-    where
-        E: AsView,
-    {
-        crate::traits::AsView::as_view(&self.entity)
     }
 }
 
@@ -98,14 +89,6 @@ impl<E: EntityKind> WriteBatchResponse<E> {
         E: EntityValue,
     {
         self.entities.iter().map(EntityValue::id)
-    }
-
-    /// Borrow an iterator over views.
-    pub fn views(&self) -> impl Iterator<Item = View<E>> + '_
-    where
-        E: AsView,
-    {
-        self.entities.iter().map(AsView::as_view)
     }
 }
 

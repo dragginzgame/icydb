@@ -22,8 +22,7 @@
 /// Types implementing `Atomic` must correspond to `FieldValueKind::Atomic`.
 ///
 /// This trait has no methods. It exists solely to declare value-level
-/// indivisibility, which is *consumed* by higher-level mechanisms
-/// (e.g. blanket `UpdateView` merge implementations).
+/// indivisibility for schema/runtime semantics.
 ///
 
 pub trait Atomic: Sized {}

@@ -6,7 +6,7 @@ use crate::{
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
-    traits::{EntityKind, EntityValue, SingletonEntity, View},
+    traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
     value::Value,
 };
@@ -97,7 +97,7 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         })
     }
 
-    /// Execute as cursor pagination, returning views plus an opaque continuation token.
+    /// Execute as cursor pagination, returning entities plus an opaque continuation token.
     pub fn execute_paged(self) -> Result<PagedResponse<E>, Error>
     where
         E: EntityValue,
@@ -262,7 +262,7 @@ impl<E: EntityKind + SingletonEntity> FluentLoadQuery<'_, E> {
 /// PagedLoadQuery
 ///
 /// Facade wrapper for cursor-pagination mode.
-/// Returns typed view items plus an opaque continuation cursor.
+/// Returns typed entity items plus an opaque continuation cursor.
 ///
 
 pub struct PagedLoadQuery<'a, E: EntityKind> {
@@ -292,11 +292,9 @@ impl<E: EntityKind> PagedLoadQuery<'_, E> {
         E: EntityValue,
     {
         let execution = self.inner.execute()?;
-        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+        let (response, continuation_cursor) = execution.into_parts();
+        let next_cursor = continuation_cursor.as_deref().map(core::db::encode_cursor);
 
-        Ok(PagedResponse::new(
-            execution.response().views().collect(),
-            next_cursor,
-        ))
+        Ok(PagedResponse::new(response.entities(), next_cursor))
     }
 }

@@ -7,7 +7,6 @@
 #[macro_use]
 mod macros;
 mod atomic;
-mod view;
 mod visitor;
 
 use crate::{
@@ -18,7 +17,6 @@ use crate::{
 };
 
 pub use atomic::*;
-pub use view::*;
 pub use visitor::*;
 
 // -----------------------------------------------------------------------------
@@ -242,22 +240,12 @@ pub trait SingletonEntity: EntityValue {}
 ///
 
 pub trait TypeKind:
-    Kind
-    + AsView
-    + Clone
-    + Default
-    + Serialize
-    + DeserializeOwned
-    + Sanitize
-    + Validate
-    + Visitable
-    + PartialEq
+    Kind + Clone + Default + Serialize + DeserializeOwned + Sanitize + Validate + Visitable + PartialEq
 {
 }
 
 impl<T> TypeKind for T where
     T: Kind
-        + AsView
         + Clone
         + Default
         + DeserializeOwned

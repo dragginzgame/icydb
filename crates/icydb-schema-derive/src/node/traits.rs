@@ -39,11 +39,11 @@ pub struct TraitTokens {
 /// HasMacro
 ///
 /// High-level entrypoint for procedural code generation.
-/// Coordinates schema emission, type emission, trait impls, and view generation.
+/// Coordinates schema emission, type emission, and trait impl generation.
 ///
 
 pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
-    /// Generate all Rust tokens for this node: schema consts, derives, impls, and view structs.
+    /// Generate all Rust tokens for this node: schema consts, derives, main type, and impls.
     fn all_tokens(&self) -> TokenStream {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
         let schema = self.schema_tokens();
@@ -129,52 +129,6 @@ pub trait HasType: HasDef {
     /// Emit the main Rust type definition (struct, enum, etc.)
     fn type_part(&self) -> TokenStream {
         quote!()
-    }
-
-    /// Module that contains generated View/Create/Update companion types.
-    fn views_mod_ident(&self) -> Ident {
-        let base = self.def().ident().to_string().to_case(Case::Snake);
-        format_ident!("{base}_views")
-    }
-
-    /// Naming shortcuts for companion types.
-    fn view_ident(&self) -> Ident {
-        let base = self.def().ident();
-        format_ident!("{base}View")
-    }
-
-    fn create_ident(&self) -> Ident {
-        let base = self.def().ident();
-        format_ident!("{base}Create")
-    }
-
-    fn update_ident(&self) -> Ident {
-        let base = self.def().ident();
-        format_ident!("{base}Update")
-    }
-
-    /// Fully-qualified path to the generated `View` type.
-    fn view_path(&self) -> TokenStream {
-        let views_mod_ident = self.views_mod_ident();
-        let view_ident = self.view_ident();
-
-        quote!(#views_mod_ident::#view_ident)
-    }
-
-    /// Fully-qualified path to the generated `Create` type.
-    fn create_path(&self) -> TokenStream {
-        let views_mod_ident = self.views_mod_ident();
-        let create_ident = self.create_ident();
-
-        quote!(#views_mod_ident::#create_ident)
-    }
-
-    /// Fully-qualified path to the generated `Update` type.
-    fn update_path(&self) -> TokenStream {
-        let views_mod_ident = self.views_mod_ident();
-        let update_ident = self.update_ident();
-
-        quote!(#views_mod_ident::#update_ident)
     }
 }
 

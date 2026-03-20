@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::Value,
@@ -60,18 +60,6 @@ impl Blob {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-}
-
-impl AsView for Blob {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

@@ -6,7 +6,7 @@
 use crate::{
     prelude::*,
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
+        Atomic, FieldValue, FieldValueKind, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
         SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
@@ -74,25 +74,6 @@ impl Float32 {
         buf.copy_from_slice(bytes);
         let value = f32::from_bits(u32::from_be_bytes(buf));
         Self::try_new(value).ok_or(Float32DecodeError::NonFinite)
-    }
-}
-
-impl AsView for Float32 {
-    type ViewType = f32;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
-    fn from_view(view: f32) -> Self {
-        let normalized = if view.is_finite() {
-            if view == 0.0 { 0.0 } else { view }
-        } else {
-            0.0
-        };
-
-        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
 
@@ -262,20 +243,5 @@ mod tests {
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             assert!(Float32::deserialize(F32Deserializer::<DeError>::new(value)).is_err());
         }
-    }
-
-    #[test]
-    #[expect(clippy::float_cmp)]
-    fn from_view_normalizes_non_finite() {
-        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            let normalized = Float32::from_view(value);
-            assert_eq!(normalized.get(), 0.0);
-        }
-    }
-
-    #[test]
-    fn from_view_normalizes_negative_zero() {
-        let normalized = Float32::from_view(-0.0);
-        assert_eq!(normalized.to_be_bytes(), 0.0f32.to_bits().to_be_bytes());
     }
 }

@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -133,17 +133,6 @@ impl Principal {
 
 // The WrappedPrincipal type doesn't have Default so we can't
 // use it as a View
-impl AsView for Principal {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Atomic for Principal {}
 

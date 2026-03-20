@@ -93,36 +93,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         self.save_entity(SaveMode::Insert, entity)
     }
 
-    /// Insert a new view, returning the stored view.
-    pub(crate) fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        self.save_view(SaveMode::Insert, view)
-    }
-
     /// Update an existing entity (errors if it does not exist).
     pub(crate) fn update(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Update, entity)
     }
 
-    /// Update an existing view (errors if it does not exist).
-    pub(crate) fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        self.save_view(SaveMode::Update, view)
-    }
-
     /// Replace an entity, inserting if missing.
     pub(crate) fn replace(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Replace, entity)
-    }
-
-    /// Replace a view, inserting if missing.
-    pub(crate) fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        self.save_view(SaveMode::Replace, view)
-    }
-
-    // Shared wrapper for view-based save operations.
-    fn save_view(&self, mode: SaveMode, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view);
-
-        Ok(self.save_entity(mode, entity)?.as_view())
     }
 
     // ======================================================================

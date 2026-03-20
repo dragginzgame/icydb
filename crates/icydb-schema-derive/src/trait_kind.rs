@@ -67,9 +67,7 @@ pub enum TraitKind {
     FieldProjection,
 
     // orm
-    AsView,
     Collection,
-    CreateView,
     From,
     Inner,
     MapCollection,
@@ -80,7 +78,6 @@ pub enum TraitKind {
     Sorted,
     SanitizeAuto,
     SanitizeCustom,
-    UpdateView,
     ValidateAuto,
     ValidateCustom,
     Visitable,
@@ -91,7 +88,7 @@ static DEFAULT_TRAITS: LazyLock<Vec<TraitKind>> =
 
 static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
     vec![
-        TraitKind::AsView,
+        TraitKind::CandidType,
         TraitKind::Default,
         TraitKind::Deserialize,
         TraitKind::Eq,
@@ -100,7 +97,6 @@ static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
         TraitKind::SanitizeAuto,
         TraitKind::SanitizeCustom,
         TraitKind::Serialize,
-        TraitKind::UpdateView,
         TraitKind::ValidateAuto,
         TraitKind::ValidateCustom,
         TraitKind::Visitable,
@@ -190,17 +186,6 @@ impl FromMeta for TraitKind {
 
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        if matches!(self, Self::AsView | Self::CreateView | Self::UpdateView) {
-            let trait_name = match self {
-                Self::AsView => format_ident!("CoreAsView"),
-                Self::CreateView => format_ident!("CoreCreateView"),
-                Self::UpdateView => format_ident!("CoreUpdateView"),
-                _ => unreachable!("handled by matches! guard"),
-            };
-            quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
-            return;
-        }
-
         let trait_name = format_ident!("{}", self.to_string());
 
         // quote

@@ -67,10 +67,8 @@ impl HasTraits for Tuple {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::AsView => AsViewTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
-            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
             _ => None,

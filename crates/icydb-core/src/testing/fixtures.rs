@@ -96,30 +96,6 @@ macro_rules! impl_test_entity_markers {
 }
 
 ///
-/// impl_test_entity_view_markers
-///
-/// Test-only helper macro for common trivial `AsView` + marker trait boilerplate.
-///
-#[macro_export]
-macro_rules! impl_test_entity_view_markers {
-    ($entity:ty) => {
-        impl $crate::traits::AsView for $entity {
-            type ViewType = Self;
-
-            fn as_view(&self) -> Self::ViewType {
-                self.clone()
-            }
-
-            fn from_view(view: Self::ViewType) -> Self {
-                view
-            }
-        }
-
-        $crate::impl_test_entity_markers!($entity);
-    };
-}
-
-///
 /// test_canister
 ///
 /// Test-only helper to define a canister marker type with a static path.
@@ -266,18 +242,6 @@ macro_rules! test_entity_schema {
         fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
     ) => {
-        impl $crate::traits::AsView for $entity {
-            type ViewType = Self;
-
-            fn as_view(&self) -> Self::ViewType {
-                self.clone()
-            }
-
-            fn from_view(view: Self::ViewType) -> Self {
-                view
-            }
-        }
-
         $crate::impl_test_entity_markers!($entity);
 
         impl $entity {

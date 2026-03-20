@@ -5,7 +5,7 @@
 mod seed;
 
 #[cfg(feature = "sql")]
-use ic_cdk::query as ic_query;
+use ic_cdk::query;
 use ic_cdk::{export_candid, update};
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
@@ -15,14 +15,14 @@ icydb::start!();
 
 /// Return one list of fixture entity names accepted by the SQL endpoints.
 #[cfg(feature = "sql")]
-#[ic_query]
+#[query]
 fn sql_entities() -> Vec<String> {
     sql_dispatch::entities()
 }
 
 /// Execute one reduced SQL statement against fixture entities.
 #[cfg(feature = "sql")]
-#[ic_query]
+#[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
 }

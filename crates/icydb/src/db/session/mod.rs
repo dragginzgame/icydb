@@ -17,8 +17,7 @@ use crate::{
     error::Error,
     metrics::MetricsSink,
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, EntityValue, Update, UpdateView},
-    types::Id,
+    traits::{CanisterKind, EntityKind, EntityValue},
 };
 use icydb_core as core;
 
@@ -516,21 +515,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::new(self.inner.update(entity)?))
     }
 
-    /// Load one entity by id, apply a merge patch, and persist it.
-    ///
-    /// Patch semantics are handled at this facade boundary so callers do not
-    /// need to interact with core patch errors directly.
-    pub fn patch_by_id<E>(&self, id: Id<E>, patch: Update<E>) -> Result<WriteResponse<E>, Error>
-    where
-        E: EntityKind<Canister = C> + EntityValue + UpdateView,
-    {
-        let mut entity = self.load::<E>().by_id(id).entity()?;
-
-        UpdateView::merge(&mut entity, patch)?;
-
-        self.update(entity)
-    }
-
     /// Update a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
@@ -561,27 +545,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteBatchResponse::from_core(
             self.inner.update_many_non_atomic(entities)?,
         ))
-    }
-
-    pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        Ok(self.inner.insert_view::<E>(view)?)
-    }
-
-    pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        Ok(self.inner.replace_view::<E>(view)?)
-    }
-
-    pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        Ok(self.inner.update_view::<E>(view)?)
     }
 }
 

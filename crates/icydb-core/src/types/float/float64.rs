@@ -6,7 +6,7 @@
 use crate::{
     prelude::*,
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
+        Atomic, FieldValue, FieldValueKind, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
         SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
@@ -74,25 +74,6 @@ impl Float64 {
         buf.copy_from_slice(bytes);
         let value = f64::from_bits(u64::from_be_bytes(buf));
         Self::try_new(value).ok_or(Float64DecodeError::NonFinite)
-    }
-}
-
-impl AsView for Float64 {
-    type ViewType = f64;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
-    fn from_view(view: f64) -> Self {
-        let normalized = if view.is_finite() {
-            if view == 0.0 { 0.0 } else { view }
-        } else {
-            0.0
-        };
-
-        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
 
@@ -257,20 +238,5 @@ mod tests {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             assert!(Float64::deserialize(F64Deserializer::<DeError>::new(value)).is_err());
         }
-    }
-
-    #[test]
-    #[expect(clippy::float_cmp)]
-    fn from_view_normalizes_non_finite() {
-        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let normalized = Float64::from_view(value);
-            assert_eq!(normalized.get(), 0.0);
-        }
-    }
-
-    #[test]
-    fn from_view_normalizes_negative_zero() {
-        let normalized = Float64::from_view(-0.0);
-        assert_eq!(normalized.to_be_bytes(), 0.0f64.to_bits().to_be_bytes());
     }
 }

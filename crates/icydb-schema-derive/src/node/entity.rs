@@ -32,13 +32,6 @@ pub struct Entity {
 }
 
 impl Entity {
-    /// All user-editable fields (no PK, no system fields).
-    pub fn iter_editable_fields(&self) -> impl Iterator<Item = &Field> {
-        self.fields
-            .iter()
-            .filter(|f| f.ident != self.primary_key.field && !f.is_system)
-    }
-
     fn add_metadata(mut fields: FieldList) -> FieldList {
         fields.push(Field::created_at());
         fields.push(Field::updated_at());
@@ -378,8 +371,8 @@ impl HasTraits for Entity {
         let mut traits = self.traits.with_type_traits().build();
 
         traits.extend(vec![
+            TraitKind::CandidType,
             TraitKind::Inherent,
-            TraitKind::CreateView,
             TraitKind::EntityKind,
             TraitKind::EntityValue,
             TraitKind::FieldProjection,
@@ -390,14 +383,11 @@ impl HasTraits for Entity {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::AsView => AsViewTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
-            TraitKind::CreateView => CreateViewTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::EntityValue => EntityValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
-            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
@@ -420,7 +410,7 @@ impl HasType for Entity {
             let expr = field.type_expr();
 
             quote! {
-                pub(crate) #expr
+                pub #expr
             }
         });
 
@@ -463,7 +453,6 @@ mod tests {
                 },
             },
             default: None,
-            is_system: false,
         }
     }
 
@@ -479,7 +468,6 @@ mod tests {
                 },
             },
             default: None,
-            is_system: false,
         }
     }
 

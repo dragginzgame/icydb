@@ -7,7 +7,7 @@ mod nat128;
 
 use crate::{
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::Value,
@@ -93,18 +93,6 @@ impl Nat {
         }
 
         Self(self.0 - rhs.0)
-    }
-}
-
-impl AsView for Nat {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

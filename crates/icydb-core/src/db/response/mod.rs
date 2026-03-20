@@ -13,7 +13,7 @@ mod private;
 use crate::{
     db::data::{DataRow, decode_data_rows_into_entity_response},
     prelude::*,
-    traits::{AsView, EntityValue},
+    traits::EntityValue,
     types::Id,
     value::Value,
 };
@@ -264,11 +264,6 @@ impl<E: EntityKind> Response<Row<E>> {
     pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.0.iter().any(|row| row.id() == *id)
     }
-
-    /// Borrow an iterator over row views in response order.
-    pub fn views(&self) -> impl Iterator<Item = <E as AsView>::ViewType> + '_ {
-        self.0.iter().map(|row| row.entity_ref().as_view())
-    }
 }
 
 impl<R: ResponseRow> IntoIterator for Response<R> {
@@ -332,14 +327,6 @@ impl<E> WriteBatchResponse<E> {
         E: EntityValue,
     {
         self.entities.iter().map(EntityValue::id)
-    }
-
-    /// Borrow an iterator over views in stable batch order.
-    pub fn views(&self) -> impl Iterator<Item = <E as AsView>::ViewType> + '_
-    where
-        E: AsView,
-    {
-        self.entities.iter().map(AsView::as_view)
     }
 
     /// Borrow an iterator over write entries in stable batch order.

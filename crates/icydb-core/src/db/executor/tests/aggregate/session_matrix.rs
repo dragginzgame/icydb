@@ -282,7 +282,7 @@ fn session_load_bytes_matches_execute_window_persisted_payload_sum() {
 }
 
 #[test]
-fn session_load_temporal_views_and_projection_values_preserve_semantic_types() {
+fn session_load_temporal_entities_and_projection_values_preserve_semantic_types() {
     let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
     let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
     let at_one = Timestamp::from_millis(1_760_868_000_000);
@@ -295,16 +295,16 @@ fn session_load_temporal_views_and_projection_values_preserve_semantic_types() {
     ]);
     let session = DbSession::new(DB);
 
-    // Phase 1: lock semantic view-field projection types and values.
+    // Phase 1: lock semantic entity-field projection types and values.
     let response = session
         .load::<TemporalBoundaryEntity>()
         .order_by("id")
         .execute()
         .expect("temporal execute should succeed");
-    let views: Vec<_> = response.views().collect();
-    assert_eq!(views.len(), 2, "temporal fixture should return two rows");
-    let first = &views[0];
-    let second = &views[1];
+    let entities = response.entities();
+    assert_eq!(entities.len(), 2, "temporal fixture should return two rows");
+    let first = &entities[0];
+    let second = &entities[1];
     let _: Date = first.occurred_on;
     let _: Timestamp = first.occurred_at;
     let _: Duration = first.elapsed;
@@ -725,29 +725,29 @@ fn session_load_temporal_ranked_row_terminals_preserve_semantic_types() {
     let top_response = load_window()
         .top_k_by("occurred_on", 2)
         .expect("top_k_by(occurred_on, 2) should succeed");
-    let top_views: Vec<_> = top_response.views().collect();
-    assert_eq!(top_views.len(), 2, "top_k_by should return two rows");
-    let _: Date = top_views[0].occurred_on;
-    let _: Timestamp = top_views[0].occurred_at;
-    let _: Duration = top_views[0].elapsed;
-    assert_eq!(top_views[0].occurred_on, day_three);
-    assert_eq!(top_views[1].occurred_on, day_two);
-    assert_eq!(top_views[0].occurred_at, at_three);
-    assert_eq!(top_views[1].occurred_at, at_two);
-    assert_eq!(top_views[0].elapsed, elapsed_three);
-    assert_eq!(top_views[1].elapsed, elapsed_two);
+    let top_entities = top_response.entities();
+    assert_eq!(top_entities.len(), 2, "top_k_by should return two rows");
+    let _: Date = top_entities[0].occurred_on;
+    let _: Timestamp = top_entities[0].occurred_at;
+    let _: Duration = top_entities[0].elapsed;
+    assert_eq!(top_entities[0].occurred_on, day_three);
+    assert_eq!(top_entities[1].occurred_on, day_two);
+    assert_eq!(top_entities[0].occurred_at, at_three);
+    assert_eq!(top_entities[1].occurred_at, at_two);
+    assert_eq!(top_entities[0].elapsed, elapsed_three);
+    assert_eq!(top_entities[1].elapsed, elapsed_two);
 
     // Phase 2: lock bottom-k row terminal typing and ordering for temporal ranking.
     let bottom_response = load_window()
         .bottom_k_by("elapsed", 2)
         .expect("bottom_k_by(elapsed, 2) should succeed");
-    let bottom_views: Vec<_> = bottom_response.views().collect();
-    assert_eq!(bottom_views.len(), 2, "bottom_k_by should return two rows");
-    let _: Date = bottom_views[0].occurred_on;
-    let _: Timestamp = bottom_views[0].occurred_at;
-    let _: Duration = bottom_views[0].elapsed;
-    assert_eq!(bottom_views[0].elapsed, elapsed_one);
-    assert_eq!(bottom_views[1].elapsed, elapsed_two);
+    let bottom_entities = bottom_response.entities();
+    assert_eq!(bottom_entities.len(), 2, "bottom_k_by should return two rows");
+    let _: Date = bottom_entities[0].occurred_on;
+    let _: Timestamp = bottom_entities[0].occurred_at;
+    let _: Duration = bottom_entities[0].elapsed;
+    assert_eq!(bottom_entities[0].elapsed, elapsed_one);
+    assert_eq!(bottom_entities[1].elapsed, elapsed_two);
     assert_eq!(bottom_views[0].occurred_on, day_one);
     assert_eq!(bottom_views[1].occurred_on, day_two);
     assert_eq!(bottom_views[0].occurred_at, at_one);

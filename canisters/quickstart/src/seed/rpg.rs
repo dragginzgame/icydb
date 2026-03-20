@@ -1,7 +1,5 @@
 use icydb::design::prelude::{Decimal, Float64, Principal};
-use icydb_testing_quickstart_fixtures::schema::{
-    Character, character::character_views::CharacterCreate,
-};
+use icydb_testing_quickstart_fixtures::schema::Character;
 
 const DUNGEON_MASTER_CHARACTERS: [&str; 24] = [
     "Iaido Ruyito Chiburi",
@@ -122,7 +120,7 @@ pub fn characters() -> Vec<Character> {
             let dodge_chance =
                 Float64::try_new(0.1 + f64::from(dodge_step) * 0.015).unwrap_or_default();
 
-            Character::from(CharacterCreate {
+            Character {
                 name: name.to_string(),
                 description: format!(
                     "{} specialized in {} tactics.",
@@ -151,7 +149,7 @@ pub fn characters() -> Vec<Character> {
                 initiative_bonus: i8::try_from(index % 6).unwrap_or(i8::MAX),
                 gold_pieces: u32::try_from(250 + (index * 37)).unwrap_or(u32::MAX),
                 critical_chance,
-                dodge_chance: dodge_chance.into(),
+                dodge_chance,
                 is_npc: index % 6 == 0,
                 guild_rank,
                 mentor_principal,
@@ -166,7 +164,8 @@ pub fn characters() -> Vec<Character> {
                 last_rest_at: (1_700_000_000_000 + u64::try_from(index).unwrap_or(u64::MAX) * 60)
                     .into(),
                 respawn_cooldown: (30 + u64::try_from(index % 120).unwrap_or(u64::MAX)).into(),
-            })
+                ..Default::default()
+            }
         })
         .collect::<Vec<_>>();
     debug_assert_eq!(rows.len(), CHARACTER_ROW_COUNT);
@@ -181,7 +180,6 @@ pub fn characters() -> Vec<Character> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb_testing_quickstart_fixtures::schema::character::character_views::CharacterView;
     use std::collections::BTreeSet;
 
     #[test]
@@ -193,11 +191,7 @@ mod tests {
     #[test]
     fn base_rpg_characters_covers_full_character_roster_once() {
         let rows = characters();
-        let names: BTreeSet<String> = rows
-            .iter()
-            .map(CharacterView::from)
-            .map(|row| row.name)
-            .collect();
+        let names: BTreeSet<String> = rows.iter().map(|row| row.name.clone()).collect();
         assert_eq!(names.len(), rows.len());
 
         for expected in DUNGEON_MASTER_CHARACTERS
@@ -213,7 +207,6 @@ mod tests {
         let rows = characters();
         assert!(
             rows.iter()
-                .map(CharacterView::from)
                 .all(|row| !row.resistances.is_empty() && !row.inventory_weights.is_empty())
         );
     }

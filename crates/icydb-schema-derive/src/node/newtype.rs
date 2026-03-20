@@ -124,7 +124,6 @@ impl HasTraits for Newtype {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::AsView => AsViewTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
@@ -136,7 +135,6 @@ impl HasTraits for Newtype {
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
-            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

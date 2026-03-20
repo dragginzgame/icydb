@@ -10,7 +10,7 @@ use crate::{
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
-    traits::{EntityKind, EntityValue, SingletonEntity, View},
+    traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
 };
 use icydb_core as core;

@@ -5,8 +5,8 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumCast, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -59,18 +59,6 @@ impl Nat128 {
     #[must_use]
     pub const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
-    }
-}
-
-impl AsView for Nat128 {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

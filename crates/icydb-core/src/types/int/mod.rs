@@ -8,7 +8,7 @@ mod int128;
 use crate::{
     prelude::*,
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
 };
@@ -92,18 +92,6 @@ impl Int {
     #[must_use]
     pub fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0 - rhs.0)
-    }
-}
-
-impl AsView for Int {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

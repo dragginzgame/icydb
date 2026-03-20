@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
+        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -170,18 +170,6 @@ impl Date {
                 TimeDate::MIN
             }
         })
-    }
-}
-
-impl AsView for Date {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 
@@ -388,14 +376,6 @@ mod tests {
 
         assert!(!min_rendered.is_empty());
         assert!(!max_rendered.is_empty());
-    }
-
-    #[test]
-    fn test_as_view_roundtrip_preserves_semantic_date_type() {
-        let value = Date::new_checked(2025, 10, 19).expect("date should build");
-        let view: Date = value.as_view();
-        assert_eq!(view, value);
-        assert_eq!(Date::from_view(view), value);
     }
 
     // API boundary serialization behavior.

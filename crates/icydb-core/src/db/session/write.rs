@@ -115,30 +115,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_batch(|save| save.update_many_non_atomic(entities))
     }
 
-    /// Insert one view value and return the stored view.
-    pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        self.execute_save_view::<E>(|save| save.insert_view(view))
-    }
-
-    /// Replace one view value and return the stored view.
-    pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        self.execute_save_view::<E>(|save| save.replace_view(view))
-    }
-
-    /// Update one view value and return the stored view.
-    pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        self.execute_save_view::<E>(|save| save.update_view(view))
-    }
-
     /// TEST ONLY: clear all registered data and index stores for this database.
     #[cfg(test)]
     #[doc(hidden)]

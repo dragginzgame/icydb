@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
+        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -536,18 +536,6 @@ impl Decimal {
         } else {
             significand_cmp.reverse()
         }
-    }
-}
-
-impl AsView for Decimal {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

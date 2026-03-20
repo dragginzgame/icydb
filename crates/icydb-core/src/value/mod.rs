@@ -169,7 +169,7 @@ pub enum Value {
     ///
     /// - Maps are unordered values; insertion order is discarded.
     /// - Entries are always sorted by canonical key order and keys are unique.
-    /// - Map fields are patchable through update views, but remain non-queryable.
+    /// - Map fields remain non-queryable and persist as atomic value replacements.
     /// - Persistence treats map fields as atomic value replacements per row save.
     Map(Vec<(Self, Self)>),
     Null,

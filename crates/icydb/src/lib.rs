@@ -20,7 +20,7 @@
 //!   Internal code generation helpers used by macros and tests
 //!   (not intended for direct use).
 //!
-//! - `traits` / `types` / `value` / `view` / `visitor`
+//! - `traits` / `types` / `value` / `visitor`
 //!   Stable runtime and schema-facing building blocks used by generated code.
 //!
 //! - `model` / `metrics` *(internal)*
@@ -31,7 +31,7 @@
 //!   Shared error types for generated code and runtime boundaries.
 //!
 //! - `macros`
-//!   Derive macros for entities, schemas, and views.
+//!   Derive macros for entities, canisters, and schema helpers.
 //!
 //! - `schema`
 //!   Schema AST, builders, and validation utilities.
@@ -98,10 +98,6 @@ pub mod metrics {
     pub use icydb_core::metrics::{EventReport, MetricsSink, metrics_report, metrics_reset_all};
 }
 
-pub mod patch {
-    pub use icydb_core::patch::{ListPatch, MapPatch, MergePatchError, SetPatch};
-}
-
 pub mod visitor {
     pub use icydb_core::visitor::{
         Issue, PathSegment, ScopedContext, VisitorContext, VisitorCore, VisitorError,
@@ -123,9 +119,6 @@ pub use error::Error;
 pub mod __macro {
     pub use icydb_core::db::{
         DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
-    };
-    pub use icydb_core::traits::{
-        AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,
     };
 }
 
@@ -167,8 +160,8 @@ pub mod prelude {
             },
         },
         traits::{
-            AsView, Collection as _, Create, CreateView as _, EntityKind as _, EntityValue,
-            Inner as _, MapCollection as _, Path as _, Update, UpdateView as _, View,
+            Collection as _, EntityKind as _, EntityValue, Inner as _, MapCollection as _,
+            Path as _,
         },
         types::*,
         value::Value,
@@ -194,10 +187,9 @@ pub mod design {
             },
             macros::*,
             traits::{
-                AsView, Collection as _, Create, CreateView, EntityKind, EntityValue as _,
-                FieldValue as _, Inner as _, MapCollection as _, Path as _, Sanitize as _,
-                Sanitizer, Serialize as _, Update, UpdateView, Validate as _, ValidateCustom,
-                Validator, View, Visitable as _,
+                Collection as _, EntityKind, EntityValue as _, FieldValue as _, Inner as _,
+                MapCollection as _, Path as _, Sanitize as _, Sanitizer, Serialize as _,
+                Validate as _, ValidateCustom, Validator, Visitable as _,
             },
             types::*,
             value::Value,

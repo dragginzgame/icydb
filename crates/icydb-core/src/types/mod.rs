@@ -35,11 +35,12 @@ pub use ulid::*;
 pub use unit::*;
 
 //
-// TypeView Mapping Overview
+// Type Representation Overview
 //
-// - Float32: view = f32 (sanitized; finite only, -0.0 → 0.0)
-// - Float64: view = f64 (sanitized; finite only, -0.0 → 0.0)
-// - Timestamp, Principal, Ulid, Blob, Decimal, Nat, Int, Unit: view = Self
+// - Float32 and Float64 normalize their primitive transport form
+//   (finite only, -0.0 -> 0.0).
+// - Timestamp, Principal, Ulid, Blob, Decimal, Nat, Int, and Unit are their
+//   own transport representation.
 //
 // Notes
 // - Display for fixed‑point types prints normalized decimal (human‑readable),

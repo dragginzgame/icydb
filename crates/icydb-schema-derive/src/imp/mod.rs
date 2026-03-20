@@ -10,7 +10,6 @@ mod partial_ord;
 mod sanitize;
 mod store;
 mod validate;
-mod view;
 mod visitable;
 
 pub use collection::*;
@@ -25,5 +24,4 @@ pub use partial_ord::*;
 pub use sanitize::*;
 pub use store::*;
 pub use validate::*;
-pub use view::*;
 pub use visitable::*;

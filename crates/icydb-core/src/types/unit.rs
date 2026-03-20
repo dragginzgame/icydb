@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -34,18 +34,6 @@ use serde::{Deserialize, Serialize};
     Deserialize,
 )]
 pub struct Unit;
-
-impl AsView for Unit {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl EntityKeyBytes for Unit {
     const BYTE_LEN: usize = 0;

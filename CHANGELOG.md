@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.60.x] - 2026-03-20 - Generated View Removal Open
+
+- `next patch` removes the generated entity `View`/`Create`/`Update` DTO families, makes entities the direct public read/write payloads, deletes the old internal patch/view layer, and cleans the remaining live API/docs surfaces so the crate no longer advertises the removed model.
+
+See detailed breakdown:
+[docs/changelog/0.60.md](docs/changelog/0.60.md)
+
+---
+
 ## [0.59.x] - 2026-03-18 - Execution De-Monomorphization Open
 
 - `0.59.8` removes another small typed-key decode loop from preflight index readers and replaces the old `minimal` vs `quickstart` wasm comparison with a dedicated `minimal` vs `twenty` audit pair, so wasm reports now use a controlled twenty-entity fixture instead of a mixed-purpose test canister.

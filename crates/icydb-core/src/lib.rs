@@ -17,7 +17,6 @@ pub mod db;
 pub mod error;
 pub mod metrics;
 pub mod model;
-pub mod patch;
 pub mod sanitize;
 pub mod serialize;
 pub mod traits;

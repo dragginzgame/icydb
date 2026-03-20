@@ -10,7 +10,7 @@ mod tests;
 
 use crate::{
     traits::{
-        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::GenerateKey,
@@ -126,18 +126,6 @@ impl Ulid {
     #[must_use]
     pub const fn max_storable() -> Self {
         Self::from_bytes([0xFF; 16])
-    }
-}
-
-impl AsView for Ulid {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

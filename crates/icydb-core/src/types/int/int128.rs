@@ -6,7 +6,7 @@
 use crate::{
     prelude::*,
     traits::{
-        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
+        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
 };
@@ -59,18 +59,6 @@ impl Int128 {
     #[must_use]
     pub const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
-    }
-}
-
-impl AsView for Int128 {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 

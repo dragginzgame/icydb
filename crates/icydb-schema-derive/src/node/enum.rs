@@ -129,12 +129,10 @@ impl HasTraits for Enum {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::AsView => AsViewTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
-            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

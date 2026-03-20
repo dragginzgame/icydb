@@ -34,20 +34,17 @@ mod test {
             ..Default::default()
         };
 
-        let view: View<ViewIntoRoundTripHarness> = entity.clone().into();
-        assert_eq!(view.name, "primary");
-        assert_eq!(view.score, 42);
-        assert_eq!(view.tags, vec!["alpha".to_string(), "beta".to_string()]);
-        assert_eq!(view.nickname.as_deref(), Some("prime"));
+        let cloned: ViewIntoRoundTripHarness = entity.clone();
+        assert_eq!(cloned.name, "primary");
+        assert_eq!(cloned.score, 42);
+        assert_eq!(cloned.tags, vec!["alpha".to_string(), "beta".to_string()]);
+        assert_eq!(cloned.nickname.as_deref(), Some("prime"));
 
         entity.name = "updated".into();
-        let from_view: ViewIntoRoundTripHarness = view.into();
-        assert_eq!(from_view.name, "primary");
-        assert_eq!(from_view.score, 42);
-        assert_eq!(
-            from_view.tags,
-            vec!["alpha".to_string(), "beta".to_string()]
-        );
-        assert_eq!(from_view.nickname.as_deref(), Some("prime"));
+        let restored: ViewIntoRoundTripHarness = cloned;
+        assert_eq!(restored.name, "primary");
+        assert_eq!(restored.score, 42);
+        assert_eq!(restored.tags, vec!["alpha".to_string(), "beta".to_string()]);
+        assert_eq!(restored.nickname.as_deref(), Some("prime"));
     }
 }

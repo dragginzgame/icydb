@@ -42,7 +42,7 @@ pub mod test {
     #[test]
     fn enum_with_tokens_roundtrips_via_serialize() {
         let entity = EnumEntityHarness {
-            id: AsView::from_view(Ulid::generate()),
+            id: Ulid::generate(),
             cost: EnumWithPayload::Icp(Tokens::from(42_u64)),
             ..Default::default()
         };

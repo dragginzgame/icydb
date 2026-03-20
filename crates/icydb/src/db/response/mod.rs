@@ -1,11 +1,7 @@
 mod paged;
 mod write;
 
-use crate::{
-    error::Error,
-    traits::{EntityKind, View},
-    types::Id,
-};
+use crate::{error::Error, traits::EntityKind, types::Id};
 use icydb_core::db::{
     EntityResponse as CoreEntityResponse, ProjectedRow as CoreProjectedRow,
     ProjectionResponse as CoreProjectionResponse,
@@ -80,37 +76,6 @@ impl<E: EntityKind> Response<E> {
         self.inner.entities()
     }
 
-    // ------------------------------------------------------------------
-    // Views
-    // ------------------------------------------------------------------
-
-    /// Return the single view.
-    pub fn view(&self) -> Result<View<E>, Error> {
-        self.require_one()?;
-
-        Ok(self
-            .inner
-            .views()
-            .next()
-            .expect("require_one guarantees one row"))
-    }
-
-    /// Return zero or one view.
-    pub fn view_opt(&self) -> Result<Option<View<E>>, Error> {
-        if self.inner.is_empty() {
-            return Ok(None);
-        }
-        self.require_one()?;
-
-        Ok(self.inner.views().next())
-    }
-
-    /// Borrow an iterator over all views.
-    pub fn views(&self) -> impl Iterator<Item = View<E>> + '_ {
-        self.inner.views()
-    }
-
-    // ------------------------------------------------------------------
     // Identity (facade-friendly naming)
     // ------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-use crate::traits::{EntityKind, View};
+use crate::traits::EntityKind;
 
 ///
 /// PagedResponse
@@ -12,17 +12,17 @@ use crate::traits::{EntityKind, View};
 ///
 
 pub struct PagedResponse<E: EntityKind> {
-    items: Vec<View<E>>,
+    items: Vec<E>,
     next_cursor: Option<String>,
 }
 
 impl<E: EntityKind> PagedResponse<E> {
-    pub(crate) const fn new(items: Vec<View<E>>, next_cursor: Option<String>) -> Self {
+    pub(crate) const fn new(items: Vec<E>, next_cursor: Option<String>) -> Self {
         Self { items, next_cursor }
     }
 
     #[must_use]
-    pub fn items(&self) -> &[View<E>] {
+    pub fn items(&self) -> &[E] {
         &self.items
     }
 
@@ -32,7 +32,7 @@ impl<E: EntityKind> PagedResponse<E> {
     }
 
     #[must_use]
-    pub fn into_items(self) -> Vec<View<E>> {
+    pub fn into_items(self) -> Vec<E> {
         self.items
     }
 

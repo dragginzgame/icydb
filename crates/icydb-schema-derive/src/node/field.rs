@@ -90,9 +90,6 @@ pub struct Field {
 
     #[darling(default)]
     pub(crate) default: Option<Arg>,
-
-    #[darling(skip, default)]
-    pub(crate) is_system: bool,
 }
 
 // Canonical relation identity suffixes.
@@ -168,7 +165,6 @@ impl Field {
                 ..Default::default()
             },
             default: None,
-            is_system: true,
         }
     }
 
@@ -180,7 +176,6 @@ impl Field {
                 ..Default::default()
             },
             default: None,
-            is_system: true,
         }
     }
 }
@@ -232,7 +227,6 @@ mod tests {
                 },
             },
             default: None,
-            is_system: false,
         }
     }
 

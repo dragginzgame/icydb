@@ -5,7 +5,7 @@
 
 use crate::{
     traits::{
-        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumCast, NumFromPrimitive,
+        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumCast, NumFromPrimitive,
         NumToPrimitive, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
         Visitable,
     },
@@ -177,18 +177,6 @@ impl Sub for Timestamp {
         let delta = <i128 as From<i64>>::from(self.0) - <i128 as From<i64>>::from(rhs.0);
         let millis = u64::try_from(delta).unwrap_or(u64::MAX);
         Duration::from_millis(millis)
-    }
-}
-
-impl AsView for Timestamp {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
     }
 }
 
@@ -520,14 +508,6 @@ mod tests {
         let t = Timestamp::from_secs(77);
         let v = t.to_value();
         assert_eq!(v, Value::Timestamp(t));
-    }
-
-    #[test]
-    fn test_as_view_roundtrip_preserves_semantic_timestamp_type() {
-        let value = Timestamp::from_millis(1_710_013_530_000);
-        let view: Timestamp = value.as_view();
-        assert_eq!(view, value);
-        assert_eq!(Timestamp::from_view(view), value);
     }
 
     #[test]
