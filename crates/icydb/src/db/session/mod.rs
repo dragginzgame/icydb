@@ -235,6 +235,54 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Self::map_sql_dispatch_result::<E>(result))
     }
 
+    /// Lower one prepared reduced SQL statement into one shared query-lane shape.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn lower_sql_dispatch_query_lane_prepared(
+        &self,
+        prepared: &SqlPreparedStatement,
+        primary_key_field: &str,
+    ) -> Result<core::db::LoweredSqlCommand, Error> {
+        Ok(self
+            .inner
+            .lower_sql_dispatch_query_lane_prepared(&prepared.inner, primary_key_field)?)
+    }
+
+    /// Execute one already-lowered shared SQL query shape for entity `E`.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn execute_lowered_sql_dispatch_query<E>(
+        &self,
+        lowered: &core::db::LoweredSqlCommand,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let result = self
+            .inner
+            .execute_lowered_sql_dispatch_query::<E>(lowered)?;
+
+        Ok(Self::map_sql_dispatch_result::<E>(result))
+    }
+
+    /// Execute one already-lowered shared SQL explain shape for entity `E`.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    pub fn explain_lowered_sql_dispatch<E>(
+        &self,
+        lowered: &core::db::LoweredSqlCommand,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let explain = self.inner.explain_lowered_sql_dispatch::<E>(lowered)?;
+
+        Ok(SqlQueryResult::Explain {
+            entity: E::ENTITY_NAME.to_string(),
+            explain,
+        })
+    }
+
     #[cfg(feature = "sql")]
     fn map_sql_dispatch_result<E>(result: core::db::SqlDispatchResult<E>) -> SqlQueryResult
     where

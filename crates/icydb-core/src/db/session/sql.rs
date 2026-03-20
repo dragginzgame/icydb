@@ -13,10 +13,12 @@ use crate::{
             },
         },
         sql::lowering::{
+            LoweredSqlCommand, LoweredSqlLaneKind,
             PreparedSqlStatement as CorePreparedSqlStatement, SqlCommand,
             SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
-            compile_sql_command, compile_sql_command_from_prepared_statement,
-            compile_sql_global_aggregate_command, prepare_sql_statement,
+            bind_lowered_sql_command, compile_sql_command, compile_sql_global_aggregate_command,
+            lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
+            prepare_sql_statement,
         },
         sql::parser::{SqlExplainMode, SqlExplainTarget, SqlStatement, parse_sql},
     },
@@ -171,6 +173,18 @@ const fn sql_command_lane<E: EntityKind>(command: &SqlCommand<E>) -> SqlLaneKind
         SqlCommand::ShowIndexesEntity => SqlLaneKind::ShowIndexes,
         SqlCommand::ShowColumnsEntity => SqlLaneKind::ShowColumns,
         SqlCommand::ShowEntities => SqlLaneKind::ShowEntities,
+    }
+}
+
+// Resolve one generic-free lowered SQL command to the session lane taxonomy.
+const fn session_sql_lane(command: &LoweredSqlCommand) -> SqlLaneKind {
+    match lowered_sql_command_lane(command) {
+        LoweredSqlLaneKind::Query => SqlLaneKind::Query,
+        LoweredSqlLaneKind::Explain => SqlLaneKind::Explain,
+        LoweredSqlLaneKind::Describe => SqlLaneKind::Describe,
+        LoweredSqlLaneKind::ShowIndexes => SqlLaneKind::ShowIndexes,
+        LoweredSqlLaneKind::ShowColumns => SqlLaneKind::ShowColumns,
+        LoweredSqlLaneKind::ShowEntities => SqlLaneKind::ShowEntities,
     }
 }
 
@@ -415,11 +429,10 @@ where
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Execute one lowered query/explain SQL command and reject non-query lanes.
-    fn execute_sql_dispatch_query_lane_from_command<E>(
+    // Execute one lowered SQL query command and reject non-query lanes.
+    fn execute_sql_dispatch_query_from_command<E>(
         &self,
         command: SqlCommand<E>,
-        lane: SqlLaneKind,
     ) -> Result<SqlDispatchResult<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -456,9 +469,9 @@ impl<C: CanisterKind> DbSession<C> {
                     }
                 }
             }
-            SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {
-                Self::explain_sql_from_command::<E>(command, lane).map(SqlDispatchResult::Explain)
-            }
+            SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => Err(
+                unsupported_sql_lane_error(SqlSurface::QueryFrom, SqlLaneKind::Explain),
+            ),
             SqlCommand::DescribeEntity
             | SqlCommand::ShowIndexesEntity
             | SqlCommand::ShowColumnsEntity
@@ -468,6 +481,16 @@ impl<C: CanisterKind> DbSession<C> {
                 "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
             ))),
         }
+    }
+
+    // Execute one lowered SQL explain command and reject non-explain lanes.
+    fn execute_sql_dispatch_explain_from_command<E>(
+        command: SqlCommand<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Self::explain_sql_from_command::<E>(command, SqlLaneKind::Explain)
     }
 
     // Render one EXPLAIN payload from one already-lowered SQL command.
@@ -731,18 +754,19 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let command = compile_sql_command_from_prepared_statement::<E>(
+        let lowered = lower_sql_command_from_prepared_statement(
             prepared.prepared.clone(),
-            MissingRowPolicy::Ignore,
+            E::MODEL.primary_key.name,
         )
         .map_err(map_sql_lowering_error)?;
-        let lane = sql_command_lane(&command);
+        let command = bind_lowered_sql_command::<E>(lowered, MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
 
         match command {
-            SqlCommand::Query(_)
-            | SqlCommand::Explain { .. }
-            | SqlCommand::ExplainGlobalAggregate { .. } => {
-                self.execute_sql_dispatch_query_lane_from_command::<E>(command, lane)
+            SqlCommand::Query(_) => self.execute_sql_dispatch_query_from_command::<E>(command),
+            SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {
+                Self::execute_sql_dispatch_explain_from_command::<E>(command)
+                    .map(SqlDispatchResult::Explain)
             }
             SqlCommand::DescribeEntity => {
                 Ok(SqlDispatchResult::Describe(self.describe_entity::<E>()))
@@ -765,14 +789,88 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let command = compile_sql_command_from_prepared_statement::<E>(
-            prepared.prepared.clone(),
-            MissingRowPolicy::Ignore,
-        )
-        .map_err(map_sql_lowering_error)?;
-        let lane = sql_command_lane(&command);
+        let lowered =
+            self.lower_sql_dispatch_query_lane_prepared(prepared, E::MODEL.primary_key.name)?;
+        let lane = session_sql_lane(&lowered);
 
-        self.execute_sql_dispatch_query_lane_from_command::<E>(command, lane)
+        match lane {
+            SqlLaneKind::Query => self.execute_lowered_sql_dispatch_query::<E>(&lowered),
+            SqlLaneKind::Explain => self
+                .explain_lowered_sql_dispatch::<E>(&lowered)
+                .map(SqlDispatchResult::Explain),
+            SqlLaneKind::Describe
+            | SqlLaneKind::ShowIndexes
+            | SqlLaneKind::ShowColumns
+            | SqlLaneKind::ShowEntities => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
+            ))),
+        }
+    }
+
+    /// Lower one prepared reduced SQL statement into one shared query-lane shape.
+    pub fn lower_sql_dispatch_query_lane_prepared(
+        &self,
+        prepared: &SqlPreparedStatement,
+        primary_key_field: &str,
+    ) -> Result<LoweredSqlCommand, QueryError> {
+        let lowered =
+            lower_sql_command_from_prepared_statement(prepared.prepared.clone(), primary_key_field)
+                .map_err(map_sql_lowering_error)?;
+        let lane = lowered_sql_command_lane(&lowered);
+
+        match lane {
+            LoweredSqlLaneKind::Query | LoweredSqlLaneKind::Explain => Ok(lowered),
+            LoweredSqlLaneKind::Describe
+            | LoweredSqlLaneKind::ShowIndexes
+            | LoweredSqlLaneKind::ShowColumns
+            | LoweredSqlLaneKind::ShowEntities => {
+                Err(QueryError::execute(InternalError::classified(
+                    ErrorClass::Unsupported,
+                    ErrorOrigin::Query,
+                    "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
+                )))
+            }
+        }
+    }
+
+    /// Execute one already-lowered shared SQL query shape for entity `E`.
+    pub fn execute_lowered_sql_dispatch_query<E>(
+        &self,
+        lowered: &LoweredSqlCommand,
+    ) -> Result<SqlDispatchResult<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let lane = session_sql_lane(lowered);
+        if lane != SqlLaneKind::Query {
+            return Err(unsupported_sql_lane_error(SqlSurface::QueryFrom, lane));
+        }
+
+        let command = bind_lowered_sql_command::<E>(lowered.clone(), MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        self.execute_sql_dispatch_query_from_command::<E>(command)
+    }
+
+    /// Execute one already-lowered shared SQL explain shape for entity `E`.
+    pub fn explain_lowered_sql_dispatch<E>(
+        &self,
+        lowered: &LoweredSqlCommand,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let lane = session_sql_lane(lowered);
+        if lane != SqlLaneKind::Explain {
+            return Err(unsupported_sql_lane_error(SqlSurface::Explain, lane));
+        }
+
+        let command = bind_lowered_sql_command::<E>(lowered.clone(), MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        Self::execute_sql_dispatch_explain_from_command::<E>(command)
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command.

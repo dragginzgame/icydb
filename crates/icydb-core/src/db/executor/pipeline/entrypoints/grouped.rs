@@ -173,9 +173,11 @@ where
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
         match surface {
             LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "grouped traced entrypoint must produce grouped traced page surface",
-            )),
+            LoadExecutionSurface::ScalarPageWithTrace(..) => {
+                Err(crate::db::error::query_executor_invariant(
+                    "grouped traced entrypoint must produce grouped traced page surface",
+                ))
+            }
         }
     }
 }

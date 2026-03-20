@@ -8,6 +8,7 @@ mod scalar;
 
 use crate::{
     db::{
+        Db,
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
             ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
@@ -17,7 +18,7 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue},
 };
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
@@ -28,8 +29,33 @@ pub(in crate::db::executor) use grouped::{
 };
 pub(in crate::db::executor) use scalar::{
     PreparedScalarMaterializedBoundary, PreparedScalarRouteRuntime,
-    execute_prepared_scalar_route_runtime,
+    execute_prepared_scalar_route_runtime, execute_prepared_scalar_rows_for_canister,
 };
+
+// Resolve one load-entry cursor contract without depending on typed entity
+// state. Entrypoint wrappers can share this boundary across all entities in the
+// same canister.
+fn resolve_entrypoint_cursor(
+    plan: &PreparedLoadPlan,
+    cursor: LoadCursorInput,
+    execution_mode: LoadExecutionMode,
+) -> Result<ResolvedLoadCursorContext, InternalError> {
+    ContinuationEngine::resolve_load_cursor_context(plan, cursor, execution_mode.requested_shape())
+}
+
+// Execute one unpaged scalar load plan through the shared structural scalar
+// path for a whole canister, then return one structural page for the typed
+// boundary to decode.
+fn execute_scalar_rows_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+) -> Result<crate::db::executor::pipeline::contracts::StructuralCursorPage, InternalError>
+where
+    C: CanisterKind,
+{
+    execute_prepared_scalar_rows_for_canister(db, debug, plan)
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -42,22 +68,19 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<ResolvedLoadCursorContext, InternalError> {
-        ContinuationEngine::resolve_load_cursor_context(
-            plan,
-            cursor,
-            execution_mode.requested_shape(),
-        )
+        resolve_entrypoint_cursor(plan, cursor, execution_mode)
     }
 
     // Execute one scalar load plan without explicit cursor input.
+    #[inline(never)]
     pub(crate) fn execute(
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
-        self.execute_load_scalar_rows(
-            plan.into_prepared_load_plan(),
-            LoadCursorInput::scalar(PlannedCursor::none()),
-        )
+        let page =
+            execute_scalar_rows_for_canister(&self.db, self.debug, plan.into_prepared_load_plan())?;
+
+        page.into_entity_response::<E>()
     }
 
     // Execute one scalar load plan and optionally emit execution trace output.

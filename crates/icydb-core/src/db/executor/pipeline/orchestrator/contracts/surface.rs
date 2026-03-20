@@ -13,7 +13,6 @@ use crate::db::executor::{
 ///
 
 pub(in crate::db::executor) enum LoadExecutionSurface {
-    ScalarPage(StructuralCursorPage),
     ScalarPageWithTrace(StructuralCursorPage, Option<ExecutionTrace>),
     GroupedPageWithTrace(GroupedCursorPage, Option<ExecutionTrace>),
 }

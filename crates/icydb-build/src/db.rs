@@ -147,19 +147,29 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
 
         let query_fn_ident = format_ident!("__sql_query_{entity_id}");
+        let explain_fn_ident = format_ident!("__sql_explain_{entity_id}");
         let lane_table_ident = format_ident!("SQL_LANE_TABLE_{entity_id}");
 
         lane_callback_defs.extend(quote! {
             fn #query_fn_ident(
-                prepared: &::icydb::db::SqlPreparedStatement,
+                lowered: &::icydb::__macro::LoweredSqlCommand,
             ) -> Result<SqlQueryResult, Error> {
-                db().execute_sql_dispatch_query_lane_prepared::<#entity_ty>(prepared)
+                db().execute_lowered_sql_dispatch_query::<#entity_ty>(lowered)
+            }
+        });
+
+        lane_callback_defs.extend(quote! {
+            fn #explain_fn_ident(
+                lowered: &::icydb::__macro::LoweredSqlCommand,
+            ) -> Result<SqlQueryResult, Error> {
+                db().explain_lowered_sql_dispatch::<#entity_ty>(lowered)
             }
         });
 
         lane_callback_defs.extend(quote! {
             static #lane_table_ident: SqlLaneTable = SqlLaneTable {
                 query: #query_fn_ident,
+                explain: #explain_fn_ident,
             };
         });
 
@@ -197,7 +207,8 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             ///
             #[derive(Clone, Copy, Debug)]
             pub struct SqlLaneTable {
-                pub query: fn(&::icydb::db::SqlPreparedStatement) -> Result<SqlQueryResult, Error>,
+                pub query: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
+                pub explain: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
             }
 
             ///
@@ -271,9 +282,17 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 /// Execute one SQL statement for this concrete route.
                 pub fn execute_query(
                     self,
-                    prepared: &::icydb::db::SqlPreparedStatement,
+                    lowered: &::icydb::__macro::LoweredSqlCommand,
                 ) -> Result<SqlQueryResult, Error> {
-                    (self.descriptor.routes.query)(prepared)
+                    (self.descriptor.routes.query)(lowered)
+                }
+
+                /// Execute one already-lowered SQL explain statement for this concrete route.
+                pub fn execute_explain(
+                    self,
+                    lowered: &::icydb::__macro::LoweredSqlCommand,
+                ) -> Result<SqlQueryResult, Error> {
+                    (self.descriptor.routes.explain)(lowered)
                 }
 
                 /// Describe this route's schema using descriptor-owned model authority.
@@ -336,7 +355,13 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             ) -> Result<SqlQueryResult, Error> {
                 let route = SqlEntityRoute::from_statement_route(statement)?;
                 let prepared = db().prepare_sql_dispatch_parsed(parsed, route.entity_name())?;
-                let result = route.execute_query(&prepared);
+                let lowered =
+                    db().lower_sql_dispatch_query_lane_prepared(&prepared, route.primary_key_field())?;
+                let result = if statement.is_explain() {
+                    route.execute_explain(&lowered)
+                } else {
+                    route.execute_query(&lowered)
+                };
 
                 if matches!(statement, ::icydb::db::SqlStatementRoute::Explain { .. }) {
                     return result.map_err(|err| explain_surface_error(sql, route, err));

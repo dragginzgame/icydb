@@ -23,7 +23,7 @@ pub(in crate::db::executor) use contracts::{
 /// Apply paging contracts over generic-free payload artifacts.
 fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState, InternalError> {
     let execution_mode = state.context.mode;
-    let payload = if execution_mode.scalar_rows_mode() || execution_mode.scalar_page_mode() {
+    let payload = if execution_mode.scalar_page_mode() {
         match state.payload {
             state::LoadExecutionPayload::Scalar(payload) => {
                 state::LoadExecutionPayload::Scalar(payload)
@@ -76,19 +76,7 @@ fn materialize_runtime_surface(
             ));
         };
 
-        if execution_mode.tracing_enabled() {
-            Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
-        } else {
-            Ok(LoadExecutionSurface::ScalarPage(page))
-        }
-    } else if execution_mode.scalar_rows_mode() {
-        let state::LoadExecutionPayload::Scalar(page) = state.payload else {
-            return Err(crate::db::error::query_executor_invariant(
-                "scalar rows load mode must carry scalar runtime payload",
-            ));
-        };
-
-        Ok(LoadExecutionSurface::ScalarPage(page))
+        Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
     } else {
         debug_assert!(
             execution_mode.grouped_page_mode(),

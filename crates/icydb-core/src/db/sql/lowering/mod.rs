@@ -24,8 +24,8 @@ use crate::{
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
             SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
-            SqlOrderDirection, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
-            parse_sql,
+            SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
+            SqlStatement, parse_sql,
         },
     },
     traits::EntityKind,
@@ -61,6 +61,46 @@ pub(crate) enum SqlCommand<E: EntityKind> {
 }
 
 ///
+/// LoweredSqlCommand
+///
+/// Generic-free SQL command shape after reduced SQL parsing and entity-route
+/// normalization.
+/// This keeps statement-shape lowering shared across entities before typed
+/// `Query<E>` binding happens at the execution boundary.
+///
+#[derive(Clone, Debug)]
+pub struct LoweredSqlCommand(LoweredSqlCommandInner);
+
+#[derive(Clone, Debug)]
+enum LoweredSqlCommandInner {
+    Query(LoweredSqlQuery),
+    Explain {
+        mode: SqlExplainMode,
+        query: LoweredSqlQuery,
+    },
+    ExplainGlobalAggregate {
+        mode: SqlExplainMode,
+        command: LoweredSqlGlobalAggregateCommand,
+    },
+    DescribeEntity,
+    ShowIndexesEntity,
+    ShowColumnsEntity,
+    ShowEntities,
+}
+
+///
+/// LoweredSqlQuery
+///
+/// Generic-free executable SQL query shape prepared before typed query binding.
+/// Select and delete lowering stay shared until the final `Query<E>` build.
+///
+#[derive(Clone, Debug)]
+pub(crate) enum LoweredSqlQuery {
+    Select(LoweredSelectShape),
+    Delete(LoweredBaseQueryShape),
+}
+
+///
 /// SqlGlobalAggregateTerminal
 ///
 /// Global SQL aggregate terminals currently executable through dedicated
@@ -75,6 +115,20 @@ pub(crate) enum SqlGlobalAggregateTerminal {
     AvgField(String),
     MinField(String),
     MaxField(String),
+}
+
+///
+/// LoweredSqlGlobalAggregateCommand
+///
+/// Generic-free global aggregate command shape prepared before typed query
+/// binding.
+/// This keeps aggregate SQL lowering shared across entities until the final
+/// execution boundary converts the base query shape into `Query<E>`.
+///
+#[derive(Clone, Debug)]
+pub(crate) struct LoweredSqlGlobalAggregateCommand {
+    query: LoweredBaseQueryShape,
+    terminal: SqlGlobalAggregateTerminal,
 }
 
 ///
@@ -153,6 +207,16 @@ pub(crate) struct PreparedSqlStatement {
     statement: SqlStatement,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LoweredSqlLaneKind {
+    Query,
+    Explain,
+    Describe,
+    ShowIndexes,
+    ShowColumns,
+    ShowEntities,
+}
+
 /// Parse and lower one SQL statement into canonical query intent for `E`.
 pub(crate) fn compile_sql_command<E: EntityKind>(
     sql: &str,
@@ -176,7 +240,56 @@ pub(crate) fn compile_sql_command_from_prepared_statement<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
-    lower_prepared_statement::<E>(prepared.statement, consistency)
+    let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL.primary_key.name)?;
+
+    bind_lowered_sql_command::<E>(lowered, consistency)
+}
+
+/// Lower one prepared SQL statement into one shared generic-free command shape.
+pub(crate) fn lower_sql_command_from_prepared_statement(
+    prepared: PreparedSqlStatement,
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, SqlLoweringError> {
+    lower_prepared_statement(prepared.statement, primary_key_field)
+}
+
+pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {
+    match command.0 {
+        LoweredSqlCommandInner::Query(_) => LoweredSqlLaneKind::Query,
+        LoweredSqlCommandInner::Explain { .. }
+        | LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => LoweredSqlLaneKind::Explain,
+        LoweredSqlCommandInner::DescribeEntity => LoweredSqlLaneKind::Describe,
+        LoweredSqlCommandInner::ShowIndexesEntity => LoweredSqlLaneKind::ShowIndexes,
+        LoweredSqlCommandInner::ShowColumnsEntity => LoweredSqlLaneKind::ShowColumns,
+        LoweredSqlCommandInner::ShowEntities => LoweredSqlLaneKind::ShowEntities,
+    }
+}
+
+/// Bind one shared generic-free SQL command shape to the typed query surface.
+pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
+    lowered: LoweredSqlCommand,
+    consistency: MissingRowPolicy,
+) -> Result<SqlCommand<E>, SqlLoweringError> {
+    match lowered.0 {
+        LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(bind_lowered_sql_query::<E>(
+            query,
+            consistency,
+        )?)),
+        LoweredSqlCommandInner::Explain { mode, query } => Ok(SqlCommand::Explain {
+            mode,
+            query: bind_lowered_sql_query::<E>(query, consistency)?,
+        }),
+        LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } => {
+            Ok(SqlCommand::ExplainGlobalAggregate {
+                mode,
+                command: bind_lowered_sql_global_aggregate_command::<E>(command, consistency),
+            })
+        }
+        LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
+        LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),
+        LoweredSqlCommandInner::ShowColumnsEntity => Ok(SqlCommand::ShowColumnsEntity),
+        LoweredSqlCommandInner::ShowEntities => Ok(SqlCommand::ShowEntities),
+    }
 }
 
 /// Prepare one parsed SQL statement for one expected entity route.
@@ -207,7 +320,10 @@ fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
         return Err(SqlLoweringError::UnsupportedSelectProjection);
     };
 
-    lower_global_aggregate_select_prepared::<E>(statement, consistency)
+    Ok(bind_lowered_sql_global_aggregate_command::<E>(
+        lower_global_aggregate_select_shape(statement)?,
+        consistency,
+    ))
 }
 
 fn prepare_statement(
@@ -297,64 +413,74 @@ fn prepare_delete_statement(
     Ok(statement)
 }
 
-fn lower_prepared_statement<E: EntityKind>(
+fn lower_prepared_statement(
     statement: SqlStatement,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, SqlLoweringError> {
     match statement {
-        SqlStatement::Select(statement) => Ok(SqlCommand::Query(lower_select_prepared::<E>(
-            statement,
-            consistency,
-        )?)),
-        SqlStatement::Delete(statement) => Ok(SqlCommand::Query(lower_delete_prepared::<E>(
-            statement,
-            consistency,
+        SqlStatement::Select(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
+            LoweredSqlQuery::Select(lower_select_shape(statement, primary_key_field)?),
         ))),
-        SqlStatement::Explain(statement) => lower_explain_prepared::<E>(statement, consistency),
-        SqlStatement::Describe(_) => Ok(SqlCommand::DescribeEntity),
-        SqlStatement::ShowIndexes(_) => Ok(SqlCommand::ShowIndexesEntity),
-        SqlStatement::ShowColumns(_) => Ok(SqlCommand::ShowColumnsEntity),
-        SqlStatement::ShowEntities(_) => Ok(SqlCommand::ShowEntities),
+        SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
+            LoweredSqlQuery::Delete(lower_delete_shape(statement)),
+        ))),
+        SqlStatement::Explain(statement) => lower_explain_prepared(statement, primary_key_field),
+        SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
+        SqlStatement::ShowIndexes(_) => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))
+        }
+        SqlStatement::ShowColumns(_) => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowColumnsEntity))
+        }
+        SqlStatement::ShowEntities(_) => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowEntities))
+        }
     }
 }
 
-fn lower_explain_prepared<E: EntityKind>(
+fn lower_explain_prepared(
     statement: SqlExplainStatement,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let mode = statement.mode;
 
     match statement.statement {
         SqlExplainTarget::Select(select_statement) => {
-            lower_explain_select_prepared::<E>(select_statement, mode, consistency)
+            lower_explain_select_prepared(select_statement, mode, primary_key_field)
         }
-        SqlExplainTarget::Delete(delete_statement) => Ok(SqlCommand::Explain {
-            mode,
-            query: lower_delete_prepared::<E>(delete_statement, consistency),
-        }),
+        SqlExplainTarget::Delete(delete_statement) => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
+                mode,
+                query: LoweredSqlQuery::Delete(lower_delete_shape(delete_statement)),
+            }))
+        }
     }
 }
 
-fn lower_explain_select_prepared<E: EntityKind>(
+fn lower_explain_select_prepared(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
-    match lower_select_prepared::<E>(statement.clone(), consistency) {
-        Ok(query) => Ok(SqlCommand::Explain { mode, query }),
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, SqlLoweringError> {
+    match lower_select_shape(statement.clone(), primary_key_field) {
+        Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
+            mode,
+            query: LoweredSqlQuery::Select(query),
+        })),
         Err(SqlLoweringError::UnsupportedSelectProjection) => {
-            let command = lower_global_aggregate_select_prepared::<E>(statement, consistency)?;
+            let command = lower_global_aggregate_select_shape(statement)?;
 
-            Ok(SqlCommand::ExplainGlobalAggregate { mode, command })
+            Ok(LoweredSqlCommand(
+                LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command },
+            ))
         }
         Err(err) => Err(err),
     }
 }
 
-fn lower_global_aggregate_select_prepared<E: EntityKind>(
+fn lower_global_aggregate_select_shape(
     statement: SqlSelectStatement,
-    consistency: MissingRowPolicy,
-) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
+) -> Result<LoweredSqlGlobalAggregateCommand, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
         predicate,
@@ -379,31 +505,15 @@ fn lower_global_aggregate_select_prepared<E: EntityKind>(
 
     let terminal = lower_global_aggregate_terminal(projection)?;
 
-    // Phase 1: lower base scalar query shape for terminal execution.
-    let mut query = Query::new(consistency);
-    if let Some(predicate) = predicate {
-        query = query.filter(predicate);
-    }
-    query = apply_order_terms(query, order_by);
-
-    // Phase 2: preserve effective window semantics for aggregate terminals.
-    if let Some(limit) = limit {
-        query = query.limit(limit);
-    }
-    if let Some(offset) = offset {
-        query = query.offset(offset);
-    }
-
-    Ok(SqlGlobalAggregateCommand { query, terminal })
-}
-
-fn lower_select_prepared<E: EntityKind>(
-    statement: SqlSelectStatement,
-    consistency: MissingRowPolicy,
-) -> Result<Query<E>, SqlLoweringError> {
-    let lowered = lower_select_shape(statement, E::MODEL.primary_key.name)?;
-
-    apply_lowered_select_shape(Query::new(consistency), lowered)
+    Ok(LoweredSqlGlobalAggregateCommand {
+        query: LoweredBaseQueryShape {
+            predicate,
+            order_by,
+            limit,
+            offset,
+        },
+        terminal,
+    })
 }
 
 ///
@@ -434,7 +544,7 @@ enum ResolvedHavingClause {
 /// binding.
 ///
 #[derive(Clone, Debug)]
-struct LoweredSelectShape {
+pub(crate) struct LoweredSelectShape {
     scalar_projection_fields: Option<Vec<String>>,
     grouped_projection_aggregates: Vec<SqlAggregateCall>,
     group_by_fields: Vec<String>,
@@ -442,6 +552,22 @@ struct LoweredSelectShape {
     having: Vec<ResolvedHavingClause>,
     predicate: Option<Predicate>,
     order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
+
+///
+/// LoweredBaseQueryShape
+///
+/// Generic-free filter/order/window query modifiers shared by delete and
+/// global-aggregate SQL lowering.
+/// This keeps common SQL query-shape lowering shared before typed query
+/// binding.
+///
+#[derive(Clone, Debug)]
+pub(crate) struct LoweredBaseQueryShape {
+    predicate: Option<Predicate>,
+    order_by: Vec<SqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
@@ -647,6 +773,49 @@ fn apply_lowered_select_shape<E: EntityKind>(
     Ok(query)
 }
 
+fn apply_lowered_base_query_shape<E: EntityKind>(
+    mut query: Query<E>,
+    lowered: LoweredBaseQueryShape,
+) -> Query<E> {
+    if let Some(predicate) = lowered.predicate {
+        query = query.filter(predicate);
+    }
+    query = apply_order_terms(query, lowered.order_by);
+    if let Some(limit) = lowered.limit {
+        query = query.limit(limit);
+    }
+    if let Some(offset) = lowered.offset {
+        query = query.offset(offset);
+    }
+
+    query
+}
+
+fn bind_lowered_sql_query<E: EntityKind>(
+    lowered: LoweredSqlQuery,
+    consistency: MissingRowPolicy,
+) -> Result<Query<E>, SqlLoweringError> {
+    match lowered {
+        LoweredSqlQuery::Select(select) => {
+            apply_lowered_select_shape(Query::new(consistency), select)
+        }
+        LoweredSqlQuery::Delete(delete) => Ok(apply_lowered_base_query_shape(
+            Query::new(consistency).delete(),
+            delete,
+        )),
+    }
+}
+
+fn bind_lowered_sql_global_aggregate_command<E: EntityKind>(
+    lowered: LoweredSqlGlobalAggregateCommand,
+    consistency: MissingRowPolicy,
+) -> SqlGlobalAggregateCommand<E> {
+    SqlGlobalAggregateCommand {
+        query: apply_lowered_base_query_shape(Query::new(consistency), lowered.query),
+        terminal: lowered.terminal,
+    }
+}
+
 fn lower_global_aggregate_terminal(
     projection: SqlProjection,
 ) -> Result<SqlGlobalAggregateTerminal, SqlLoweringError> {
@@ -744,10 +913,7 @@ fn resolve_having_aggregate_index(
     Ok(index)
 }
 
-fn lower_delete_prepared<E: EntityKind>(
-    statement: SqlDeleteStatement,
-    consistency: MissingRowPolicy,
-) -> Query<E> {
+fn lower_delete_shape(statement: SqlDeleteStatement) -> LoweredBaseQueryShape {
     let SqlDeleteStatement {
         predicate,
         order_by,
@@ -755,16 +921,12 @@ fn lower_delete_prepared<E: EntityKind>(
         entity: _,
     } = statement;
 
-    let mut query = Query::new(consistency).delete();
-    if let Some(predicate) = predicate {
-        query = query.filter(predicate);
+    LoweredBaseQueryShape {
+        predicate,
+        order_by,
+        limit,
+        offset: None,
     }
-    query = apply_order_terms(query, order_by);
-    if let Some(limit) = limit {
-        query = query.limit(limit);
-    }
-
-    query
 }
 
 fn apply_order_terms<E: EntityKind>(

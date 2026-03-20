@@ -120,7 +120,8 @@ pub use error::Error;
 #[doc(hidden)]
 pub mod __macro {
     pub use icydb_core::db::{
-        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
+        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, LoweredSqlCommand,
+        StoreRegistry,
     };
 }
 

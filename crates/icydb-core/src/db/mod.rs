@@ -103,6 +103,8 @@ pub use sql::identifier::{
     identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
     split_qualified_identifier,
 };
+#[cfg(feature = "sql")]
+pub use sql::lowering::LoweredSqlCommand;
 
 ///
 /// Db
