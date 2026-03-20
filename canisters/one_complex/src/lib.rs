@@ -1,5 +1,5 @@
 //!
-//! Minimal SQL canister used for wasm-footprint auditing.
+//! One-complex SQL canister used for wasm-footprint auditing.
 //!
 
 use ic_cdk::export_candid;
@@ -10,7 +10,7 @@ use icydb::db::sql::SqlQueryResult;
 
 icydb::start!();
 
-/// Execute one reduced SQL statement against the empty minimal audit canister.
+/// Execute one reduced SQL statement against the one-complex audit set.
 #[cfg(feature = "sql")]
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {

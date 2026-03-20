@@ -11,7 +11,7 @@ REPORT_SCOPE="wasm-footprint"
 ARTIFACT_SCOPE_DIR="$REPORT_DIR/artifacts/$REPORT_SCOPE"
 
 if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
-    for canister_name in minimal twenty; do
+    for canister_name in minimal one_simple one_complex ten_simple ten_complex; do
         WASM_CANISTER_NAME="$canister_name" \
             WASM_PROFILE="$PROFILE" \
             WASM_SQL_VARIANTS="$SQL_VARIANTS_MODE" \

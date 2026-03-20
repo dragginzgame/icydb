@@ -1,5 +1,5 @@
 [package]
-name = "canister_twenty"
+name = "canister_ten_complex"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -16,11 +16,14 @@ sql = ["icydb/sql"]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { path = "../../crates/icydb", default-features = false }
-icydb-testing-twenty-fixtures = { workspace = true }
+icydb-testing-ten-complex-fixtures = { workspace = true }
 
 [build-dependencies]
 icydb = { path = "../../crates/icydb", default-features = false }
-icydb-testing-twenty-fixtures = { workspace = true }
+icydb-testing-ten-complex-fixtures = { workspace = true }
+
+[dev-dependencies]
+icydb-testing-wasm-fixtures = { workspace = true }
 
 [lints]
 workspace = true

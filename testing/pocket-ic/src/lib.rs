@@ -10,8 +10,14 @@ const QUICKSTART_CANISTER_NAME: &str = "quickstart";
 const QUICKSTART_CANISTER_PACKAGE: &str = "canister_quickstart";
 const MINIMAL_CANISTER_NAME: &str = "minimal";
 const MINIMAL_CANISTER_PACKAGE: &str = "canister_minimal";
-const TWENTY_CANISTER_NAME: &str = "twenty";
-const TWENTY_CANISTER_PACKAGE: &str = "canister_twenty";
+const ONE_SIMPLE_CANISTER_NAME: &str = "one_simple";
+const ONE_SIMPLE_CANISTER_PACKAGE: &str = "canister_one_simple";
+const ONE_COMPLEX_CANISTER_NAME: &str = "one_complex";
+const ONE_COMPLEX_CANISTER_PACKAGE: &str = "canister_one_complex";
+const TEN_SIMPLE_CANISTER_NAME: &str = "ten_simple";
+const TEN_SIMPLE_CANISTER_PACKAGE: &str = "canister_ten_simple";
+const TEN_COMPLEX_CANISTER_NAME: &str = "ten_complex";
+const TEN_COMPLEX_CANISTER_PACKAGE: &str = "canister_ten_complex";
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
 const QUICKSTART_WASM_PROFILE_ENV: &str = "QUICKSTART_WASM_PROFILE";
@@ -40,9 +46,12 @@ fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String
     match canister_name {
         QUICKSTART_CANISTER_NAME => Ok(QUICKSTART_CANISTER_PACKAGE),
         MINIMAL_CANISTER_NAME => Ok(MINIMAL_CANISTER_PACKAGE),
-        TWENTY_CANISTER_NAME => Ok(TWENTY_CANISTER_PACKAGE),
+        ONE_SIMPLE_CANISTER_NAME => Ok(ONE_SIMPLE_CANISTER_PACKAGE),
+        ONE_COMPLEX_CANISTER_NAME => Ok(ONE_COMPLEX_CANISTER_PACKAGE),
+        TEN_SIMPLE_CANISTER_NAME => Ok(TEN_SIMPLE_CANISTER_PACKAGE),
+        TEN_COMPLEX_CANISTER_NAME => Ok(TEN_COMPLEX_CANISTER_PACKAGE),
         _ => Err(format!(
-            "unsupported canister '{canister_name}', expected '{QUICKSTART_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', or '{TWENTY_CANISTER_NAME}'"
+            "unsupported canister '{canister_name}', expected '{QUICKSTART_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
         )),
     }
 }
@@ -174,17 +183,62 @@ pub fn build_minimal_canister() -> Result<PathBuf, String> {
 }
 
 ///
-/// build_twenty_canister
+/// build_one_simple_canister
 ///
-/// Build the twenty-entity SQL canister WASM and return the built wasm path.
+/// Build the one-simple SQL canister WASM and return the built wasm path.
 ///
 
-pub fn build_twenty_canister() -> Result<PathBuf, String> {
+pub fn build_one_simple_canister() -> Result<PathBuf, String> {
     let profile = selected_canister_wasm_profile()?;
     build_canister_package(
-        TWENTY_CANISTER_PACKAGE,
+        ONE_SIMPLE_CANISTER_PACKAGE,
         profile,
-        &format!("twenty canister build ({profile})"),
+        &format!("one_simple canister build ({profile})"),
+    )
+}
+
+///
+/// build_one_complex_canister
+///
+/// Build the one-complex SQL canister WASM and return the built wasm path.
+///
+
+pub fn build_one_complex_canister() -> Result<PathBuf, String> {
+    let profile = selected_canister_wasm_profile()?;
+    build_canister_package(
+        ONE_COMPLEX_CANISTER_PACKAGE,
+        profile,
+        &format!("one_complex canister build ({profile})"),
+    )
+}
+
+///
+/// build_ten_simple_canister
+///
+/// Build the ten-simple SQL canister WASM and return the built wasm path.
+///
+
+pub fn build_ten_simple_canister() -> Result<PathBuf, String> {
+    let profile = selected_canister_wasm_profile()?;
+    build_canister_package(
+        TEN_SIMPLE_CANISTER_PACKAGE,
+        profile,
+        &format!("ten_simple canister build ({profile})"),
+    )
+}
+
+///
+/// build_ten_complex_canister
+///
+/// Build the ten-complex SQL canister WASM and return the built wasm path.
+///
+
+pub fn build_ten_complex_canister() -> Result<PathBuf, String> {
+    let profile = selected_canister_wasm_profile()?;
+    build_canister_package(
+        TEN_COMPLEX_CANISTER_PACKAGE,
+        profile,
+        &format!("ten_complex canister build ({profile})"),
     )
 }
 

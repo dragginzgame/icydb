@@ -5,8 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.61.x] - 2026-03-20 - Entity Macro Compression Open
+## [0.61.x] - 2026-03-20 - Entity Macro Compression
 
+- `0.61.2` keeps the macro-compression line moving by replacing repeated generated list/set/map container conversion bodies with shared runtime helpers and rebuilding the wasm audit fixtures around an empty `minimal` plus `one_simple`, `one_complex`, `ten_simple`, and `ten_complex`, so `0.61` now has a cleaner matrix for separating base entity cost from richer macro-heavy schema cost.
 - `0.61.1` keeps the macro-compression line moving by lifting generated entity and record sanitization and validation onto shared field-descriptor loops, reshaping schema AST emission around local const tables for repeated slices, and confirming with a fresh `minimal` vs `twenty` wasm audit that the remaining per-entity growth is still large.
 - `0.61.0` opens the post-`0.60` macro-compression line by shrinking repeated entity macro output in the runtime model and traversal paths: entity models now emit one direct `__MODEL_FIELDS` array, and generated entity and record traversal now runs through a shared field-descriptor loop instead of repeating inline per-field `drive` bodies.
 
@@ -15,7 +16,7 @@ See detailed breakdown:
 
 ---
 
-## [0.60.x] - 2026-03-20 - Generated View Removal Open
+## [0.60.x] - 2026-03-20 - Generated View Removal
 
 - `0.60.0` removes the generated entity `View`/`Create`/`Update` DTO families, makes entities the direct public read/write payloads, deletes the old internal patch/view layer, and cleans the remaining live API/docs surfaces so the crate no longer advertises the removed model.
 
@@ -24,7 +25,7 @@ See detailed breakdown:
 
 ---
 
-## [0.59.x] - 2026-03-18 - Execution De-Monomorphization Open
+## [0.59.x] - 2026-03-18 - Execution De-Monomorphization
 
 - `0.59.8` removes another small typed-key decode loop from preflight index readers and replaces the old `minimal` vs `quickstart` wasm comparison with a dedicated `minimal` vs `twenty` audit pair, so wasm reports now use a controlled twenty-entity fixture instead of a mixed-purpose test canister.
 - `0.59.7` removes another typed rebound from executor preparation by letting global DISTINCT grouped routing stay on prepared structural plans end-to-end, rather than rebuilding a fresh typed execution plan inside the executor.
@@ -41,7 +42,7 @@ See detailed breakdown:
 
 ---
 
-## [0.58.x] - 2026-03-18 - Runtime Size-Reduction Closeout
+## [0.58.x] - 2026-03-18 - Runtime Size-Reduction
 
 - `0.58.3` adds a default-on `sql` feature so non-SQL builds can compile out the SQL frontend, public SQL APIs, and generated canister SQL glue, moves shared reduced-SQL lexer/error plumbing onto one neutral core boundary, and adds an optional SQL-on / SQL-off mode to the wasm size scripts for side-by-side footprint checks.
 - `0.58.2` removes dead executor pipeline scaffolding left behind by the size-reduction refactor, recovers cleanly from poisoned schema-cache locks during save validation, and keeps test-only cursor and entrypoint helpers out of release builds.

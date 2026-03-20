@@ -15,6 +15,7 @@ use crate::{
     value::ValueEnum,
     visitor::VisitorContext,
 };
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use atomic::*;
 pub use visitor::*;
@@ -374,6 +375,220 @@ pub trait FieldValue {
     fn from_value(value: &Value) -> Option<Self>
     where
         Self: Sized;
+}
+
+///
+/// field_value_collection_to_value
+///
+/// Shared collection-to-`Value::List` lowering for generated wrapper types.
+/// This keeps list and set `FieldValue` impls from re-emitting the same item
+/// iteration body for every generated schema type.
+///
+
+pub fn field_value_collection_to_value<C>(collection: &C) -> Value
+where
+    C: Collection,
+    C::Item: FieldValue,
+{
+    Value::List(collection.iter().map(FieldValue::to_value).collect())
+}
+
+///
+/// field_value_vec_from_value
+///
+/// Shared `Value::List` decode for generated list wrapper types.
+/// This preserves typed `FieldValue` decoding while avoiding one repeated loop
+/// body per generated list schema type.
+///
+
+#[must_use]
+pub fn field_value_vec_from_value<T>(value: &Value) -> Option<Vec<T>>
+where
+    T: FieldValue,
+{
+    let Value::List(values) = value else {
+        return None;
+    };
+
+    let mut out = Vec::with_capacity(values.len());
+    for value in values {
+        out.push(T::from_value(value)?);
+    }
+
+    Some(out)
+}
+
+///
+/// field_value_btree_set_from_value
+///
+/// Shared `Value::List` decode for generated set wrapper types.
+/// This preserves duplicate rejection while avoiding one repeated loop body
+/// per generated set schema type.
+///
+
+#[must_use]
+pub fn field_value_btree_set_from_value<T>(value: &Value) -> Option<BTreeSet<T>>
+where
+    T: FieldValue + Ord,
+{
+    let Value::List(values) = value else {
+        return None;
+    };
+
+    let mut out = BTreeSet::new();
+    for value in values {
+        let item = T::from_value(value)?;
+        if !out.insert(item) {
+            return None;
+        }
+    }
+
+    Some(out)
+}
+
+///
+/// field_value_map_collection_to_value
+///
+/// Shared map-to-`Value::Map` lowering for generated map wrapper types.
+/// This keeps canonicalization and duplicate-key checks in one runtime helper
+/// instead of re-emitting the same map conversion body per generated schema
+/// type.
+///
+
+pub fn field_value_map_collection_to_value<M>(map: &M, path: &'static str) -> Value
+where
+    M: MapCollection,
+    M::Key: FieldValue,
+    M::Value: FieldValue,
+{
+    let mut entries: Vec<(Value, Value)> = map
+        .iter()
+        .map(|(key, value)| (FieldValue::to_value(key), FieldValue::to_value(value)))
+        .collect();
+
+    if let Err(err) = Value::validate_map_entries(entries.as_slice()) {
+        debug_assert!(false, "invalid map field value for {path}: {err}");
+        return Value::Map(entries);
+    }
+
+    entries.sort_by(|(left_key, _), (right_key, _)| Value::canonical_cmp_key(left_key, right_key));
+
+    for i in 1..entries.len() {
+        let (left_key, _) = &entries[i - 1];
+        let (right_key, _) = &entries[i];
+        if Value::canonical_cmp_key(left_key, right_key) == Ordering::Equal {
+            debug_assert!(
+                false,
+                "duplicate map key in {path} after FieldValue::to_value canonicalization",
+            );
+            break;
+        }
+    }
+
+    Value::Map(entries)
+}
+
+///
+/// field_value_btree_map_from_value
+///
+/// Shared `Value::Map` decode for generated map wrapper types.
+/// This keeps canonical-entry normalization in one runtime helper instead of
+/// re-emitting the same decode body per generated schema type.
+///
+
+#[must_use]
+pub fn field_value_btree_map_from_value<K, V>(value: &Value) -> Option<BTreeMap<K, V>>
+where
+    K: FieldValue + Ord,
+    V: FieldValue,
+{
+    let Value::Map(entries) = value else {
+        return None;
+    };
+
+    let normalized = Value::normalize_map_entries(entries.clone()).ok()?;
+    if normalized.as_slice() != entries.as_slice() {
+        return None;
+    }
+
+    let mut map = BTreeMap::new();
+    for (entry_key, entry_value) in normalized {
+        let key = K::from_value(&entry_key)?;
+        let value = V::from_value(&entry_value)?;
+        map.insert(key, value);
+    }
+
+    Some(map)
+}
+
+///
+/// field_value_from_vec_into
+///
+/// Shared `Vec<I> -> Vec<T>` conversion for generated wrapper `From<Vec<I>>`
+/// impls. This keeps list wrappers from re-emitting the same `into_iter` /
+/// `map(Into::into)` collection body for every generated schema type.
+///
+
+#[must_use]
+pub fn field_value_from_vec_into<T, I>(entries: Vec<I>) -> Vec<T>
+where
+    I: Into<T>,
+{
+    entries.into_iter().map(Into::into).collect()
+}
+
+///
+/// field_value_from_vec_into_btree_set
+///
+/// Shared `Vec<I> -> BTreeSet<T>` conversion for generated set wrapper
+/// `From<Vec<I>>` impls. This keeps set wrappers from re-emitting the same
+/// collection conversion body for every generated schema type.
+///
+
+#[must_use]
+pub fn field_value_from_vec_into_btree_set<T, I>(entries: Vec<I>) -> BTreeSet<T>
+where
+    I: Into<T>,
+    T: Ord,
+{
+    entries.into_iter().map(Into::into).collect()
+}
+
+///
+/// field_value_from_vec_into_btree_map
+///
+/// Shared `Vec<(IK, IV)> -> BTreeMap<K, V>` conversion for generated map
+/// wrapper `From<Vec<(IK, IV)>>` impls. This keeps map wrappers from
+/// re-emitting the same pair-conversion body for every generated schema type.
+///
+
+#[must_use]
+pub fn field_value_from_vec_into_btree_map<K, V, IK, IV>(entries: Vec<(IK, IV)>) -> BTreeMap<K, V>
+where
+    IK: Into<K>,
+    IV: Into<V>,
+    K: Ord,
+{
+    entries
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect()
+}
+
+///
+/// field_value_into
+///
+/// Shared `Into<T>` lowering for generated newtype `From<U>` impls.
+/// This keeps newtype wrappers from re-emitting the same single-field
+/// conversion body for every generated schema type.
+///
+
+#[must_use]
+pub fn field_value_into<T, U>(value: U) -> T
+where
+    U: Into<T>,
+{
+    value.into()
 }
 
 impl FieldValue for &str {

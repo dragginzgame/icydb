@@ -41,8 +41,8 @@ help:
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
 	@echo "  clean            Clean build artifacts"
-	@echo "  wasm-size-report Build and report wasm sizes for minimal + twenty audit canisters"
-	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for minimal + twenty under docs/audits/reports"
+	@echo "  wasm-size-report Build and report wasm sizes for minimal + one/ten simple/complex audit canisters"
+	@echo "  wasm-audit-report Build wasm + write Twiggy audit reports for minimal + one/ten simple/complex under docs/audits/reports"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  test-watch       Run tests in watch mode"
@@ -53,8 +53,8 @@ help:
 	@echo "  make patch       # Bump patch version"
 	@echo "  make test        # Run tests"
 	@echo "  make build       # Build project"
-	@echo "  WASM_SQL_VARIANTS=both make wasm-size-report   # Build SQL-on and SQL-off variants for minimal + twenty"
-	@echo "  WASM_CANISTER_NAME=twenty make wasm-size-report # Build one specific wasm audit canister"
+	@echo "  WASM_SQL_VARIANTS=both make wasm-size-report      # Build SQL-on and SQL-off variants for the wasm audit matrix"
+	@echo "  WASM_CANISTER_NAME=ten_complex make wasm-size-report # Build one specific wasm audit canister"
 
 #
 # Installing

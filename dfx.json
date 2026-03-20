@@ -13,6 +13,32 @@
                 }
             ]
         },
+        "one_simple": {
+            "type": "custom",
+            "candid": ".dfx/local/canisters/one_simple/one_simple.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- one_simple'",
+            "wasm": ".dfx/local/canisters/one_simple/one_simple.wasm",
+            "shrink": true,
+            "gzip": true,
+            "metadata": [
+                {
+                    "name": "candid:service"
+                }
+            ]
+        },
+        "one_complex": {
+            "type": "custom",
+            "candid": ".dfx/local/canisters/one_complex/one_complex.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- one_complex'",
+            "wasm": ".dfx/local/canisters/one_complex/one_complex.wasm",
+            "shrink": true,
+            "gzip": true,
+            "metadata": [
+                {
+                    "name": "candid:service"
+                }
+            ]
+        },
         "quickstart": {
             "type": "custom",
             "candid": ".dfx/local/canisters/quickstart/quickstart.did",
@@ -26,11 +52,24 @@
                 }
             ]
         },
-        "twenty": {
+        "ten_simple": {
             "type": "custom",
-            "candid": ".dfx/local/canisters/twenty/twenty.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- twenty'",
-            "wasm": ".dfx/local/canisters/twenty/twenty.wasm",
+            "candid": ".dfx/local/canisters/ten_simple/ten_simple.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- ten_simple'",
+            "wasm": ".dfx/local/canisters/ten_simple/ten_simple.wasm",
+            "shrink": true,
+            "gzip": true,
+            "metadata": [
+                {
+                    "name": "candid:service"
+                }
+            ]
+        },
+        "ten_complex": {
+            "type": "custom",
+            "candid": ".dfx/local/canisters/ten_complex/ten_complex.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- ten_complex'",
+            "wasm": ".dfx/local/canisters/ten_complex/ten_complex.wasm",
             "shrink": true,
             "gzip": true,
             "metadata": [

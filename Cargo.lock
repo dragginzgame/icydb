@@ -238,6 +238,29 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-minimal-fixtures",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "canister_one_complex"
+version = "0.61.1"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-one-complex-fixtures",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "canister_one_simple"
+version = "0.61.1"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-one-simple-fixtures",
+ "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
@@ -251,13 +274,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_twenty"
+name = "canister_ten_complex"
 version = "0.61.1"
 dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-testing-twenty-fixtures",
+ "icydb-testing-ten-complex-fixtures",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "canister_ten_simple"
+version = "0.61.1"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-ten-simple-fixtures",
+ "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
@@ -1259,6 +1294,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "icydb-testing-one-complex-fixtures"
+version = "0.61.1"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-one-simple-fixtures"
+version = "0.61.1"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
 name = "icydb-testing-quickstart-fixtures"
 version = "0.61.1"
 dependencies = [
@@ -1268,12 +1321,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-twenty-fixtures"
+name = "icydb-testing-ten-complex-fixtures"
 version = "0.61.1"
 dependencies = [
  "candid",
  "icydb",
- "serde",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-ten-simple-fixtures"
+version = "0.61.1"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-wasm-fixtures"
+version = "0.61.1"
+dependencies = [
+ "icydb",
 ]
 
 [[package]]

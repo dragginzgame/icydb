@@ -129,26 +129,11 @@ impl Imp<List> for FieldValueTrait {
             }
 
             fn to_value(&self) -> ::icydb::value::Value {
-                use ::icydb::traits::Collection;
-
-                ::icydb::value::Value::List(
-                    self.iter()
-                        .map(::icydb::traits::FieldValue::to_value)
-                        .collect()
-                )
+                ::icydb::traits::field_value_collection_to_value(self)
             }
 
             fn from_value(value: &::icydb::value::Value) -> Option<Self> {
-                let ::icydb::value::Value::List(values) = value else {
-                    return None;
-                };
-
-                let mut out = ::std::vec::Vec::<#item>::with_capacity(values.len());
-                for value in values {
-                    out.push(<#item as ::icydb::traits::FieldValue>::from_value(value)?);
-                }
-
-                Some(Self(out))
+                ::icydb::traits::field_value_vec_from_value::<#item>(value).map(Self)
             }
         };
 
@@ -175,71 +160,15 @@ impl Imp<Map> for FieldValueTrait {
             }
 
             fn to_value(&self) -> ::icydb::value::Value {
-                let mut entries: ::std::vec::Vec<(
-                    ::icydb::value::Value,
-                    ::icydb::value::Value,
-                )> = self
-                    .0
-                    .iter()
-                    .map(|(key, value)| {
-                        (
-                            ::icydb::traits::FieldValue::to_value(key),
-                            ::icydb::traits::FieldValue::to_value(value),
-                        )
-                    })
-                    .collect();
-
-                if let Err(err) = ::icydb::value::Value::validate_map_entries(entries.as_slice()) {
-                    debug_assert!(
-                        false,
-                        "invalid map field value for {}: {err}",
-                        <Self as ::icydb::traits::Path>::PATH,
-                    );
-                    return ::icydb::value::Value::Map(entries);
-                }
-
-                entries.sort_by(|(left_key, _), (right_key, _)| {
-                    ::icydb::value::Value::canonical_cmp_key(left_key, right_key)
-                });
-
-                for i in 1..entries.len() {
-                    let (left_key, _) = &entries[i - 1];
-                    let (right_key, _) = &entries[i];
-                    if ::icydb::value::Value::canonical_cmp_key(left_key, right_key)
-                        == ::std::cmp::Ordering::Equal
-                    {
-                        debug_assert!(
-                            false,
-                            "duplicate map key in {} after FieldValue::to_value canonicalization",
-                            <Self as ::icydb::traits::Path>::PATH,
-                        );
-                        break;
-                    }
-                }
-
-                ::icydb::value::Value::Map(entries)
+                ::icydb::traits::field_value_map_collection_to_value(
+                    self,
+                    <Self as ::icydb::traits::Path>::PATH,
+                )
             }
 
             fn from_value(value: &::icydb::value::Value) -> Option<Self> {
-                let ::icydb::value::Value::Map(entries) = value else {
-                    return None;
-                };
-
-                let normalized = ::icydb::value::Value::normalize_map_entries(entries.clone()).ok()?;
-                if normalized.as_slice() != entries.as_slice() {
-                    return None;
-                }
-
-                let mut map = ::std::collections::BTreeMap::<#key_type, #value_type>::new();
-                for (entry_key, entry_value) in normalized {
-                    let key = <#key_type as ::icydb::traits::FieldValue>::from_value(&entry_key)?;
-                    let value =
-                        <#value_type as ::icydb::traits::FieldValue>::from_value(&entry_value)?;
-
-                    map.insert(key, value);
-                }
-
-                Some(Self(map))
+                ::icydb::traits::field_value_btree_map_from_value::<#key_type, #value_type>(value)
+                    .map(Self)
             }
         };
 
@@ -296,29 +225,11 @@ impl Imp<Set> for FieldValueTrait {
             }
 
             fn to_value(&self) -> ::icydb::value::Value {
-                use ::icydb::traits::Collection;
-
-                ::icydb::value::Value::List(
-                    self.iter()
-                        .map(::icydb::traits::FieldValue::to_value)
-                        .collect()
-                )
+                ::icydb::traits::field_value_collection_to_value(self)
             }
 
             fn from_value(value: &::icydb::value::Value) -> Option<Self> {
-                let ::icydb::value::Value::List(values) = value else {
-                    return None;
-                };
-
-                let mut out = ::std::collections::BTreeSet::<#item>::new();
-                for value in values {
-                    let item = <#item as ::icydb::traits::FieldValue>::from_value(value)?;
-                    if !out.insert(item) {
-                        return None;
-                    }
-                }
-
-                Some(Self(out))
+                ::icydb::traits::field_value_btree_set_from_value::<#item>(value).map(Self)
             }
         };
 

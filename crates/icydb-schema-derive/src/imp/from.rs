@@ -17,10 +17,7 @@ impl Imp<List> for FromTrait {
 
         let q = quote! {
             fn from(entries: Vec<I>) -> Self {
-                Self(entries
-                    .into_iter()
-                    .map(Into::into)
-                    .collect())
+                Self(::icydb::traits::field_value_from_vec_into::<#item, I>(entries))
             }
         };
 
@@ -46,10 +43,9 @@ impl Imp<Map> for FromTrait {
 
         let q = quote! {
             fn from(entries: Vec<(IK, IV)>) -> Self {
-                Self(entries
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), v.into()))
-                    .collect())
+                Self(::icydb::traits::field_value_from_vec_into_btree_map::<#key, #value, IK, IV>(
+                    entries,
+                ))
             }
         };
 
@@ -77,7 +73,7 @@ impl Imp<Newtype> for FromTrait {
 
         let q = quote! {
             fn from(t: T) -> Self {
-                Self(t.into())
+                Self(::icydb::traits::field_value_into::<#item, T>(t))
             }
         };
 
@@ -102,10 +98,7 @@ impl Imp<Set> for FromTrait {
 
         let q = quote! {
             fn from(entries: Vec<I>) -> Self {
-                Self(entries
-                    .into_iter()
-                    .map(Into::into)
-                    .collect())
+                Self(::icydb::traits::field_value_from_vec_into_btree_set::<#item, I>(entries))
             }
         };
 
