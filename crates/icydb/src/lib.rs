@@ -100,8 +100,9 @@ pub mod metrics {
 
 pub mod visitor {
     pub use icydb_core::visitor::{
-        Issue, PathSegment, ScopedContext, VisitorContext, VisitorCore, VisitorError,
-        VisitorIssues, VisitorMutCore, perform_visit, perform_visit_mut,
+        Issue, PathSegment, ScopedContext, VisitableFieldDescriptor, VisitorContext, VisitorCore,
+        VisitorError, VisitorIssues, VisitorMutCore, drive_visitable_fields,
+        drive_visitable_fields_mut, perform_visit, perform_visit_mut,
     };
     pub use icydb_core::{sanitize::sanitize, validate::validate};
 }

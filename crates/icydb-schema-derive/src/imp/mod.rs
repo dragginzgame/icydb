@@ -2,6 +2,7 @@ mod collection;
 mod default;
 mod entity;
 mod field_value;
+mod field_walk;
 mod from;
 mod inherent;
 mod num_cast;

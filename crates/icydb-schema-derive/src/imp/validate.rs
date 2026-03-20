@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 use quote::format_ident;
 
 ///
@@ -233,16 +233,16 @@ fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenSt
 
 /// Field-level validators for Records / Entities
 fn field_list(fields: &FieldList) -> Option<TokenStream> {
+    let bindings = field_walk_bindings(fields);
+
     let validations: Vec<_> = fields
         .iter()
-        .filter_map(|field| {
-            let field_ident = &field.ident;
+        .zip(bindings.iter())
+        .filter_map(|(field, binding)| {
             generate_field_value_validation_inner(
                 &field.value,
-                quote!(&self.#field_ident),
-                quote!(::icydb::visitor::PathSegment::Field(
-                    stringify!(#field_ident)
-                )),
+                binding.self_ref(),
+                binding.path_segment(),
             )
         })
         .collect();

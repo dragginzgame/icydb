@@ -141,6 +141,65 @@ pub trait VisitorCore {
     fn pop(&mut self) {}
 }
 
+///
+/// VisitableFieldDescriptor
+///
+/// Runtime traversal descriptor for one generated struct field.
+/// Generated code uses this to replace repeated per-field `drive` bodies with
+/// one shared descriptor loop while preserving typed field access at the
+/// boundary.
+///
+
+pub struct VisitableFieldDescriptor<T> {
+    name: &'static str,
+    drive: fn(&T, &mut dyn VisitorCore),
+    drive_mut: fn(&mut T, &mut dyn VisitorMutCore),
+}
+
+impl<T> VisitableFieldDescriptor<T> {
+    /// Construct one traversal descriptor for one generated field.
+    #[must_use]
+    pub const fn new(
+        name: &'static str,
+        drive: fn(&T, &mut dyn VisitorCore),
+        drive_mut: fn(&mut T, &mut dyn VisitorMutCore),
+    ) -> Self {
+        Self {
+            name,
+            drive,
+            drive_mut,
+        }
+    }
+
+    /// Return the field name carried by this descriptor.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+}
+
+/// Drive one generated field table through immutable visitor traversal.
+pub fn drive_visitable_fields<T>(
+    visitor: &mut dyn VisitorCore,
+    node: &T,
+    fields: &[VisitableFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.drive)(node, visitor);
+    }
+}
+
+/// Drive one generated field table through mutable visitor traversal.
+pub fn drive_visitable_fields_mut<T>(
+    visitor: &mut dyn VisitorMutCore,
+    node: &mut T,
+    fields: &[VisitableFieldDescriptor<T>],
+) {
+    for field in fields {
+        (field.drive_mut)(node, visitor);
+    }
+}
+
 // ============================================================================
 // Internal adapter context (fixes borrow checker)
 // ============================================================================

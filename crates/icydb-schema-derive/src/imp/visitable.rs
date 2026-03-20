@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 
 ///
 /// VisitableTrait
@@ -12,13 +12,10 @@ pub struct VisitableTrait {}
 
 impl Imp<Entity> for VisitableTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let q = field_list(&node.fields);
-
-        let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+        Some(TraitStrategy::from_impl(field_list(
+            node.def(),
+            &node.fields,
+        )))
     }
 }
 
@@ -132,13 +129,10 @@ impl Imp<Newtype> for VisitableTrait {
 
 impl Imp<Record> for VisitableTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        let q = field_list(&node.fields);
-
-        let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+        Some(TraitStrategy::from_impl(field_list(
+            node.def(),
+            &node.fields,
+        )))
     }
 }
 
@@ -206,24 +200,82 @@ impl Imp<Tuple> for VisitableTrait {
 ///
 
 // field_list
-fn field_list(fields: &FieldList) -> TokenStream {
-    let mut inner = quote!();
-    let mut inner_mut = quote!();
+fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
+    let bindings = field_walk_bindings(fields);
+    let field_table_ident = format_ident!("__VISITABLE_FIELDS");
 
-    for f in fields {
-        let field_ident = format_ident!("{}", f.ident);
-        let field_ident_s = field_ident.to_string();
+    let visit_helpers = bindings.iter().map(|binding| {
+        let fn_ident = binding.visit_fn_ident();
+        let field_name = binding.field_name().to_string();
+        let member_ref = binding.member_ref_from(quote!(node));
 
-        inner.extend(quote! {
-            perform_visit(visitor, &self.#field_ident, #field_ident_s);
-        });
+        quote! {
+            fn #fn_ident(node: &Self, visitor: &mut dyn ::icydb::visitor::VisitorCore) {
+                use ::icydb::visitor::perform_visit;
 
-        inner_mut.extend(quote! {
-            perform_visit_mut(visitor, &mut self.#field_ident, #field_ident_s);
-        });
+                perform_visit(visitor, #member_ref, #field_name);
+            }
+        }
+    });
+
+    let visit_mut_helpers = bindings.iter().map(|binding| {
+        let fn_ident = binding.visit_mut_fn_ident();
+        let field_name = binding.field_name().to_string();
+        let member_mut = binding.member_mut_from(quote!(node));
+
+        quote! {
+            fn #fn_ident(node: &mut Self, visitor: &mut dyn ::icydb::visitor::VisitorMutCore) {
+                use ::icydb::visitor::perform_visit_mut;
+
+                perform_visit_mut(visitor, #member_mut, #field_name);
+            }
+        }
+    });
+
+    let descriptors = bindings.iter().map(|binding| {
+        let field_name = binding.field_name().to_string();
+        let visit_fn = binding.visit_fn_ident();
+        let visit_mut_fn = binding.visit_mut_fn_ident();
+
+        quote! {
+            ::icydb::visitor::VisitableFieldDescriptor::new(
+                #field_name,
+                Self::#visit_fn,
+                Self::#visit_mut_fn,
+            )
+        }
+    });
+
+    let inherent_tokens = Implementor::new(def, TraitKind::Inherent)
+        .set_tokens(quote! {
+            #(#visit_helpers)*
+            #(#visit_mut_helpers)*
+
+            const #field_table_ident: &'static [::icydb::visitor::VisitableFieldDescriptor<Self>] =
+                &[#(#descriptors),*];
+        })
+        .to_token_stream();
+
+    let trait_tokens = Implementor::new(def, TraitKind::Visitable)
+        .set_tokens(quote! {
+            fn drive(&self, visitor: &mut dyn ::icydb::visitor::VisitorCore) {
+                ::icydb::visitor::drive_visitable_fields(visitor, self, Self::#field_table_ident);
+            }
+
+            fn drive_mut(&mut self, visitor: &mut dyn ::icydb::visitor::VisitorMutCore) {
+                ::icydb::visitor::drive_visitable_fields_mut(
+                    visitor,
+                    self,
+                    Self::#field_table_ident,
+                );
+            }
+        })
+        .to_token_stream();
+
+    quote! {
+        #inherent_tokens
+        #trait_tokens
     }
-
-    quote_drives(&inner, &inner_mut)
 }
 
 // enum_variant

@@ -1,4 +1,4 @@
-use crate::node::{Item, ItemTarget, Value};
+use crate::node::{Field, Item, ItemTarget, Value};
 use icydb_schema::types::{Cardinality, Primitive};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -13,6 +13,17 @@ pub fn model_kind_from_value(value: &Value) -> TokenStream {
         Cardinality::Many => quote!(::icydb::model::field::FieldKind::List(&#base)),
         Cardinality::One | Cardinality::Opt => base,
     }
+}
+
+/// Returns one runtime `FieldModel` expression for a generated field.
+///
+/// This keeps the field-kind lowering logic in one derive-side owner so entity
+/// model generation does not duplicate field metadata assembly inline.
+pub fn model_field_expr(field: &Field) -> TokenStream {
+    let name = field.ident.to_string();
+    let kind = model_kind_from_value(&field.value);
+
+    quote!(::icydb::model::field::FieldModel::new(#name, #kind))
 }
 
 /// Returns the persisted model kind for a nested value (e.g. map values).

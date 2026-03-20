@@ -1,7 +1,5 @@
 use crate::{
-    imp::inherent::{
-        InherentTrait, model::model_kind_from_value, relation::relation_accessor_tokens,
-    },
+    imp::inherent::{InherentTrait, model::model_field_expr, relation::relation_accessor_tokens},
     prelude::*,
 };
 use canic_utils::case::{Case, Casing};
@@ -29,26 +27,11 @@ impl Imp<Entity> for InherentTrait {
             })
             .collect();
 
-        // Emit static model field descriptors.
-        let model_field_idents = node
-            .fields
-            .iter()
-            .map(model_field_ident)
-            .collect::<Vec<_>>();
-        let model_field_consts: Vec<TokenStream> = node
-            .fields
-            .iter()
-            .zip(model_field_idents.iter())
-            .map(|(field, ident)| {
-                let name = field.ident.to_string();
-                let kind = model_kind_from_value(&field.value);
-
-                quote! {
-                    const #ident: ::icydb::model::field::FieldModel =
-                        ::icydb::model::field::FieldModel::new(#name, #kind);
-                }
-            })
-            .collect();
+        // Emit one direct runtime field-model array instead of one constant per
+        // field. This keeps the model surface smaller while preserving the same
+        // entity-model authority.
+        let model_fields_exprs: Vec<TokenStream> =
+            node.fields.iter().map(model_field_expr).collect();
 
         // Build a static entity model and primary-key pointer.
         let fields_len = LitInt::new(&node.fields.len().to_string(), Span::call_site());
@@ -64,7 +47,7 @@ impl Imp<Entity> for InherentTrait {
         let model_fields = quote! {
             const #model_fields_ident:
                 [::icydb::model::field::FieldModel; #fields_len] = [
-                    #( Self::#model_field_idents ),*
+                    #(#model_fields_exprs),*
                 ];
         };
         let entity_model = quote! {
@@ -83,7 +66,6 @@ impl Imp<Entity> for InherentTrait {
 
         let tokens = quote! {
             #(#field_consts)*
-            #(#model_field_consts)*
             #model_fields
             #entity_model
             #(#relation_accessors)*
@@ -95,9 +77,4 @@ impl Imp<Entity> for InherentTrait {
 
         Some(TraitStrategy::from_impl(impl_tokens))
     }
-}
-
-fn model_field_ident(field: &Field) -> Ident {
-    let constant = field.ident.to_string().to_case(Case::Constant);
-    format_ident!("__MODEL_FIELD_{constant}")
 }

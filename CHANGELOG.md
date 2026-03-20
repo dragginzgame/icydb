@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.61.x] - 2026-03-20 - Entity Macro Compression Open
+
+- `next patch` starts the post-`0.60` macro-compression line by shrinking entity macro output instead of redesigning the runtime again: entity models now emit one direct `__MODEL_FIELDS` array instead of one constant per field, and generated entity/record traversal now runs through a shared field-descriptor loop instead of spelling out per-field `drive` bodies inline.
+
+See detailed breakdown:
+[docs/changelog/0.61.md](docs/changelog/0.61.md)
+
+---
+
 ## [0.60.x] - 2026-03-20 - Generated View Removal Open
 
 - `next patch` removes the generated entity `View`/`Create`/`Update` DTO families, makes entities the direct public read/write payloads, deletes the old internal patch/view layer, and cleans the remaining live API/docs surfaces so the crate no longer advertises the removed model.

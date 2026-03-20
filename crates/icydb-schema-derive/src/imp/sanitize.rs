@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::field_walk::field_walk_bindings, prelude::*};
 
 /// ---------------------------------------------------------------------------
 /// SanitizeAuto
@@ -136,14 +136,14 @@ fn container_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Op
 /// Field-level sanitizers for Entity / Record.
 /// Applies directly to owned fields.
 fn field_list(fields: &FieldList) -> Option<TokenStream> {
+    let bindings = field_walk_bindings(fields);
+
     let rules: Vec<TokenStream> = fields
         .iter()
-        .filter_map(|field| {
-            let field_ident = &field.ident;
-            let target = quote!(self.#field_ident);
-            let seg = quote!(::icydb::visitor::PathSegment::Field(
-                stringify!(#field_ident)
-            ));
+        .zip(bindings.iter())
+        .filter_map(|(field, binding)| {
+            let target = binding.self_mut();
+            let seg = binding.path_segment();
 
             let stmts = generate_sanitizers(&field.value.item.sanitizers, target, Some(seg));
 
