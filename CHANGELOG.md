@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.61.x] - 2026-03-20 - Entity Macro Compression
 
-- `0.61.2` keeps the macro-compression line moving by replacing repeated generated list/set/map container conversion bodies with shared runtime helpers and rebuilding the wasm audit fixtures around an empty `minimal` plus `one_simple`, `one_complex`, `ten_simple`, and `ten_complex`, so `0.61` now has a cleaner matrix for separating base entity cost from richer macro-heavy schema cost.
+- `0.61.2` keeps the macro-compression line moving by replacing repeated generated list/set/map container conversion bodies with shared runtime helpers, rebuilding the wasm audit fixtures around an empty `minimal` plus `one_simple`, `one_complex`, `ten_simple`, and `ten_complex`, and recording the first clean baseline matrix for separating base entity cost from richer macro-heavy schema cost.
 - `0.61.1` keeps the macro-compression line moving by lifting generated entity and record sanitization and validation onto shared field-descriptor loops, reshaping schema AST emission around local const tables for repeated slices, and confirming with a fresh `minimal` vs `twenty` wasm audit that the remaining per-entity growth is still large.
 - `0.61.0` opens the post-`0.60` macro-compression line by shrinking repeated entity macro output in the runtime model and traversal paths: entity models now emit one direct `__MODEL_FIELDS` array, and generated entity and record traversal now runs through a shared field-descriptor loop instead of repeating inline per-field `drive` bodies.
 
