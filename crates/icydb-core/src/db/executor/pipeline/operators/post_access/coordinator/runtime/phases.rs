@@ -57,7 +57,8 @@ impl<K> PostAccessPlan<'_, K> {
         };
         let mut apply_order_phase = |filtered| {
             let rows = &mut **rows.borrow_mut();
-            apply_post_access_order_phase::<E, R, K>(
+            apply_post_access_order_phase(
+                E::MODEL,
                 self.contract.plan(),
                 self.contract.order_spec(),
                 self.contract.has_predicate(),

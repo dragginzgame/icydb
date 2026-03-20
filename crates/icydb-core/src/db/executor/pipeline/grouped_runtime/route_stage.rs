@@ -7,8 +7,8 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            EntityAuthority, ExecutablePlan, ExecutionTrace, GroupedContinuationCapabilities,
-            GroupedContinuationContext,
+            ExecutionTrace, GroupedContinuationCapabilities, GroupedContinuationContext,
+            PreparedLoadPlan,
             pipeline::contracts::{
                 GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
                 LoadExecutor,
@@ -33,11 +33,11 @@ where
 {
     // Resolve grouped handoff/route metadata into one grouped route-stage payload.
     pub(in crate::db::executor) fn resolve_grouped_route(
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: GroupedPlannedCursor,
         debug: bool,
     ) -> Result<GroupedRouteStage, InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
+        let authority = plan.authority();
 
         validate_executor_plan_for_authority(authority, plan.logical_plan())?;
         let grouped_handoff = grouped_executor_handoff(plan.logical_plan())?;

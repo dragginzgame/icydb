@@ -10,13 +10,14 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, StructuralTraversalRuntime,
+            ExecutionKernel, ExecutionPreparation, PreparedAggregatePlan,
+            StructuralTraversalRuntime,
             aggregate::{
                 AggregateFoldMode, AggregateKind, PreparedAggregateStreamingInputs,
                 PreparedAggregateStreamingInputsCore, PreparedScalarTerminalBoundary,
                 PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp,
                 PreparedScalarTerminalStrategy, ScalarAggregateOutput,
-                field::resolve_orderable_aggregate_target_slot_from_planner_slot,
+                field::resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
@@ -80,17 +81,14 @@ pub(in crate::db) enum ScalarTerminalBoundaryRequest {
 }
 
 // Typed boundary output for one public scalar aggregate terminal family call.
-pub(in crate::db) enum ScalarTerminalBoundaryOutput<E: EntityKind + EntityValue> {
+pub(in crate::db) enum ScalarTerminalBoundaryOutput {
     Count(u32),
     Exists(bool),
-    Id(Option<Id<E>>),
-    IdPair(Option<(Id<E>, Id<E>)>),
+    Id(Option<StorageKey>),
+    IdPair(Option<(StorageKey, StorageKey)>),
 }
 
-impl<E> ScalarTerminalBoundaryOutput<E>
-where
-    E: EntityKind + EntityValue,
-{
+impl ScalarTerminalBoundaryOutput {
     // Decode COUNT boundary output while preserving request/output mismatch context.
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
@@ -112,9 +110,12 @@ where
     }
 
     // Decode id-returning boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_id(self) -> Result<Option<Id<E>>, InternalError> {
+    pub(in crate::db) fn into_id<E>(self) -> Result<Option<Id<E>>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
         match self {
-            Self::Id(value) => Ok(value),
+            Self::Id(value) => value.map(decode_storage_key_to_id::<E>).transpose(),
             _ => Err(crate::db::error::query_executor_invariant(
                 "scalar terminal boundary id output kind mismatch",
             )),
@@ -122,9 +123,19 @@ where
     }
 
     // Decode paired-id boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_id_pair(self) -> Result<IdPairTerminalOutput<E>, InternalError> {
+    pub(in crate::db) fn into_id_pair<E>(self) -> Result<IdPairTerminalOutput<E>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
         match self {
-            Self::IdPair(value) => Ok(value),
+            Self::IdPair(value) => value
+                .map(|(left, right)| {
+                    Ok((
+                        decode_storage_key_to_id::<E>(left)?,
+                        decode_storage_key_to_id::<E>(right)?,
+                    ))
+                })
+                .transpose(),
             _ => Err(crate::db::error::query_executor_invariant(
                 "scalar terminal boundary id-pair output kind mismatch",
             )),
@@ -432,20 +443,28 @@ where
         &self,
         plan: ExecutablePlan<E>,
         request: ScalarTerminalBoundaryRequest,
-    ) -> Result<ScalarTerminalBoundaryOutput<E>, InternalError> {
+    ) -> Result<ScalarTerminalBoundaryOutput, InternalError> {
         match request {
             ScalarTerminalBoundaryRequest::Count
             | ScalarTerminalBoundaryRequest::Exists
             | ScalarTerminalBoundaryRequest::IdTerminal { .. }
             | ScalarTerminalBoundaryRequest::IdBySlot { .. } => {
-                let prepared = self.prepare_scalar_terminal_boundary(plan, request)?;
+                let prepared = self.prepare_scalar_terminal_boundary(
+                    plan.into_prepared_aggregate_plan(),
+                    request,
+                )?;
 
                 self.execute_prepared_scalar_terminal_boundary(prepared)
             }
             ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth } => {
+                let plan = plan.into_prepared_aggregate_plan();
+                let authority = plan.authority();
                 let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                        .map_err(Self::map_aggregate_field_value_error)?;
+                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+                        authority.model(),
+                        &target_field,
+                    )
+                    .map_err(Self::map_aggregate_field_value_error)?;
                 let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
                 self.execute_nth_field_aggregate_with_slot(
@@ -457,9 +476,14 @@ where
                 .map(ScalarTerminalBoundaryOutput::Id)
             }
             ScalarTerminalBoundaryRequest::MedianBySlot { target_field } => {
+                let plan = plan.into_prepared_aggregate_plan();
+                let authority = plan.authority();
                 let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                        .map_err(Self::map_aggregate_field_value_error)?;
+                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+                        authority.model(),
+                        &target_field,
+                    )
+                    .map_err(Self::map_aggregate_field_value_error)?;
                 let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
                 self.execute_median_field_aggregate_with_slot(
@@ -470,9 +494,14 @@ where
                 .map(ScalarTerminalBoundaryOutput::Id)
             }
             ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field } => {
+                let plan = plan.into_prepared_aggregate_plan();
+                let authority = plan.authority();
                 let field_slot =
-                    resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                        .map_err(Self::map_aggregate_field_value_error)?;
+                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+                        authority.model(),
+                        &target_field,
+                    )
+                    .map_err(Self::map_aggregate_field_value_error)?;
                 let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
                 self.execute_min_max_field_aggregate_with_slot(
@@ -489,7 +518,7 @@ where
     // boundary so execution no longer derives fast-path policy from the plan.
     fn prepare_scalar_terminal_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedAggregatePlan,
         request: ScalarTerminalBoundaryRequest,
     ) -> Result<PreparedScalarTerminalExecutionState<'_>, InternalError> {
         let boundary = match request {
@@ -506,8 +535,12 @@ where
                 strategy: PreparedScalarTerminalStrategy::KernelAggregate,
             },
             ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field } => {
-                resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                    .map_err(Self::map_aggregate_field_value_error)?;
+                let authority = plan.authority();
+                resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+                    authority.model(),
+                    &target_field,
+                )
+                .map_err(Self::map_aggregate_field_value_error)?;
 
                 PreparedScalarTerminalBoundary {
                     op: PreparedScalarTerminalOp::IdBySlot {
@@ -535,7 +568,7 @@ where
     fn execute_prepared_scalar_terminal_boundary(
         &self,
         prepared: PreparedScalarTerminalExecutionState<'_>,
-    ) -> Result<ScalarTerminalBoundaryOutput<E>, InternalError> {
+    ) -> Result<ScalarTerminalBoundaryOutput, InternalError> {
         let boundary = prepared.boundary.clone();
         let aggregate_output = run_prepared_scalar_terminal_boundary(self, prepared)?;
 
@@ -562,10 +595,12 @@ where
 
     // Resolve one prepared COUNT strategy from one typed executable plan.
     fn prepare_scalar_count_terminal_strategy(
-        plan: &ExecutablePlan<E>,
+        plan: &PreparedAggregatePlan,
     ) -> PreparedScalarTerminalStrategy {
+        let authority = plan.authority();
+
         crate::db::executor::route::derive_count_terminal_fast_path_contract_for_model(
-            E::MODEL,
+            authority.model(),
             plan.logical_plan(),
             plan.execution_preparation().strict_mode().is_some(),
         )
@@ -593,7 +628,7 @@ where
 
     // Resolve one prepared EXISTS strategy from one typed executable plan.
     fn prepare_scalar_exists_terminal_strategy(
-        plan: &ExecutablePlan<E>,
+        plan: &PreparedAggregatePlan,
     ) -> PreparedScalarTerminalStrategy {
         crate::db::executor::route::derive_exists_terminal_fast_path_contract_for_model(
             plan.logical_plan(),
@@ -614,29 +649,30 @@ where
         aggregate_output: ScalarAggregateOutput,
         kind: AggregateKind,
         mismatch_context: &'static str,
-    ) -> Result<Option<Id<E>>, InternalError> {
+    ) -> Result<Option<StorageKey>, InternalError> {
         match (kind, aggregate_output) {
             (AggregateKind::Min, ScalarAggregateOutput::Min(value))
             | (AggregateKind::Max, ScalarAggregateOutput::Max(value))
             | (AggregateKind::First, ScalarAggregateOutput::First(value))
-            | (AggregateKind::Last, ScalarAggregateOutput::Last(value)) => {
-                value.map(Self::decode_storage_key_to_id).transpose()
-            }
+            | (AggregateKind::Last, ScalarAggregateOutput::Last(value)) => Ok(value),
             _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
         }
     }
+}
 
-    // Re-enter typed identity only at the terminal API boundary.
-    fn decode_storage_key_to_id(key: StorageKey) -> Result<Id<E>, InternalError> {
-        let value = key.as_value();
-        let decoded = <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
-            InternalError::store_corruption(format!(
-                "scalar aggregate output primary key decode failed: {value:?}"
-            ))
-        })?;
+// Re-enter typed identity only at the terminal API boundary.
+fn decode_storage_key_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let value = key.as_value();
+    let decoded = <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
+        InternalError::store_corruption(format!(
+            "scalar aggregate output primary key decode failed: {value:?}"
+        ))
+    })?;
 
-        Ok(Id::from_key(decoded))
-    }
+    Ok(Id::from_key(decoded))
 }
 
 // Map one candidate cardinality and optional page contract to canonical COUNT

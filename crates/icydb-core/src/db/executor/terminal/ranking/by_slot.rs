@@ -31,7 +31,7 @@ where
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::TopKRows {
                 target_field,
                 take_count,
@@ -49,7 +49,7 @@ where
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::BottomKRows {
                 target_field,
                 take_count,
@@ -67,7 +67,7 @@ where
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::TopKValues {
                 target_field,
                 take_count,
@@ -85,7 +85,7 @@ where
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::BottomKValues {
                 target_field,
                 take_count,
@@ -103,7 +103,7 @@ where
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::TopKValuesWithIds {
                 target_field,
                 take_count,
@@ -121,7 +121,7 @@ where
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::BottomKValuesWithIds {
                 target_field,
                 take_count,

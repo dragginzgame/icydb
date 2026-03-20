@@ -10,13 +10,12 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            ExecutablePlan,
+            PreparedLoadPlan,
             continuation::scalar::{ResolvedScalarContinuationContext, ScalarContinuationContext},
         },
         query::plan::ExecutionOrdering,
     },
     error::InternalError,
-    traits::EntityKind,
     value::Value,
 };
 
@@ -32,8 +31,8 @@ pub(in crate::db::executor) struct ContinuationEngine;
 
 impl ContinuationEngine {
     /// Resolve load mode/order compatibility and cursor revalidation contracts.
-    pub(in crate::db::executor) fn resolve_load_cursor_context<E: EntityKind>(
-        plan: &ExecutablePlan<E>,
+    pub(in crate::db::executor) fn resolve_load_cursor_context(
+        plan: &PreparedLoadPlan,
         cursor: LoadCursorInput,
         requested_shape: RequestedLoadExecutionShape,
     ) -> Result<ResolvedLoadCursorContext, InternalError> {

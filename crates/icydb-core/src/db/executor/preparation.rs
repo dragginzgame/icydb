@@ -94,6 +94,14 @@ pub(in crate::db::executor) fn resolved_index_slots_for_access_path<K>(
     Some(slots)
 }
 
+/// Resolve one structural slot map for one access-planned query using structural model data.
+pub(in crate::db::executor) fn slot_map_for_model_plan(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+) -> Option<Vec<usize>> {
+    resolved_index_slots_for_access_path(model, plan.access.resolve_strategy().executable())
+}
+
 /// Resolve one structural slot map for one entity-bound plan at the execution boundary.
 pub(in crate::db::executor) fn slot_map_for_entity_plan<E>(
     plan: &AccessPlannedQuery,
@@ -101,5 +109,5 @@ pub(in crate::db::executor) fn slot_map_for_entity_plan<E>(
 where
     E: EntityKind,
 {
-    resolved_index_slots_for_access_path(E::MODEL, plan.access.resolve_strategy().executable())
+    slot_map_for_model_plan(E::MODEL, plan)
 }

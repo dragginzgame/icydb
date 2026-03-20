@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
-            ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
+            EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             explain::{
@@ -16,12 +16,14 @@ use crate::{
                 assemble_load_execution_verbose_diagnostics,
             },
             lower_index_prefix_specs, lower_index_range_specs,
+            preparation::slot_map_for_model_plan,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, OrderSpec, QueryMode,
-            constant_covering_projection_value_from_access, covering_index_projection_context,
+            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupSpec, OrderSpec,
+            QueryMode, constant_covering_projection_value_from_access,
+            covering_index_projection_context,
         },
         query::{
             builder::AggregateExpr,
@@ -173,9 +175,7 @@ impl ExecutablePlanCore {
 
     fn prepare_cursor(
         &self,
-        entity_path: &'static str,
-        entity_tag: crate::types::EntityTag,
-        entity_model: &crate::model::entity::EntityModel,
+        authority: EntityAuthority,
         cursor: Option<&[u8]>,
     ) -> Result<PlannedCursor, ExecutorPlanError> {
         let Some(contract) = self.continuation.as_ref() else {
@@ -185,14 +185,18 @@ impl ExecutablePlanCore {
         };
 
         contract
-            .prepare_scalar_cursor(entity_path, entity_tag, entity_model, cursor)
+            .prepare_scalar_cursor(
+                authority.entity_path(),
+                authority.entity_tag(),
+                authority.model(),
+                cursor,
+            )
             .map_err(ExecutorPlanError::from)
     }
 
     fn revalidate_cursor(
         &self,
-        entity_tag: crate::types::EntityTag,
-        entity_model: &crate::model::entity::EntityModel,
+        authority: EntityAuthority,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError> {
         let Some(contract) = self.continuation.as_ref() else {
@@ -202,7 +206,7 @@ impl ExecutablePlanCore {
         };
 
         contract
-            .revalidate_scalar_cursor(entity_tag, entity_model, cursor)
+            .revalidate_scalar_cursor(authority.entity_tag(), authority.model(), cursor)
             .map_err(crate::db::error::from_cursor_plan_error)
     }
 
@@ -272,6 +276,40 @@ impl ExecutablePlanCore {
     }
 }
 
+// Build one canonical lowered executable-plan core from structural authority
+// plus one logical plan, regardless of whether the caller started from a typed
+// `ExecutablePlan<E>` shell or a structural follow-on rewrite.
+fn build_executable_plan_core(
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> ExecutablePlanCore {
+    // Phase 0: derive immutable continuation contract once from planner semantics.
+    let continuation = plan.continuation_contract(authority.entity_path());
+
+    // Phase 1: lower index-prefix specs once and retain invariant state.
+    let (index_prefix_specs, index_prefix_spec_invalid) =
+        match lower_index_prefix_specs(authority.entity_tag(), &plan.access) {
+            Ok(specs) => (specs, false),
+            Err(_) => (Vec::new(), true),
+        };
+
+    // Phase 2: lower index-range specs once and retain invariant state.
+    let (index_range_specs, index_range_spec_invalid) =
+        match lower_index_range_specs(authority.entity_tag(), &plan.access) {
+            Ok(specs) => (specs, false),
+            Err(_) => (Vec::new(), true),
+        };
+
+    ExecutablePlanCore::new(
+        plan,
+        continuation,
+        index_prefix_specs,
+        index_prefix_spec_invalid,
+        index_range_specs,
+        index_range_spec_invalid,
+    )
+}
+
 ///
 /// ExecutablePlan
 ///
@@ -284,38 +322,176 @@ pub(in crate::db) struct ExecutablePlan<E: EntityKind> {
     marker: PhantomData<fn() -> E>,
 }
 
+///
+/// PreparedLoadPlan
+///
+/// Generic-free load-plan boundary consumed by continuation resolution and
+/// load pipeline preparation after the typed `ExecutablePlan<E>` shell is no
+/// longer needed.
+///
+
+#[derive(Debug)]
+pub(in crate::db::executor) struct PreparedLoadPlan {
+    authority: EntityAuthority,
+    core: ExecutablePlanCore,
+}
+
+impl PreparedLoadPlan {
+    #[must_use]
+    pub(in crate::db::executor) fn from_plan(
+        authority: EntityAuthority,
+        plan: AccessPlannedQuery,
+    ) -> Self {
+        Self {
+            authority,
+            core: build_executable_plan_core(authority, plan),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn authority(&self) -> EntityAuthority {
+        self.authority
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn mode(&self) -> QueryMode {
+        self.core.mode()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
+    }
+
+    pub(in crate::db::executor) fn execution_ordering(
+        &self,
+    ) -> Result<ExecutionOrdering, InternalError> {
+        self.core.execution_ordering()
+    }
+
+    pub(in crate::db::executor) fn revalidate_cursor(
+        &self,
+        cursor: PlannedCursor,
+    ) -> Result<PlannedCursor, InternalError> {
+        self.core.revalidate_cursor(self.authority, cursor)
+    }
+
+    pub(in crate::db::executor) fn revalidate_grouped_cursor(
+        &self,
+        cursor: GroupedPlannedCursor,
+    ) -> Result<GroupedPlannedCursor, InternalError> {
+        self.core.revalidate_grouped_cursor(cursor)
+    }
+
+    pub(in crate::db::executor) fn continuation_signature_for_runtime(
+        &self,
+    ) -> Result<ContinuationSignature, InternalError> {
+        self.core.continuation_signature_for_runtime()
+    }
+
+    pub(in crate::db::executor) fn grouped_cursor_boundary_arity(
+        &self,
+    ) -> Result<usize, InternalError> {
+        self.core.grouped_cursor_boundary_arity()
+    }
+
+    pub(in crate::db::executor) fn grouped_pagination_window(
+        &self,
+        cursor: &GroupedPlannedCursor,
+    ) -> Result<GroupedPaginationWindow, InternalError> {
+        self.core.grouped_pagination_window(cursor)
+    }
+
+    pub(in crate::db::executor) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+        self.core.index_prefix_specs()
+    }
+
+    pub(in crate::db::executor) fn index_range_specs(
+        &self,
+    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
+        self.core.index_range_specs()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn into_plan(self) -> AccessPlannedQuery {
+        self.core.into_inner()
+    }
+}
+
+///
+/// PreparedAggregatePlan
+///
+/// Generic-free aggregate-plan boundary consumed by aggregate terminal and
+/// runtime preparation after the typed `ExecutablePlan<E>` shell is no longer
+/// needed.
+///
+
+#[derive(Debug)]
+pub(in crate::db::executor) struct PreparedAggregatePlan {
+    authority: EntityAuthority,
+    core: ExecutablePlanCore,
+}
+
+impl PreparedAggregatePlan {
+    #[must_use]
+    pub(in crate::db::executor) const fn authority(&self) -> EntityAuthority {
+        self.authority
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation {
+        ExecutionPreparation::from_plan(
+            self.authority.model(),
+            self.core.plan(),
+            slot_map_for_model_plan(self.authority.model(), self.core.plan()),
+        )
+    }
+
+    pub(in crate::db::executor) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+        self.core.index_prefix_specs()
+    }
+
+    pub(in crate::db::executor) fn index_range_specs(
+        &self,
+    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
+        self.core.index_range_specs()
+    }
+
+    /// Re-shape one prepared aggregate plan into one grouped prepared load plan
+    /// without reconstructing a typed `ExecutablePlan<E>` shell.
+    #[must_use]
+    pub(in crate::db::executor) fn into_grouped_load_plan(
+        self,
+        group: GroupSpec,
+    ) -> PreparedLoadPlan {
+        PreparedLoadPlan::from_plan(self.authority, self.core.into_inner().into_grouped(group))
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn into_plan(self) -> AccessPlannedQuery {
+        self.core.into_inner()
+    }
+}
+
 impl<E: EntityKind> ExecutablePlan<E> {
     pub(in crate::db) fn new(plan: AccessPlannedQuery) -> Self {
         Self::build(plan)
     }
 
     fn build(plan: AccessPlannedQuery) -> Self {
-        // Phase 0: derive immutable continuation contract once from planner semantics.
-        let continuation = plan.continuation_contract(E::PATH);
-
-        // Phase 1: Lower index-prefix specs once and retain invariant state.
-        let (index_prefix_specs, index_prefix_spec_invalid) =
-            match lower_index_prefix_specs(E::ENTITY_TAG, &plan.access) {
-                Ok(specs) => (specs, false),
-                Err(_) => (Vec::new(), true),
-            };
-
-        // Phase 2: Lower index-range specs once and retain invariant state.
-        let (index_range_specs, index_range_spec_invalid) =
-            match lower_index_range_specs(E::ENTITY_TAG, &plan.access) {
-                Ok(specs) => (specs, false),
-                Err(_) => (Vec::new(), true),
-            };
+        let authority = EntityAuthority::for_type::<E>();
 
         Self {
-            core: ExecutablePlanCore::new(
-                plan,
-                continuation,
-                index_prefix_specs,
-                index_prefix_spec_invalid,
-                index_range_specs,
-                index_range_spec_invalid,
-            ),
+            core: build_executable_plan_core(authority, plan),
             marker: PhantomData,
         }
     }
@@ -370,7 +546,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         cursor: Option<&[u8]>,
     ) -> Result<PlannedCursor, ExecutorPlanError> {
         self.core
-            .prepare_cursor(E::PATH, E::ENTITY_TAG, E::MODEL, cursor)
+            .prepare_cursor(EntityAuthority::for_type::<E>(), cursor)
     }
 
     /// Return the plan mode (load vs delete).
@@ -385,14 +561,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.is_grouped()
     }
 
-    /// Return planner-projected execution ordering used by runtime dispatch.
-    pub(in crate::db) fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {
-        self.core.execution_ordering()
-    }
-
     /// Return planner-projected execution strategy for entrypoint dispatch.
     pub(in crate::db) fn execution_strategy(&self) -> Result<ExecutionStrategy, InternalError> {
         self.core.execution_strategy()
+    }
+
+    /// Expose planner-projected execution ordering for executor/lowering tests.
+    #[cfg(test)]
+    pub(in crate::db) fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {
+        self.core.execution_ordering()
     }
 
     pub(in crate::db) const fn access(
@@ -413,6 +590,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         target_field: &str,
     ) -> BytesByProjectionMode {
+        let authority = EntityAuthority::for_type::<E>();
+
         if !matches!(self.consistency(), MissingRowPolicy::Ignore) {
             return BytesByProjectionMode::Materialized;
         }
@@ -429,7 +608,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             self.access(),
             self.order_spec(),
             target_field,
-            E::MODEL.primary_key.name,
+            authority.model().primary_key.name,
         )
         .is_some()
         {
@@ -463,27 +642,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.has_predicate()
     }
 
-    /// Build canonical execution preparation for this executable plan.
-    #[must_use]
-    pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation
-    where
-        E: EntityValue,
-    {
-        ExecutionPreparation::from_plan(
-            E::MODEL,
-            self.core.plan(),
-            crate::db::executor::preparation::resolved_index_slots_for_access_path(
-                E::MODEL,
-                self.access().resolve_strategy().executable(),
-            ),
-        )
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn logical_plan(&self) -> &AccessPlannedQuery {
-        self.core.plan()
-    }
-
     pub(in crate::db) fn index_prefix_specs(
         &self,
     ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
@@ -505,14 +663,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.into_inner()
     }
 
-    /// Revalidate executor-provided cursor state through the canonical cursor spine.
-    pub(in crate::db) fn revalidate_cursor(
-        &self,
-        cursor: PlannedCursor,
-    ) -> Result<PlannedCursor, InternalError> {
-        self.core.revalidate_cursor(E::ENTITY_TAG, E::MODEL, cursor)
-    }
-
     /// Validate and decode grouped continuation cursor state for grouped plans.
     pub(in crate::db) fn prepare_grouped_cursor(
         &self,
@@ -525,36 +675,28 @@ impl<E: EntityKind> ExecutablePlan<E> {
         };
 
         contract
-            .prepare_grouped_cursor(E::PATH, cursor)
+            .prepare_grouped_cursor(EntityAuthority::for_type::<E>().entity_path(), cursor)
             .map_err(ExecutorPlanError::from)
     }
 
-    /// Revalidate grouped cursor state before grouped executor entry.
-    pub(in crate::db) fn revalidate_grouped_cursor(
-        &self,
-        cursor: GroupedPlannedCursor,
-    ) -> Result<GroupedPlannedCursor, InternalError> {
-        self.core.revalidate_grouped_cursor(cursor)
+    /// Consume one typed load executable plan into one generic-free boundary
+    /// payload for continuation and load-pipeline preparation.
+    #[must_use]
+    pub(in crate::db::executor) fn into_prepared_load_plan(self) -> PreparedLoadPlan {
+        PreparedLoadPlan {
+            authority: EntityAuthority::for_type::<E>(),
+            core: self.core,
+        }
     }
 
-    /// Borrow continuation signature from immutable continuation contract.
-    pub(in crate::db) fn continuation_signature_for_runtime(
-        &self,
-    ) -> Result<ContinuationSignature, InternalError> {
-        self.core.continuation_signature_for_runtime()
-    }
-
-    /// Borrow grouped cursor boundary arity from immutable continuation contract.
-    pub(in crate::db) fn grouped_cursor_boundary_arity(&self) -> Result<usize, InternalError> {
-        self.core.grouped_cursor_boundary_arity()
-    }
-
-    /// Derive grouped paging window from immutable continuation contract.
-    pub(in crate::db::executor) fn grouped_pagination_window(
-        &self,
-        cursor: &GroupedPlannedCursor,
-    ) -> Result<GroupedPaginationWindow, InternalError> {
-        self.core.grouped_pagination_window(cursor)
+    /// Consume one typed aggregate executable plan into one generic-free
+    /// boundary payload for aggregate terminal and runtime preparation.
+    #[must_use]
+    pub(in crate::db::executor) fn into_prepared_aggregate_plan(self) -> PreparedAggregatePlan {
+        PreparedAggregatePlan {
+            authority: EntityAuthority::for_type::<E>(),
+            core: self.core,
+        }
     }
 }
 

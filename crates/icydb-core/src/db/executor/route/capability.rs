@@ -10,7 +10,6 @@ use crate::{
             aggregate::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
             },
-            pipeline::contracts::LoadExecutor,
             route::{
                 bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported_for_model,
                 secondary_order_contract_active,
@@ -22,7 +21,6 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
@@ -80,20 +78,6 @@ impl ExecutionRoutePlan {
         } else {
             None
         }
-    }
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Derive one canonical execution capability snapshot for a plan + direction.
-    pub(in crate::db::executor::route) fn derive_execution_capabilities(
-        plan: &AccessPlannedQuery,
-        direction: Direction,
-        aggregate_expr: Option<&AggregateExpr>,
-    ) -> RouteCapabilities {
-        derive_execution_capabilities_for_model(E::MODEL, plan, direction, aggregate_expr)
     }
 }
 

@@ -9,10 +9,12 @@ mod take;
 
 use crate::{
     db::{
+        data::DataKey,
         executor::{
-            ExecutablePlan,
+            PreparedLoadPlan,
             aggregate::field::{
-                AggregateFieldValueError, resolve_orderable_aggregate_target_slot_from_planner_slot,
+                AggregateFieldValueError,
+                resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
             },
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
         },
@@ -73,7 +75,7 @@ enum RankedFieldBoundaryDirection {
 enum RankingTerminalBoundaryOutput<E: EntityKind + EntityValue> {
     Rows(EntityResponse<E>),
     Values(Vec<Value>),
-    ValuesWithIds(Vec<(Id<E>, Value)>),
+    ValuesWithDataKeys(Vec<(DataKey, Value)>),
 }
 
 impl<E> RankingTerminalBoundaryOutput<E>
@@ -103,7 +105,10 @@ where
     // Decode `(id, value)` ranking boundary output.
     fn into_values_with_ids(self) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         match self {
-            Self::ValuesWithIds(values) => Ok(values),
+            Self::ValuesWithDataKeys(values) => values
+                .into_iter()
+                .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
+                .collect(),
             _ => Err(crate::db::error::query_executor_invariant(
                 "ranking terminal boundary values-with-ids output kind mismatch",
             )),
@@ -119,7 +124,7 @@ where
     // boundary and immediately hand off to shared materialized ranking logic.
     fn execute_ranking_terminal_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         request: RankingTerminalBoundaryRequest,
     ) -> Result<RankingTerminalBoundaryOutput<E>, InternalError> {
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
@@ -220,20 +225,30 @@ where
         direction: RankedFieldBoundaryDirection,
         projection: RankedFieldBoundaryProjection,
     ) -> Result<RankingTerminalBoundaryOutput<E>, InternalError> {
-        let field_slot =
-            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let model = prepared.authority.model();
+        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+            model,
+            &target_field,
+        )
+        .map_err(AggregateFieldValueError::into_internal_error)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
         let data_rows = page.data_rows();
         let target_field = target_field.field();
 
         match (direction, projection) {
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Rows) => {
-                Self::top_k_field_from_materialized(data_rows, target_field, field_slot, take_count)
-                    .map(RankingTerminalBoundaryOutput::Rows)
+                Self::top_k_field_from_materialized(
+                    model,
+                    data_rows,
+                    target_field,
+                    field_slot,
+                    take_count,
+                )
+                .map(RankingTerminalBoundaryOutput::Rows)
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Rows) => {
                 Self::bottom_k_field_from_materialized(
+                    model,
                     data_rows,
                     target_field,
                     field_slot,
@@ -243,6 +258,7 @@ where
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::Values) => {
                 Self::top_k_field_values_from_materialized(
+                    model,
                     data_rows,
                     target_field,
                     field_slot,
@@ -252,6 +268,7 @@ where
             }
             (RankedFieldBoundaryDirection::Bottom, RankedFieldBoundaryProjection::Values) => {
                 Self::bottom_k_field_values_from_materialized(
+                    model,
                     data_rows,
                     target_field,
                     field_slot,
@@ -261,23 +278,25 @@ where
             }
             (RankedFieldBoundaryDirection::Top, RankedFieldBoundaryProjection::ValuesWithIds) => {
                 Self::top_k_field_values_with_ids_from_materialized(
+                    model,
                     data_rows,
                     target_field,
                     field_slot,
                     take_count,
                 )
-                .map(RankingTerminalBoundaryOutput::ValuesWithIds)
+                .map(RankingTerminalBoundaryOutput::ValuesWithDataKeys)
             }
             (
                 RankedFieldBoundaryDirection::Bottom,
                 RankedFieldBoundaryProjection::ValuesWithIds,
             ) => Self::bottom_k_field_values_with_ids_from_materialized(
+                model,
                 data_rows,
                 target_field,
                 field_slot,
                 take_count,
             )
-            .map(RankingTerminalBoundaryOutput::ValuesWithIds),
+            .map(RankingTerminalBoundaryOutput::ValuesWithDataKeys),
         }
     }
 }

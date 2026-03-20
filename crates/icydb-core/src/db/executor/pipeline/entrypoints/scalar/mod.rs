@@ -13,8 +13,8 @@ use crate::{
         direction::Direction,
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
-            AccessStreamBindings, ContinuationEngine, EntityAuthority, ExecutablePlan,
-            ExecutionKernel, ExecutionPlan, ExecutionPreparation, ExecutionTrace,
+            AccessStreamBindings, ContinuationEngine, EntityAuthority, ExecutionKernel,
+            ExecutionPlan, ExecutionPreparation, ExecutionTrace, PreparedLoadPlan,
             ResolvedScalarContinuationContext, ScalarRouteContinuationInvariantProjection,
             StructuralStoreResolver, StructuralTraversalRuntime,
             pipeline::contracts::{
@@ -24,7 +24,7 @@ use crate::{
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
-            validate_executor_plan,
+            validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
@@ -398,17 +398,16 @@ where
     // materialized-terminal boundary payload.
     pub(in crate::db::executor) fn prepare_scalar_materialized_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
     ) -> Result<PreparedScalarMaterializedBoundary<'_>, InternalError> {
+        let authority = plan.authority();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_plan();
 
-        validate_executor_plan::<E>(&logical_plan)?;
-        let ctx = self.db.recovered_context::<E>()?;
-        let store = ctx.structural_store()?;
+        validate_executor_plan_for_authority(authority, &logical_plan)?;
+        let store = self.db.recovered_store(authority.store_path())?;
         let store_resolver = self.db.structural_store_resolver();
-        let authority = EntityAuthority::for_type::<E>();
 
         Ok(PreparedScalarMaterializedBoundary {
             authority,
@@ -427,19 +426,18 @@ where
     // 4) finalize typed page + observability
     pub(in crate::db::executor) fn prepare_scalar_route_runtime(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         resolved_continuation: ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
     ) -> Result<PreparedScalarRouteRuntime, InternalError> {
+        let authority = plan.authority();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_plan();
 
         // Phase 1: resolve all typed execution authority once at the boundary.
-        validate_executor_plan::<E>(&logical_plan)?;
-        let ctx = self.db.recovered_context::<E>()?;
-        let store = ctx.structural_store()?;
-        let authority = EntityAuthority::for_type::<E>();
+        validate_executor_plan_for_authority(authority, &logical_plan)?;
+        let store = self.db.recovered_store(authority.store_path())?;
         let route_plan =
             crate::db::executor::route::build_execution_route_plan_for_load_with_model(
                 authority.model(),

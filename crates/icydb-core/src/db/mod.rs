@@ -38,6 +38,7 @@ use crate::{
         },
         data::RawDataKey,
         executor::Context,
+        registry::StoreHandle,
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -148,17 +149,11 @@ impl<C: CanisterKind> Db<C> {
         Context::new(self)
     }
 
-    /// Return a recovery-guarded context for read paths.
-    ///
-    /// This enforces startup recovery and a fast persisted-marker check so reads
-    /// do not proceed while an incomplete commit is pending replay.
-    pub(in crate::db) fn recovered_context<E>(&self) -> Result<Context<'_, E>, InternalError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
+    /// Resolve one named store after enforcing startup recovery.
+    pub(in crate::db) fn recovered_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
         ensure_recovered(self)?;
 
-        Ok(Context::new(self))
+        self.with_store_registry(|registry| registry.try_get_store(path))
     }
 
     /// Ensure startup/in-progress commit recovery has been applied.

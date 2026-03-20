@@ -7,7 +7,7 @@ use super::{
     AggregateFieldValueError, FieldSlot, apply_aggregate_direction, compare_orderable_field_values,
     extract_numeric_field_decimal_with_slot_reader, extract_orderable_field_value_with_slot_reader,
     resolve_any_aggregate_target_slot_with_model, resolve_numeric_aggregate_target_slot_with_model,
-    resolve_orderable_aggregate_target_slot,
+    resolve_orderable_aggregate_target_slot_with_model,
 };
 use crate::{
     db::{direction::Direction, numeric::compare_numeric_order},
@@ -99,16 +99,18 @@ crate::test_entity_schema! {
 
 #[test]
 fn resolve_orderable_target_slot_accepts_scalar_field() {
-    let slot = resolve_orderable_aggregate_target_slot::<AggregateFieldEntity>("rank")
-        .expect("rank should be accepted as orderable target");
+    let slot =
+        resolve_orderable_aggregate_target_slot_with_model(AggregateFieldEntity::MODEL, "rank")
+            .expect("rank should be accepted as orderable target");
 
     assert!(matches!(slot.kind, FieldKind::Uint));
 }
 
 #[test]
 fn resolve_orderable_target_slot_matches_schema_index() {
-    let slot = resolve_orderable_aggregate_target_slot::<AggregateFieldEntity>("rank")
-        .expect("rank slot should resolve");
+    let slot =
+        resolve_orderable_aggregate_target_slot_with_model(AggregateFieldEntity::MODEL, "rank")
+            .expect("rank slot should resolve");
 
     assert_eq!(slot.index, 1);
     assert!(matches!(slot.kind, FieldKind::Uint));
@@ -125,16 +127,20 @@ fn resolve_any_target_slot_supports_non_orderable_field_kind() {
 
 #[test]
 fn resolve_orderable_target_slot_rejects_unknown_field() {
-    let err = resolve_orderable_aggregate_target_slot::<AggregateFieldEntity>("missing_field")
-        .expect_err("unknown target field must be rejected");
+    let err = resolve_orderable_aggregate_target_slot_with_model(
+        AggregateFieldEntity::MODEL,
+        "missing_field",
+    )
+    .expect_err("unknown target field must be rejected");
 
     assert!(matches!(err, AggregateFieldValueError::UnknownField { .. }));
 }
 
 #[test]
 fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
-    let err = resolve_orderable_aggregate_target_slot::<AggregateFieldEntity>("scores")
-        .expect_err("list field should be rejected for field aggregates");
+    let err =
+        resolve_orderable_aggregate_target_slot_with_model(AggregateFieldEntity::MODEL, "scores")
+            .expect_err("list field should be rejected for field aggregates");
 
     assert!(matches!(
         err,

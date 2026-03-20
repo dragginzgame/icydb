@@ -39,8 +39,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<ProjectionResponse<E>, InternalError> {
+        let plan = plan.into_prepared_load_plan();
+        let authority = plan.authority();
+
         // Phase 1: derive projection semantics from the planned query contract.
-        let projection = plan.logical_plan().projection_spec(E::MODEL);
+        let projection = plan.logical_plan().projection_spec(authority.model());
 
         // Phase 2: execute the scalar path structurally so projection does not
         // rebuild typed entity rows before expression evaluation.
@@ -48,7 +51,21 @@ where
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
         // Phase 3: materialize projection payloads in declaration order.
-        let projected = project_data_rows_from_projection::<E>(&projection, page.data_rows())?;
+        let projected = project_data_rows_from_projection_structural(
+            authority.model(),
+            &projection,
+            page.data_rows(),
+        )?;
+        let projected = projected
+            .into_iter()
+            .map(
+                |(data_key, values)| -> Result<ProjectedRow<E>, InternalError> {
+                    let id = Id::from_key(data_key.try_key::<E>()?);
+
+                    Ok(ProjectedRow::new(id, values))
+                },
+            )
+            .collect::<Result<Vec<_>, InternalError>>()?;
 
         Ok(ProjectionResponse::new(projected))
     }
@@ -115,26 +132,6 @@ where
     }
 
     Ok(projected_rows)
-}
-
-#[cfg(feature = "sql")]
-pub(in crate::db::executor::projection) fn project_data_rows_from_projection<E>(
-    projection: &ProjectionSpec,
-    rows: &[DataRow],
-) -> Result<Vec<ProjectedRow<E>>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let projected_rows = project_data_rows_from_projection_structural(E::MODEL, projection, rows)?;
-
-    projected_rows
-        .into_iter()
-        .map(|(data_key, values)| {
-            let id = Id::from_key(data_key.try_key::<E>()?);
-
-            Ok(ProjectedRow::new(id, values))
-        })
-        .collect()
 }
 
 // Walk one projection spec through one slot-reader boundary so validation and

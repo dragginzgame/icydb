@@ -18,19 +18,20 @@ pub(in crate::db::executor) mod runtime;
 mod terminals;
 
 use crate::db::executor::aggregate::field::{
-    AggregateFieldValueError, resolve_orderable_aggregate_target_slot,
+    AggregateFieldValueError, resolve_orderable_aggregate_target_slot_with_model,
 };
 use crate::{
     db::{
         data::DataRow,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, EntityAuthority, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
+            ExecutionPreparation, PreparedAggregatePlan,
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
-            plan_metrics::{record_plan_metrics, record_rows_scanned},
+            plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
             route::aggregate_materialized_fold_direction,
-            validate_executor_plan,
+            terminal::RowLayout,
+            validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
         query::builder::AggregateExpr,
@@ -139,7 +140,7 @@ impl<'a> AggregateReducerDispatch<'a> {
                 direction,
                 route_plan,
             } => Ok(AggregateReducerSelection::Completed(
-                ExecutionKernel::execute_field_target_extrema_aggregate::<E>(
+                ExecutionKernel::execute_field_target_extrema_aggregate(
                     &prepared,
                     kind,
                     target_field,
@@ -166,7 +167,7 @@ where
     // prepared-state helpers.
     pub(in crate::db::executor::aggregate) fn prepare_scalar_aggregate_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedAggregatePlan,
     ) -> Result<PreparedAggregateStreamingInputs<'_>, InternalError> {
         ExecutionKernel::prepare_aggregate_streaming_inputs(self, plan)
     }
@@ -215,11 +216,12 @@ impl ExecutionKernel {
     // inputs used by both aggregate streaming branches.
     pub(in crate::db::executor::aggregate) fn prepare_aggregate_streaming_inputs<E>(
         executor: &'_ LoadExecutor<E>,
-        plan: ExecutablePlan<E>,
+        plan: PreparedAggregatePlan,
     ) -> Result<PreparedAggregateStreamingInputs<'_>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
+        let authority = plan.authority();
         // Direction and specs must be read before consuming `ExecutablePlan`.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
@@ -229,13 +231,9 @@ impl ExecutionKernel {
         let logical_plan = plan.into_plan();
 
         // Re-validate executor invariants at the logical boundary.
-        validate_executor_plan::<E>(&logical_plan)?;
-
-        // Recover read context and record plan metrics before stream resolution.
-        let ctx = executor.recovered_context()?;
-        let store = ctx.structural_store()?;
+        validate_executor_plan_for_authority(authority, &logical_plan)?;
+        let store = executor.db.recovered_store(authority.store_path())?;
         let store_resolver = executor.db.structural_store_resolver();
-        let authority = EntityAuthority::for_type::<E>();
         record_plan_metrics(&logical_plan.access);
 
         Ok(PreparedAggregateStreamingInputs {
@@ -262,13 +260,18 @@ impl ExecutionKernel {
         if let Some(target_field) = aggregate.target_field() {
             // Validate field-target semantics before execution to preserve
             // fail-fast unsupported behavior without scan-budget consumption.
-            let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+            let field_slot = resolve_orderable_aggregate_target_slot_with_model(
+                prepared.authority.model(),
+                target_field,
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let row_layout = RowLayout::from_model(prepared.authority.model());
             let page = executor.execute_scalar_materialized_page_stage(prepared)?;
             let (rows, _) = page.into_parts();
 
-            return Self::aggregate_field_extrema_from_materialized::<E>(
+            return Self::aggregate_field_extrema_from_materialized(
                 rows,
+                &row_layout,
                 kind,
                 target_field,
                 field_slot,
@@ -357,7 +360,7 @@ impl ExecutionKernel {
         if let Some((aggregate_output, rows_scanned)) =
             Self::try_fast_path_aggregate(&fast_path_inputs)?
         {
-            record_rows_scanned::<E>(rows_scanned);
+            record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
             return Ok(aggregate_output);
         }
 
@@ -404,7 +407,7 @@ impl ExecutionKernel {
         // Preserve row-scan metrics semantics.
         // If a fast-path overrides scan accounting, honor it.
         let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
-        record_rows_scanned::<E>(rows_scanned);
+        record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
 
         Ok(aggregate_output)
     }

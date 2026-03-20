@@ -148,84 +148,6 @@ where
         })?
     }
 
-    /// Fold persisted row payload bytes over one full-scan page window.
-    pub(in crate::db) fn sum_row_payload_bytes_full_scan_window(
-        &self,
-        direction: Direction,
-        offset: usize,
-        limit: Option<usize>,
-    ) -> Result<u64, InternalError> {
-        self.with_store(|store| -> Result<u64, InternalError> {
-            let total = match direction {
-                Direction::Asc => sum_payload_bytes_from_row_lengths(
-                    store.iter().map(|entry| entry.value().len()),
-                    offset,
-                    limit,
-                ),
-                Direction::Desc => sum_payload_bytes_from_row_lengths(
-                    store.iter().rev().map(|entry| entry.value().len()),
-                    offset,
-                    limit,
-                ),
-            };
-
-            Ok(total)
-        })?
-    }
-
-    /// Fold persisted row payload bytes over one key-range page window.
-    pub(in crate::db) fn sum_row_payload_bytes_key_range_window(
-        &self,
-        start: &DataKey,
-        end: &DataKey,
-        direction: Direction,
-        offset: usize,
-        limit: Option<usize>,
-    ) -> Result<u64, InternalError> {
-        let start_raw = start.to_raw()?;
-        let end_raw = end.to_raw()?;
-
-        self.with_store(|store| -> Result<u64, InternalError> {
-            let total = match direction {
-                Direction::Asc => sum_payload_bytes_from_row_lengths(
-                    store
-                        .range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                        .map(|entry| entry.value().len()),
-                    offset,
-                    limit,
-                ),
-                Direction::Desc => sum_payload_bytes_from_row_lengths(
-                    store
-                        .range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                        .rev()
-                        .map(|entry| entry.value().len()),
-                    offset,
-                    limit,
-                ),
-            };
-
-            Ok(total)
-        })?
-    }
-
-    /// Fold persisted row payload bytes over one ordered key stream page window.
-    pub(in crate::db::executor) fn sum_row_payload_bytes_from_ordered_key_stream(
-        &self,
-        key_stream: &mut dyn OrderedKeyStream,
-        consistency: MissingRowPolicy,
-        offset: usize,
-        limit: Option<usize>,
-    ) -> Result<u64, InternalError> {
-        // Shared scan loop runs once in a non-generic helper; this wrapper only
-        // supplies the entity-owned consistency read contract.
-        sum_row_payload_bytes_from_ordered_key_stream_shared(
-            key_stream,
-            &mut |key| self.read_row_with_consistency_skip_not_found(key, consistency),
-            offset,
-            limit,
-        )
-    }
-
     // Load rows for an ordered key stream by preserving the stream order.
     /// Materialize rows for an ordered key stream while preserving stream order.
     pub(in crate::db::executor) fn rows_from_ordered_key_stream(
@@ -303,6 +225,75 @@ pub(in crate::db::executor) fn read_data_row_with_consistency_from_store(
     };
 
     Ok(Some((key.clone(), row)))
+}
+
+/// Fold persisted row payload bytes over one full-scan page window through structural store authority.
+pub(in crate::db::executor) fn sum_row_payload_bytes_full_scan_window_with_store(
+    store: StoreHandle,
+    direction: Direction,
+    offset: usize,
+    limit: Option<usize>,
+) -> u64 {
+    store.with_data(|store| match direction {
+        Direction::Asc => sum_payload_bytes_from_row_lengths(
+            store.iter().map(|entry| entry.value().len()),
+            offset,
+            limit,
+        ),
+        Direction::Desc => sum_payload_bytes_from_row_lengths(
+            store.iter().rev().map(|entry| entry.value().len()),
+            offset,
+            limit,
+        ),
+    })
+}
+
+/// Fold persisted row payload bytes over one key-range page window through structural store authority.
+pub(in crate::db::executor) fn sum_row_payload_bytes_key_range_window_with_store(
+    store: StoreHandle,
+    start: &DataKey,
+    end: &DataKey,
+    direction: Direction,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<u64, InternalError> {
+    let start_raw = start.to_raw()?;
+    let end_raw = end.to_raw()?;
+    let total = store.with_data(|store| match direction {
+        Direction::Asc => sum_payload_bytes_from_row_lengths(
+            store
+                .range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                .map(|entry| entry.value().len()),
+            offset,
+            limit,
+        ),
+        Direction::Desc => sum_payload_bytes_from_row_lengths(
+            store
+                .range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                .rev()
+                .map(|entry| entry.value().len()),
+            offset,
+            limit,
+        ),
+    });
+
+    Ok(total)
+}
+
+/// Fold persisted row payload bytes over one ordered key stream page window through structural store authority.
+pub(in crate::db::executor) fn sum_row_payload_bytes_from_ordered_key_stream_with_store(
+    store: StoreHandle,
+    key_stream: &mut dyn OrderedKeyStream,
+    consistency: MissingRowPolicy,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<u64, InternalError> {
+    sum_row_payload_bytes_from_ordered_key_stream_shared(
+        key_stream,
+        &mut |key| read_row_with_consistency_from_store(store, key, consistency),
+        offset,
+        limit,
+    )
 }
 
 const fn payload_window_limit_exhausted(limit_remaining: Option<usize>) -> bool {

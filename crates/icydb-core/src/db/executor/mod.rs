@@ -51,6 +51,7 @@ pub(in crate::db::executor) use continuation::{
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
+pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{

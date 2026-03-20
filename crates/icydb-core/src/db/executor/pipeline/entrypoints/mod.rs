@@ -10,7 +10,7 @@ use crate::{
     db::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
-            ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput,
+            ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
             ResolvedLoadCursorContext,
             pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
         },
@@ -38,7 +38,7 @@ where
     // Keep continuation-resolution authority in the entrypoint root module.
     // Leaf modules consume prepared cursor contracts only.
     pub(in crate::db::executor::pipeline) fn resolve_entrypoint_cursor(
-        plan: &ExecutablePlan<E>,
+        plan: &PreparedLoadPlan,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<ResolvedLoadCursorContext, InternalError> {

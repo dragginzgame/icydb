@@ -17,7 +17,6 @@ use crate::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
     },
-    traits::EntityKind,
     types::Decimal,
     value::Value,
 };
@@ -139,11 +138,12 @@ fn field_kind_matches_value(kind: &FieldKind, value: &Value) -> bool {
     }
 }
 
-/// Resolve one orderable aggregate target field into a stable projection slot.
-pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot<E: EntityKind>(
+/// Resolve one orderable aggregate target field into a stable projection slot using structural model data.
+pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_with_model(
+    model: &'static EntityModel,
     target_field: &str,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
-    let Some((index, field)) = field_model_with_index(E::MODEL, target_field) else {
+    let Some((index, field)) = field_model_with_index(model, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
@@ -161,14 +161,13 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot<E: Entity
     })
 }
 
-/// Resolve one planner field slot into one orderable aggregate projection slot.
-pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot<
-    E: EntityKind,
->(
+/// Resolve one planner field slot into one orderable aggregate projection slot using structural model data.
+pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+    model: &'static EntityModel,
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
-    let Some(field) = E::MODEL.fields.get(field_slot.index()) else {
+    let Some(field) = model.fields.get(field_slot.index()) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
@@ -208,14 +207,13 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_with_model(
     })
 }
 
-/// Resolve one planner field slot into one aggregate projection slot.
-pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot<
-    E: EntityKind,
->(
+/// Resolve one planner field slot into one aggregate projection slot using structural model data.
+pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot_with_model(
+    model: &'static EntityModel,
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
-    let Some(field) = E::MODEL.fields.get(field_slot.index()) else {
+    let Some(field) = model.fields.get(field_slot.index()) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
@@ -255,14 +253,13 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_with_model(
     })
 }
 
-/// Resolve one planner field slot into one numeric aggregate projection slot.
-pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot<
-    E: EntityKind,
->(
+/// Resolve one planner field slot into one numeric aggregate projection slot using structural model data.
+pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(
+    model: &'static EntityModel,
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let target_field = field_slot.field();
-    let Some(field) = E::MODEL.fields.get(field_slot.index()) else {
+    let Some(field) = model.fields.get(field_slot.index()) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });

@@ -49,13 +49,14 @@ where
     // Reduce one materialized response into deterministic top-k ranked rows
     // ordered by `(field_value_desc, primary_key_asc)`.
     pub(super) fn top_k_ranked_rows_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(DataRow, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
-            E::MODEL,
+            model,
             rows,
             target_field,
             field_slot,
@@ -67,13 +68,14 @@ where
     // Reduce one materialized response into deterministic bottom-k ranked rows
     // ordered by `(field_value_asc, primary_key_asc)`.
     pub(super) fn bottom_k_ranked_rows_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(DataRow, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
-            E::MODEL,
+            model,
             rows,
             target_field,
             field_slot,

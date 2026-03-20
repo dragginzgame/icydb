@@ -7,13 +7,14 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            ExecutionPlan, ExecutionPreparation,
+            EntityAuthority, ExecutionPlan, ExecutionPreparation,
             continuation::ScalarContinuationContext,
             pipeline::contracts::LoadExecutor,
             preparation::resolved_index_slots_for_access_path,
             route::{
                 ExecutionRoutePlan, RouteIntent,
                 aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
+                derive_execution_capabilities_for_model,
                 pk_order_stream_fast_path_shape_supported_for_model,
             },
         },
@@ -43,8 +44,10 @@ where
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
+        let authority = EntityAuthority::for_type::<E>();
+
         build_execution_route_plan_for_load_with_model(
-            E::MODEL,
+            authority.model(),
             plan,
             continuation,
             probe_fetch_hint,
@@ -61,7 +64,12 @@ where
             ));
         }
 
-        let capabilities = Self::derive_execution_capabilities(plan, Direction::Asc, None);
+        let capabilities = derive_execution_capabilities_for_model(
+            EntityAuthority::for_type::<E>().model(),
+            plan,
+            Direction::Asc,
+            None,
+        );
 
         Ok(ExecutionRoutePlan::for_mutation(capabilities))
     }
@@ -72,8 +80,10 @@ where
         aggregate: AggregateExpr,
         execution_preparation: &ExecutionPreparation,
     ) -> ExecutionPlan {
+        let authority = EntityAuthority::for_type::<E>();
+
         build_execution_route_plan_for_aggregate_spec_with_model(
-            E::MODEL,
+            authority.model(),
             plan,
             aggregate,
             execution_preparation,

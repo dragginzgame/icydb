@@ -10,8 +10,8 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
-    types::Id,
     value::Value,
 };
 
@@ -22,13 +22,19 @@ where
     // Reduce one materialized response into a deterministic top-k response
     // ordered by `(field_value_desc, primary_key_asc)`.
     pub(in crate::db::executor::terminal::ranking) fn top_k_field_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
-        let ordered_rows =
-            Self::top_k_ranked_rows_from_materialized(rows, target_field, field_slot, take_count)?;
+        let ordered_rows = Self::top_k_ranked_rows_from_materialized(
+            model,
+            rows,
+            target_field,
+            field_slot,
+            take_count,
+        )?;
         let output_rows = ordered_rows
             .into_iter()
             .map(|(row, _)| row)
@@ -40,13 +46,19 @@ where
     // Reduce one materialized response into top-k projected field values under
     // deterministic `(field_value_desc, primary_key_asc)` ranking.
     pub(in crate::db::executor::terminal::ranking) fn top_k_field_values_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let ordered_rows =
-            Self::top_k_ranked_rows_from_materialized(rows, target_field, field_slot, take_count)?;
+        let ordered_rows = Self::top_k_ranked_rows_from_materialized(
+            model,
+            rows,
+            target_field,
+            field_slot,
+            take_count,
+        )?;
         let projected_values = ordered_rows.into_iter().map(|(_, value)| value).collect();
 
         Ok(projected_values)
@@ -55,30 +67,34 @@ where
     // Reduce one materialized response into top-k projected field values with
     // ids under deterministic `(field_value_desc, primary_key_asc)` ranking.
     pub(in crate::db::executor::terminal::ranking) fn top_k_field_values_with_ids_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let projected_values = field_values_with_data_keys_from_ranked_rows(
-            Self::top_k_ranked_rows_from_materialized(rows, target_field, field_slot, take_count)?,
-        );
-
-        projected_values
-            .into_iter()
-            .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
-            .collect()
+    ) -> Result<Vec<(DataKey, Value)>, InternalError> {
+        Ok(field_values_with_data_keys_from_ranked_rows(
+            Self::top_k_ranked_rows_from_materialized(
+                model,
+                rows,
+                target_field,
+                field_slot,
+                take_count,
+            )?,
+        ))
     }
 
     // Reduce one materialized response into a deterministic bottom-k response
     // ordered by `(field_value_asc, primary_key_asc)`.
     pub(in crate::db::executor::terminal::ranking) fn bottom_k_field_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
+            model,
             rows,
             target_field,
             field_slot,
@@ -95,12 +111,14 @@ where
     // Reduce one materialized response into bottom-k projected field values
     // under deterministic `(field_value_asc, primary_key_asc)` ranking.
     pub(in crate::db::executor::terminal::ranking) fn bottom_k_field_values_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
+            model,
             rows,
             target_field,
             field_slot,
@@ -114,24 +132,21 @@ where
     // Reduce one materialized response into bottom-k projected field values
     // with ids under deterministic `(field_value_asc, primary_key_asc)` ranking.
     pub(in crate::db::executor::terminal::ranking) fn bottom_k_field_values_with_ids_from_materialized(
+        model: &'static EntityModel,
         rows: &[DataRow],
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let projected_values = field_values_with_data_keys_from_ranked_rows(
+    ) -> Result<Vec<(DataKey, Value)>, InternalError> {
+        Ok(field_values_with_data_keys_from_ranked_rows(
             Self::bottom_k_ranked_rows_from_materialized(
+                model,
                 rows,
                 target_field,
                 field_slot,
                 take_count,
             )?,
-        );
-
-        projected_values
-            .into_iter()
-            .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
-            .collect()
+        ))
     }
 }
 

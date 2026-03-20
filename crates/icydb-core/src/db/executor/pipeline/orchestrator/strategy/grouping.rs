@@ -2,7 +2,8 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutablePlan, ExecutionTrace, PreparedLoadCursor, ResolvedScalarContinuationContext,
+            ExecutionTrace, PreparedLoadCursor, PreparedLoadPlan,
+            ResolvedScalarContinuationContext,
             pipeline::{
                 contracts::{GroupedCursorPage, LoadExecutor, StructuralCursorPage},
                 entrypoints::{
@@ -193,7 +194,7 @@ where
     // Build one non-generic kernel descriptor from one typed execution context.
     pub(in crate::db::executor::pipeline::orchestrator) fn build_execution_spec(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: PreparedLoadCursor,
         scalar_rows_mode: bool,
     ) -> Result<ExecutionSpec, InternalError> {

@@ -306,7 +306,7 @@ where
     where
         E: EntityKind,
     {
-        self.structural_traversal_runtime()?
+        StructuralTraversalRuntime::new(self.structural_store()?, E::ENTITY_TAG)
             .ordered_key_stream_from_structural_runtime_access(request)
     }
 

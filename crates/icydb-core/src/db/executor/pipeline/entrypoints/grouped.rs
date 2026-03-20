@@ -127,12 +127,11 @@ where
     E: EntityKind + EntityValue,
 {
     fn grouped_path_runtime(&self) -> Result<GroupedPathRuntimeCore, InternalError> {
-        let ctx = self.db.recovered_context::<E>()?;
-        let store = ctx.structural_store()?;
         let authority = EntityAuthority::for_type::<E>();
+        let store = self.db.recovered_store(authority.store_path())?;
 
         Ok(GroupedPathRuntimeCore {
-            traversal_runtime: ctx.structural_traversal_runtime()?,
+            traversal_runtime: StructuralTraversalRuntime::new(store, authority.entity_tag()),
             row_store: store,
             authority,
             output_observer: GroupedOutputRuntimeObserverBindings::for_path(

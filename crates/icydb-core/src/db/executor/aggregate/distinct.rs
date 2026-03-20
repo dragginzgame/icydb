@@ -12,7 +12,7 @@ use crate::{
         GroupedRow,
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutablePlan,
+            PreparedAggregatePlan,
             aggregate::AggregateKind,
             pipeline::{
                 contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
@@ -37,7 +37,7 @@ where
     // route stage used by global DISTINCT terminals.
     pub(in crate::db::executor::aggregate) fn prepare_global_distinct_grouped_route(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedAggregatePlan,
         kind: AggregateKind,
         target_field: &str,
     ) -> Result<GroupedRouteStage, InternalError> {
@@ -55,10 +55,12 @@ where
                 reason.invariant_message(),
             ))
         })?;
-        let plan = plan.into_plan();
-        let grouped_plan = ExecutablePlan::new(plan.into_grouped(grouped_shape));
 
-        Self::resolve_grouped_route(grouped_plan, GroupedPlannedCursor::none(), self.debug)
+        Self::resolve_grouped_route(
+            plan.into_grouped_load_plan(grouped_shape),
+            GroupedPlannedCursor::none(),
+            self.debug,
+        )
     }
 
     // Decode one grouped zero-key DISTINCT aggregate page back into one scalar

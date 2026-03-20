@@ -22,7 +22,7 @@ use crate::{
             StructuralTraversalRuntime,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal_with_slot_reader,
-                resolve_numeric_aggregate_target_slot_from_planner_slot,
+                resolve_numeric_aggregate_target_slot_from_planner_slot_with_model,
             },
             aggregate::{
                 PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
@@ -94,10 +94,14 @@ where
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericExecutionState<'_>, InternalError> {
+        let plan = plan.into_prepared_aggregate_plan();
         let target_field_name = target_field.field().to_string();
-        let field_slot =
-            resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                .map_err(Self::map_aggregate_field_value_error)?;
+        let authority = plan.authority();
+        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(
+            authority.model(),
+            &target_field,
+        )
+        .map_err(Self::map_aggregate_field_value_error)?;
         let op = request.prepared_op();
 
         if request.requires_global_distinct() {
@@ -160,11 +164,13 @@ where
                         )
                     }
                     PreparedScalarNumericStrategy::Materialized => {
+                        let row_layout = RowLayout::from_model(prepared.authority.model());
                         let page = self.execute_scalar_materialized_page_stage(prepared)?;
                         let (rows, _) = page.into_parts();
 
                         Self::aggregate_numeric_field_from_materialized(
                             rows,
+                            &row_layout,
                             &boundary.target_field_name,
                             boundary.field_slot,
                             boundary.op,
@@ -189,16 +195,16 @@ where
     // numeric field values coerced to Decimal.
     fn aggregate_numeric_field_from_materialized(
         rows: Vec<DataRow>,
+        row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut accumulator = NumericAggregateAccumulator::new();
-        let row_layout = RowLayout::from_model(E::MODEL);
         let row_decoder = RowDecoder::structural();
 
         for row in rows {
-            let row = row_decoder.decode(&row_layout, row)?;
+            let row = row_decoder.decode(row_layout, row)?;
             let value = extract_numeric_field_decimal_with_slot_reader(
                 target_field,
                 field_slot,
@@ -257,7 +263,7 @@ where
             return false;
         };
         if prepared
-            .explicit_primary_key_order_direction(E::MODEL.primary_key.name)
+            .explicit_primary_key_order_direction(prepared.authority.model().primary_key.name)
             .is_none()
         {
             return false;
@@ -277,6 +283,7 @@ where
         // Phase 1: consume prepared aggregate stage state into one direct stream fold.
         let consistency = prepared.consistency();
         let direction = Self::aggregate_numeric_stream_direction(&prepared);
+        let row_layout = RowLayout::from_model(prepared.authority.model());
         let PreparedAggregateStreamingInputsCore {
             authority,
             store,
@@ -346,6 +353,7 @@ where
         };
         Self::drive_field_row_stream(
             store,
+            &row_layout,
             consistency,
             key_stream.as_mut(),
             &mut pre_key,

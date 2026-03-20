@@ -12,19 +12,17 @@ use crate::{
         query::plan::{AccessPlannedQuery, OrderSpec},
     },
     error::InternalError,
-    traits::EntityKind,
+    model::entity::EntityModel,
 };
 
 // Return whether the resolved access stream already satisfies ORDER BY semantics.
-fn order_satisfied_by_access_path(
-    model: &crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery,
-) -> bool {
+fn order_satisfied_by_access_path(model: &EntityModel, plan: &AccessPlannedQuery) -> bool {
     access_order_satisfied_by_route_contract_for_model(model, plan)
 }
 
 // Apply ordering with bounded first-page optimization when available.
-pub(in crate::db::executor::pipeline::operators::post_access) fn apply_order_phase<E, R, K>(
+pub(in crate::db::executor::pipeline::operators::post_access) fn apply_order_phase<R>(
+    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     order_spec: Option<&OrderSpec>,
     has_predicate: bool,
@@ -33,7 +31,6 @@ pub(in crate::db::executor::pipeline::operators::post_access) fn apply_order_pha
     filtered: bool,
 ) -> Result<(bool, usize), InternalError>
 where
-    E: EntityKind<Key = K>,
     R: OrderReadableRow,
 {
     let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(plan, cursor);
@@ -48,16 +45,16 @@ where
 
         // If access traversal already satisfies requested ORDER BY
         // semantics, preserve stream order and skip in-memory sorting.
-        if order_satisfied_by_access_path(E::MODEL, plan) {
+        if order_satisfied_by_access_path(model, plan) {
             return Ok((true, rows.len()));
         }
 
         let ordered_total = rows.len();
         if rows.len() > 1 {
             if let Some(keep_count) = bounded_order_keep {
-                apply_post_access_order_spec_bounded(rows, E::MODEL, order, keep_count);
+                apply_post_access_order_spec_bounded(rows, model, order, keep_count);
             } else {
-                apply_post_access_order_spec(rows, E::MODEL, order);
+                apply_post_access_order_spec(rows, model, order);
             }
         }
 

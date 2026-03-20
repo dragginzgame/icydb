@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.59.x] - 2026-03-18 - Execution De-Monomorphization Open
 
+- `0.59.7` removes another typed rebound from executor preparation by letting global DISTINCT grouped routing stay on prepared structural plans end-to-end, rather than rebuilding a fresh typed execution plan inside the executor.
 - `0.59.6` removes more entity-type plumbing from the execution core by making scalar and grouped kernel dispatch run from prepared structural runtime bundles, replacing loose model/path/tag threading with one executor-owned authority contract, and closing the release checkpoint with green `icydb-core` tests plus workspace clippy.
 - `0.59.5` keeps the execution engine on shared structural runtime paths by replacing more typed fast-path plumbing with structural traversal/runtime helpers, moving shared ordering logic into executor-owned helpers, and tightening store/index access so only scan boundaries touch the registry directly.
 - `0.59.4` publishes the `0.59.3` execution-core checkpoint as a release cut without additional runtime behavior changes.

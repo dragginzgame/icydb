@@ -1,6 +1,6 @@
 use crate::{
     db::executor::{
-        ExecutablePlan, LoadCursorInput,
+        LoadCursorInput, PreparedLoadPlan,
         pipeline::{
             contracts::LoadExecutor,
             orchestrator::{
@@ -20,7 +20,7 @@ where
     // Build one canonical execution context from mode + plan + cursor inputs.
     pub(in crate::db::executor::pipeline::orchestrator) fn build_execution_context(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadAccessState, InternalError> {

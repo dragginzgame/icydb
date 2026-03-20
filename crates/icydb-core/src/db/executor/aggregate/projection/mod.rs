@@ -23,7 +23,7 @@ use crate::{
                 PreparedScalarProjectionStrategy, ScalarAggregateOutput, ScalarProjectionWindow,
                 field::{
                     FieldSlot, extract_orderable_field_value_with_slot_reader,
-                    resolve_any_aggregate_target_slot_from_planner_slot,
+                    resolve_any_aggregate_target_slot_from_planner_slot_with_model,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::{
@@ -55,7 +55,6 @@ use crate::{
     value::Value,
 };
 
-type IdValueProjection<E> = Vec<(Id<E>, Value)>;
 type StructuralValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
@@ -71,17 +70,14 @@ pub(in crate::db) enum ScalarProjectionBoundaryRequest {
 }
 
 // Typed boundary output for one scalar field-projection terminal family call.
-pub(in crate::db) enum ScalarProjectionBoundaryOutput<E: EntityKind + EntityValue> {
+pub(in crate::db) enum ScalarProjectionBoundaryOutput {
     Count(u32),
     Values(Vec<Value>),
-    ValuesWithIds(IdValueProjection<E>),
+    ValuesWithDataKeys(StructuralValueProjection),
     TerminalValue(Option<Value>),
 }
 
-impl<E> ScalarProjectionBoundaryOutput<E>
-where
-    E: EntityKind + EntityValue,
-{
+impl ScalarProjectionBoundaryOutput {
     // Decode one plain-value projection boundary output.
     pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
@@ -103,9 +99,15 @@ where
     }
 
     // Decode one `(id, value)` projection boundary output.
-    pub(in crate::db) fn into_values_with_ids(self) -> Result<IdValueProjection<E>, InternalError> {
+    pub(in crate::db) fn into_values_with_ids<E>(self) -> Result<Vec<(Id<E>, Value)>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
         match self {
-            Self::ValuesWithIds(values) => Ok(values),
+            Self::ValuesWithDataKeys(values) => values
+                .into_iter()
+                .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
+                .collect(),
             _ => Err(crate::db::error::query_executor_invariant(
                 "scalar projection boundary values-with-ids output kind mismatch",
             )),
@@ -135,7 +137,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
-    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         let prepared = self.prepare_scalar_projection_boundary(plan, target_field, request)?;
 
         self.execute_prepared_scalar_projection_boundary(prepared)
@@ -149,9 +151,14 @@ where
         target_field: PlannedFieldSlot,
         request: ScalarProjectionBoundaryRequest,
     ) -> Result<PreparedScalarProjectionExecutionState<'_>, InternalError> {
+        let plan = plan.into_prepared_aggregate_plan();
         let target_field_name = target_field.field().to_string();
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let authority = plan.authority();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot_with_model(
+            authority.model(),
+            &target_field,
+        )
+        .map_err(Self::map_aggregate_field_value_error)?;
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
         let op = PreparedScalarProjectionOp::from_request(request);
@@ -181,13 +188,13 @@ where
     fn execute_prepared_scalar_projection_boundary(
         &self,
         prepared_state: PreparedScalarProjectionExecutionState<'_>,
-    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         let PreparedScalarProjectionExecutionState { boundary, prepared } = prepared_state;
+        let row_layout = RowLayout::from_model(prepared.authority.model());
 
         match boundary.strategy.clone() {
-            PreparedScalarProjectionStrategy::Materialized => {
-                self.execute_materialized_scalar_projection_boundary(boundary, prepared)
-            }
+            PreparedScalarProjectionStrategy::Materialized => self
+                .execute_materialized_scalar_projection_boundary(boundary, prepared, &row_layout),
             PreparedScalarProjectionStrategy::CoveringIndex {
                 context,
                 window,
@@ -213,7 +220,7 @@ where
                 &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
-                E::MODEL.primary_key.name,
+                prepared.authority.model().primary_key.name,
             )
         {
             let window = ScalarProjectionWindow {
@@ -266,7 +273,7 @@ where
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
         distinct: Option<PreparedCoveringDistinctStrategy>,
-    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match boundary.op {
             PreparedScalarProjectionOp::Values => {
                 if let Some(covering_projection) =
@@ -328,10 +335,12 @@ where
                 }
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
-                if let Some(values) = Self::covering_index_projection_values_with_ids_from_context(
-                    &prepared, context, window,
-                )? {
-                    return Ok(ScalarProjectionBoundaryOutput::ValuesWithIds(values));
+                if let Some(values) =
+                    Self::covering_index_projection_values_from_context_structural(
+                        &prepared, context, window,
+                    )?
+                {
+                    return Ok(ScalarProjectionBoundaryOutput::ValuesWithDataKeys(values));
                 }
             }
             PreparedScalarProjectionOp::TerminalValue { terminal_kind } => {
@@ -355,7 +364,9 @@ where
             }
         }
 
-        self.execute_materialized_scalar_projection_boundary(boundary, prepared)
+        let row_layout = RowLayout::from_model(prepared.authority.model());
+
+        self.execute_materialized_scalar_projection_boundary(boundary, prepared, &row_layout)
     }
 
     // Execute one prepared constant projection contract without revisiting
@@ -365,7 +376,7 @@ where
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
         prepared: PreparedAggregateStreamingInputs<'_>,
         value: Value,
-    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match boundary.op {
             PreparedScalarProjectionOp::Values => {
                 let row_count = self.aggregate_count_from_prepared(prepared)?;
@@ -407,7 +418,8 @@ where
         &self,
         boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
         prepared: PreparedAggregateStreamingInputs<'_>,
-    ) -> Result<ScalarProjectionBoundaryOutput<E>, InternalError> {
+        row_layout: &RowLayout,
+    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = boundary.op {
             return self
                 .execute_terminal_value_field_projection_with_slot(
@@ -426,6 +438,7 @@ where
             PreparedScalarProjectionOp::Values => {
                 let projected_values = Self::project_field_values_from_materialized_structural(
                     rows,
+                    row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )?;
@@ -437,6 +450,7 @@ where
             PreparedScalarProjectionOp::DistinctValues => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
+                    row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
@@ -446,6 +460,7 @@ where
             PreparedScalarProjectionOp::CountDistinct => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
+                    row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
@@ -457,12 +472,13 @@ where
                 })
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
-                Self::project_field_values_with_ids_from_materialized(
+                Self::project_field_values_from_materialized_structural(
                     rows,
+                    row_layout,
                     &boundary.target_field_name,
                     boundary.field_slot,
                 )
-                .map(ScalarProjectionBoundaryOutput::ValuesWithIds)
+                .map(ScalarProjectionBoundaryOutput::ValuesWithDataKeys)
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
                 Err(crate::db::error::query_executor_invariant(
@@ -484,6 +500,8 @@ where
     ) -> Result<Option<Value>, InternalError> {
         let consistency = prepared.consistency();
         let store = prepared.store;
+        let entity_tag = prepared.authority.entity_tag();
+        let row_layout = RowLayout::from_model(prepared.authority.model());
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
             terminal_expr_for_kind(terminal_kind),
@@ -500,9 +518,10 @@ where
             return Ok(None);
         };
 
-        let key = DataKey::new(E::ENTITY_TAG, selected_key);
+        let key = DataKey::new(entity_tag, selected_key);
         let Some(value) = Self::read_field_value_for_aggregate(
             store,
+            &row_layout,
             consistency,
             &key,
             target_field,
@@ -533,38 +552,19 @@ where
         project_distinct_field_values_from_structural_projection(projected_values)
     }
 
-    // Project materialized structural rows into id/value pairs while
-    // preserving the effective response row order.
-    fn project_field_values_with_ids_from_materialized(
-        rows: Vec<DataRow>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<IdValueProjection<E>, InternalError> {
-        let projected_values = Self::project_field_values_from_materialized_structural(
-            rows,
-            target_field,
-            field_slot,
-        )?;
-
-        projected_values
-            .into_iter()
-            .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
-            .collect()
-    }
-
     // Project materialized structural rows into structural `(data_key, value)`
     // pairs while preserving the effective response row order.
     fn project_field_values_from_materialized_structural(
         rows: Vec<DataRow>,
+        row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<StructuralValueProjection, InternalError> {
-        let row_layout = RowLayout::from_model(E::MODEL);
         let row_decoder = RowDecoder::structural();
 
         rows.into_iter()
             .map(|(data_key, raw_row)| {
-                let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row))?;
+                let row = row_decoder.decode(row_layout, (data_key.clone(), raw_row))?;
                 extract_orderable_field_value_with_slot_reader(
                     target_field,
                     field_slot,
@@ -613,34 +613,6 @@ where
             .collect();
 
         Ok(Some(CoveringProjectionValues { values }))
-    }
-
-    // Resolve one index-covered `(id, value)` projection vector from already
-    // prepared covering strategy metadata.
-    fn covering_index_projection_values_with_ids_from_context(
-        prepared: &PreparedAggregateStreamingInputs<'_>,
-        context: CoveringProjectionContext,
-        window: ScalarProjectionWindow,
-    ) -> Result<Option<IdValueProjection<E>>, InternalError> {
-        let Some(projected_values) =
-            Self::covering_index_projection_values_from_context_structural(
-                prepared, context, window,
-            )?
-        else {
-            return Ok(None);
-        };
-
-        let projected_values = projected_values
-            .into_iter()
-            .map(|(data_key, value)| {
-                data_key
-                    .try_key::<E>()
-                    .map(Id::from_key)
-                    .map(|id| (id, value))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Some(projected_values))
     }
 
     // Resolve one index-covered structural `(data_key, value)` projection

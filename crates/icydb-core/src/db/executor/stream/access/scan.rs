@@ -3,21 +3,23 @@
 //! Does not own: access routing decisions or planner spec construction.
 //! Boundary: direct scan primitives used by access-stream resolver.
 
+#[cfg(test)]
+use crate::{
+    db::executor::Context,
+    traits::{EntityKind, EntityValue, Path},
+};
 use crate::{
     db::{
         cursor::IndexScanContinuationInput,
         data::{DataKey, RawDataKey},
         direction::Direction,
         executor::LoweredKey,
-        executor::{
-            Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, StructuralTraversalRuntime,
-        },
+        executor::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         index::predicate::IndexPredicateExecution,
         registry::StoreHandle,
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue, Path},
     types::EntityTag,
 };
 use std::ops::Bound;
@@ -139,23 +141,6 @@ impl PrimaryScan {
         })?;
 
         Ok(keys)
-    }
-}
-
-impl<E> Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Recover one structural traversal runtime through the scan boundary so
-    // stream traversal orchestration never reaches into the store registry.
-    pub(in crate::db::executor) fn structural_traversal_runtime(
-        &self,
-    ) -> Result<StructuralTraversalRuntime, InternalError> {
-        let store = self
-            .db
-            .with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
-
-        Ok(StructuralTraversalRuntime::new(store, E::ENTITY_TAG))
     }
 }
 

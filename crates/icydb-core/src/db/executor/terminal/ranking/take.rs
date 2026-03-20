@@ -26,7 +26,7 @@ where
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         self.execute_ranking_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             RankingTerminalBoundaryRequest::Take { take_count },
         )?
         .into_rows()

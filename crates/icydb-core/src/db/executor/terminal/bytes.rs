@@ -11,14 +11,18 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
-            ExecutableAccess, ExecutablePlan,
+            ExecutableAccess, ExecutablePlan, PreparedLoadPlan, StructuralTraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_orderable_field_value_with_slot_reader,
-                resolve_any_aggregate_target_slot_from_planner_slot,
+                resolve_any_aggregate_target_slot_from_planner_slot_with_model,
             },
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
+            read_row_with_consistency_from_store,
             route::BytesTerminalFastPathContract,
+            sum_row_payload_bytes_from_ordered_key_stream_with_store,
+            sum_row_payload_bytes_full_scan_window_with_store,
+            sum_row_payload_bytes_key_range_window_with_store,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -113,7 +117,7 @@ where
     // boundary and immediately hand off to shared bytes execution logic.
     fn execute_bytes_terminal_boundary(
         &self,
-        plan: ExecutablePlan<E>,
+        plan: PreparedLoadPlan,
         request: BytesTerminalBoundaryRequest,
     ) -> Result<u64, InternalError> {
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
@@ -135,10 +139,10 @@ where
                 {
                     return match contract {
                         BytesTerminalFastPathContract::PrimaryKeyWindow(direction) => {
-                            self.bytes_from_pk_store_window(&prepared, direction)
+                            Self::bytes_from_pk_store_window(&prepared, direction)
                         }
                         BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction) => {
-                            self.bytes_from_ordered_key_stream_window(&prepared, direction)
+                            Self::bytes_from_ordered_key_stream_window(&prepared, direction)
                         }
                     };
                 }
@@ -177,25 +181,35 @@ where
                             return Ok(total);
                         }
 
+                        let row_layout = RowLayout::from_model(prepared.authority.model());
                         let field_slot =
-                            resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                                .map_err(AggregateFieldValueError::into_internal_error)?;
+                            resolve_any_aggregate_target_slot_from_planner_slot_with_model(
+                                prepared.authority.model(),
+                                &target_field,
+                            )
+                            .map_err(AggregateFieldValueError::into_internal_error)?;
                         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
                         Self::bytes_by_materialized_rows(
                             page.data_rows(),
+                            &row_layout,
                             target_field.field(),
                             field_slot,
                         )
                     }
                     BytesByProjectionMode::Materialized => {
+                        let row_layout = RowLayout::from_model(prepared.authority.model());
                         let field_slot =
-                            resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                                .map_err(AggregateFieldValueError::into_internal_error)?;
+                            resolve_any_aggregate_target_slot_from_planner_slot_with_model(
+                                prepared.authority.model(),
+                                &target_field,
+                            )
+                            .map_err(AggregateFieldValueError::into_internal_error)?;
                         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
 
                         Self::bytes_by_materialized_rows(
                             page.data_rows(),
+                            &row_layout,
                             target_field.field(),
                             field_slot,
                         )
@@ -208,17 +222,17 @@ where
     // Fold `bytes(field)` over one already materialized structural row window.
     fn bytes_by_materialized_rows(
         rows: &[DataRow],
+        row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u64, InternalError> {
-        let row_layout = RowLayout::from_model(E::MODEL);
         let row_decoder = RowDecoder::structural();
         let mut total = 0u64;
 
         // Fold serialized field payload sizes over the effective response
         // window without rebuilding typed entity responses.
         for (data_key, raw_row) in rows {
-            let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
+            let row = row_decoder.decode(row_layout, (data_key.clone(), raw_row.clone()))?;
             let value = extract_orderable_field_value_with_slot_reader(
                 target_field,
                 field_slot,
@@ -260,7 +274,7 @@ where
         // Phase 2: enforce existing-row policy and decode component payloads.
         let mut projected_rows = Vec::with_capacity(raw_pairs.len());
         for (data_key, component_bytes) in raw_pairs {
-            if crate::db::executor::read_row_with_consistency_from_store(
+            if read_row_with_consistency_from_store(
                 prepared.store,
                 &data_key,
                 prepared.consistency(),
@@ -320,6 +334,7 @@ where
         if let [spec] = prefix_specs {
             return Self::read_bytes_covering_projection_component_pairs_for_index_bounds(
                 prepared.store_resolver,
+                prepared.authority.entity_tag(),
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -336,6 +351,7 @@ where
         if let [spec] = range_specs {
             return Self::read_bytes_covering_projection_component_pairs_for_index_bounds(
                 prepared.store_resolver,
+                prepared.authority.entity_tag(),
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 continuation,
@@ -357,6 +373,7 @@ where
     // lowered index-bound contract.
     fn read_bytes_covering_projection_component_pairs_for_index_bounds(
         store_resolver: crate::db::executor::StructuralStoreResolver<'_>,
+        entity_tag: crate::types::EntityTag,
         index: &crate::model::index::IndexModel,
         bounds: (
             &std::ops::Bound<crate::db::index::RawIndexKey>,
@@ -368,7 +385,7 @@ where
         let store = store_resolver.try_get_store(index.store())?;
         store.with_index(|index_store| {
             index_store.resolve_data_values_with_component_in_raw_range_limited(
-                E::ENTITY_TAG,
+                entity_tag,
                 index,
                 bounds,
                 continuation,
@@ -381,7 +398,10 @@ where
 
     /// Execute one `bytes()` terminal over the canonical load response.
     pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
-        self.execute_bytes_terminal_boundary(plan, BytesTerminalBoundaryRequest::Total)
+        self.execute_bytes_terminal_boundary(
+            plan.into_prepared_load_plan(),
+            BytesTerminalBoundaryRequest::Total,
+        )
     }
 
     /// Execute one `bytes(field)` terminal over the canonical load response
@@ -392,7 +412,7 @@ where
         target_field: PlannedFieldSlot,
     ) -> Result<u64, InternalError> {
         self.execute_bytes_terminal_boundary(
-            plan,
+            plan.into_prepared_load_plan(),
             BytesTerminalBoundaryRequest::BySlot { target_field },
         )
     }
@@ -400,7 +420,6 @@ where
     // Fold `bytes()` directly from persisted primary rows over the canonical
     // page window for safe PK full-scan/key-range shapes.
     fn bytes_from_pk_store_window(
-        &self,
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         direction: Direction,
     ) -> Result<u64, InternalError> {
@@ -413,18 +432,29 @@ where
             ));
         };
         let (offset, limit) = bytes_page_window_state(page.as_ref());
-        let ctx = self.recovered_context()?;
 
-        // Phase 2: fold payload bytes through context traversal adapters.
+        // Phase 2: fold payload bytes through structural store traversal helpers.
         match dispatch_executable_access_path(path) {
             ExecutableAccessPathDispatch::FullScan => {
-                ctx.sum_row_payload_bytes_full_scan_window(direction, offset, limit)
+                Ok(sum_row_payload_bytes_full_scan_window_with_store(
+                    prepared.store,
+                    direction,
+                    offset,
+                    limit,
+                ))
             }
             ExecutableAccessPathDispatch::KeyRange { start, end } => {
-                let start_key = DataKey::try_from_structural_key(E::ENTITY_TAG, start)?;
-                let end_key = DataKey::try_from_structural_key(E::ENTITY_TAG, end)?;
-                ctx.sum_row_payload_bytes_key_range_window(
-                    &start_key, &end_key, direction, offset, limit,
+                let start_key =
+                    DataKey::try_from_structural_key(prepared.authority.entity_tag(), start)?;
+                let end_key =
+                    DataKey::try_from_structural_key(prepared.authority.entity_tag(), end)?;
+                sum_row_payload_bytes_key_range_window_with_store(
+                    prepared.store,
+                    &start_key,
+                    &end_key,
+                    direction,
+                    offset,
+                    limit,
                 )
             }
             _ => Err(crate::db::error::query_executor_invariant(
@@ -436,7 +466,6 @@ where
     // Fold `bytes()` from an ordered key stream over the canonical page window
     // for unordered scalar shapes where row materialization is unnecessary.
     fn bytes_from_ordered_key_stream_window(
-        &self,
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         direction: Direction,
     ) -> Result<u64, InternalError> {
@@ -456,10 +485,12 @@ where
         let (offset, limit) = bytes_page_window_state(page.as_ref());
 
         // Phase 2: stream keys and sum persisted payload lengths over the page window.
-        let ctx = self.recovered_context()?;
-        let mut key_stream = ctx.ordered_key_stream_from_structural_runtime_access(access)?;
+        let runtime =
+            StructuralTraversalRuntime::new(prepared.store, prepared.authority.entity_tag());
+        let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
 
-        ctx.sum_row_payload_bytes_from_ordered_key_stream(
+        sum_row_payload_bytes_from_ordered_key_stream_with_store(
+            prepared.store,
             key_stream.as_mut(),
             consistency,
             offset,
