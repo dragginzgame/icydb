@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{
-        Db, ProjectionResponse,
+        Db,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
         data::DataStore,
@@ -113,7 +113,7 @@ trait SessionSqlLegacySurfaceExt {
     where
         E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
 
-    fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
+    fn execute_sql_projection<E>(&self, sql: &str) -> Result<Vec<Vec<Value>>, QueryError>
     where
         E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
 
@@ -155,14 +155,14 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
         }
     }
 
-    fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
+    fn execute_sql_projection<E>(&self, sql: &str) -> Result<Vec<Vec<Value>>, QueryError>
     where
         E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 
         match payload {
-            SqlDispatchResult::Projection { projection, .. } => Ok(projection),
+            SqlDispatchResult::Projection { rows, .. } => Ok(rows),
             SqlDispatchResult::Explain(_)
             | SqlDispatchResult::Describe(_)
             | SqlDispatchResult::ShowIndexes(_)
@@ -1452,13 +1452,12 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
         )
         .expect("projection SQL execution should succeed");
     let row = response
-        .iter()
-        .next()
+        .first()
         .expect("projection SQL response should contain one row");
 
-    assert_eq!(response.count(), 1);
+    assert_eq!(response.len(), 1);
     assert_eq!(
-        row.values(),
+        row.as_slice(),
         [Value::Text("projection-surface".to_string())],
         "projection SQL response should carry only projected field values in declaration order",
     );
@@ -1483,19 +1482,18 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
         )
         .expect("projection SQL star execution should succeed");
     let row = response
-        .iter()
-        .next()
+        .first()
         .expect("projection SQL star response should contain one row");
 
-    assert_eq!(response.count(), 1);
+    assert_eq!(response.len(), 1);
     assert_eq!(
-        row.values().len(),
+        row.len(),
         3,
         "SELECT * projection response should include all model fields",
     );
-    assert_eq!(row.values()[0], Value::Ulid(row.id().key()));
-    assert_eq!(row.values()[1], Value::Text("projection-star".to_string()));
-    assert_eq!(row.values()[2], Value::Uint(41));
+    assert!(matches!(row[0], Value::Ulid(_)));
+    assert_eq!(row[1], Value::Text("projection-star".to_string()));
+    assert_eq!(row[2], Value::Uint(41));
 }
 
 #[test]
@@ -1542,15 +1540,11 @@ fn execute_sql_projection_select_table_qualified_fields_executes() {
         )
         .expect("table-qualified projection SQL should execute");
     let row = response
-        .iter()
-        .next()
+        .first()
         .expect("table-qualified projection SQL response should contain one row");
 
-    assert_eq!(response.count(), 1);
-    assert_eq!(
-        row.values(),
-        [Value::Text("qualified-projection".to_string())]
-    );
+    assert_eq!(response.len(), 1);
+    assert_eq!(row, &[Value::Text("qualified-projection".to_string())]);
 }
 
 #[test]
@@ -1596,19 +1590,19 @@ fn execute_sql_projection_select_field_list_honors_order_limit_offset_window() {
              ORDER BY age DESC LIMIT 2 OFFSET 1",
         )
         .expect("projection SQL window execution should succeed");
-    let rows = response.iter().collect::<Vec<_>>();
+    let rows = response;
 
     // Phase 3: assert projected row payloads follow ordered window semantics.
-    assert_eq!(response.count(), 2);
+    assert_eq!(rows.len(), 2);
     assert_eq!(
-        rows[0].values(),
+        rows[0],
         [
             Value::Text("projection-window-c".to_string()),
             Value::Uint(30)
         ],
     );
     assert_eq!(
-        rows[1].values(),
+        rows[1],
         [
             Value::Text("projection-window-b".to_string()),
             Value::Uint(20)
@@ -1635,18 +1629,18 @@ fn execute_sql_projection_delete_returns_deleted_rows() {
             "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
         )
         .expect("projection SQL execution should support delete statements");
-    let rows = projection.rows();
+    let rows = projection;
 
     assert!(
         rows.len() == 1,
         "delete projection should return exactly one deleted row",
     );
     assert!(
-        matches!(rows[0].values().first(), Some(Value::Ulid(_))),
+        matches!(rows[0].first(), Some(Value::Ulid(_))),
         "delete projection should expose the deleted row id in the first projected column",
     );
     assert_eq!(
-        &rows[0].values()[1..],
+        &rows[0][1..],
         &[
             Value::Text("projection-delete-a".to_string()),
             Value::Uint(10)
@@ -1784,7 +1778,7 @@ fn execute_sql_projection_select_distinct_with_pk_field_list_executes() {
         )
         .expect("SELECT DISTINCT field-list with PK should execute");
     assert_eq!(response.len(), 2);
-    assert_eq!(response[0].values().len(), 2);
+    assert_eq!(response[0].len(), 2);
 }
 
 #[test]
@@ -2100,10 +2094,7 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
         let response = session
             .execute_sql_projection::<SessionSqlEntity>(sql)
             .expect("projection matrix SQL execution should succeed");
-        let actual_rows = response
-            .iter()
-            .map(|row| row.values().to_vec())
-            .collect::<Vec<_>>();
+        let actual_rows = response;
 
         assert_eq!(actual_rows, expected_rows, "projection matrix case: {sql}");
     }

@@ -60,6 +60,11 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     #[must_use]
+    pub(in crate::db::query::intent) const fn model(&self) -> &'m EntityModel {
+        self.model
+    }
+
+    #[must_use]
     pub(in crate::db::query::intent) fn has_explicit_order(&self) -> bool {
         self.intent.has_explicit_order()
     }

@@ -5,8 +5,7 @@ mod macros;
 #[cfg(feature = "sql")]
 use crate::db::{
     SqlStatementRoute,
-    response::ProjectionResponse,
-    sql::{SqlQueryResult, SqlQueryRowsOutput, projection_rows_from_response},
+    sql::{SqlQueryResult, SqlQueryRowsOutput, projection_rows_from_values},
 };
 use crate::{
     db::{
@@ -200,7 +199,10 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let result = self.inner.execute_sql_dispatch_parsed::<E>(&parsed.inner)?;
 
-        Ok(Self::map_sql_dispatch_result::<E>(result))
+        Ok(Self::map_sql_dispatch_result(
+            result,
+            E::ENTITY_NAME.to_string(),
+        ))
     }
 
     /// Execute one prepared reduced SQL statement and return one unified SQL payload.
@@ -216,7 +218,10 @@ impl<C: CanisterKind> DbSession<C> {
             .inner
             .execute_sql_dispatch_prepared::<E>(&prepared.inner)?;
 
-        Ok(Self::map_sql_dispatch_result::<E>(result))
+        Ok(Self::map_sql_dispatch_result(
+            result,
+            E::ENTITY_NAME.to_string(),
+        ))
     }
 
     /// Execute one prepared reduced SQL statement limited to query/explain lanes.
@@ -232,7 +237,10 @@ impl<C: CanisterKind> DbSession<C> {
             .inner
             .execute_sql_dispatch_query_lane_prepared::<E>(&prepared.inner)?;
 
-        Ok(Self::map_sql_dispatch_result::<E>(result))
+        Ok(Self::map_sql_dispatch_result(
+            result,
+            E::ENTITY_NAME.to_string(),
+        ))
     }
 
     /// Lower one prepared reduced SQL statement into one shared query-lane shape.
@@ -262,7 +270,10 @@ impl<C: CanisterKind> DbSession<C> {
             .inner
             .execute_lowered_sql_dispatch_query::<E>(lowered)?;
 
-        Ok(Self::map_sql_dispatch_result::<E>(result))
+        Ok(Self::map_sql_dispatch_result(
+            result,
+            E::ENTITY_NAME.to_string(),
+        ))
     }
 
     /// Execute one already-lowered shared SQL explain shape for entity `E`.
@@ -284,36 +295,33 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "sql")]
-    fn map_sql_dispatch_result<E>(result: core::db::SqlDispatchResult<E>) -> SqlQueryResult
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
+    fn map_sql_dispatch_result(
+        result: core::db::SqlDispatchResult,
+        entity_name: String,
+    ) -> SqlQueryResult {
         match result {
             core::db::SqlDispatchResult::Projection {
                 columns,
-                projection,
+                rows,
+                row_count,
             } => {
-                let projection = ProjectionResponse::from_core(projection);
-                let rows = projection_rows_from_response::<E>(columns, projection);
+                let rows = projection_rows_from_values(columns, rows, row_count);
 
-                SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
-                    E::ENTITY_NAME.to_string(),
-                    rows,
-                ))
+                SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(entity_name, rows))
             }
             core::db::SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
-                entity: E::ENTITY_NAME.to_string(),
+                entity: entity_name,
                 explain,
             },
             core::db::SqlDispatchResult::Describe(description) => {
                 SqlQueryResult::Describe(description)
             }
             core::db::SqlDispatchResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
-                entity: E::ENTITY_NAME.to_string(),
+                entity: entity_name,
                 indexes,
             },
             core::db::SqlDispatchResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
-                entity: E::ENTITY_NAME.to_string(),
+                entity: entity_name,
                 columns,
             },
             core::db::SqlDispatchResult::ShowEntities(entities) => {

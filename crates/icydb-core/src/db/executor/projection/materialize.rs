@@ -4,23 +4,27 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 #[cfg(feature = "sql")]
+use crate::db::{
+    Db,
+    data::{DataKey, DataRow},
+    executor::pipeline::entrypoints::execute_prepared_scalar_rows_for_canister,
+    executor::terminal::{RowDecoder, RowLayout},
+    executor::{EntityAuthority, PreparedLoadPlan},
+};
+#[cfg(all(feature = "sql", test))]
 use crate::{
-    db::{
-        data::{DataKey, DataRow},
-        executor::ExecutablePlan,
-        executor::terminal::{RowDecoder, RowLayout},
-        response::{ProjectedRow, ProjectionResponse},
-    },
+    db::response::ProjectedRow,
+    traits::{EntityKind, EntityValue},
     types::Id,
 };
 use crate::{
     db::{
-        executor::pipeline::contracts::LoadExecutor,
+        query::plan::AccessPlannedQuery,
         query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
     },
     error::InternalError,
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
+    traits::CanisterKind,
     value::Value,
 };
 
@@ -29,46 +33,69 @@ use crate::db::executor::projection::{
     grouped::GroupedRowView,
 };
 
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Execute one scalar load plan and return projection-shaped response rows.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn execute_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-    ) -> Result<ProjectionResponse<E>, InternalError> {
-        let plan = plan.into_prepared_load_plan();
-        let authority = plan.authority();
+///
+/// SqlStructuralProjectionRows
+///
+/// Generic-free SQL projection row payload emitted by executor-owned structural
+/// projection execution helpers.
+/// Keeps SQL row materialization out of typed `ProjectionResponse<E>` so SQL
+/// dispatch can render value rows without reintroducing entity-specific ids.
+///
 
-        // Phase 1: derive projection semantics from the planned query contract.
-        let projection = plan.logical_plan().projection_spec(authority.model());
+#[cfg(feature = "sql")]
+#[derive(Debug)]
+pub(in crate::db) struct SqlStructuralProjectionRows {
+    rows: Vec<Vec<Value>>,
+    row_count: u32,
+}
 
-        // Phase 2: execute the scalar path structurally so projection does not
-        // rebuild typed entity rows before expression evaluation.
-        let prepared = self.prepare_scalar_materialized_boundary(plan)?;
-        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
-
-        // Phase 3: materialize projection payloads in declaration order.
-        let projected = project_data_rows_from_projection_structural(
-            authority.model(),
-            &projection,
-            page.data_rows(),
-        )?;
-        let projected = projected
-            .into_iter()
-            .map(
-                |(data_key, values)| -> Result<ProjectedRow<E>, InternalError> {
-                    let id = Id::from_key(data_key.try_key::<E>()?);
-
-                    Ok(ProjectedRow::new(id, values))
-                },
-            )
-            .collect::<Result<Vec<_>, InternalError>>()?;
-
-        Ok(ProjectionResponse::new(projected))
+#[cfg(feature = "sql")]
+impl SqlStructuralProjectionRows {
+    #[must_use]
+    pub(in crate::db) const fn new(rows: Vec<Vec<Value>>, row_count: u32) -> Self {
+        Self { rows, row_count }
     }
+
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (Vec<Vec<Value>>, u32) {
+        (self.rows, self.row_count)
+    }
+}
+
+/// Execute one scalar load plan through the shared structural SQL projection
+/// path and return only projected SQL values.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> Result<SqlStructuralProjectionRows, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: derive projection semantics before moving the plan into the
+    // shared scalar execution path.
+    let projection = plan.projection_spec(authority.model());
+    let prepared = PreparedLoadPlan::from_plan(authority, plan);
+
+    // Phase 2: execute the scalar rows path once for the whole canister.
+    let page = execute_prepared_scalar_rows_for_canister(db, debug, prepared)?;
+
+    // Phase 3: decode rows structurally and discard ids because SQL projection
+    // rendering only needs ordered cell values.
+    let projected = project_data_rows_from_projection_structural(
+        authority.model(),
+        &projection,
+        page.data_rows(),
+    )?;
+    let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
+    let rows = projected
+        .into_iter()
+        .map(|(_, values)| values)
+        .collect::<Vec<_>>();
+
+    Ok(SqlStructuralProjectionRows::new(rows, row_count))
 }
 
 /// Validate projection expressions over one row-domain that can expose values

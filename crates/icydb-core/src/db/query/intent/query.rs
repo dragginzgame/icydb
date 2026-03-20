@@ -5,12 +5,17 @@
 
 use crate::{
     db::{
+        executor::{
+            assemble_aggregate_terminal_execution_descriptor_with_model,
+            assemble_load_execution_node_descriptor_with_model,
+            assemble_load_execution_verbose_diagnostics_with_model,
+        },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
             explain::{
-                ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
+                ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
+                ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
             },
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, model::QueryModel},
@@ -210,6 +215,118 @@ impl StructuralQuery {
 
     pub(in crate::db) fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
         self.intent.build_plan_model()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn model(&self) -> &'static crate::model::entity::EntityModel {
+        self.intent.model()
+    }
+
+    // Explain one scalar load execution shape through the structural query core.
+    pub(in crate::db) fn explain_execution(
+        &self,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let plan = self.build_plan()?;
+
+        assemble_load_execution_node_descriptor_with_model(self.intent.model(), &plan)
+            .map_err(QueryError::execute)
+    }
+
+    // Render one deterministic scalar load execution tree through the shared
+    // structural descriptor path.
+    pub(in crate::db) fn explain_execution_text(&self) -> Result<String, QueryError> {
+        Ok(self.explain_execution()?.render_text_tree())
+    }
+
+    // Render one canonical scalar load execution JSON payload through the shared
+    // structural descriptor path.
+    pub(in crate::db) fn explain_execution_json(&self) -> Result<String, QueryError> {
+        Ok(self.explain_execution()?.render_json_canonical())
+    }
+
+    // Render one verbose scalar load execution payload through the shared
+    // structural descriptor and route-diagnostics paths.
+    pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
+        let plan = self.build_plan()?;
+        let descriptor =
+            assemble_load_execution_node_descriptor_with_model(self.intent.model(), &plan)
+                .map_err(QueryError::execute)?;
+        let route_diagnostics =
+            assemble_load_execution_verbose_diagnostics_with_model(self.intent.model(), &plan)
+                .map_err(QueryError::execute)?;
+        let explain = plan.explain_with_model(self.intent.model());
+
+        // Phase 1: render descriptor tree with node-local metadata.
+        let mut lines = vec![descriptor.render_text_tree_verbose()];
+        lines.extend(route_diagnostics);
+
+        // Phase 2: add descriptor-stage summaries for key execution operators.
+        lines.push(format!(
+            "diagnostic.descriptor.has_top_n_seek={}",
+            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
+        ));
+        lines.push(format!(
+            "diagnostic.descriptor.has_index_range_limit_pushdown={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::IndexRangeLimitPushdown,
+            )
+        ));
+        lines.push(format!(
+            "diagnostic.descriptor.has_index_predicate_prefilter={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::IndexPredicatePrefilter,
+            )
+        ));
+        lines.push(format!(
+            "diagnostic.descriptor.has_residual_predicate_filter={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::ResidualPredicateFilter,
+            )
+        ));
+
+        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
+        lines.push(format!("diagnostic.plan.mode={:?}", explain.mode()));
+        lines.push(format!(
+            "diagnostic.plan.order_pushdown={}",
+            plan_order_pushdown_label(explain.order_pushdown())
+        ));
+        lines.push(format!(
+            "diagnostic.plan.predicate_pushdown={}",
+            plan_predicate_pushdown_label(explain.predicate(), explain.access())
+        ));
+        lines.push(format!("diagnostic.plan.distinct={}", explain.distinct()));
+        lines.push(format!("diagnostic.plan.page={:?}", explain.page()));
+        lines.push(format!(
+            "diagnostic.plan.consistency={:?}",
+            explain.consistency()
+        ));
+
+        Ok(lines.join("\n"))
+    }
+
+    // Build one aggregate-terminal explain payload through the shared structural
+    // query and execution-descriptor path.
+    pub(in crate::db) fn explain_aggregate_terminal(
+        &self,
+        aggregate: AggregateExpr,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
+        let plan = self.build_plan()?;
+        let query_explain = plan.explain_with_model(self.intent.model());
+        let terminal = aggregate.kind();
+        let execution = assemble_aggregate_terminal_execution_descriptor_with_model(
+            self.intent.model(),
+            &plan,
+            aggregate,
+        );
+
+        Ok(ExplainAggregateTerminalPlan::new(
+            query_explain,
+            terminal,
+            execution,
+        ))
     }
 }
 
@@ -623,11 +740,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        let executable = self.plan()?.into_executable();
-
-        executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)
+        self.inner.explain_execution()
     }
 
     /// Explain executor-selected scalar load execution shape as deterministic text.
@@ -635,7 +748,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        Ok(self.explain_execution()?.render_text_tree())
+        self.inner.explain_execution_text()
     }
 
     /// Explain executor-selected scalar load execution shape as canonical JSON.
@@ -643,7 +756,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        Ok(self.explain_execution()?.render_json_canonical())
+        self.inner.explain_execution_json()
     }
 
     /// Explain executor-selected scalar load execution shape with route diagnostics.
@@ -651,64 +764,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        let executable = self.plan()?.into_executable();
-        let descriptor = executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
-        let route_diagnostics = executable
-            .explain_load_execution_verbose_diagnostics()
-            .map_err(QueryError::execute)?;
-        let explain = self.explain()?;
-
-        // Phase 1: render descriptor tree with node-local metadata.
-        let mut lines = vec![descriptor.render_text_tree_verbose()];
-        lines.extend(route_diagnostics);
-
-        // Phase 2: add descriptor-stage summaries for key execution operators.
-        lines.push(format!(
-            "diagnostic.descriptor.has_top_n_seek={}",
-            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
-        ));
-        lines.push(format!(
-            "diagnostic.descriptor.has_index_range_limit_pushdown={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexRangeLimitPushdown,
-            )
-        ));
-        lines.push(format!(
-            "diagnostic.descriptor.has_index_predicate_prefilter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexPredicatePrefilter,
-            )
-        ));
-        lines.push(format!(
-            "diagnostic.descriptor.has_residual_predicate_filter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::ResidualPredicateFilter,
-            )
-        ));
-
-        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
-        lines.push(format!("diagnostic.plan.mode={:?}", explain.mode()));
-        lines.push(format!(
-            "diagnostic.plan.order_pushdown={}",
-            plan_order_pushdown_label(explain.order_pushdown())
-        ));
-        lines.push(format!(
-            "diagnostic.plan.predicate_pushdown={}",
-            plan_predicate_pushdown_label(explain.predicate(), explain.access())
-        ));
-        lines.push(format!("diagnostic.plan.distinct={}", explain.distinct()));
-        lines.push(format!("diagnostic.plan.page={:?}", explain.page()));
-        lines.push(format!(
-            "diagnostic.plan.consistency={:?}",
-            explain.consistency()
-        ));
-
-        Ok(lines.join("\n"))
+        self.inner.explain_execution_verbose()
     }
 
     /// Plan this intent into a neutral planned query contract.

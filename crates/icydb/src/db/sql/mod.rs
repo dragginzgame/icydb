@@ -8,9 +8,8 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{EntityFieldDescription, EntitySchemaDescription, ProjectionResponse},
+    db::{EntityFieldDescription, EntitySchemaDescription},
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
-    traits::EntityKind,
     value::{Value, ValueEnum},
 };
 
@@ -242,28 +241,22 @@ pub fn render_value_text(value: &Value) -> String {
     }
 }
 
-/// Build one rendered projection row payload from one SQL projection response.
+/// Build one rendered projection row payload from one already-materialized SQL
+/// value grid.
 #[must_use]
-pub fn projection_rows_from_response<E>(
+pub fn projection_rows_from_values(
     columns: Vec<String>,
-    projection: ProjectionResponse<E>,
-) -> SqlProjectionRows
-where
-    E: EntityKind,
-{
+    rows: Vec<Vec<Value>>,
+    row_count: u32,
+) -> SqlProjectionRows {
     // Phase 1: render each projected row cell into stable text.
-    let row_count = projection.count();
-    let mut rows = Vec::new();
+    let mut rendered_rows = Vec::new();
     let mut max_column_count = 0usize;
 
-    for row in projection {
-        let rendered_row = row
-            .values()
-            .iter()
-            .map(render_value_text)
-            .collect::<Vec<_>>();
+    for row in rows {
+        let rendered_row = row.iter().map(render_value_text).collect::<Vec<_>>();
         max_column_count = max_column_count.max(rendered_row.len());
-        rows.push(rendered_row);
+        rendered_rows.push(rendered_row);
     }
 
     // Phase 2: derive stable projection column labels from canonical core metadata.
@@ -273,7 +266,7 @@ where
         projection_columns(max_column_count)
     };
 
-    SqlProjectionRows::new(columns, rows, row_count)
+    SqlProjectionRows::new(columns, rendered_rows, row_count)
 }
 
 /// Render one SQL EXPLAIN text payload as endpoint output lines.

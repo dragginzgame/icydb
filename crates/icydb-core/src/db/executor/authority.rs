@@ -20,7 +20,7 @@ use crate::{
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::db::executor) struct EntityAuthority {
+pub(in crate::db) struct EntityAuthority {
     model: &'static EntityModel,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -30,7 +30,7 @@ pub(in crate::db::executor) struct EntityAuthority {
 impl EntityAuthority {
     /// Build structural authority from one resolved entity type.
     #[must_use]
-    pub(in crate::db::executor) const fn for_type<E: EntityKind>() -> Self {
+    pub(in crate::db) const fn for_type<E: EntityKind>() -> Self {
         Self {
             model: E::MODEL,
             entity_tag: E::ENTITY_TAG,
@@ -41,25 +41,25 @@ impl EntityAuthority {
 
     /// Borrow structural entity model authority.
     #[must_use]
-    pub(in crate::db::executor) const fn model(&self) -> &'static EntityModel {
+    pub(in crate::db) const fn model(&self) -> &'static EntityModel {
         self.model
     }
 
     /// Borrow structural entity-tag authority.
     #[must_use]
-    pub(in crate::db::executor) const fn entity_tag(&self) -> EntityTag {
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
 
     /// Borrow structural entity-path authority.
     #[must_use]
-    pub(in crate::db::executor) const fn entity_path(&self) -> &'static str {
+    pub(in crate::db) const fn entity_path(&self) -> &'static str {
         self.entity_path
     }
 
     /// Borrow structural store-path authority.
     #[must_use]
-    pub(in crate::db::executor) const fn store_path(&self) -> &'static str {
+    pub(in crate::db) const fn store_path(&self) -> &'static str {
         self.store_path
     }
 }

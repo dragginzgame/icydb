@@ -40,7 +40,7 @@ pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
     ScalarTerminalBoundaryRequest,
 };
-pub(in crate::db::executor) use authority::EntityAuthority;
+pub(in crate::db) use authority::EntityAuthority;
 pub(in crate::db::executor) use continuation::{
     AccessWindow, ContinuationCapabilities, ContinuationEngine, ContinuationMode,
     GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
@@ -52,6 +52,11 @@ pub(super) use delete::DeleteExecutor;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
+pub(in crate::db) use explain::{
+    assemble_aggregate_terminal_execution_descriptor_with_model,
+    assemble_load_execution_node_descriptor_with_model,
+    assemble_load_execution_verbose_diagnostics_with_model,
+};
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
@@ -62,6 +67,8 @@ pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
+#[cfg(feature = "sql")]
+pub(in crate::db) use projection::execute_sql_projection_rows_for_canister;
 pub(in crate::db) use runtime_context::*;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
