@@ -22,7 +22,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.94.0"
 edition = "2024"
-version = "0.59.7"
+version = "0.59.8"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
@@ -38,13 +38,13 @@ ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.20.0"
-icydb = { path = "crates/icydb", version = "0.59.7" }
-icydb-build = { path = "crates/icydb-build", version = "0.59.7" }
-icydb-core = { path = "crates/icydb-core", version = "0.59.7" }
-icydb-derive = { path = "crates/icydb-derive", version = "0.59.7" }
-icydb-primitives = { path = "crates/icydb-primitives", version = "0.59.7" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.59.7" }
-icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.59.7" }
+icydb = { path = "crates/icydb", version = "0.59.8" }
+icydb-build = { path = "crates/icydb-build", version = "0.59.8" }
+icydb-core = { path = "crates/icydb-core", version = "0.59.8" }
+icydb-derive = { path = "crates/icydb-derive", version = "0.59.8" }
+icydb-primitives = { path = "crates/icydb-primitives", version = "0.59.8" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.59.8" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.59.8" }
 icydb-testing-fixtures = { path = "schema/test" }
 icydb-testing-minimal-fixtures = { path = "schema/minimal" }
 icydb-testing-quickstart-fixtures = { path = "schema/quickstart" }
