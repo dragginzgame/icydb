@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{ScalarSlotValueRef, ScalarValueRef, SlotReader},
+        data::{ScalarSlotValueRef, ScalarValueRef, SlotReader, decode_slot_value_by_contract},
         predicate::{
             CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel,
             ResolvedComparePredicate, ResolvedPredicate, TextOp, compare_eq, compare_order,
@@ -325,7 +325,7 @@ fn eval_compare_with_structural_slots(
         return Ok(result);
     }
 
-    let Some(actual) = slots.get_value(field_slot)? else {
+    let Some(actual) = decode_slot_value_by_contract(slots, field_slot)? else {
         return Ok(false);
     };
 
@@ -356,7 +356,10 @@ fn eval_is_null_with_structural_slots(
         ));
     }
 
-    Ok(matches!(slots.get_value(field_slot)?, Some(Value::Null)))
+    Ok(matches!(
+        decode_slot_value_by_contract(slots, field_slot)?,
+        Some(Value::Null)
+    ))
 }
 
 // Evaluate `IS NOT NULL` through the structural slot seam.
@@ -378,7 +381,10 @@ fn eval_is_not_null_with_structural_slots(
         ));
     }
 
-    Ok(matches!(slots.get_value(field_slot)?, Some(value) if !matches!(value, Value::Null)))
+    Ok(matches!(
+        decode_slot_value_by_contract(slots, field_slot)?,
+        Some(value) if !matches!(value, Value::Null)
+    ))
 }
 
 // Evaluate `IS EMPTY` through the structural slot seam.
@@ -404,8 +410,7 @@ fn eval_is_empty_with_structural_slots(
         });
     }
 
-    Ok(slots
-        .get_value(field_slot)?
+    Ok(decode_slot_value_by_contract(slots, field_slot)?
         .is_some_and(|value| is_empty_value(&value)))
 }
 
@@ -449,8 +454,7 @@ fn eval_text_contains_with_structural_slots(
         });
     }
 
-    Ok(slots
-        .get_value(field_slot)?
+    Ok(decode_slot_value_by_contract(slots, field_slot)?
         .is_some_and(|actual| actual.text_contains(value, mode).unwrap_or(false)))
 }
 

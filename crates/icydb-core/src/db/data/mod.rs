@@ -24,7 +24,9 @@ pub use persisted_row::{
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
     missing_persisted_slot_error,
 };
-pub(in crate::db) use persisted_row::{StructuralSlotReader, encode_persisted_row};
+pub(in crate::db) use persisted_row::{
+    StructuralSlotReader, decode_slot_value_by_contract, encode_persisted_row,
+};
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::decode_structural_field_bytes;

@@ -96,6 +96,44 @@ pub trait PersistedRow: EntityKind + Sized {
     ) -> Result<Option<Value>, InternalError>;
 }
 
+/// Decode one slot value through the declared field contract without routing
+/// through `SlotReader::get_value`.
+pub(in crate::db) fn decode_slot_value_by_contract(
+    slots: &dyn SlotReader,
+    slot: usize,
+) -> Result<Option<Value>, InternalError> {
+    let field = slots.model().fields().get(slot).ok_or_else(|| {
+        InternalError::index_invariant(format!(
+            "slot lookup outside model bounds during structural row access: model='{}' slot={slot}",
+            slots.model().path(),
+        ))
+    })?;
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+        && let Some(value) = slots.get_scalar(slot)?
+    {
+        return Ok(Some(match value {
+            ScalarSlotValueRef::Null => Value::Null,
+            ScalarSlotValueRef::Value(value) => value.into_value(),
+        }));
+    }
+
+    match slots.get_bytes(slot) {
+        Some(raw_value) => {
+            decode_structural_field_bytes(raw_value, field.kind(), field.storage_decode())
+                .map(Some)
+                .map_err(|err| {
+                    InternalError::serialize_corruption(format!(
+                        "row decode failed for field '{}' kind={:?}: {err}",
+                        field.name(),
+                        field.kind(),
+                    ))
+                })
+        }
+        None => Ok(None),
+    }
+}
+
 ///
 /// ScalarValueRef
 ///

@@ -6,7 +6,7 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        data::{ScalarSlotValueRef, SlotReader, StorageKey},
+        data::{ScalarSlotValueRef, SlotReader, StorageKey, decode_slot_value_by_contract},
         index::{
             derive_index_expression_value,
             key::{
@@ -527,7 +527,7 @@ fn index_component_bytes_from_slots(
                 return encode_scalar_index_component(source);
             }
 
-            let Some(value) = slots.get_value(field_index)? else {
+            let Some(value) = decode_slot_value_by_contract(slots, field_index)? else {
                 return Err(InternalError::index_invariant(format!(
                     "index key item field missing on lookup row: {field}",
                 )));
@@ -536,7 +536,7 @@ fn index_component_bytes_from_slots(
             encode_value_index_component(value)
         }
         IndexKeyItem::Expression(expression) => {
-            let Some(source) = slots.get_value(field_index)? else {
+            let Some(source) = decode_slot_value_by_contract(slots, field_index)? else {
                 return Err(InternalError::index_invariant(format!(
                     "index key item field missing on lookup row: {field}",
                 )));
