@@ -178,6 +178,20 @@ fn prepare_typed_commit_leaf<E: EntityKind + EntityValue>(
     old_row: Option<&RawRow>,
     new_row: Option<&RawRow>,
 ) -> Result<TypedCommitPreparation, InternalError> {
+    // Skip typed row reconstruction entirely when the entity has no secondary
+    // indexes. In that case this leaf has no forward-index work to perform, so
+    // paying `deserialize_row::<E>` here only clones entity-specific decode
+    // graphs without affecting the resulting commit materialization.
+    if E::INDEXES.is_empty() {
+        return Ok(TypedCommitPreparation {
+            index_plan: IndexMutationPlan {
+                apply: Vec::new(),
+                commit_ops: Vec::new(),
+            },
+            index_delta_kind_by_key: BTreeMap::new(),
+        });
+    }
+
     let expected_key = data_key.try_key::<E>()?;
 
     let decode_entity_from_marker_row = |bytes: &[u8], label: &str| -> Result<E, InternalError> {

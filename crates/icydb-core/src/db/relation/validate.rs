@@ -20,6 +20,7 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
+    model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
@@ -66,6 +67,7 @@ where
         db,
         source_info,
         S::PATH,
+        S::MODEL,
         source_store,
         &relations,
         deleted_target_keys,
@@ -89,6 +91,7 @@ fn validate_delete_strong_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
     source_path: &'static str,
+    source_model: &'static EntityModel,
     source_store: StoreHandle,
     relations: &[StrongRelationInfo],
     deleted_target_keys: &BTreeSet<RawDataKey>,
@@ -147,8 +150,12 @@ where
                     )));
                 };
 
-                let source_targets =
-                    relation_target_keys_for_source_row(&source_raw_row, source_info, *relation)?;
+                let source_targets = relation_target_keys_for_source_row(
+                    &source_raw_row,
+                    source_model,
+                    source_info,
+                    *relation,
+                )?;
                 if source_targets.contains(target_raw_key) {
                     record(MetricsEvent::RelationValidation {
                         entity_path: source_path,

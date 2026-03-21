@@ -340,7 +340,14 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("status", FieldKind::Enum { path: RECOVERY_STATUS_ENUM_PATH }),
+        (
+            "status",
+            FieldKind::Enum {
+                path: RECOVERY_STATUS_ENUM_PATH,
+                variants: &[],
+            },
+            crate::model::field::FieldStorageDecode::Value
+        ),
         ("active", FieldKind::Bool),
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS[0]],

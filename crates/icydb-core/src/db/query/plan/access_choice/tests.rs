@@ -18,14 +18,8 @@ use crate::{
 };
 
 static ACCESS_CHOICE_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "email",
-        kind: FieldKind::Text,
-    },
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("email", FieldKind::Text),
 ];
 static ACCESS_CHOICE_RAW_INDEX_FIELDS: [&str; 1] = ["email"];
 static ACCESS_CHOICE_RAW_INDEXES: [IndexModel; 1] = [IndexModel::new(

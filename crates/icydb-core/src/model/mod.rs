@@ -29,5 +29,5 @@ pub(crate) mod index;
 
 // re-exports
 pub use entity::EntityModel;
-pub use field::{FieldKind, FieldModel, RelationStrength};
+pub use field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength};
 pub use index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel};

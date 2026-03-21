@@ -16,6 +16,7 @@ mod wire;
 mod tests;
 
 use crate::{
+    model::field::FieldStorageDecode,
     prelude::*,
     traits::{EnumValue, FieldValue, NumFromPrimitive, Repr},
     types::*,
@@ -182,6 +183,10 @@ pub enum Value {
     UintBig(Nat),
     Ulid(Ulid),
     Unit,
+}
+
+impl Value {
+    pub const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
 // Local helpers to expand the scalar registry into match arms.

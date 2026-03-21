@@ -6,9 +6,11 @@
 use crate::{
     db::{
         Db,
-        codec::deserialize_row,
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
-        data::{DataKey, RawDataKey, RawRow, StorageKey},
+        data::{
+            DataKey, RawDataKey, RawRow, StorageKey, StructuralRowDecodeError, StructuralRowObject,
+            StructuralRowSlots, decode_structural_field_value,
+        },
         index::{
             EncodedValue, IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry,
             RawIndexKey, StructuralIndexEntryReader, raw_keys_for_encoded_prefix_with_kind,
@@ -21,12 +23,14 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldKind},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldStorageDecode},
+    },
     traits::{CanisterKind, EntityKind},
     types::EntityTag,
     value::Value,
 };
-use serde_cbor::{Value as CborValue, value::from_value as cbor_from_value};
 use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 
 ///
@@ -143,11 +147,13 @@ fn relation_target_keys_from_value(
 /// entity inside the hot blocked-delete proof loop.
 pub(super) fn relation_target_keys_for_source_row(
     raw_row: &RawRow,
+    source_model: &'static EntityModel,
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<BTreeSet<RawDataKey>, InternalError> {
-    let row_map = decode_relation_row_map(raw_row, source_info, relation)?;
-    let relation_value = decode_relation_field_from_row_map(&row_map, source_info, relation)?;
+    let row_object = decode_relation_row_object(raw_row, source_info, relation)?;
+    let row_slots = row_object.slots_for_model(source_model);
+    let relation_value = decode_relation_field_from_row_slots(&row_slots, source_info, relation)?;
 
     relation_target_keys_from_value(source_info, relation.field_name, relation, &relation_value)
 }
@@ -254,121 +260,79 @@ pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
 
 // Decode one persisted row into the top-level CBOR object map used by
 // structural relation-field extraction.
-fn decode_relation_row_map(
+fn decode_relation_row_object(
     raw_row: &RawRow,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<std::collections::BTreeMap<CborValue, CborValue>, InternalError> {
-    let decoded = deserialize_row::<CborValue>(raw_row.as_bytes())?;
-    let CborValue::Map(map) = unwrap_cbor_tags(decoded) else {
-        return Err(InternalError::serialize_corruption(format!(
-            "relation source row decode failed: expected CBOR map: source={} field={} target={}",
-            source.path, relation.field_name, relation.target_path,
-        )));
-    };
-
-    Ok(map)
+) -> Result<StructuralRowObject, InternalError> {
+    StructuralRowObject::from_raw_row(raw_row).map_err(|err| match err {
+        StructuralRowDecodeError::Deserialize(source) => source,
+        StructuralRowDecodeError::ExpectedTopLevelMap => InternalError::serialize_corruption(
+            format!(
+                "relation source row decode failed: expected CBOR map: source={} field={} target={}",
+                source.path, relation.field_name, relation.target_path,
+            ),
+        ),
+    })
 }
 
 // Decode the one strong-relation field payload needed by structural delete
 // validation directly from the persisted row object.
-fn decode_relation_field_from_row_map(
-    row_map: &std::collections::BTreeMap<CborValue, CborValue>,
+fn decode_relation_field_from_row_slots(
+    row_slots: &StructuralRowSlots<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<Value, InternalError> {
-    let lookup_key = CborValue::Text(relation.field_name.to_string());
-    let Some(raw_value) = row_map.get(&lookup_key) else {
+    let Some(raw_value) = row_slots.field(relation.field_index) else {
         return Err(InternalError::serialize_corruption(format!(
             "relation source row decode failed: missing field: source={} field={} target={}",
             source.path, relation.field_name, relation.target_path,
         )));
     };
 
-    decode_relation_field_value(raw_value, relation.field_kind).map_err(|message| {
-        InternalError::serialize_corruption(format!(
-            "relation source row decode failed: source={} field={} target={} ({message})",
-            source.path, relation.field_name, relation.target_path,
-        ))
-    })
+    validate_relation_field_kind(relation.field_kind)?;
+
+    decode_structural_field_value(raw_value, relation.field_kind, FieldStorageDecode::ByKind)
+        .map_err(|err| {
+            InternalError::serialize_corruption(format!(
+                "relation source row decode failed: source={} field={} target={} ({err})",
+                source.path, relation.field_name, relation.target_path,
+            ))
+        })
 }
 
-// Decode one strong-relation field payload using only the narrow storage-key
-// field kinds allowed for relation targets.
-fn decode_relation_field_value(raw_value: &CborValue, kind: FieldKind) -> Result<Value, String> {
-    let raw_value = unwrap_cbor_tags(raw_value.clone());
-    if matches!(raw_value, CborValue::Null) {
-        return Ok(Value::Null);
-    }
-
+// Enforce the narrow relation-field shapes that strong-relation structural
+// decode is allowed to accept on this path.
+fn validate_relation_field_kind(kind: FieldKind) -> Result<(), InternalError> {
     match kind {
-        FieldKind::Relation { key_kind, .. } => decode_relation_key_value(raw_value, *key_kind),
+        FieldKind::Relation { key_kind, .. } => validate_relation_key_kind(*key_kind),
         FieldKind::List(FieldKind::Relation { key_kind, .. })
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
-            decode_relation_key_list_value(raw_value, **key_kind)
+            validate_relation_key_kind(**key_kind)
         }
-        other => Err(format!(
+        other => Err(InternalError::serialize_corruption(format!(
             "invalid strong relation field kind during structural decode: {other:?}"
-        )),
+        ))),
     }
 }
 
-// Decode one storage-key-compatible relation id into the runtime `Value`
-// representation used by the existing raw-key builder.
-fn decode_relation_key_value(raw_value: CborValue, key_kind: FieldKind) -> Result<Value, String> {
+// Enforce the storage-key-compatible relation key kinds supported by the raw
+// relation target-key builder.
+fn validate_relation_key_kind(key_kind: FieldKind) -> Result<(), InternalError> {
     match key_kind {
-        FieldKind::Account => decode_typed_relation_key(raw_value, Value::Account),
-        FieldKind::Int => decode_typed_relation_key(raw_value, Value::Int),
-        FieldKind::Principal => decode_typed_relation_key(raw_value, Value::Principal),
-        FieldKind::Subaccount => decode_typed_relation_key(raw_value, Value::Subaccount),
-        FieldKind::Timestamp => decode_typed_relation_key(raw_value, Value::Timestamp),
-        FieldKind::Uint => decode_typed_relation_key(raw_value, Value::Uint),
-        FieldKind::Ulid => decode_typed_relation_key(raw_value, Value::Ulid),
-        FieldKind::Unit => decode_typed_relation_key(raw_value, |()| Value::Unit),
-        other => Err(format!(
+        FieldKind::Account
+        | FieldKind::Int
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Timestamp
+        | FieldKind::Uint
+        | FieldKind::Ulid
+        | FieldKind::Unit => Ok(()),
+        other => Err(InternalError::serialize_corruption(format!(
             "unsupported strong relation key kind during structural decode: {other:?}"
-        )),
+        ))),
     }
 }
-
-// Decode one list/set relation payload by decoding each storage-key-compatible item.
-fn decode_relation_key_list_value(
-    raw_value: CborValue,
-    key_kind: FieldKind,
-) -> Result<Value, String> {
-    let CborValue::Array(items) = raw_value else {
-        return Err("expected CBOR array for relation collection".to_string());
-    };
-    let items = items
-        .into_iter()
-        .map(|item| decode_relation_key_value(item, key_kind))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(Value::List(items))
-}
-
-// Decode one typed storage-key payload through serde CBOR and map it into one `Value`.
-fn decode_typed_relation_key<T>(
-    raw_value: CborValue,
-    into_value: impl FnOnce(T) -> Value,
-) -> Result<Value, String>
-where
-    T: serde::de::DeserializeOwned,
-{
-    cbor_from_value::<T>(raw_value)
-        .map(into_value)
-        .map_err(|err| format!("typed CBOR decode failed: {err}"))
-}
-
-// Strip transparent CBOR tags before decoding relation field payloads.
-fn unwrap_cbor_tags(mut value: CborValue) -> CborValue {
-    while let CborValue::Tag(_, inner) = value {
-        value = *inner;
-    }
-
-    value
-}
-
 /// Build one reverse-index mutation for one touched target key.
 fn prepare_reverse_relation_index_mutation_for_target(
     source: ReverseRelationSourceInfo,
@@ -457,11 +421,11 @@ where
     // directly from persisted row payloads.
     for relation in relations {
         let old_targets = match old_row {
-            Some(row) => relation_target_keys_for_source_row(row, source, relation)?,
+            Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
             None => BTreeSet::new(),
         };
         let new_targets = match new_row {
-            Some(row) => relation_target_keys_for_source_row(row, source, relation)?,
+            Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
             None => BTreeSet::new(),
         };
 

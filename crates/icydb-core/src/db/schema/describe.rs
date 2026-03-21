@@ -422,7 +422,7 @@ fn summarize_field_kind(kind: &FieldKind) -> String {
         FieldKind::Date => "date".to_string(),
         FieldKind::Decimal { scale } => format!("decimal(scale={scale})"),
         FieldKind::Duration => "duration".to_string(),
-        FieldKind::Enum { path } => format!("enum({path})"),
+        FieldKind::Enum { path, .. } => format!("enum({path})"),
         FieldKind::Float32 => "float32".to_string(),
         FieldKind::Float64 => "float64".to_string(),
         FieldKind::Int => "int".to_string(),

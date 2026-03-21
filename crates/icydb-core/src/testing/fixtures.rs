@@ -171,10 +171,7 @@ macro_rules! test_entity {
                 $crate::test_entity!(@count $( $field_name ),+)
             ] = [
                 $(
-                    $crate::model::field::FieldModel {
-                        name: $field_name,
-                        kind: $field_kind,
-                    },
+                    $crate::model::field::FieldModel::new($field_name, $field_kind),
                 )+
             ];
             const FIELD_NAMES: [&'static str;
@@ -233,13 +230,23 @@ macro_rules! test_entity {
 ///
 #[macro_export]
 macro_rules! test_entity_schema {
+    (@field_model $field_name:expr, $field_kind:expr) => {
+        $crate::model::field::FieldModel::new($field_name, $field_kind)
+    };
+    (@field_model $field_name:expr, $field_kind:expr, $field_decode:expr) => {
+        $crate::model::field::FieldModel::new_with_storage_decode(
+            $field_name,
+            $field_kind,
+            $field_decode,
+        )
+    };
     (
         ident = $entity:ident,
         id = $id_ty:ty,
         entity_name = $entity_name:expr,
         primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
-        fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
+        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
     ) => {
         $crate::impl_test_entity_markers!($entity);
@@ -249,10 +256,7 @@ macro_rules! test_entity_schema {
                 $crate::test_entity_schema!(@count $( $field_name ),+)
             ] = [
                 $(
-                    $crate::model::field::FieldModel {
-                        name: $field_name,
-                        kind: $field_kind,
-                    },
+                    $crate::test_entity_schema!(@field_model $field_name, $field_kind $(, $field_decode)?),
                 )+
             ];
             const TEST_FIELD_NAMES: [&'static str;
@@ -302,7 +306,7 @@ macro_rules! test_entity_schema {
         entity_tag = $entity_tag:expr,
         primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
-        fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
+        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
         store = $store_ty:ty,
         canister = $canister_ty:ty,
@@ -313,7 +317,7 @@ macro_rules! test_entity_schema {
             entity_name = $entity_name,
             primary_key = $primary_key,
             pk_index = $pk_index,
-            fields = [ $( ($field_name, $field_kind) ),+ ],
+            fields = [ $( ($field_name, $field_kind $(, $field_decode )? ) ),+ ],
             indexes = [ $( $index ),* ],
         }
 
@@ -334,7 +338,7 @@ macro_rules! test_entity_schema {
         entity_tag = $entity_tag:expr,
         primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
-        fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
+        fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
         store = $store_ty:ty,
         canister = $canister_ty:ty,
@@ -346,7 +350,7 @@ macro_rules! test_entity_schema {
             entity_tag = $entity_tag,
             primary_key = $primary_key,
             pk_index = $pk_index,
-            fields = [ $( ($field_name, $field_kind) ),+ ],
+            fields = [ $( ($field_name, $field_kind $(, $field_decode )? ) ),+ ],
             indexes = [ $( $index ),* ],
             store = $store_ty,
             canister = $canister_ty,

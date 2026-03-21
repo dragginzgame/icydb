@@ -17,6 +17,8 @@ impl Imp<List> for InherentTrait {
         let kind = quote!(::icydb::model::field::FieldKind::List(&#item_kind));
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::FieldKind = #kind;
+            pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                ::icydb::model::field::FieldStorageDecode::ByKind;
 
             /// Appends an item to the list.
             pub fn push(&mut self, value: #item) {
@@ -68,6 +70,8 @@ impl Imp<Set> for InherentTrait {
         let kind = quote!(::icydb::model::field::FieldKind::Set(&#item_kind));
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::FieldKind = #kind;
+            pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                ::icydb::model::field::FieldStorageDecode::ByKind;
 
             /// Inserts a value into the set. Returns true if it was newly inserted.
             pub fn insert(&mut self, value: #item) -> bool {
@@ -112,6 +116,8 @@ impl Imp<Map> for InherentTrait {
 
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::FieldKind = #kind;
+            pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                ::icydb::model::field::FieldStorageDecode::ByKind;
 
             /// Returns a reference to the value for `key`, if present.
             pub fn get(&self, key: &#key) -> Option<&#value> {

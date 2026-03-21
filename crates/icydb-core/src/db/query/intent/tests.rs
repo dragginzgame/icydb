@@ -123,17 +123,14 @@ struct PlanEntity {
 }
 
 static MAP_PLAN_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "attributes",
-        kind: FieldKind::Map {
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new(
+        "attributes",
+        FieldKind::Map {
             key: &FieldKind::Text,
             value: &FieldKind::Uint,
         },
-    },
+    ),
 ];
 static MAP_PLAN_INDEXES: [&IndexModel; 0] = [];
 static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
@@ -145,16 +142,14 @@ static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
 );
 
 static ENUM_PLAN_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "stage",
-        kind: FieldKind::Enum {
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new(
+        "stage",
+        FieldKind::Enum {
             path: "intent_tests::Stage",
+            variants: &[],
         },
-    },
+    ),
 ];
 static ENUM_PLAN_INDEXES: [&IndexModel; 0] = [];
 static ENUM_PLAN_MODEL: EntityModel = entity_model_from_static(

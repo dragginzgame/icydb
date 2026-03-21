@@ -18,10 +18,7 @@ use crate::{
     types::Ulid,
 };
 
-static PLANNER_CANONICAL_FIELDS: [FieldModel; 1] = [FieldModel {
-    name: "id",
-    kind: FieldKind::Ulid,
-}];
+static PLANNER_CANONICAL_FIELDS: [FieldModel; 1] = [FieldModel::new("id", FieldKind::Ulid)];
 static PLANNER_CANONICAL_INDEXES: [&IndexModel; 0] = [];
 static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
     "planner::canonical_test_entity",
@@ -32,14 +29,8 @@ static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
 );
 
 static PLANNER_IN_EMPTY_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "email",
-        kind: FieldKind::Text,
-    },
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("email", FieldKind::Text),
 ];
 static PLANNER_IN_EMPTY_INDEX_FIELDS: [&str; 1] = ["email"];
 static PLANNER_IN_EMPTY_INDEXES: [IndexModel; 1] = [IndexModel::new(

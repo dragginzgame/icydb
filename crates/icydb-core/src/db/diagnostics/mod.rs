@@ -8,9 +8,8 @@ mod execution_trace;
 use crate::{
     db::{
         Db,
-        codec::deserialize_row,
         commit::CommitRowOp,
-        data::{DataKey, StorageKey},
+        data::{DataKey, StorageKey, decode_structural_row_cbor},
         index::IndexKey,
         registry::StoreHandle,
     },
@@ -21,7 +20,6 @@ use crate::{
 };
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
-use serde_cbor::Value as CborValue;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use execution_trace::{
@@ -817,7 +815,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
 
             // Validate envelope compatibility before typed preparation so
             // incompatible persisted formats remain compatibility-classified.
-            if let Err(err) = deserialize_row::<CborValue>(entry.value().as_bytes()) {
+            if let Err(err) = decode_structural_row_cbor(&entry.value()) {
                 classify_scan_error(err, snapshot)?;
                 continue;
             }

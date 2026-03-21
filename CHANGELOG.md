@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.62.x] - 2026-03-21 - Structural Persisted-Row Decode
+
+- `0.62.0` starts the structural persisted-row decode line by introducing one shared structural row/field decode path for non-boundary runtime work, narrowing enum payload fallback handling, and skipping typed commit-prep row decode entirely for entities with no secondary indexes, which lowers the audit slopes to `409,489` bytes for `one_simple -> ten_simple` and `506,384` bytes for `one_complex -> ten_complex`.
+
+See detailed breakdown:
+[docs/changelog/0.62.md](docs/changelog/0.62.md)
+
+---
+
 ## [0.61.x] - 2026-03-20 - Per-Entity WASM Compression
 
 - `0.61.9` keeps flattening the simple-entity runtime floor by removing one more specialization axis from commit and index preparation, so the shared commit-prep path now depends on reader capabilities instead of concrete reader implementations and the `one_simple -> ten_simple` shrunk slope drops from `434,095` to `426,141` bytes.

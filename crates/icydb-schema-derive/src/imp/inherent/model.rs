@@ -22,13 +22,23 @@ pub fn model_kind_from_value(value: &Value) -> TokenStream {
 pub fn model_field_expr(field: &Field) -> TokenStream {
     let name = field.ident.to_string();
     let kind = model_kind_from_value(&field.value);
+    let storage_decode = model_storage_decode_from_value(&field.value);
 
-    quote!(::icydb::model::field::FieldModel::new(#name, #kind))
+    quote!(::icydb::model::field::FieldModel::new_with_storage_decode(
+        #name,
+        #kind,
+        #storage_decode,
+    ))
 }
 
 /// Returns the persisted model kind for a nested value (e.g. map values).
 pub fn model_kind_from_nested_value(value: &Value) -> TokenStream {
     model_kind_from_value(value)
+}
+
+/// Returns the persisted field decode contract for a value.
+pub fn model_storage_decode_from_value(value: &Value) -> TokenStream {
+    model_storage_decode_from_item(&value.item)
 }
 
 /// Returns the persisted model kind for an item.
@@ -75,6 +85,14 @@ fn model_storage_kind_from_item(item: &Item) -> TokenStream {
             model_kind_from_primitive(prim, decimal_scale)
         }
         ItemTarget::Is(path) => quote!(#path::KIND),
+    }
+}
+
+/// Returns the persisted structural decode contract for an item.
+fn model_storage_decode_from_item(item: &Item) -> TokenStream {
+    match item.target() {
+        ItemTarget::Primitive(_) => quote!(::icydb::model::field::FieldStorageDecode::ByKind),
+        ItemTarget::Is(path) => quote!(#path::STORAGE_DECODE),
     }
 }
 

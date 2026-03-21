@@ -202,7 +202,7 @@ fn normalize_value_for_kind(
     expected_kind: &FieldKind,
 ) -> Result<Value, ValidateError> {
     match expected_kind {
-        FieldKind::Enum { path } => normalize_enum_value(field, value, path),
+        FieldKind::Enum { path, .. } => normalize_enum_value(field, value, path),
         FieldKind::Relation { key_kind, .. } => normalize_value_for_kind(field, value, key_kind),
         FieldKind::List(inner) => {
             let Value::List(values) = value else {

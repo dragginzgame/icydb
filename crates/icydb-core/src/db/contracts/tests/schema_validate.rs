@@ -13,7 +13,7 @@ use crate::{
 };
 
 fn field(name: &'static str, kind: FieldKind) -> FieldModel {
-    FieldModel { name, kind }
+    FieldModel::new(name, kind)
 }
 
 #[test]
