@@ -67,7 +67,7 @@ pub trait SlotWriter {
         slot: usize,
         value: ScalarSlotValueRef<'_>,
     ) -> Result<(), InternalError> {
-        let payload = encode_scalar_slot_value(value)?;
+        let payload = encode_scalar_slot_value(value);
 
         self.write_slot(slot, Some(payload.as_slice()))
     }
@@ -320,6 +320,7 @@ where
 }
 
 /// Build the canonical missing-field error for persisted-row materialization.
+#[must_use]
 pub fn missing_persisted_slot_error(field_name: &'static str) -> InternalError {
     InternalError::serialize_corruption(format!(
         "row decode failed: missing required field '{field_name}'",
@@ -453,7 +454,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     /// Validate the decoded primary-key slot against the authoritative row key.
     pub(in crate::db) fn validate_storage_key_for_entity<E: EntityKind>(
-        &mut self,
+        &self,
         data_key: &DataKey,
     ) -> Result<(), InternalError> {
         let Some(primary_key_slot) = resolve_primary_key_slot(E::MODEL) else {
@@ -588,9 +589,9 @@ enum CachedSlotValue {
 }
 
 // Encode one scalar slot value into the canonical prefixed scalar envelope.
-fn encode_scalar_slot_value(value: ScalarSlotValueRef<'_>) -> Result<Vec<u8>, InternalError> {
+fn encode_scalar_slot_value(value: ScalarSlotValueRef<'_>) -> Vec<u8> {
     match value {
-        ScalarSlotValueRef::Null => Ok(vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_NULL]),
+        ScalarSlotValueRef::Null => vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_NULL],
         ScalarSlotValueRef::Value(value) => {
             let mut encoded = Vec::new();
             encoded.push(SCALAR_SLOT_PREFIX);
@@ -623,7 +624,7 @@ fn encode_scalar_slot_value(value: ScalarSlotValueRef<'_>) -> Result<Vec<u8>, In
                 ScalarValueRef::Unit => {}
             }
 
-            Ok(encoded)
+            encoded
         }
     }
 }
@@ -667,6 +668,7 @@ fn decode_scalar_slot_payload_body<'a>(
 }
 
 // Decode one scalar slot view using the field-declared scalar codec.
+#[expect(clippy::too_many_lines)]
 fn decode_scalar_slot_value<'a>(
     bytes: &'a [u8],
     codec: ScalarCodec,
@@ -956,7 +958,7 @@ impl PersistedScalar for Ulid {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        Ulid::try_from_bytes(bytes).map_err(|err| {
+        Self::try_from_bytes(bytes).map_err(|err| {
             InternalError::serialize_corruption(format!(
                 "row decode failed for field '{field_name}': {err}",
             ))

@@ -2,10 +2,4 @@ error[E0599]: no method named `group_count_distinct_by` found for struct `Fluent
  --> tests/ui/query/fluent/removed_group_terminal_methods.rs:4:19
   |
 4 |     let _ = query.group_count_distinct_by("rank");
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^
-  |
-help: there is a method `count_distinct_by` with a similar name
-  |
-4 -     let _ = query.group_count_distinct_by("rank");
-4 +     let _ = query.count_distinct_by("rank");
-  |
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^ method not found in `FluentLoadQuery<'_, E>`

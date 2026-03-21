@@ -188,10 +188,13 @@ impl FromMeta for TraitKind {
 
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let trait_name = format_ident!("{}", self.to_string());
+        if self == &Self::PersistedRow {
+            quote!(::icydb::db::PersistedRow).to_tokens(tokens);
+        } else {
+            let trait_name = format_ident!("{}", self.to_string());
 
-        // quote
-        quote!(::icydb::traits::#trait_name).to_tokens(tokens);
+            quote!(::icydb::traits::#trait_name).to_tokens(tokens);
+        }
     }
 }
 

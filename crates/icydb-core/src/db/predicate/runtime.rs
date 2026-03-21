@@ -309,7 +309,7 @@ fn eval_with_structural_slots(
 // Evaluate one comparison predicate through the structural slot seam.
 fn eval_compare_with_structural_slots(
     cmp: &ResolvedComparePredicate,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = cmp.field_slot else {
         return Ok(false);
@@ -340,7 +340,7 @@ fn eval_compare_with_structural_slots(
 // Evaluate `IS NULL` through the structural slot seam.
 fn eval_is_null_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -365,7 +365,7 @@ fn eval_is_null_with_structural_slots(
 // Evaluate `IS NOT NULL` through the structural slot seam.
 fn eval_is_not_null_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -390,7 +390,7 @@ fn eval_is_not_null_with_structural_slots(
 // Evaluate `IS EMPTY` through the structural slot seam.
 fn eval_is_empty_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -403,10 +403,9 @@ fn eval_is_empty_with_structural_slots(
         && let Some(actual) = slots.get_scalar(field_slot)?
     {
         return Ok(match actual {
-            ScalarSlotValueRef::Null => false,
             ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => text.is_empty(),
             ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)) => bytes.is_empty(),
-            ScalarSlotValueRef::Value(_) => false,
+            ScalarSlotValueRef::Null | ScalarSlotValueRef::Value(_) => false,
         });
     }
 
@@ -417,7 +416,7 @@ fn eval_is_empty_with_structural_slots(
 // Evaluate `IS NOT EMPTY` through the structural slot seam.
 fn eval_is_not_empty_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -434,7 +433,7 @@ fn eval_text_contains_with_structural_slots(
     field_slot: Option<usize>,
     value: &Value,
     mode: TextMode,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);

@@ -24,7 +24,7 @@ impl Imp<Entity> for PersistedRowTrait {
                 match field.value.cardinality() {
                     Cardinality::Opt => quote!(None),
                     Cardinality::One | Cardinality::Many => quote! {
-                        return Err(::icydb::db::missing_persisted_slot_error(#field_name));
+                        return Err(::icydb::db::missing_persisted_slot_error(#field_name))
                     },
                 }
             };
@@ -52,18 +52,6 @@ impl Imp<Entity> for PersistedRowTrait {
             }
         });
 
-        let slot_projects = node.fields.iter().enumerate().map(|(slot, field)| {
-            let slot_index = syn::Index::from(slot);
-            let field_ty = field.value.type_expr();
-            let field_name = field.ident.to_string();
-            let project_expr =
-                persisted_field_project_expr(&field_ty, field_name.as_str(), slot_index);
-
-            quote! {
-                #slot => #project_expr,
-            }
-        });
-
         let tokens = Implementor::new(node.def(), TraitKind::PersistedRow)
             .set_tokens(quote! {
                 fn materialize_from_slots(
@@ -87,13 +75,12 @@ impl Imp<Entity> for PersistedRowTrait {
                     slots: &mut dyn ::icydb::db::SlotReader,
                     slot: usize,
                 ) -> Result<Option<::icydb::value::Value>, ::icydb::db::InternalError> {
-                    match slot {
-                        #(#slot_projects)*
-                        _ => Err(::icydb::db::InternalError::index_invariant(format!(
-                            "slot lookup outside derived persisted row bounds: entity='{}' slot={slot}",
-                            <Self as ::icydb::traits::Path>::PATH,
-                        ))),
-                    }
+                    let entity = Self::materialize_from_slots(slots)?;
+
+                    Ok(<Self as ::icydb::traits::FieldProjection>::get_value_by_index(
+                        &entity,
+                        slot,
+                    ))
                 }
             })
             .to_token_stream();
@@ -160,84 +147,6 @@ fn persisted_field_encode_expr(
             #field_name,
         )?
     )
-}
-
-fn persisted_field_project_expr(
-    field_ty: &TokenStream,
-    field_name: &str,
-    slot: syn::Index,
-) -> TokenStream {
-    let parsed = parse_type::<Type>(field_ty.clone()).expect("generated field type must parse");
-    if option_inner_scalar_type(&parsed).is_some() || is_scalar_type(&parsed) {
-        return quote!(
-            Ok(match slots.get_scalar(#slot)? {
-                Some(::icydb::db::ScalarSlotValueRef::Null) => Some(::icydb::value::Value::Null),
-                Some(::icydb::db::ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
-                None => None,
-            })
-        );
-    }
-
-    if matches!(classify_field(&parsed), FieldCardinality::Opt) {
-        return quote!(
-            match slots.get_bytes(#slot) {
-                Some(bytes) => {
-                    let value = ::icydb::db::decode_persisted_slot_payload::<#parsed>(
-                        bytes,
-                        #field_name,
-                    )?;
-
-                    Ok(Some(match value {
-                        Some(value) => ::icydb::traits::FieldValue::to_value(&value),
-                        None => ::icydb::value::Value::Null,
-                    }))
-                }
-                None => Ok(None),
-            }
-        );
-    }
-
-    quote!(
-        match slots.get_bytes(#slot) {
-            Some(bytes) => {
-                let value = ::icydb::db::decode_persisted_slot_payload::<#parsed>(
-                    bytes,
-                    #field_name,
-                )?;
-
-                Ok(Some(::icydb::traits::FieldValue::to_value(&value)))
-            }
-            None => Ok(None),
-        }
-    )
-}
-
-#[derive(Clone, Copy)]
-enum FieldCardinality {
-    One,
-    Opt,
-    Many,
-}
-
-fn classify_field(ty: &Type) -> FieldCardinality {
-    if is_path_ident(ty, "Option") {
-        FieldCardinality::Opt
-    } else if is_path_ident(ty, "Vec") {
-        FieldCardinality::Many
-    } else {
-        FieldCardinality::One
-    }
-}
-
-fn is_path_ident(ty: &Type, ident: &str) -> bool {
-    let Type::Path(path) = ty else {
-        return false;
-    };
-
-    path.path
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == ident)
 }
 
 fn option_inner_scalar_type(ty: &Type) -> Option<Type> {

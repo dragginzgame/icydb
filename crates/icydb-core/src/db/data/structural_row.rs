@@ -12,6 +12,10 @@ use serde_cbor::Value as CborValue;
 use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
+type SlotSpan = Option<(usize, usize)>;
+type SlotSpans = Vec<SlotSpan>;
+type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
+
 ///
 /// StructuralRowFieldBytes
 ///
@@ -24,7 +28,7 @@ use thiserror::Error as ThisError;
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralRowFieldBytes<'a> {
     payload: Cow<'a, [u8]>,
-    spans: Vec<Option<(usize, usize)>>,
+    spans: SlotSpans,
 }
 
 impl<'a> StructuralRowFieldBytes<'a> {
@@ -195,7 +199,7 @@ fn decode_structural_row_payload_bytes(
 fn decode_row_field_spans<'a>(
     payload: Cow<'a, [u8]>,
     model: &'static EntityModel,
-) -> Result<(Cow<'a, [u8]>, Vec<Option<(usize, usize)>>), StructuralRowDecodeError> {
+) -> Result<RowFieldSpans<'a>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
     let field_count_bytes = bytes
         .get(..2)
@@ -216,9 +220,13 @@ fn decode_row_field_spans<'a>(
     let data_section = bytes
         .get(data_start..)
         .ok_or_else(|| structural_row_corruption("row decode failed: missing slot payloads"))?;
-    let mut spans = vec![None; model.fields().len()];
+    let mut spans: SlotSpans = vec![None; model.fields().len()];
 
-    for slot in 0..field_count.min(model.fields().len()) {
+    for (slot, span) in spans
+        .iter_mut()
+        .enumerate()
+        .take(field_count.min(model.fields().len()))
+    {
         let entry_start = slot
             .checked_mul(8)
             .ok_or_else(|| structural_row_corruption("row decode failed: slot index overflow"))?;
@@ -244,7 +252,7 @@ fn decode_row_field_spans<'a>(
                 "row decode failed: slot span exceeds payload length",
             ));
         }
-        spans[slot] = Some((start, end));
+        *span = Some((start, end));
     }
 
     let payload = match payload {

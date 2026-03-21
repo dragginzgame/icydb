@@ -115,12 +115,12 @@ fn decode_kernel_row_structural(
     layout: &RowLayout,
     data_row: DataRow,
 ) -> Result<KernelRow, InternalError> {
-    let mut row_fields = decode_row_fields(&data_row.1, layout.model)?;
+    let row_fields = decode_row_fields(&data_row.1, layout.model)?;
     let mut slots = Vec::with_capacity(layout.fields.len());
 
     // Phase 1: decode declared slots through the canonical structural slot reader.
     for (slot, field) in layout.fields.iter().enumerate() {
-        slots.push(decode_row_field(&mut row_fields, slot, field)?);
+        slots.push(decode_row_field(&row_fields, slot, field)?);
     }
 
     // Phase 2: verify the decoded primary-key value still matches storage identity.
@@ -139,7 +139,7 @@ fn decode_row_fields<'a>(
 
 // Decode one declared field from the persisted row field bytes.
 fn decode_row_field(
-    row_fields: &mut StructuralSlotReader<'_>,
+    row_fields: &StructuralSlotReader<'_>,
     slot: usize,
     field: &RowFieldLayout,
 ) -> Result<Option<Value>, InternalError> {

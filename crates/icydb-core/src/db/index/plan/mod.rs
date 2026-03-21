@@ -244,6 +244,7 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership<E: EntityKind>(
 
 /// Plan all index mutations for one persisted-row transition without
 /// reconstructing a typed entity from bytes.
+#[expect(clippy::too_many_lines)]
 pub(in crate::db) fn plan_index_mutation_for_slot_reader<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_reader: &dyn PrimaryRowReader<E>,

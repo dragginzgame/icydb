@@ -14,7 +14,7 @@ use crate::{
             reverse_index::{
                 ReverseRelationSourceInfo, decode_relation_target_data_key_for_relation,
                 decode_reverse_entry, relation_target_keys_for_source_row, relation_target_store,
-                reverse_index_key_for_target_value,
+                reverse_index_key_for_target_storage_key,
             },
         },
     },
@@ -22,7 +22,7 @@ use crate::{
     metrics::sink::{MetricsEvent, record},
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
-    value::Value,
+    value::StorageKey,
 };
 use std::collections::BTreeSet;
 
@@ -37,7 +37,7 @@ use std::collections::BTreeSet;
 struct BlockedDeleteProof {
     relation: StrongRelationInfo,
     source_data_key: DataKey,
-    target_value: Value,
+    target_key: StorageKey,
 }
 
 /// Validate that source rows do not strongly reference target keys selected for delete.
@@ -81,7 +81,7 @@ where
         blocked_delete_diagnostic::<S>(
             blocked.relation,
             blocked.source_data_key.try_key::<S>()?,
-            &blocked.target_value,
+            blocked.target_key,
         ),
     ))
 }
@@ -115,9 +115,11 @@ where
                 continue;
             };
 
-            let target_value = target_data_key.storage_key().as_value();
-            let Some(reverse_key) =
-                reverse_index_key_for_target_value(source_info, *relation, &target_value)?
+            let Some(reverse_key) = reverse_index_key_for_target_storage_key(
+                source_info,
+                *relation,
+                target_data_key.storage_key(),
+            )?
             else {
                 continue;
             };
@@ -145,8 +147,11 @@ where
 
                 let Some(source_raw_row) = source_raw_row else {
                     return Err(InternalError::store_corruption(format!(
-                        "reverse index points at missing source row: source={} field={} source_id={source_key:?} target={} key={target_value:?}",
-                        source_path, relation.field_name, relation.target_path,
+                        "reverse index points at missing source row: source={} field={} source_id={source_key:?} target={} key={:?}",
+                        source_path,
+                        relation.field_name,
+                        relation.target_path,
+                        target_data_key.storage_key(),
                     )));
                 };
 
@@ -166,7 +171,7 @@ where
                     return Ok(Some(BlockedDeleteProof {
                         relation: *relation,
                         source_data_key,
-                        target_value,
+                        target_key: target_data_key.storage_key(),
                     }));
                 }
             }
@@ -180,15 +185,16 @@ where
 fn blocked_delete_diagnostic<S>(
     relation: StrongRelationInfo,
     source_key: S::Key,
-    target_value: &Value,
+    target_key: StorageKey,
 ) -> String
 where
     S: EntityKind + EntityValue,
 {
     format!(
-        "delete blocked by strong relation: source_entity={} source_field={} source_id={source_key:?} target_entity={} target_key={target_value:?}; action=delete source rows or retarget relation before deleting target",
+        "delete blocked by strong relation: source_entity={} source_field={} source_id={source_key:?} target_entity={} target_key={:?}; action=delete source rows or retarget relation before deleting target",
         S::PATH,
         relation.field_name,
         relation.target_path,
+        target_key.as_value(),
     )
 }

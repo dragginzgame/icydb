@@ -12,7 +12,8 @@ mod semantics;
 use crate::db::numeric::compare_numeric_or_strict_order;
 use crate::{
     db::{data::ScalarValueRef, index::key::ordered::semantics::OrderedEncode},
-    value::Value,
+    types::{Account, Principal, Subaccount, Timestamp, Ulid},
+    value::{StorageKey, Value},
 };
 #[cfg(test)]
 use std::cmp::Ordering;
@@ -193,6 +194,64 @@ pub(crate) fn encode_canonical_index_component_from_scalar(
             Ok(out)
         }
         ScalarValueRef::Unit => Ok(out),
+    }
+}
+
+/// Encode one storage-key value into canonical index-component bytes without
+/// materializing an owned runtime `Value`.
+pub(crate) fn encode_canonical_index_component_from_storage_key(
+    value: StorageKey,
+) -> Result<Vec<u8>, OrderedValueEncodeError> {
+    let mut out = Vec::new();
+    out.push(match value {
+        StorageKey::Account(_) => {
+            Value::Account(Account::from_parts(Principal::from_slice(&[]), None))
+                .canonical_tag()
+                .to_u8()
+        }
+        StorageKey::Int(_) => Value::Int(0).canonical_tag().to_u8(),
+        StorageKey::Principal(_) => Value::Principal(Principal::default())
+            .canonical_tag()
+            .to_u8(),
+        StorageKey::Subaccount(_) => Value::Subaccount(Subaccount::default())
+            .canonical_tag()
+            .to_u8(),
+        StorageKey::Timestamp(_) => Value::Timestamp(Timestamp::EPOCH).canonical_tag().to_u8(),
+        StorageKey::Uint(_) => Value::Uint(0).canonical_tag().to_u8(),
+        StorageKey::Ulid(_) => Value::Ulid(Ulid::nil()).canonical_tag().to_u8(),
+        StorageKey::Unit => Value::Unit.canonical_tag().to_u8(),
+    });
+
+    match value {
+        StorageKey::Account(value) => {
+            parts::push_account_payload(&mut out, &value)?;
+            Ok(out)
+        }
+        StorageKey::Int(value) => {
+            out.extend_from_slice(&semantics::ordered_i64_bytes(value));
+            Ok(out)
+        }
+        StorageKey::Principal(value) => {
+            parts::push_terminated_bytes(&mut out, value.as_slice());
+            Ok(out)
+        }
+        StorageKey::Subaccount(value) => {
+            out.extend_from_slice(&value.to_bytes());
+            Ok(out)
+        }
+        StorageKey::Timestamp(value) => {
+            value.encode_ordered(&mut out)?;
+            Ok(out)
+        }
+        StorageKey::Uint(value) => {
+            out.extend_from_slice(&value.to_be_bytes());
+            Ok(out)
+        }
+        StorageKey::Ulid(value) => {
+            out.extend_from_slice(&value.to_bytes());
+            Ok(out)
+        }
+        StorageKey::Unit => Ok(out),
     }
 }
 

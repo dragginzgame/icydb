@@ -22,6 +22,7 @@ pub(in crate::db) use envelope::{
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey, derive_index_expression_value,
+    encode_canonical_index_component_from_storage_key,
 };
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use plan::{
@@ -34,8 +35,10 @@ pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram,
     canonical_index_predicate, compile_index_program,
 };
+#[cfg(test)]
+pub(in crate::db) use range::raw_keys_for_encoded_prefix_with_kind;
 pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, envelope_is_empty, raw_bounds_for_semantic_index_component_range,
-    raw_keys_for_encoded_prefix, raw_keys_for_encoded_prefix_with_kind,
+    raw_keys_for_component_prefix_with_kind, raw_keys_for_encoded_prefix,
 };
 pub use store::IndexStore;

@@ -57,6 +57,18 @@ pub(in crate::db) fn raw_keys_for_encoded_prefix_with_kind(
     index_len: usize,
     prefix: &[EncodedValue],
 ) -> (RawIndexKey, RawIndexKey) {
+    raw_keys_for_component_prefix_with_kind(index_id, key_kind, index_len, prefix)
+}
+
+/// Build canonical raw start/end keys for any pre-encoded prefix bytes in the
+/// requested key namespace.
+#[must_use]
+pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
+    index_id: &IndexId,
+    key_kind: IndexKeyKind,
+    index_len: usize,
+    prefix: &[C],
+) -> (RawIndexKey, RawIndexKey) {
     let (start, end) = IndexKey::bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix);
 
     (start.to_raw(), end.to_raw())

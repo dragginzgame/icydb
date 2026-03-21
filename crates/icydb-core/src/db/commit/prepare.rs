@@ -225,7 +225,7 @@ fn decode_commit_marker_row_slots<'a, E: EntityKind>(
     row: &'a RawRow,
     label: &str,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let mut slots = StructuralSlotReader::from_raw_row(row, E::MODEL).map_err(|err| {
+    let slots = StructuralSlotReader::from_raw_row(row, E::MODEL).map_err(|err| {
         let message = format!("commit marker {label} row decode failed: {err}");
         if err.class() == ErrorClass::IncompatiblePersistedFormat {
             InternalError::serialize_incompatible_persisted_format(message)

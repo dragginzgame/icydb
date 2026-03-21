@@ -1,3 +1,9 @@
+error[E0432]: unresolved import `icydb_core::db::codec::deserialize_row`
+ --> tests/ui/db/codec_module_private.rs:1:5
+  |
+1 | use icydb_core::db::codec::deserialize_row;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `deserialize_row` in `db::codec`
+
 error[E0603]: module `codec` is private
  --> tests/ui/db/codec_module_private.rs:1:21
   |

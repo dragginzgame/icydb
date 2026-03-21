@@ -12,8 +12,9 @@ use crate::{
             decode_structural_field_bytes,
         },
         index::{
-            EncodedValue, IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry,
-            RawIndexKey, StructuralIndexEntryReader, raw_keys_for_encoded_prefix_with_kind,
+            IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
+            StructuralIndexEntryReader, encode_canonical_index_component_from_storage_key,
+            raw_keys_for_component_prefix_with_kind,
         },
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
@@ -97,18 +98,19 @@ fn reverse_index_id_for_relation(
     Ok(IndexId::new(source.entity_tag, ordinal))
 }
 
-/// Build a reverse-index key for one target-key value.
-pub(super) fn reverse_index_key_for_target_value(
+/// Build a reverse-index key for one target storage key.
+pub(super) fn reverse_index_key_for_target_storage_key(
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-    target_key_value: &Value,
+    target_key_value: StorageKey,
 ) -> Result<Option<RawIndexKey>, InternalError> {
-    let Ok(encoded_value) = EncodedValue::try_from_ref(target_key_value) else {
+    let Ok(encoded_value) = encode_canonical_index_component_from_storage_key(target_key_value)
+    else {
         return Ok(None);
     };
 
     let index_id = reverse_index_id_for_relation(source, relation)?;
-    let (key, _) = raw_keys_for_encoded_prefix_with_kind(
+    let (key, _) = raw_keys_for_component_prefix_with_kind(
         &index_id,
         IndexKeyKind::System,
         1,
@@ -151,9 +153,8 @@ pub(super) fn relation_target_keys_for_source_row(
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<BTreeSet<RawDataKey>, InternalError> {
-    let mut row_fields = decode_relation_row_fields(raw_row, source_model, source_info, relation)?;
-    let relation_value =
-        decode_relation_field_from_row_fields(&mut row_fields, source_info, relation)?;
+    let row_fields = decode_relation_row_fields(raw_row, source_model, source_info, relation)?;
+    let relation_value = decode_relation_field_from_row_fields(&row_fields, source_info, relation)?;
 
     relation_target_keys_from_value(source_info, relation.field_name, relation, &relation_value)
 }
@@ -271,7 +272,7 @@ fn decode_relation_row_fields<'a>(
 // Decode the one strong-relation field payload needed by structural delete
 // validation directly from the encoded field payload bytes.
 fn decode_relation_field_from_row_fields(
-    row_fields: &mut StructuralSlotReader<'_>,
+    row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<Value, InternalError> {
@@ -447,9 +448,11 @@ where
                 )));
             };
 
-            let target_value = target_data_key.storage_key().as_value();
-            let Some(reverse_key) =
-                reverse_index_key_for_target_value(source, relation, &target_value)?
+            let Some(reverse_key) = reverse_index_key_for_target_storage_key(
+                source,
+                relation,
+                target_data_key.storage_key(),
+            )?
             else {
                 continue;
             };

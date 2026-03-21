@@ -6,13 +6,16 @@
 use crate::{
     db::index::key::{
         OrderedValueEncodeError,
-        ordered::{compare_index_component_values, encode_canonical_index_component},
+        ordered::{
+            compare_index_component_values, encode_canonical_index_component,
+            encode_canonical_index_component_from_storage_key,
+        },
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
     },
-    value::{Value, ValueEnum},
+    value::{StorageKey, Value, ValueEnum},
 };
 use proptest::prelude::*;
 use std::cmp::Ordering;
@@ -152,6 +155,32 @@ fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
         Principal::MAX_LENGTH_IN_BYTES as u8,
         "account payload owner-length tag should preserve the full principal length"
     );
+}
+
+#[test]
+fn storage_key_encoder_matches_value_encoder_for_all_storage_key_variants() {
+    let samples = [
+        StorageKey::Account(Account::dummy(7)),
+        StorageKey::Int(-7),
+        StorageKey::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
+        StorageKey::Subaccount(Subaccount::new([7u8; 32])),
+        StorageKey::Timestamp(Timestamp::from_secs(7)),
+        StorageKey::Uint(7),
+        StorageKey::Ulid(Ulid::from_u128(7)),
+        StorageKey::Unit,
+    ];
+
+    for sample in samples {
+        let storage_key_bytes = encode_canonical_index_component_from_storage_key(sample)
+            .expect("storage key should encode");
+        let value_bytes =
+            encode_canonical_index_component(&sample.as_value()).expect("value should encode");
+
+        assert_eq!(
+            storage_key_bytes, value_bytes,
+            "storage-key encoder diverged from canonical value encoder for {sample:?}"
+        );
+    }
 }
 
 #[test]

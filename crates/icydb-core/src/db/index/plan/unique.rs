@@ -122,8 +122,8 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     let row = row_reader.read_primary_row(&data_key)?.ok_or_else(|| {
         InternalError::index_plan_store_corruption(format!("missing row: {data_key}"))
     })?;
-    let mut row_fields = decode_unique_row_fields::<E>(&data_key, &row)?;
-    let stored_key = decode_unique_row_storage_key::<E>(&data_key, &mut row_fields)?;
+    let row_fields = decode_unique_row_fields::<E>(&data_key, &row)?;
+    let stored_key = decode_unique_row_storage_key::<E>(&data_key, &row_fields)?;
     if stored_key != existing_key {
         // Stored row decoded successfully but key disagreement is a cross-component invariant
         // failure, not a structural decode/persistence corruption.
@@ -138,12 +138,8 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         )));
     }
 
-    let Some(stored_index_key) = build_unique_index_key_from_row_slots::<E>(
-        &data_key,
-        existing_key,
-        &mut row_fields,
-        index,
-    )?
+    let Some(stored_index_key) =
+        build_unique_index_key_from_row_slots::<E>(&data_key, existing_key, &row_fields, index)?
     else {
         return Err(InternalError::index_plan_index_corruption(format!(
             "index corrupted: {} ({}) -> stored entity is not indexable for unique key",
@@ -210,7 +206,7 @@ fn decode_unique_row_fields<'a, E: EntityKind>(
 // still matches the row storage key carried by the unique index entry.
 fn decode_unique_row_storage_key<E: EntityKind>(
     data_key: &DataKey,
-    row_fields: &mut StructuralSlotReader<'_>,
+    row_fields: &StructuralSlotReader<'_>,
 ) -> Result<StorageKey, InternalError> {
     let _ = resolve_primary_key_slot(E::MODEL).ok_or_else(|| {
         InternalError::index_invariant(format!(
@@ -235,7 +231,7 @@ fn decode_unique_row_storage_key<E: EntityKind>(
 fn build_unique_index_key_from_row_slots<E: EntityKind>(
     data_key: &DataKey,
     storage_key: StorageKey,
-    row_fields: &mut StructuralSlotReader<'_>,
+    row_fields: &StructuralSlotReader<'_>,
     index: &IndexModel,
 ) -> Result<Option<IndexKey>, InternalError> {
     IndexKey::new_from_slots(E::ENTITY_TAG, storage_key, row_fields, index).map_err(|err| {

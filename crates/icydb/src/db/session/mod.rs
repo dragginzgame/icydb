@@ -717,19 +717,19 @@ mod tests {
     trait FacadeSqlLegacySurfaceExt {
         fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
 
         fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
 
         fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
 
         fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
 
         fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error>;
     }
@@ -737,7 +737,7 @@ mod tests {
     impl FacadeSqlLegacySurfaceExt for DbSession<FacadeSqlCanister> {
         fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
         {
             let parsed = self.parse_sql_statement(sql)?;
             let route = parsed.route();
@@ -762,7 +762,7 @@ mod tests {
 
         fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
         {
             let parsed = self.parse_sql_statement(sql)?;
             let route = parsed.route();
@@ -787,7 +787,7 @@ mod tests {
 
         fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
         {
             let parsed = self.parse_sql_statement(sql)?;
             let route = parsed.route();
@@ -812,7 +812,7 @@ mod tests {
 
         fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
         where
-            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
         {
             let parsed = self.parse_sql_statement(sql)?;
             let route = parsed.route();

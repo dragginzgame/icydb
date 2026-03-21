@@ -75,7 +75,7 @@ impl IndexKey {
     pub(crate) fn new_from_slots(
         entity_tag: EntityTag,
         storage_key: StorageKey,
-        slots: &mut dyn SlotReader,
+        slots: &dyn SlotReader,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         // Phase 1: validate declared index shape and collect encoded components.
@@ -510,7 +510,7 @@ impl IndexKey {
 
 // Build one canonical index component directly from one slot reader.
 fn index_component_bytes_from_slots(
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
     index: &IndexModel,
     key_item: IndexKeyItem,
 ) -> Result<Option<Vec<u8>>, InternalError> {

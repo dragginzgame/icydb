@@ -200,8 +200,8 @@ fn persisted_field_encode_expr(
     )
 }
 
-fn persisted_field_project_expr(_field_ty: &Type, _field_name: &str, slot: usize) -> TokenStream {
-    if option_inner_scalar_type(_field_ty).is_some() || is_scalar_type(_field_ty) {
+fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize) -> TokenStream {
+    if option_inner_scalar_type(field_ty).is_some() || is_scalar_type(field_ty) {
         return quote!(
             Ok(match slots.get_scalar(#slot)? {
                 Some(::icydb::db::ScalarSlotValueRef::Null) => Some(::icydb::value::Value::Null),
