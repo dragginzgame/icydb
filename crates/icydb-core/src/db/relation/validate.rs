@@ -7,23 +7,37 @@ use crate::{
     db::{
         Db,
         data::{DataKey, RawDataKey},
+        registry::StoreHandle,
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            decode_relation_target_data_key_for_relation,
             metadata::{StrongRelationInfo, strong_relations_for_source},
             reverse_index::{
-                ReverseRelationSourceInfo, decode_reverse_entry,
-                relation_target_keys_for_source_row, relation_target_store,
+                ReverseRelationSourceInfo, decode_relation_target_data_key_for_relation,
+                decode_reverse_entry, relation_target_keys_for_source_row, relation_target_store,
                 reverse_index_key_for_target_value,
             },
         },
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    traits::{EntityKind, EntityValue, Path},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
 use std::collections::BTreeSet;
+
+///
+/// BlockedDeleteProof
+///
+/// Structural proof payload returned by strong-relation delete validation.
+/// This keeps the heavy blocked-delete scan nongeneric and leaves typed key
+/// reconstruction at the final operator-facing diagnostic boundary only.
+///
+
+struct BlockedDeleteProof {
+    relation: StrongRelationInfo,
+    source_data_key: DataKey,
+    target_value: Value,
+}
 
 /// Validate that source rows do not strongly reference target keys selected for delete.
 pub(in crate::db) fn validate_delete_strong_relations_for_source<S>(
@@ -40,19 +54,56 @@ where
         return Ok(());
     }
 
+    // Phase 1: resolve the structural relation descriptors and source store once.
     let relations = strong_relations_for_source::<S>(Some(target_path));
     if relations.is_empty() {
         return Ok(());
     }
     let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
 
+    // Phase 2: run the heavy blocked-delete proof loop without `S`.
+    let Some(blocked) = validate_delete_strong_relations_structural(
+        db,
+        source_info,
+        S::PATH,
+        source_store,
+        &relations,
+        deleted_target_keys,
+    )?
+    else {
+        return Ok(());
+    };
+
+    // Phase 3: keep typed key reconstruction at the final diagnostic edge only.
+    Err(crate::db::error::executor_unsupported(
+        blocked_delete_diagnostic::<S>(
+            blocked.relation,
+            blocked.source_data_key.try_key::<S>()?,
+            &blocked.target_value,
+        ),
+    ))
+}
+
+/// Prove whether one delete would violate a strong source relation without `S`.
+fn validate_delete_strong_relations_structural<C>(
+    db: &Db<C>,
+    source_info: ReverseRelationSourceInfo,
+    source_path: &'static str,
+    source_store: StoreHandle,
+    relations: &[StrongRelationInfo],
+    deleted_target_keys: &BTreeSet<RawDataKey>,
+) -> Result<Option<BlockedDeleteProof>, InternalError>
+where
+    C: CanisterKind,
+{
     // Phase 1: resolve reverse-index candidates for each relevant relation field.
     for relation in relations {
-        let target_index_store = relation_target_store(db, source_info, relation)?;
+        let target_index_store = relation_target_store(db, source_info, *relation)?;
 
         for target_raw_key in deleted_target_keys {
-            let Some(target_data_key) = decode_relation_target_data_key_for_relation::<S>(
-                relation,
+            let Some(target_data_key) = decode_relation_target_data_key_for_relation(
+                source_info,
+                *relation,
                 target_raw_key,
                 RelationTargetDecodeContext::DeleteValidation,
                 RelationTargetMismatchPolicy::Skip,
@@ -63,7 +114,7 @@ where
 
             let target_value = target_data_key.storage_key().as_value();
             let Some(reverse_key) =
-                reverse_index_key_for_target_value(source_info, relation, &target_value)?
+                reverse_index_key_for_target_value(source_info, *relation, &target_value)?
             else {
                 continue;
             };
@@ -71,7 +122,7 @@ where
             // Relation metrics are emitted as operation deltas so sink aggregation
             // always reflects the exact lookup/block operations performed.
             record(MetricsEvent::RelationValidation {
-                entity_path: S::PATH,
+                entity_path: source_path,
                 reverse_lookups: 1,
                 blocked_deletes: 0,
             });
@@ -81,44 +132,41 @@ where
                 continue;
             };
 
-            let entry = decode_reverse_entry(source_info, relation, &reverse_key, &raw_entry)?;
+            let entry = decode_reverse_entry(source_info, *relation, &reverse_key, &raw_entry)?;
 
             // Phase 2: verify each candidate source row before rejecting delete.
             for source_key in entry.iter_ids() {
-                let source_data_key = DataKey::new(S::ENTITY_TAG, source_key);
+                let source_data_key = DataKey::new(source_info.entity_tag(), source_key);
                 let source_raw_key = source_data_key.to_raw()?;
                 let source_raw_row = source_store.with_data(|store| store.get(&source_raw_key));
 
                 let Some(source_raw_row) = source_raw_row else {
                     return Err(InternalError::store_corruption(format!(
                         "reverse index points at missing source row: source={} field={} source_id={source_key:?} target={} key={target_value:?}",
-                        S::PATH,
-                        relation.field_name,
-                        relation.target_path,
+                        source_path, relation.field_name, relation.target_path,
                     )));
                 };
 
                 let source_targets =
-                    relation_target_keys_for_source_row(&source_raw_row, source_info, relation)?;
+                    relation_target_keys_for_source_row(&source_raw_row, source_info, *relation)?;
                 if source_targets.contains(target_raw_key) {
                     record(MetricsEvent::RelationValidation {
-                        entity_path: S::PATH,
+                        entity_path: source_path,
                         reverse_lookups: 0,
                         blocked_deletes: 1,
                     });
-                    return Err(crate::db::error::executor_unsupported(
-                        blocked_delete_diagnostic::<S>(
-                            relation,
-                            source_data_key.try_key::<S>()?,
-                            &target_value,
-                        ),
-                    ));
+
+                    return Ok(Some(BlockedDeleteProof {
+                        relation: *relation,
+                        source_data_key,
+                        target_value,
+                    }));
                 }
             }
         }
     }
 
-    Ok(())
+    Ok(None)
 }
 
 /// Format operator-facing blocked-delete diagnostics with actionable context.

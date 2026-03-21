@@ -54,6 +54,12 @@ impl ReverseRelationSourceInfo {
             entity_tag: S::ENTITY_TAG,
         }
     }
+
+    /// Return the structural source entity tag used for reverse-index identity.
+    #[must_use]
+    pub(crate) const fn entity_tag(self) -> EntityTag {
+        self.entity_tag
+    }
 }
 
 ///
@@ -195,7 +201,7 @@ where
 }
 
 /// Decode one raw relation target key and enforce reverse-index target invariants.
-fn decode_relation_target_data_key_for_relation(
+pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
     target_raw_key: &RawDataKey,

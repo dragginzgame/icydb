@@ -5,8 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.61.x] - 2026-03-20 - Entity Macro Compression
+## [0.61.x] - 2026-03-20 - Per-Entity WASM Compression
 
+- `next patch` keeps flattening the simple-entity runtime floor by moving the blocked-delete proof loop in strong-relation validation onto one structural helper and leaving only the final typed diagnostic key reconstruction at the error edge, which cuts the `one_simple -> ten_simple` shrunk slope from `463,422` to `434,095` bytes and clears the old relation-validation family out of the top debug monos list.
 - `0.61.7` keeps flattening the simple-entity runtime floor by moving delete execution onto the same pattern as commit prep, with structural plan/access/commit orchestration around one typed decode-and-filter leaf, which cuts the `one_simple -> ten_simple` shrunk slope from `497,187` to `463,422` bytes and clears the old delete executor family out of the top debug monos list.
 - `0.61.6` keeps flattening the simple-entity runtime floor by turning commit preparation into a typed-forward-index leaf plus one shared structural finalization path, which cuts the `one_simple -> ten_simple` shrunk slope from `541,782` to `497,187` bytes and removes the old relation and commit-prep helper families from the top debug monos list.
 - `0.61.5` keeps flattening the simple-entity runtime floor by shrinking the remaining lowered-SQL query fallback again, which removes the old SQL query wrapper families from the top debug monos list and cuts the `one_simple -> ten_simple` shrunk slope from `544,944` to `541,782` bytes.

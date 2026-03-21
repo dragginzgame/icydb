@@ -169,7 +169,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
         Ok(())
     }
-
     /// Enforce fixed decimal scales across scalar and nested collection values.
     fn validate_decimal_scale(
         field_name: &str,

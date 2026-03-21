@@ -15,7 +15,6 @@ use crate::{
         identity::{EntityName, EntityNameError},
     },
     error::InternalError,
-    traits::EntityKind,
     types::EntityTag,
     value::Value,
 };
@@ -189,68 +188,4 @@ pub(in crate::db::relation) fn raw_relation_target_key(
             "strong relation target entity invalid during relation processing",
         )
     })
-}
-
-/// Decode a relation target key and validate it against the relation target entity.
-fn decode_relation_target_data_key_for_relation<S>(
-    relation: StrongRelationInfo,
-    target_raw_key: &RawDataKey,
-    context: RelationTargetDecodeContext,
-    mismatch_policy: RelationTargetMismatchPolicy,
-) -> Result<Option<DataKey>, InternalError>
-where
-    S: EntityKind,
-{
-    let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
-        InternalError::identity_corruption(format!(
-            "{}: source={} field={} target={} ({err})",
-            relation_target_decode_message(context),
-            S::PATH,
-            relation.field_name,
-            relation.target_path,
-        ))
-    })?;
-
-    let target_entity_tag = relation.target_entity_tag;
-
-    if target_data_key.entity_tag() != target_entity_tag {
-        if matches!(mismatch_policy, RelationTargetMismatchPolicy::Skip) {
-            return Ok(None);
-        }
-
-        return Err(InternalError::store_corruption(format!(
-            "{}: source={} field={} target={} expected={} (tag={}) actual_tag={}",
-            relation_target_entity_mismatch_message(context),
-            S::PATH,
-            relation.field_name,
-            relation.target_path,
-            relation.target_entity_name,
-            target_entity_tag.value(),
-            target_data_key.entity_tag().value(),
-        )));
-    }
-
-    Ok(Some(target_data_key))
-}
-
-const fn relation_target_decode_message(context: RelationTargetDecodeContext) -> &'static str {
-    match context {
-        RelationTargetDecodeContext::DeleteValidation => "delete relation target key decode failed",
-        RelationTargetDecodeContext::ReverseIndexPrepare => {
-            "relation target key decode failed while preparing reverse index"
-        }
-    }
-}
-
-const fn relation_target_entity_mismatch_message(
-    context: RelationTargetDecodeContext,
-) -> &'static str {
-    match context {
-        RelationTargetDecodeContext::DeleteValidation => {
-            "relation target entity mismatch during delete validation"
-        }
-        RelationTargetDecodeContext::ReverseIndexPrepare => {
-            "relation target entity mismatch while preparing reverse index"
-        }
-    }
 }
