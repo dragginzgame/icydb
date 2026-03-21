@@ -29,8 +29,27 @@ pub(in crate::db) use persisted_row::{
 };
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
+#[cfg(test)]
 pub(in crate::db) use structural_field::decode_structural_field_bytes;
+pub(in crate::db) use structural_field::{
+    decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
+    decode_structural_value_storage_bytes,
+};
 pub(in crate::db) use structural_row::{
     StructuralRowDecodeError, StructuralRowFieldBytes, decode_structural_row_cbor,
-    unwrap_structural_row_cbor_tags,
 };
+
+#[cfg(test)]
+macro_rules! impl_scalar_only_test_slot_reader_get_value {
+    () => {
+        fn get_value(
+            &mut self,
+            _slot: usize,
+        ) -> Result<Option<crate::value::Value>, crate::error::InternalError> {
+            panic!("scalar predicate test reader should not route through get_value")
+        }
+    };
+}
+
+#[cfg(test)]
+pub(crate) use impl_scalar_only_test_slot_reader_get_value;

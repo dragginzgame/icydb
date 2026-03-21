@@ -11,7 +11,9 @@ mod structural_guards;
 
 use crate::{
     db::access::{AccessPath, AccessPlan},
-    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
+    db::predicate::{
+        CoercionId, CompareOp, ComparePredicate, Predicate, PredicateProgram, normalize,
+    },
     db::query::plan::plan_access,
     db::schema::SchemaInfo,
     model::{
@@ -284,6 +286,15 @@ fn plan_access_for_test(
     plan_access(model, schema, normalized.as_ref())
 }
 
+// Compile the runtime predicate program against one model so access-planning
+// tests can lock the intended separation between planner and execution.
+fn compile_runtime_predicate_for_test(
+    model: &'static EntityModel,
+    predicate: &Predicate,
+) -> PredicateProgram {
+    PredicateProgram::compile_with_model(model, predicate)
+}
+
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
@@ -324,6 +335,28 @@ fn plan_access_secondary_is_null_retains_full_scan_fallback() {
         plan,
         AccessPlan::full_scan(),
         "non-primary IS NULL remains full-scan until nullable/index-aware pushdown is available",
+    );
+}
+
+#[test]
+fn plan_access_secondary_is_null_can_compile_scalar_while_still_full_scanning() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::IsNull {
+        field: "tag".to_string(),
+    };
+
+    let runtime = compile_runtime_predicate_for_test(model, &predicate);
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert!(
+        runtime.uses_scalar_program(),
+        "runtime should keep secondary-field IS NULL on the scalar slot executor",
+    );
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "access planning remains a full scan until nullable/index-aware pushdown exists",
     );
 }
 
@@ -721,6 +754,29 @@ fn plan_access_text_casefold_starts_with_empty_prefix_falls_back_to_full_scan() 
 }
 
 #[test]
+fn plan_access_text_contains_can_compile_scalar_while_still_full_scanning() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::TextContains {
+        field: "tag".to_string(),
+        value: Value::Text("alp".to_string()),
+    };
+
+    let runtime = compile_runtime_predicate_for_test(model, &predicate);
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert!(
+        runtime.uses_scalar_program(),
+        "runtime should compile text-contains onto the scalar executor when the field is scalar",
+    );
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "text-contains remains an access-planning full scan even when runtime executes it scalar-native",
+    );
+}
+
+#[test]
 fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_plan() {
     let model = model_with_expression_casefold_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -1112,6 +1168,30 @@ fn plan_access_emits_index_range_for_text_starts_with() {
     assert!(
         prefix.is_empty(),
         "starts-with index range should use an empty equality prefix"
+    );
+    assert_eq!(lower, &Bound::Included(Value::Text("foo".to_string())));
+    assert_eq!(upper, &Bound::Excluded(Value::Text("fop".to_string())));
+}
+
+#[test]
+fn plan_access_text_starts_with_compiles_scalar_and_uses_index_range() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
+
+    let runtime = compile_runtime_predicate_for_test(model, &predicate);
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert!(
+        runtime.uses_scalar_program(),
+        "runtime should compile starts-with onto the scalar executor for scalar text fields",
+    );
+    assert_eq!(index.name(), INDEX_MODEL.name());
+    assert!(
+        prefix.is_empty(),
+        "starts-with index range should use an empty equality prefix",
     );
     assert_eq!(lower, &Bound::Included(Value::Text("foo".to_string())));
     assert_eq!(upper, &Bound::Excluded(Value::Text("fop".to_string())));

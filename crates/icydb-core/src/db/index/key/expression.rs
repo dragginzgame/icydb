@@ -3,97 +3,67 @@
 //! Does not own: index key byte framing, planner eligibility, or store mutation policy.
 //! Boundary: index-key build and planner/explain key-item lowering consume this authority.
 
-use crate::{model::index::IndexExpression, types::Date, value::Value};
+use crate::{
+    db::scalar_expr::{
+        ScalarExprValue, derive_non_null_scalar_expression_value, scalar_index_expression_op,
+    },
+    model::index::IndexExpression,
+    value::Value,
+};
 
-const MILLIS_PER_DAY: i64 = 86_400_000;
 const EXPECTED_TEXT: &str = "Text";
 const EXPECTED_DATE_OR_TIMESTAMP: &str = "Date/Timestamp";
-
-// Canonically normalize one text input under expression-casefold semantics.
-#[must_use]
-fn normalize_text_casefold(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_lowercase()
-    } else {
-        input.to_lowercase()
-    }
-}
-
-fn normalize_text_upper(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_uppercase()
-    } else {
-        input.to_uppercase()
-    }
-}
-
-fn timestamp_to_bucket_date(timestamp_millis: i64) -> Date {
-    let days = timestamp_millis.div_euclid(MILLIS_PER_DAY);
-    let days = if let Ok(days) = i32::try_from(days) {
-        days
-    } else if days < 0 {
-        i32::MIN
-    } else {
-        i32::MAX
-    };
-
-    Date::from_days_since_epoch(days)
-}
 
 fn derive_text_expression_value(
     expression: IndexExpression,
     source: Value,
 ) -> Result<Option<Value>, &'static str> {
-    match (expression, source) {
-        (_, Value::Null) => Ok(None),
-        (IndexExpression::Lower(_), Value::Text(value)) => {
-            Ok(Some(Value::Text(normalize_text_casefold(&value))))
-        }
-        (IndexExpression::Upper(_), Value::Text(value)) => {
-            Ok(Some(Value::Text(normalize_text_upper(&value))))
-        }
-        (IndexExpression::Trim(_), Value::Text(value)) => {
-            Ok(Some(Value::Text(value.trim().to_string())))
-        }
-        (IndexExpression::LowerTrim(_), Value::Text(value)) => {
-            Ok(Some(Value::Text(normalize_text_casefold(value.trim()))))
-        }
-        _ => Err(EXPECTED_TEXT),
-    }
+    let op = scalar_index_expression_op(expression);
+    let source = match source {
+        Value::Null => return Ok(None),
+        Value::Text(value) => ScalarExprValue::Text(value.into()),
+        _ => return Err(EXPECTED_TEXT),
+    };
+
+    derive_non_null_scalar_expression_value(op, source)
+        .map(scalar_expr_value_into_value)
+        .map(Some)
 }
 
 fn derive_temporal_expression_value(
     expression: IndexExpression,
     source: Value,
 ) -> Result<Option<Value>, &'static str> {
-    match (expression, source) {
-        (_, Value::Null) => Ok(None),
-        (IndexExpression::Date(_), Value::Date(value)) => Ok(Some(Value::Date(value))),
-        (IndexExpression::Date(_), Value::Timestamp(value)) => Ok(Some(Value::Date(
-            timestamp_to_bucket_date(value.as_millis()),
-        ))),
-        (IndexExpression::Year(_), Value::Date(value)) => {
-            Ok(Some(Value::Int(i64::from(value.year()))))
-        }
-        (IndexExpression::Year(_), Value::Timestamp(value)) => {
-            let bucket = timestamp_to_bucket_date(value.as_millis());
-            Ok(Some(Value::Int(i64::from(bucket.year()))))
-        }
-        (IndexExpression::Month(_), Value::Date(value)) => {
-            Ok(Some(Value::Int(i64::from(value.month()))))
-        }
-        (IndexExpression::Month(_), Value::Timestamp(value)) => {
-            let bucket = timestamp_to_bucket_date(value.as_millis());
-            Ok(Some(Value::Int(i64::from(bucket.month()))))
-        }
-        (IndexExpression::Day(_), Value::Date(value)) => {
-            Ok(Some(Value::Int(i64::from(value.day()))))
-        }
-        (IndexExpression::Day(_), Value::Timestamp(value)) => {
-            let bucket = timestamp_to_bucket_date(value.as_millis());
-            Ok(Some(Value::Int(i64::from(bucket.day()))))
-        }
-        _ => Err(EXPECTED_DATE_OR_TIMESTAMP),
+    let op = scalar_index_expression_op(expression);
+    let source = match source {
+        Value::Null => return Ok(None),
+        Value::Date(value) => ScalarExprValue::Date(value),
+        Value::Timestamp(value) => ScalarExprValue::Timestamp(value),
+        _ => return Err(EXPECTED_DATE_OR_TIMESTAMP),
+    };
+
+    derive_non_null_scalar_expression_value(op, source)
+        .map(scalar_expr_value_into_value)
+        .map(Some)
+}
+
+fn scalar_expr_value_into_value(value: ScalarExprValue<'_>) -> Value {
+    match value {
+        ScalarExprValue::Null => Value::Null,
+        ScalarExprValue::Blob(value) => Value::Blob(value.into_owned()),
+        ScalarExprValue::Bool(value) => Value::Bool(value),
+        ScalarExprValue::Date(value) => Value::Date(value),
+        ScalarExprValue::Duration(value) => Value::Duration(value),
+        ScalarExprValue::Float32(value) => Value::Float32(value),
+        ScalarExprValue::Float64(value) => Value::Float64(value),
+        ScalarExprValue::Int(value) => Value::Int(value),
+        ScalarExprValue::Principal(value) => Value::Principal(value),
+        ScalarExprValue::Subaccount(value) => Value::Subaccount(value),
+        ScalarExprValue::Text(value) => Value::Text(value.into_owned()),
+        ScalarExprValue::Timestamp(value) => Value::Timestamp(value),
+        ScalarExprValue::Uint(value) => Value::Uint(value),
+        ScalarExprValue::Ulid(value) => Value::Ulid(value),
+        ScalarExprValue::Unit => Value::Unit,
     }
 }
 

@@ -7,7 +7,7 @@
 use crate::{
     db::data::{
         DataKey, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes,
-        decode_structural_field_bytes,
+        decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
     },
     error::InternalError,
     model::{
@@ -119,19 +119,33 @@ pub(in crate::db) fn decode_slot_value_by_contract(
     }
 
     match slots.get_bytes(slot) {
-        Some(raw_value) => {
-            decode_structural_field_bytes(raw_value, field.kind(), field.storage_decode())
-                .map(Some)
-                .map_err(|err| {
-                    InternalError::serialize_corruption(format!(
-                        "row decode failed for field '{}' kind={:?}: {err}",
-                        field.name(),
-                        field.kind(),
-                    ))
-                })
-        }
+        Some(raw_value) => decode_non_scalar_slot_value(raw_value, field).map(Some),
         None => Ok(None),
     }
+}
+
+// Decode one non-scalar slot through the exact persisted contract declared by
+// the field model.
+fn decode_non_scalar_slot_value(
+    raw_value: &[u8],
+    field: &FieldModel,
+) -> Result<Value, InternalError> {
+    let decoded = match field.storage_decode() {
+        crate::model::field::FieldStorageDecode::ByKind => {
+            decode_structural_field_by_kind_bytes(raw_value, field.kind())
+        }
+        crate::model::field::FieldStorageDecode::Value => {
+            decode_structural_value_storage_bytes(raw_value)
+        }
+    };
+
+    decoded.map_err(|err| {
+        InternalError::serialize_corruption(format!(
+            "row decode failed for field '{}' kind={:?}: {err}",
+            field.name(),
+            field.kind(),
+        ))
+    })
 }
 
 ///
@@ -469,16 +483,7 @@ impl<'a> StructuralSlotReader<'a> {
             Some(ScalarSlotValueRef::Null) => Some(Value::Null),
             Some(ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
             None => match self.field_bytes.field(primary_key_slot) {
-                Some(raw_value) => Some(
-                    decode_structural_field_bytes(raw_value, field.kind(), field.storage_decode())
-                        .map_err(|err| {
-                            InternalError::serialize_corruption(format!(
-                                "row decode failed for primary-key field '{}' kind={:?}: {err}",
-                                field.name(),
-                                field.kind(),
-                            ))
-                        })?,
-                ),
+                Some(raw_value) => Some(decode_non_scalar_slot_value(raw_value, field)?),
                 None => None,
             },
         };
@@ -557,16 +562,7 @@ impl SlotReader for StructuralSlotReader<'_> {
             Some(ScalarSlotValueRef::Null) => Some(Value::Null),
             Some(ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
             None => match self.field_bytes.field(slot) {
-                Some(raw_value) => Some(
-                    decode_structural_field_bytes(raw_value, field.kind(), field.storage_decode())
-                        .map_err(|err| {
-                            InternalError::serialize_corruption(format!(
-                                "row decode failed for field '{}' kind={:?}: {err}",
-                                field.name(),
-                                field.kind(),
-                            ))
-                        })?,
-                ),
+                Some(raw_value) => Some(decode_non_scalar_slot_value(raw_value, field)?),
                 None => None,
             },
         };

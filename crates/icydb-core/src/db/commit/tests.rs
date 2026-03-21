@@ -9,9 +9,9 @@ use crate::{
         codec::ROW_FORMAT_VERSION_CURRENT,
         commit::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
-            commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
-            prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse,
-            snapshot_row_rollback, store,
+            commit_marker_present, encode_commit_marker_payload, ensure_recovered, finish_commit,
+            init_commit_store_for_tests, prepare_row_commit_for_entity,
+            rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         executor::SaveExecutor,
@@ -1642,12 +1642,15 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
         id: [0xAB; 16],
         row_ops: Vec::new(),
     };
-    let marker_payload = serialize(&marker).expect("marker payload encode should succeed");
+    let marker_payload =
+        encode_commit_marker_payload(&marker).expect("marker payload encode should succeed");
     let future_version = COMMIT_MARKER_FORMAT_VERSION_CURRENT.saturating_add(1);
-    let marker_bytes = serialize(&(future_version, marker_payload))
-        .expect("future-version marker envelope encode should succeed");
-    let control_slot_bytes = serialize(&(*b"CMCS", 1_u8, marker_bytes, Vec::<u8>::new()))
-        .expect("control-slot envelope encode should succeed");
+    let marker_bytes =
+        store::encode_raw_commit_marker_envelope_for_tests(future_version, marker_payload)
+            .expect("future-version marker envelope encode should succeed");
+    let control_slot_bytes =
+        store::encode_raw_commit_control_slot_for_tests(marker_bytes, Vec::<u8>::new())
+            .expect("control-slot envelope encode should succeed");
     store::set_raw_commit_marker_bytes_for_tests(control_slot_bytes)
         .expect("test helper should persist raw marker bytes");
 

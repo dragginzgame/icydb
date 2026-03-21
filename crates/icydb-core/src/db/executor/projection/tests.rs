@@ -3,9 +3,8 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(feature = "sql")]
-use crate::{db::query::fingerprint::projection_hash_for_test, db::response::ProjectedRow};
 use crate::{
+    db::data::{RawRow, StructuralSlotReader},
     db::query::{
         builder::aggregate::{count, sum},
         plan::{
@@ -18,6 +17,8 @@ use crate::{
     types::Ulid,
     value::Value,
 };
+#[cfg(feature = "sql")]
+use crate::{db::query::fingerprint::projection_hash_for_test, db::response::ProjectedRow};
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -25,8 +26,8 @@ use std::cmp::Ordering;
 #[cfg(feature = "sql")]
 use super::project_rows_from_projection;
 use super::{
-    GroupedRowView, eval_expr_grouped, eval_expr_with_slot_reader,
-    evaluate_grouped_projection_values,
+    GroupedRowView, compile_scalar_projection_expr, eval_expr_grouped, eval_expr_with_slot_reader,
+    eval_scalar_projection_expr, evaluate_grouped_projection_values,
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
@@ -100,6 +101,19 @@ fn eval_expr_for_row(
     })
 }
 
+fn eval_scalar_expr_for_row(
+    expr: &Expr,
+    row: &ProjectionEvalEntity,
+) -> Result<Value, crate::db::executor::projection::ScalarProjectionEvalError> {
+    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+        .expect("expression should compile onto scalar projection seam");
+    let raw_row = RawRow::from_entity(row).expect("persisted row should encode");
+    let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
+        .expect("persisted row should decode structurally");
+
+    eval_scalar_projection_expr(&compiled, &row_fields)
+}
+
 #[test]
 fn eval_expr_supports_arithmetic_projection() {
     let (_, entity) = row(1, 7, true);
@@ -116,6 +130,27 @@ fn eval_expr_supports_arithmetic_projection() {
         value.cmp_numeric(&Value::Int(8)),
         Some(Ordering::Equal),
         "arithmetic projection must preserve numeric semantics",
+    );
+}
+
+#[test]
+fn scalar_projection_expr_matches_generic_eval_for_arithmetic_projection() {
+    let (_, entity) = row(7, 41, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Add,
+        left: Box::new(Expr::Field(FieldId::new("rank"))),
+        right: Box::new(Expr::Literal(Value::Int(1))),
+    };
+
+    let generic_value =
+        eval_expr_for_row(&expr, &entity).expect("generic arithmetic projection should evaluate");
+    let scalar_value = eval_scalar_expr_for_row(&expr, &entity)
+        .expect("scalar arithmetic projection should evaluate");
+
+    assert_eq!(
+        generic_value.cmp_numeric(&scalar_value),
+        Some(Ordering::Equal),
+        "compiled scalar projection should preserve arithmetic projection semantics",
     );
 }
 

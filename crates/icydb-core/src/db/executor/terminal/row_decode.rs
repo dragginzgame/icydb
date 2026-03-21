@@ -9,8 +9,10 @@ use crate::model::field::EnumVariantModel;
 use crate::types::Ulid;
 use crate::{
     db::{
-        data::decode_structural_field_bytes,
-        data::{DataRow, RawRow, ScalarSlotValueRef, SlotReader, StorageKey, StructuralSlotReader},
+        data::{
+            DataRow, RawRow, ScalarSlotValueRef, SlotReader, StorageKey, StructuralSlotReader,
+            decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+        },
         executor::terminal::page::KernelRow,
     },
     error::InternalError,
@@ -160,13 +162,16 @@ fn decode_row_field(
             field.name,
         )));
     };
-    let value =
-        decode_structural_field_bytes(bytes, field.kind, field.storage_decode).map_err(|err| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{}' kind={:?}: {err}",
-                field.name, field.kind,
-            ))
-        })?;
+    let value = match field.storage_decode {
+        FieldStorageDecode::ByKind => decode_structural_field_by_kind_bytes(bytes, field.kind),
+        FieldStorageDecode::Value => decode_structural_value_storage_bytes(bytes),
+    }
+    .map_err(|err| {
+        InternalError::serialize_corruption(format!(
+            "row decode failed for field '{}' kind={:?}: {err}",
+            field.name, field.kind,
+        ))
+    })?;
 
     Ok(Some(value))
 }
@@ -210,6 +215,7 @@ fn validate_primary_key_slot(
 mod tests {
     use super::*;
     use crate::{
+        db::data::decode_structural_field_bytes,
         error::{ErrorClass, ErrorOrigin},
         model::field::{FieldKind, FieldStorageDecode},
         traits::EntitySchema,

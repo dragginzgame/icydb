@@ -1196,6 +1196,7 @@ dependencies = [
  "derive_more",
  "icydb-derive",
  "icydb-primitives",
+ "num-bigint",
  "num-traits",
  "proptest",
  "serde",

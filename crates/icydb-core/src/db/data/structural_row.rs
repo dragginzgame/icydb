@@ -78,16 +78,6 @@ pub(in crate::db) fn decode_structural_row_cbor(
     Ok(CborValue::Bytes(payload.into_owned()))
 }
 
-/// Strip transparent CBOR tags before structural row interpretation.
-#[must_use]
-pub(in crate::db) fn unwrap_structural_row_cbor_tags(mut value: CborValue) -> CborValue {
-    while let CborValue::Tag(_, inner) = value {
-        value = *inner;
-    }
-
-    value
-}
-
 // Collapse the local structural decode wrapper back into the internal taxonomy.
 fn structural_row_decode_internal_error(err: StructuralRowDecodeError) -> InternalError {
     match err {

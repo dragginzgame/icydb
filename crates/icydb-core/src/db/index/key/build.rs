@@ -14,6 +14,7 @@ use crate::{
                 encode_canonical_index_component_from_scalar,
             },
         },
+        scalar_expr::{compile_scalar_index_key_item_program, eval_scalar_value_program},
     },
     error::InternalError,
     model::{
@@ -515,6 +516,20 @@ fn index_component_bytes_from_slots(
     key_item: IndexKeyItem,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let field = key_item.field();
+
+    if let Some(program) = compile_scalar_index_key_item_program(slots.model(), key_item) {
+        // Shared scalar programs still fail closed when the backing row omits a
+        // declared source field. `None` here means the slot is absent, not that
+        // the scalar result was non-indexable.
+        let Some(source) = eval_scalar_value_program(&program, slots)? else {
+            return Err(InternalError::index_invariant(format!(
+                "index key item field missing on lookup row: {field}",
+            )));
+        };
+
+        return encode_scalar_index_component(source.as_slot_value_ref());
+    }
+
     let Some(field_index) = resolve_field_slot(slots.model(), field) else {
         return Err(InternalError::index_invariant(format!(
             "index key item field missing on entity model: {field}",

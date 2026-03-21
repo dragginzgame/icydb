@@ -20,8 +20,6 @@ use crate::{
 };
 use std::{collections::BTreeSet, fmt::Display};
 
-use metadata::StrongRelationInfo;
-
 pub(crate) use metadata::{StrongRelationTargetInfo, strong_relation_target_from_kind};
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_rows,
@@ -164,30 +162,4 @@ pub(super) fn for_each_relation_target_value(
     }
 
     Ok(())
-}
-
-/// Convert a relation value to its target raw data key representation.
-pub(in crate::db::relation) fn raw_relation_target_key(
-    source_path: &'static str,
-    field_name: &str,
-    relation: StrongRelationInfo,
-    value: &Value,
-) -> Result<RawDataKey, InternalError> {
-    build_relation_target_raw_key(
-        relation.target_entity_tag,
-        relation.target_entity_name,
-        value,
-    )
-    .map_err(|err| {
-        InternalError::relation_target_raw_key_error(
-            err,
-            source_path,
-            field_name,
-            relation.target_path,
-            relation.target_entity_name,
-            value,
-            "strong relation key not storage-compatible during relation processing",
-            "strong relation target entity invalid during relation processing",
-        )
-    })
 }

@@ -14,6 +14,7 @@ pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
+pub(crate) mod scalar_expr;
 pub(crate) mod schema;
 pub(crate) mod session;
 #[cfg(feature = "sql")]

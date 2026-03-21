@@ -14,7 +14,6 @@ use crate::{
     types::Ulid,
 };
 use canic_cdk::structures::Storable;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 // Commit-marker durability invariant:
@@ -41,8 +40,7 @@ pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 /// Store identity is derived from `entity_path` at apply/recovery time.
 ///
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct CommitRowOp {
     pub(crate) entity_path: String,
     pub(crate) key: Vec<u8>,
@@ -95,8 +93,7 @@ pub(crate) struct CommitIndexOp {
 /// This is internal commit-protocol metadata, not a user-schema type.
 ///
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub(crate) struct CommitMarker {
     pub(crate) id: [u8; COMMIT_ID_BYTES],
     pub(crate) row_ops: Vec<CommitRowOp>,
@@ -113,6 +110,238 @@ impl CommitMarker {
 
         Ok(Self { id, row_ops })
     }
+}
+
+const COMMIT_MARKER_ID_BYTES: usize = COMMIT_ID_BYTES;
+const COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES: usize = COMMIT_SCHEMA_FINGERPRINT_BYTES;
+const COMMIT_MARKER_FLAG_BEFORE: u8 = 0b0000_0001;
+const COMMIT_MARKER_FLAG_AFTER: u8 = 0b0000_0010;
+const COMMIT_MARKER_FLAG_MASK: u8 = COMMIT_MARKER_FLAG_BEFORE | COMMIT_MARKER_FLAG_AFTER;
+const COMMIT_MARKER_ROW_COUNT_BYTES: usize = 4;
+
+/// Encode one commit-marker payload in the canonical binary format.
+pub(in crate::db) fn encode_commit_marker_payload(
+    marker: &CommitMarker,
+) -> Result<Vec<u8>, InternalError> {
+    // Phase 1: size the output once so commit persistence writes one compact frame.
+    let mut capacity = COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES;
+    for row_op in &marker.row_ops {
+        capacity = capacity
+            .saturating_add(4 + row_op.entity_path.len())
+            .saturating_add(4 + row_op.key.len())
+            .saturating_add(1)
+            .saturating_add(COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES);
+        if let Some(bytes) = &row_op.before {
+            capacity = capacity.saturating_add(4 + bytes.len());
+        }
+        if let Some(bytes) = &row_op.after {
+            capacity = capacity.saturating_add(4 + bytes.len());
+        }
+    }
+    if capacity > u32::MAX as usize {
+        return Err(InternalError::store_unsupported(format!(
+            "commit marker payload exceeds u32 length limit: {capacity} bytes",
+        )));
+    }
+
+    // Phase 2: emit one length-delimited frame for deterministic recovery replay.
+    let mut encoded = Vec::with_capacity(capacity);
+    encoded.extend_from_slice(&marker.id);
+    write_len_u32(
+        &mut encoded,
+        marker.row_ops.len(),
+        "commit marker row count",
+    )?;
+    for row_op in &marker.row_ops {
+        write_len_prefixed_bytes(
+            &mut encoded,
+            row_op.entity_path.as_bytes(),
+            "commit marker entity_path",
+        )?;
+        write_len_prefixed_bytes(&mut encoded, &row_op.key, "commit marker key")?;
+
+        let mut flags = 0_u8;
+        if row_op.before.is_some() {
+            flags |= COMMIT_MARKER_FLAG_BEFORE;
+        }
+        if row_op.after.is_some() {
+            flags |= COMMIT_MARKER_FLAG_AFTER;
+        }
+        encoded.push(flags);
+
+        if let Some(bytes) = &row_op.before {
+            write_len_prefixed_bytes(&mut encoded, bytes, "commit marker before payload")?;
+        }
+        if let Some(bytes) = &row_op.after {
+            write_len_prefixed_bytes(&mut encoded, bytes, "commit marker after payload")?;
+        }
+
+        encoded.extend_from_slice(&row_op.schema_fingerprint);
+    }
+
+    Ok(encoded)
+}
+
+/// Decode one commit-marker payload from the canonical binary format.
+pub(in crate::db) fn decode_commit_marker_payload(
+    bytes: &[u8],
+) -> Result<CommitMarker, InternalError> {
+    // Phase 1: parse the fixed marker header before touching any row-op bytes.
+    if bytes.len() < COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES {
+        return Err(InternalError::store_corruption(commit_corruption_message(
+            "commit marker payload decode failed: truncated header",
+        )));
+    }
+
+    let mut cursor = 0;
+    let id = read_fixed_array::<COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor, "commit marker id")?;
+    let row_op_count = read_len_u32(bytes, &mut cursor, "commit marker row count")? as usize;
+    let mut row_ops = Vec::with_capacity(row_op_count);
+
+    // Phase 2: parse each length-delimited row op without routing through generic decode.
+    for _ in 0..row_op_count {
+        let entity_path_bytes =
+            read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
+        let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
+            InternalError::store_corruption(commit_corruption_message(
+                "commit marker payload decode failed: entity_path is not utf-8",
+            ))
+        })?;
+        let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?.to_vec();
+        let flags = *bytes.get(cursor).ok_or_else(|| {
+            InternalError::store_corruption(commit_corruption_message(
+                "commit marker payload decode failed: truncated row-op flags",
+            ))
+        })?;
+        cursor = cursor.saturating_add(1);
+        if flags & !COMMIT_MARKER_FLAG_MASK != 0 {
+            return Err(InternalError::store_corruption(commit_corruption_message(
+                "commit marker payload decode failed: invalid row-op flags",
+            )));
+        }
+
+        let before = if flags & COMMIT_MARKER_FLAG_BEFORE != 0 {
+            Some(
+                read_len_prefixed_bytes(bytes, &mut cursor, "commit marker before payload")?
+                    .to_vec(),
+            )
+        } else {
+            None
+        };
+        let after = if flags & COMMIT_MARKER_FLAG_AFTER != 0 {
+            Some(
+                read_len_prefixed_bytes(bytes, &mut cursor, "commit marker after payload")?
+                    .to_vec(),
+            )
+        } else {
+            None
+        };
+        let schema_fingerprint = read_fixed_array::<COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES>(
+            bytes,
+            &mut cursor,
+            "commit marker schema fingerprint",
+        )?;
+
+        row_ops.push(CommitRowOp::new(
+            entity_path,
+            key,
+            before,
+            after,
+            schema_fingerprint,
+        ));
+    }
+
+    // Phase 3: reject trailing bytes so malformed payloads fail closed.
+    if cursor != bytes.len() {
+        return Err(InternalError::store_corruption(commit_corruption_message(
+            "commit marker payload decode failed: trailing bytes after payload",
+        )));
+    }
+
+    Ok(CommitMarker { id, row_ops })
+}
+
+// Write one bounded little-endian u32 length field.
+fn write_len_u32(out: &mut Vec<u8>, len: usize, label: &'static str) -> Result<(), InternalError> {
+    let len = u32::try_from(len).map_err(|_| {
+        InternalError::store_unsupported(format!("{label} exceeds u32 length limit: {len} bytes"))
+    })?;
+    out.extend_from_slice(&len.to_le_bytes());
+
+    Ok(())
+}
+
+// Write one length-delimited byte slice into the marker payload.
+fn write_len_prefixed_bytes(
+    out: &mut Vec<u8>,
+    bytes: &[u8],
+    label: &'static str,
+) -> Result<(), InternalError> {
+    write_len_u32(out, bytes.len(), label)?;
+    out.extend_from_slice(bytes);
+
+    Ok(())
+}
+
+// Read one little-endian u32 length from the marker payload.
+fn read_len_u32(
+    bytes: &[u8],
+    cursor: &mut usize,
+    label: &'static str,
+) -> Result<u32, InternalError> {
+    let payload = bytes
+        .get(*cursor..cursor.saturating_add(4))
+        .ok_or_else(|| {
+            InternalError::store_corruption(commit_corruption_message(format!(
+                "{label} decode failed: truncated length",
+            )))
+        })?;
+    *cursor = cursor.saturating_add(4);
+
+    Ok(u32::from_le_bytes([
+        payload[0], payload[1], payload[2], payload[3],
+    ]))
+}
+
+// Read one fixed-size byte array from the marker payload.
+fn read_fixed_array<const N: usize>(
+    bytes: &[u8],
+    cursor: &mut usize,
+    label: &'static str,
+) -> Result<[u8; N], InternalError> {
+    let payload = bytes
+        .get(*cursor..cursor.saturating_add(N))
+        .ok_or_else(|| {
+            InternalError::store_corruption(commit_corruption_message(format!(
+                "{label} decode failed: truncated bytes",
+            )))
+        })?;
+    *cursor = cursor.saturating_add(N);
+
+    payload.try_into().map_err(|_| {
+        InternalError::store_corruption(commit_corruption_message(format!(
+            "{label} decode failed: invalid fixed-size payload",
+        )))
+    })
+}
+
+// Read one length-delimited byte slice from the marker payload.
+fn read_len_prefixed_bytes<'a>(
+    bytes: &'a [u8],
+    cursor: &mut usize,
+    label: &'static str,
+) -> Result<&'a [u8], InternalError> {
+    let len = read_len_u32(bytes, cursor, label)? as usize;
+    let payload = bytes
+        .get(*cursor..cursor.saturating_add(len))
+        .ok_or_else(|| {
+            InternalError::store_corruption(commit_corruption_message(format!(
+                "{label} decode failed: truncated bytes",
+            )))
+        })?;
+    *cursor = cursor.saturating_add(len);
+
+    Ok(payload)
 }
 
 /// Decode a raw index key and validate its structural invariants.

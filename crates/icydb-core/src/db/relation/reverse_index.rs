@@ -8,8 +8,8 @@ use crate::{
         Db,
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
         data::{
-            DataKey, RawDataKey, RawRow, SlotReader, StorageKey, StructuralSlotReader,
-            decode_structural_field_bytes,
+            DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef, SlotReader,
+            StorageKey, StructuralSlotReader, decode_relation_target_storage_keys_bytes,
         },
         index::{
             IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
@@ -18,19 +18,13 @@ use crate::{
         },
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            for_each_relation_target_value,
             metadata::{StrongRelationInfo, strong_relations_for_model},
-            raw_relation_target_key,
         },
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldStorageDecode},
-    },
+    model::{entity::EntityModel, field::FieldKind},
     traits::{CanisterKind, EntityKind},
     types::EntityTag,
-    value::Value,
 };
 use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 
@@ -120,28 +114,6 @@ pub(super) fn reverse_index_key_for_target_storage_key(
     Ok(Some(key))
 }
 
-/// Extract relation-target raw keys from a field value.
-fn relation_target_keys_from_value(
-    source: ReverseRelationSourceInfo,
-    field_name: &str,
-    relation: StrongRelationInfo,
-    value: &Value,
-) -> Result<BTreeSet<RawDataKey>, InternalError> {
-    let mut keys = BTreeSet::new();
-
-    for_each_relation_target_value(value, |item| {
-        keys.insert(raw_relation_target_key(
-            source.path,
-            field_name,
-            relation,
-            item,
-        )?);
-        Ok(())
-    })?;
-
-    Ok(keys)
-}
-
 /// Read relation-target raw keys directly from one persisted source row.
 ///
 /// This structural path exists for delete validation, where the runtime only
@@ -154,9 +126,16 @@ pub(super) fn relation_target_keys_for_source_row(
     relation: StrongRelationInfo,
 ) -> Result<BTreeSet<RawDataKey>, InternalError> {
     let row_fields = decode_relation_row_fields(raw_row, source_model, source_info, relation)?;
-    let relation_value = decode_relation_field_from_row_fields(&row_fields, source_info, relation)?;
 
-    relation_target_keys_from_value(source_info, relation.field_name, relation, &relation_value)
+    // Phase 1: keep single relation slots on the scalar fast path when the
+    // persisted field already uses a storage-key-compatible leaf codec.
+    if let Some(keys) = relation_target_keys_from_scalar_slot(&row_fields, source_info, relation)? {
+        return Ok(keys);
+    }
+
+    // Phase 2: decode the declared relation field payload directly into target
+    // storage keys without rebuilding a runtime `Value` container.
+    relation_target_keys_from_field_bytes(&row_fields, source_info, relation)
 }
 
 /// Decode a reverse-index entry into source-key membership.
@@ -270,12 +249,12 @@ fn decode_relation_row_fields<'a>(
 }
 
 // Decode the one strong-relation field payload needed by structural delete
-// validation directly from the encoded field payload bytes.
-fn decode_relation_field_from_row_fields(
+// validation directly into raw target keys from the encoded field bytes.
+fn relation_target_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<Value, InternalError> {
+) -> Result<BTreeSet<RawDataKey>, InternalError> {
     validate_relation_field_kind(relation.field_kind)?;
 
     let Some(bytes) = row_fields.get_bytes(relation.field_index) else {
@@ -284,14 +263,90 @@ fn decode_relation_field_from_row_fields(
             source.path, relation.field_name, relation.target_path,
         )));
     };
-    decode_structural_field_bytes(bytes, relation.field_kind, FieldStorageDecode::ByKind).map_err(
-        |err| {
+    let keys =
+        decode_relation_target_storage_keys_bytes(bytes, relation.field_kind).map_err(|err| {
             InternalError::serialize_corruption(format!(
                 "relation source row decode failed: source={} field={} target={} ({err})",
                 source.path, relation.field_name, relation.target_path,
             ))
-        },
-    )
+        })?;
+
+    keys.into_iter()
+        .map(|value| raw_relation_target_key_from_storage_key(source, relation, value))
+        .collect()
+}
+
+// Decode one singular strong relation directly from the scalar slot codec when
+// the relation key kind is already storage-key-compatible on the persisted row.
+fn relation_target_keys_from_scalar_slot(
+    row_fields: &StructuralSlotReader<'_>,
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+) -> Result<Option<BTreeSet<RawDataKey>>, InternalError> {
+    let FieldKind::Relation { .. } = relation.field_kind else {
+        return Ok(None);
+    };
+
+    match row_fields.get_scalar(relation.field_index)? {
+        Some(ScalarSlotValueRef::Null) => Ok(Some(BTreeSet::new())),
+        Some(ScalarSlotValueRef::Value(value)) => {
+            let mut keys = BTreeSet::new();
+            let storage_key = storage_key_from_relation_scalar(value).ok_or_else(|| {
+                InternalError::serialize_corruption(format!(
+                    "relation source row decode failed: unsupported scalar relation key: source={} field={} target={}",
+                    source.path, relation.field_name, relation.target_path,
+                ))
+            })?;
+            keys.insert(raw_relation_target_key_from_storage_key(
+                source,
+                relation,
+                storage_key,
+            )?);
+
+            Ok(Some(keys))
+        }
+        None if row_fields.has(relation.field_index) => Ok(None),
+        None => Err(InternalError::serialize_corruption(format!(
+            "relation source row decode failed: missing field: source={} field={} target={}",
+            source.path, relation.field_name, relation.target_path,
+        ))),
+    }
+}
+
+// Convert one scalar relation payload into the storage-key representation used
+// by reverse-index and target-row identities.
+const fn storage_key_from_relation_scalar(value: ScalarValueRef<'_>) -> Option<StorageKey> {
+    match value {
+        ScalarValueRef::Int(value) => Some(StorageKey::Int(value)),
+        ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
+        ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
+        ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
+        ScalarValueRef::Uint(value) => Some(StorageKey::Uint(value)),
+        ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
+        ScalarValueRef::Unit => Some(StorageKey::Unit),
+        ScalarValueRef::Blob(_)
+        | ScalarValueRef::Bool(_)
+        | ScalarValueRef::Date(_)
+        | ScalarValueRef::Duration(_)
+        | ScalarValueRef::Float32(_)
+        | ScalarValueRef::Float64(_)
+        | ScalarValueRef::Text(_) => None,
+    }
+}
+
+// Encode one decoded relation storage key directly into the target raw-key
+// shape without materializing an intermediate runtime `Value`.
+fn raw_relation_target_key_from_storage_key(
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+    value: StorageKey,
+) -> Result<RawDataKey, InternalError> {
+    DataKey::raw_from_parts(relation.target_entity_tag, value).map_err(|err| {
+        InternalError::serialize_corruption(format!(
+            "relation source row decode failed: source={} field={} target={} ({err})",
+            source.path, relation.field_name, relation.target_path,
+        ))
+    })
 }
 
 // Enforce the narrow relation-field shapes that strong-relation structural

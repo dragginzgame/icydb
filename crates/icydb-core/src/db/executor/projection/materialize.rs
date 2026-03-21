@@ -6,9 +6,11 @@
 #[cfg(feature = "sql")]
 use crate::db::{
     Db,
-    data::{DataKey, DataRow},
+    data::{
+        DataKey, DataRow, SlotReader, StorageKey, StructuralSlotReader,
+        decode_slot_value_by_contract,
+    },
     executor::pipeline::entrypoints::execute_prepared_scalar_rows_for_canister,
-    executor::terminal::{RowDecoder, RowLayout},
     executor::{EntityAuthority, PreparedLoadPlan},
 };
 #[cfg(all(feature = "sql", test))]
@@ -23,13 +25,17 @@ use crate::{
         query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::entity::{EntityModel, resolve_primary_key_slot},
     traits::CanisterKind,
     value::Value,
 };
 
 use crate::db::executor::projection::{
-    eval::{ProjectionEvalError, eval_expr_grouped, eval_expr_with_slot_reader},
+    eval::{
+        ProjectionEvalError, ScalarProjectionEvalError, ScalarProjectionExpr,
+        compile_scalar_projection_expr, eval_expr_grouped, eval_expr_with_slot_reader,
+        eval_scalar_projection_expr,
+    },
     grouped::GroupedRowView,
 };
 
@@ -96,6 +102,14 @@ where
         .collect::<Vec<_>>();
 
     Ok(SqlStructuralProjectionRows::new(rows, row_count))
+}
+
+#[cfg(feature = "sql")]
+// Compile the projection once so row materialization can dispatch into one
+// scalar-only or generic-only loop.
+enum StructuralProjectionPlan {
+    Scalar(Vec<ScalarProjectionExpr>),
+    Generic,
 }
 
 /// Validate projection expressions over one row-domain that can expose values
@@ -207,22 +221,141 @@ fn project_data_rows_from_projection_structural(
     projection: &ProjectionSpec,
     rows: &[DataRow],
 ) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
-    let row_layout = RowLayout::from_model(model);
-    let row_decoder = RowDecoder::structural();
+    match compile_structural_projection_plan(model, projection) {
+        StructuralProjectionPlan::Scalar(compiled_fields) => {
+            project_scalar_data_rows_from_projection_structural(
+                compiled_fields.as_slice(),
+                rows,
+                model,
+            )
+        }
+        StructuralProjectionPlan::Generic => {
+            project_generic_data_rows_from_projection_structural(model, projection, rows)
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn compile_structural_projection_plan(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+) -> StructuralProjectionPlan {
+    let mut compiled_fields = Vec::with_capacity(projection.len());
+
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                let Some(compiled) = compile_scalar_projection_expr(model, expr) else {
+                    return StructuralProjectionPlan::Generic;
+                };
+                compiled_fields.push(compiled);
+            }
+        }
+    }
+
+    StructuralProjectionPlan::Scalar(compiled_fields)
+}
+
+#[cfg(feature = "sql")]
+fn project_scalar_data_rows_from_projection_structural(
+    compiled_fields: &[ScalarProjectionExpr],
+    rows: &[DataRow],
+    model: &'static EntityModel,
+) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
     let mut projected_rows = Vec::with_capacity(rows.len());
 
-    // Phase 1: decode each materialized row structurally and evaluate the
-    // projection expressions without introducing typed entity rows.
+    // Phase 1: evaluate fully scalar projections through the compiled scalar
+    // expression path only.
     for (data_key, raw_row) in rows {
-        let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
-        let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot| row.slot(slot);
-        visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |value| {
+        let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
+        validate_projection_row_primary_key(data_key.storage_key(), &row_fields)?;
+
+        let mut values = Vec::with_capacity(compiled_fields.len());
+        for compiled in compiled_fields {
+            let value =
+                eval_scalar_projection_expr(compiled, &row_fields).map_err(|err| match err {
+                    ScalarProjectionEvalError::Eval(err) => {
+                        crate::db::error::query_invalid_logical_plan(err.to_string())
+                    }
+                    ScalarProjectionEvalError::Internal(err) => err,
+                })?;
             values.push(value);
-        })
-        .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        }
         projected_rows.push((data_key.clone(), values));
     }
 
     Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+fn project_generic_data_rows_from_projection_structural(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+    rows: &[DataRow],
+) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+    let mut projected_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: keep the generic evaluator isolated to projection shapes that
+    // genuinely leave the scalar seam.
+    for (data_key, raw_row) in rows {
+        let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
+        validate_projection_row_primary_key(data_key.storage_key(), &row_fields)?;
+
+        let mut values = Vec::with_capacity(projection.len());
+        let mut slot_cache: Vec<Option<Value>> = vec![None; model.fields().len()];
+        let mut slot_decoded = vec![false; model.fields().len()];
+        let mut slot_error: Option<InternalError> = None;
+        let mut read_slot = |slot: usize| {
+            if !slot_decoded[slot] {
+                match decode_slot_value_by_contract(&row_fields, slot) {
+                    Ok(value) => slot_cache[slot] = value,
+                    Err(err) => slot_error = Some(err),
+                }
+                slot_decoded[slot] = true;
+            }
+
+            slot_cache[slot].clone()
+        };
+        visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |value| {
+            values.push(value);
+        })
+        .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        if let Some(err) = slot_error {
+            return Err(err);
+        }
+        projected_rows.push((data_key.clone(), values));
+    }
+
+    Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+fn validate_projection_row_primary_key(
+    expected_key: StorageKey,
+    row_fields: &StructuralSlotReader<'_>,
+) -> Result<(), InternalError> {
+    let Some(primary_key_slot) = resolve_primary_key_slot(row_fields.model()) else {
+        return Err(crate::db::error::query_executor_invariant(
+            "projection row missing primary-key slot",
+        ));
+    };
+
+    let Some(primary_key_value) = decode_slot_value_by_contract(row_fields, primary_key_slot)?
+    else {
+        return Err(InternalError::serialize_corruption(
+            "projection row decode failed: missing primary-key slot value",
+        ));
+    };
+    let decoded_key = StorageKey::try_from_value(&primary_key_value).map_err(|err| {
+        InternalError::serialize_corruption(format!(
+            "projection row decode failed: primary-key value is not storage-key encodable: {err}",
+        ))
+    })?;
+    if decoded_key != expected_key {
+        return Err(InternalError::store_corruption(format!(
+            "projection row key mismatch: expected {expected_key}, found {decoded_key}",
+        )));
+    }
+
+    Ok(())
 }
