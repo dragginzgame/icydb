@@ -6,16 +6,15 @@
 use crate::{
     db::{
         Db,
-        codec::deserialize_row,
         commit::{
             CommitRowOp, PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
             decode_data_key, decode_index_entry, decode_index_key,
         },
-        data::{DataKey, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key},
+        data::{DataKey, DataStore, RawDataKey, RawRow, SlotReader, StructuralSlotReader},
         index::{
             IndexEntryReader, IndexMutationPlan, PrimaryRowReader, RawIndexKey,
             StructuralIndexEntryReader, compile_index_membership_predicate,
-            index_key_for_entity_with_membership, plan_index_mutation_for_entity,
+            index_key_for_slot_reader_with_membership, plan_index_mutation_for_slot_reader,
         },
         relation::ReverseRelationSourceInfo,
         relation::prepare_reverse_relation_index_mutations_for_source_rows,
@@ -57,13 +56,12 @@ impl CommitPrepareAuthority {
 }
 
 ///
-/// TypedCommitPreparation
+/// ForwardIndexCommitPreparation
 ///
-/// Typed leaf output containing only the forward-index artifacts that still
-/// require entity field access.
+/// Structural forward-index output produced from slot readers only.
 ///
 
-struct TypedCommitPreparation {
+struct ForwardIndexCommitPreparation {
     index_plan: IndexMutationPlan,
     index_delta_kind_by_key: BTreeMap<RawIndexKey, PreparedIndexDeltaKind>,
 }
@@ -71,7 +69,7 @@ struct TypedCommitPreparation {
 ///
 /// StructuralCommitInputs
 ///
-/// Structural commit inputs decoded before the typed forward-index leaf runs.
+/// Structural commit inputs decoded before forward-index planning runs.
 ///
 
 struct StructuralCommitInputs {
@@ -84,7 +82,7 @@ struct StructuralCommitInputs {
 ///
 /// PreparedRowCommitMaterialization
 ///
-/// Generic-free commit-preparation payload after typed decode and planning.
+/// Generic-free commit-preparation payload after forward-index planning.
 /// Carries only structural index/data artifacts so the final materialization
 /// loop does not monomorphize per entity.
 ///
@@ -156,7 +154,7 @@ where
 {
     let authority = CommitPrepareAuthority::for_type::<E>();
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
-    let typed = prepare_typed_commit_leaf::<E>(
+    let forward_index = prepare_forward_index_commit_leaf::<E>(
         db,
         row_reader,
         index_reader,
@@ -165,25 +163,23 @@ where
         structural.new_row.as_ref(),
     )?;
 
-    finalize_row_commit_structural(db, index_reader, authority, structural, typed)
+    finalize_row_commit_structural(db, index_reader, authority, structural, forward_index)
 }
 
-// Decode only the typed rows required for forward-index planning and produce
-// structural-ready forward-index outputs.
-fn prepare_typed_commit_leaf<E: EntityKind + EntityValue>(
+// Decode only the structural row views required for forward-index planning and
+// produce structural-ready forward-index outputs.
+fn prepare_forward_index_commit_leaf<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_reader: &dyn PrimaryRowReader<E>,
     index_reader: &dyn CommitPrepareIndexReader<E>,
     data_key: &DataKey,
     old_row: Option<&RawRow>,
     new_row: Option<&RawRow>,
-) -> Result<TypedCommitPreparation, InternalError> {
+) -> Result<ForwardIndexCommitPreparation, InternalError> {
     // Skip typed row reconstruction entirely when the entity has no secondary
-    // indexes. In that case this leaf has no forward-index work to perform, so
-    // paying `deserialize_row::<E>` here only clones entity-specific decode
-    // graphs without affecting the resulting commit materialization.
+    // indexes. In that case this leaf has no forward-index work to perform.
     if E::INDEXES.is_empty() {
-        return Ok(TypedCommitPreparation {
+        return Ok(ForwardIndexCommitPreparation {
             index_plan: IndexMutationPlan {
                 apply: Vec::new(),
                 commit_ops: Vec::new(),
@@ -192,56 +188,60 @@ fn prepare_typed_commit_leaf<E: EntityKind + EntityValue>(
         });
     }
 
-    let expected_key = data_key.try_key::<E>()?;
-
-    let decode_entity_from_marker_row = |bytes: &[u8], label: &str| -> Result<E, InternalError> {
-        RawRow::ensure_size(bytes)?;
-        decode_and_validate_entity_key::<E, _, _, _, _>(
-            expected_key,
-            || deserialize_row::<E>(bytes),
-            |err| {
-                let message = format!("commit marker {label} row decode failed: {err}");
-                if err.class() == ErrorClass::IncompatiblePersistedFormat {
-                    InternalError::serialize_incompatible_persisted_format(message)
-                } else {
-                    InternalError::serialize_corruption(message)
-                }
-            },
-            |expected, actual| {
-                InternalError::store_corruption(format!(
-                    "commit marker row key mismatch: expected {expected:?}, found {actual:?}"
-                ))
-            },
-        )
-    };
-
-    let old_entity = old_row
-        .map(|row| {
-            let entity = decode_entity_from_marker_row(row.as_bytes(), "before")?;
-            Ok::<E, InternalError>(entity)
-        })
+    let storage_key = data_key.storage_key();
+    let mut old_slots = old_row
+        .map(|row| decode_commit_marker_row_slots::<E>(data_key, row, "before"))
         .transpose()?;
-    let new_entity = new_row
-        .map(|row| {
-            let entity = decode_entity_from_marker_row(row.as_bytes(), "after")?;
-            Ok::<E, InternalError>(entity)
-        })
+    let mut new_slots = new_row
+        .map(|row| decode_commit_marker_row_slots::<E>(data_key, row, "after"))
         .transpose()?;
 
-    let index_plan = plan_index_mutation_for_entity::<E>(
+    let index_plan = plan_index_mutation_for_slot_reader::<E>(
         db,
         row_reader,
         index_reader,
-        old_entity.as_ref(),
-        new_entity.as_ref(),
+        old_row.map(|_| storage_key),
+        old_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
+        new_row.map(|_| storage_key),
+        new_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
     )?;
-    let index_delta_kind_by_key =
-        annotate_forward_index_delta_kinds::<E>(old_entity.as_ref(), new_entity.as_ref())?;
+    let index_delta_kind_by_key = annotate_forward_index_delta_kinds_from_slots::<E>(
+        old_row.map(|_| storage_key),
+        old_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
+        new_row.map(|_| storage_key),
+        new_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
+    )?;
 
-    Ok(TypedCommitPreparation {
+    Ok(ForwardIndexCommitPreparation {
         index_plan,
         index_delta_kind_by_key,
     })
+}
+
+// Decode one commit-marker row into one validated slot reader so forward-index
+// planning can stay entirely on structural persisted-row access.
+fn decode_commit_marker_row_slots<'a, E: EntityKind>(
+    data_key: &DataKey,
+    row: &'a RawRow,
+    label: &str,
+) -> Result<StructuralSlotReader<'a>, InternalError> {
+    let mut slots = StructuralSlotReader::from_raw_row(row, E::MODEL).map_err(|err| {
+        let message = format!("commit marker {label} row decode failed: {err}");
+        if err.class() == ErrorClass::IncompatiblePersistedFormat {
+            InternalError::serialize_incompatible_persisted_format(message)
+        } else {
+            InternalError::serialize_corruption(message)
+        }
+    })?;
+    slots
+        .validate_storage_key_for_entity::<E>(data_key)
+        .map_err(|err| {
+            InternalError::store_corruption(format!(
+                "commit marker {label} row key mismatch: {err}"
+            ))
+        })?;
+
+    Ok(slots)
 }
 
 // Decode structural commit inputs before the typed forward-index leaf runs.
@@ -295,7 +295,7 @@ fn finalize_row_commit_structural<C>(
     index_reader: &dyn StructuralIndexEntryReader,
     authority: CommitPrepareAuthority,
     structural: StructuralCommitInputs,
-    typed: TypedCommitPreparation,
+    forward_index: ForwardIndexCommitPreparation,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where
     C: crate::traits::CanisterKind,
@@ -313,8 +313,8 @@ where
 
     materialize_prepared_row_commit(PreparedRowCommitMaterialization {
         entity_path: authority.entity_path,
-        index_plan: typed.index_plan,
-        index_delta_kind_by_key: typed.index_delta_kind_by_key,
+        index_plan: forward_index.index_plan,
+        index_delta_kind_by_key: forward_index.index_delta_kind_by_key,
         reverse_index_ops,
         data_store: data_store.data_store(),
         data_key: structural.raw_key,
@@ -323,28 +323,46 @@ where
 }
 
 // Derive the forward-index delta-kind annotations needed by commit-window
-// observability before the generic shell hands control to structural materialization.
-fn annotate_forward_index_delta_kinds<E: EntityKind + EntityValue>(
-    old_entity: Option<&E>,
-    new_entity: Option<&E>,
+// observability from slot-reader projections only.
+fn annotate_forward_index_delta_kinds_from_slots<E: EntityKind>(
+    old_storage_key: Option<crate::value::StorageKey>,
+    mut old_slots: Option<&mut dyn SlotReader>,
+    new_storage_key: Option<crate::value::StorageKey>,
+    mut new_slots: Option<&mut dyn SlotReader>,
 ) -> Result<BTreeMap<RawIndexKey, PreparedIndexDeltaKind>, InternalError> {
     let mut index_delta_kind_by_key = BTreeMap::new();
     for index in E::INDEXES {
         let membership_program = compile_index_membership_predicate::<E>(index)?;
-        let old_key = old_entity
-            .map(|entity| {
-                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)
-            })
-            .transpose()?
-            .flatten()
-            .map(|key| key.to_raw());
-        let new_key = new_entity
-            .map(|entity| {
-                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)
-            })
-            .transpose()?
-            .flatten()
-            .map(|key| key.to_raw());
+        let old_key = match old_slots.as_deref_mut() {
+            Some(slots) => old_storage_key
+                .map(|storage_key| {
+                    index_key_for_slot_reader_with_membership::<E>(
+                        index,
+                        membership_program.as_ref(),
+                        storage_key,
+                        slots,
+                    )
+                })
+                .transpose()?
+                .flatten()
+                .map(|key| key.to_raw()),
+            None => None,
+        };
+        let new_key = match new_slots.as_deref_mut() {
+            Some(slots) => new_storage_key
+                .map(|storage_key| {
+                    index_key_for_slot_reader_with_membership::<E>(
+                        index,
+                        membership_program.as_ref(),
+                        storage_key,
+                        slots,
+                    )
+                })
+                .transpose()?
+                .flatten()
+                .map(|key| key.to_raw()),
+            None => None,
+        };
 
         if old_key != new_key {
             if let Some(old_key) = old_key {

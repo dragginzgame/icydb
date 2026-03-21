@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, RawRow, decode_raw_row_for_entity_key},
+        data::{DataKey, PersistedRow, RawRow, decode_raw_row_for_entity_key},
         executor::{
             Context, ExecutorError,
             mutation::{commit_save_row_ops_with_window, mutation_write_context},
@@ -16,7 +16,7 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
 };
 use candid::CandidType;
 use derive_more::Display;
@@ -47,7 +47,7 @@ enum SaveMode {
 ///
 
 #[derive(Clone, Copy)]
-pub(in crate::db) struct SaveExecutor<E: EntityKind + EntityValue> {
+pub(in crate::db) struct SaveExecutor<E: PersistedRow + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
 }
 
@@ -73,7 +73,7 @@ impl SaveRule {
     }
 }
 
-impl<E: EntityKind + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // ======================================================================
     // Construction & configuration
     // ======================================================================

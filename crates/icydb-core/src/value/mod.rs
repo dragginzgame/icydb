@@ -318,13 +318,34 @@ impl Value {
         Ok(())
     }
 
+    // Compare two map entries by canonical key order.
+    pub(crate) fn compare_map_entry_keys(left: &(Self, Self), right: &(Self, Self)) -> Ordering {
+        Self::canonical_cmp_key(&left.0, &right.0)
+    }
+
+    // Sort map entries in canonical key order without changing ownership.
+    pub(crate) fn sort_map_entries_in_place(entries: &mut [(Self, Self)]) {
+        entries.sort_by(Self::compare_map_entry_keys);
+    }
+
+    // Return `true` when map entries are already in strict canonical order and
+    // therefore contain no duplicate canonical keys.
+    pub(crate) fn map_entries_are_strictly_canonical(entries: &[(Self, Self)]) -> bool {
+        entries.windows(2).all(|pair| {
+            let [left, right] = pair else {
+                return true;
+            };
+
+            Self::compare_map_entry_keys(left, right) == Ordering::Less
+        })
+    }
+
     /// Normalize map entries into canonical deterministic order.
     pub fn normalize_map_entries(
         mut entries: Vec<(Self, Self)>,
     ) -> Result<Vec<(Self, Self)>, MapValueError> {
         Self::validate_map_entries(&entries)?;
-        entries
-            .sort_by(|(left_key, _), (right_key, _)| Self::canonical_cmp_key(left_key, right_key));
+        Self::sort_map_entries_in_place(entries.as_mut_slice());
 
         for i in 1..entries.len() {
             let (left_key, _) = &entries[i - 1];

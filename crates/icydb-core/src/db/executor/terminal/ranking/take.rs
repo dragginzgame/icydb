@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        PersistedRow,
         executor::{
             ExecutablePlan, pipeline::contracts::LoadExecutor,
             terminal::ranking::RankingTerminalBoundaryRequest,
@@ -12,12 +13,12 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
 };
 
 impl<E> LoadExecutor<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     /// Execute one `take(k)` terminal over the canonical load response.
     pub(in crate::db) fn take(

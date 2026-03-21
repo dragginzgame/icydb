@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession,
+        DbSession, PersistedRow,
         executor::{
             ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
             ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
@@ -24,7 +24,7 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
     types::{Decimal, Id},
     value::Value,
 };
@@ -33,7 +33,7 @@ type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 
 impl<E> FluentLoadQuery<'_, E>
 where
-    E: EntityKind,
+    E: PersistedRow,
 {
     // ------------------------------------------------------------------
     // Execution (single semantic boundary)

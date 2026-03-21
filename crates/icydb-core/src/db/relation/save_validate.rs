@@ -13,9 +13,19 @@ use crate::{
         },
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
+
+/// Return `true` when one entity model declares at least one strong relation target.
+#[must_use]
+pub(in crate::db) fn model_has_strong_relation_targets(model: &'static EntityModel) -> bool {
+    model
+        .fields()
+        .iter()
+        .any(|field| strong_relation_target_from_kind(&field.kind).is_some())
+}
 
 /// Validate strong relation references for one save candidate entity.
 pub(in crate::db) fn validate_save_strong_relations<E>(

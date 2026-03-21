@@ -6,10 +6,7 @@
 
 use crate::{
     db::{
-        data::{
-            DataKey, StorageKey, StructuralRowDecodeError, StructuralRowObject, StructuralRowSlots,
-            decode_structural_field_value,
-        },
+        data::{DataKey, StorageKey, StructuralSlotReader},
         index::{
             IndexEntryCorruption, IndexEntryReader, IndexId, IndexKey, IndexStore, PrimaryRowReader,
         },
@@ -17,7 +14,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
     model::{entity::resolve_primary_key_slot, index::IndexModel},
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, EntityValue},
 };
 use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
 
@@ -39,29 +36,23 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     index_reader: &dyn IndexEntryReader<E>,
     index: &IndexModel,
     store: &'static LocalKey<RefCell<IndexStore>>,
-    new_key: Option<&E::Key>,
-    new_entity: Option<&E>,
+    new_storage_key: Option<StorageKey>,
+    new_index_key: Option<&IndexKey>,
 ) -> Result<(), InternalError> {
     // Phase 1: fast exits for non-unique or non-insert/update paths.
     if !index.is_unique() {
         return Ok(());
     }
 
-    let Some(new_entity) = new_entity else {
+    let Some(new_index_key) = new_index_key else {
         // Delete/no-op paths do not need unique validation.
         return Ok(());
     };
 
-    let Some(new_key) = new_key else {
+    let Some(new_storage_key) = new_storage_key else {
         return Err(InternalError::index_invariant(
             "missing entity key during unique validation".to_string(),
         ));
-    };
-    let new_storage_key = StorageKey::try_from_value(&new_key.to_value())?;
-
-    // Phase 2: build canonical unique-prefix components for the incoming row.
-    let Some(new_index_key) = IndexKey::new(new_entity, index)? else {
-        return Ok(());
     };
 
     let mut encoded_prefix = Vec::with_capacity(new_index_key.component_count());
@@ -131,9 +122,8 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     let row = row_reader.read_primary_row(&data_key)?.ok_or_else(|| {
         InternalError::index_plan_store_corruption(format!("missing row: {data_key}"))
     })?;
-    let row_object = decode_unique_row_object::<E>(&data_key, &row)?;
-    let row_slots = row_object.slots_for_model(E::MODEL);
-    let stored_key = decode_unique_row_storage_key::<E>(&data_key, &row_slots)?;
+    let mut row_fields = decode_unique_row_fields::<E>(&data_key, &row)?;
+    let stored_key = decode_unique_row_storage_key::<E>(&data_key, &mut row_fields)?;
     if stored_key != existing_key {
         // Stored row decoded successfully but key disagreement is a cross-component invariant
         // failure, not a structural decode/persistence corruption.
@@ -148,8 +138,12 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         )));
     }
 
-    let Some(stored_index_key) =
-        build_unique_index_key_from_row_slots::<E>(&data_key, existing_key, &row_slots, index)?
+    let Some(stored_index_key) = build_unique_index_key_from_row_slots::<E>(
+        &data_key,
+        existing_key,
+        &mut row_fields,
+        index,
+    )?
     else {
         return Err(InternalError::index_plan_index_corruption(format!(
             "index corrupted: {} ({}) -> stored entity is not indexable for unique key",
@@ -199,24 +193,16 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     Err(InternalError::index_violation(E::PATH, index.fields()))
 }
 
-// Decode one stored row through the canonical structural persisted-row path for
-// unique validation.
-fn decode_unique_row_object<E: EntityKind>(
+// Decode one stored row through the canonical structural persisted-row scanner
+// for unique validation.
+fn decode_unique_row_fields<'a, E: EntityKind>(
     data_key: &DataKey,
-    row: &crate::db::data::RawRow,
-) -> Result<StructuralRowObject, InternalError> {
-    StructuralRowObject::from_raw_row(row).map_err(|err| match err {
-        StructuralRowDecodeError::Deserialize(source) => {
-            InternalError::index_plan_serialize_corruption(format!(
-                "failed to structurally deserialize row: {data_key} ({source})"
-            ))
-        }
-        StructuralRowDecodeError::ExpectedTopLevelMap => {
-            InternalError::index_plan_serialize_corruption(format!(
-                "failed to structurally deserialize row: {data_key} (expected top-level CBOR map for {})",
-                E::PATH
-            ))
-        }
+    row: &'a crate::db::data::RawRow,
+) -> Result<StructuralSlotReader<'a>, InternalError> {
+    StructuralSlotReader::from_raw_row(row, E::MODEL).map_err(|source| {
+        InternalError::index_plan_serialize_corruption(format!(
+            "failed to structurally deserialize row: {data_key} ({source})"
+        ))
     })
 }
 
@@ -224,29 +210,24 @@ fn decode_unique_row_object<E: EntityKind>(
 // still matches the row storage key carried by the unique index entry.
 fn decode_unique_row_storage_key<E: EntityKind>(
     data_key: &DataKey,
-    row_slots: &StructuralRowSlots<'_>,
+    row_fields: &mut StructuralSlotReader<'_>,
 ) -> Result<StorageKey, InternalError> {
-    let Some(primary_key_slot) = resolve_primary_key_slot(E::MODEL) else {
-        return Err(InternalError::index_invariant(format!(
+    let _ = resolve_primary_key_slot(E::MODEL).ok_or_else(|| {
+        InternalError::index_invariant(format!(
             "entity primary key field missing during unique validation: {} field={}",
             E::PATH,
             E::PRIMARY_KEY
-        )));
-    };
-    let primary_key_value =
-        decode_unique_row_slot_value::<E>(data_key, row_slots, primary_key_slot)?.ok_or_else(
-            || {
-                InternalError::index_plan_serialize_corruption(format!(
-                    "missing primary-key slot while validating unique index row: {data_key}"
-                ))
-            },
-        )?;
-
-    StorageKey::try_from_value(&primary_key_value).map_err(|err| {
-        InternalError::index_plan_serialize_corruption(format!(
-            "failed to decode structural primary-key slot: {data_key} ({err})"
         ))
-    })
+    })?;
+    row_fields
+        .validate_storage_key_for_entity::<E>(data_key)
+        .map_err(|source| {
+            InternalError::index_plan_serialize_corruption(format!(
+                "failed to decode structural primary-key slot: {data_key} ({source})"
+            ))
+        })?;
+
+    Ok(data_key.storage_key())
 }
 
 // Build the canonical stored unique index key from one structural row slot
@@ -254,55 +235,12 @@ fn decode_unique_row_storage_key<E: EntityKind>(
 fn build_unique_index_key_from_row_slots<E: EntityKind>(
     data_key: &DataKey,
     storage_key: StorageKey,
-    row_slots: &StructuralRowSlots<'_>,
+    row_fields: &mut StructuralSlotReader<'_>,
     index: &IndexModel,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let mut slot_decode_error = None;
-    let mut read_slot = |slot| match decode_unique_row_slot_value::<E>(data_key, row_slots, slot) {
-        Ok(value) => value,
-        Err(err) => {
-            slot_decode_error = Some(err);
-            None
-        }
-    };
-    let index_key = IndexKey::new_from_slot_reader(
-        E::ENTITY_TAG,
-        storage_key,
-        E::MODEL,
-        index,
-        &mut read_slot,
-    )?;
-
-    if let Some(err) = slot_decode_error {
-        return Err(err);
-    }
-
-    Ok(index_key)
-}
-
-// Decode one structural slot value using the canonical persisted-field decode
-// contract for unique validation.
-fn decode_unique_row_slot_value<E: EntityKind>(
-    data_key: &DataKey,
-    row_slots: &StructuralRowSlots<'_>,
-    slot: usize,
-) -> Result<Option<crate::value::Value>, InternalError> {
-    let field = E::MODEL.fields().get(slot).ok_or_else(|| {
-        InternalError::index_invariant(format!(
-            "slot lookup outside model bounds during unique validation: {} slot={slot}",
-            E::PATH
+    IndexKey::new_from_slots(E::ENTITY_TAG, storage_key, row_fields, index).map_err(|err| {
+        InternalError::index_plan_serialize_corruption(format!(
+            "failed to structurally decode unique key row {data_key}: {err}",
         ))
-    })?;
-    let Some(raw_value) = row_slots.field(slot) else {
-        return Ok(None);
-    };
-
-    decode_structural_field_value(raw_value, field.kind(), field.storage_decode())
-        .map(Some)
-        .map_err(|err| {
-            InternalError::index_plan_serialize_corruption(format!(
-                "failed to structurally decode field '{}' while validating unique row {data_key}: {err}",
-                field.name()
-            ))
-        })
+    })
 }

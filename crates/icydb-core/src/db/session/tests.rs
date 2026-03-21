@@ -17,7 +17,7 @@ use crate::{
     types::Ulid,
     value::Value,
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
@@ -56,7 +56,9 @@ static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGIS
 /// Test entity used to lock end-to-end reduced SQL session behavior.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct SessionSqlEntity {
     id: Ulid,
     name: String,
@@ -111,27 +113,27 @@ fn unsupported_sql_surface_query_error(message: &'static str) -> QueryError {
 trait SessionSqlLegacySurfaceExt {
     fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
 
     fn execute_sql_projection<E>(&self, sql: &str) -> Result<Vec<Vec<Value>>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
 
     fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
 
     fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
 
     fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
 
     fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
 
     fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError>;
 }
@@ -139,7 +141,7 @@ trait SessionSqlLegacySurfaceExt {
 impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
     fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 
@@ -157,7 +159,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
 
     fn execute_sql_projection<E>(&self, sql: &str) -> Result<Vec<Vec<Value>>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 
@@ -175,7 +177,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
 
     fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 
@@ -193,7 +195,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
 
     fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 
@@ -211,7 +213,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
 
     fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 
@@ -229,7 +231,7 @@ impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
 
     fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
     where
-        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
     {
         let payload = self.execute_sql_dispatch::<E>(sql)?;
 

@@ -40,15 +40,22 @@ use crate::{
         executor::Context,
         registry::StoreHandle,
     },
-    error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
     types::EntityTag,
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
+#[doc(hidden)]
+pub use crate::error::InternalError;
 pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
-pub use data::DataStore;
+pub use data::{
+    DataStore, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader,
+    SlotWriter, decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
+    decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
+    missing_persisted_slot_error,
+};
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals, StorageReport,

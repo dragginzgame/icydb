@@ -65,6 +65,7 @@ pub enum TraitKind {
     EnumValue,
     FieldValue,
     FieldProjection,
+    PersistedRow,
 
     // orm
     Collection,
@@ -143,6 +144,7 @@ impl TraitKind {
             Self::Ord => Some(quote!(Ord)),
             Self::PartialEq => Some(quote!(PartialEq)),
             Self::PartialOrd => Some(quote!(PartialOrd)),
+            Self::PersistedRow => Some(quote!(::icydb::__reexports::icydb_derive::PersistedRow)),
             Self::Rem => Some(quote!(::icydb::__reexports::icydb_derive::Rem)),
             Self::Serialize => Some(quote!(::icydb::__reexports::serde::Serialize)),
             Self::Sub => Some(quote!(::icydb::__reexports::icydb_derive::Sub)),

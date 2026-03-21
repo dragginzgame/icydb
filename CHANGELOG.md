@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.62.x] - 2026-03-21 - Structural Persisted-Row Decode
 
+- `0.62.1` hard-cuts legacy persisted-row and commit-marker formats, makes the slot-based row container the only live storage format, pushes commit/index/recovery and unique-validation work further onto slot readers plus scalar leaf codecs, and removes the runtime field-projection fallback that previously read persisted slots through generic `get_value`.
 - `0.62.0` starts the structural persisted-row decode line by introducing one shared structural row/field decode path for non-boundary runtime work, narrowing enum payload fallback handling, and skipping typed commit-prep row decode entirely for entities with no secondary indexes, which lowers the audit cost to about `45,499` raw wasm bytes per added simple entity and about `56,265` raw wasm bytes per added complex entity.
 
 See detailed breakdown:

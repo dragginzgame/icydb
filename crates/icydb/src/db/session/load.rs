@@ -1,12 +1,12 @@
 use crate::{
     db::{
-        Row,
+        PersistedRow, Row,
         query::{AggregateExpr, FilterExpr, Predicate, Query, QueryTracePlan, SortExpr},
         response::{PagedGroupedResponse, PagedResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
-    traits::{EntityKind, EntityValue, SingletonEntity},
+    traits::{EntityValue, SingletonEntity},
     types::Id,
     value::Value,
 };
@@ -18,11 +18,11 @@ use icydb_core as core;
 /// Session-bound fluent wrapper for load queries.
 ///
 
-pub struct FluentLoadQuery<'a, E: EntityKind> {
+pub struct FluentLoadQuery<'a, E: PersistedRow> {
     pub(crate) inner: core::db::FluentLoadQuery<'a, E>,
 }
 
-impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
+impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -246,7 +246,7 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
     }
 }
 
-impl<E: EntityKind + SingletonEntity> FluentLoadQuery<'_, E> {
+impl<E: PersistedRow + SingletonEntity> FluentLoadQuery<'_, E> {
     /// Load the singleton entity.
     #[must_use]
     pub fn only(mut self) -> Self
@@ -265,11 +265,11 @@ impl<E: EntityKind + SingletonEntity> FluentLoadQuery<'_, E> {
 /// Returns typed entity items plus an opaque continuation cursor.
 ///
 
-pub struct PagedLoadQuery<'a, E: EntityKind> {
+pub struct PagedLoadQuery<'a, E: PersistedRow> {
     pub(crate) inner: core::db::PagedLoadQuery<'a, E>,
 }
 
-impl<E: EntityKind> PagedLoadQuery<'_, E> {
+impl<E: PersistedRow> PagedLoadQuery<'_, E> {
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()

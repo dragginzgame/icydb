@@ -1,7 +1,7 @@
 use crate::{
     db::{
         DbSession, EntityFieldDescription, EntityResponse, EntitySchemaDescription,
-        MissingRowPolicy, PagedGroupedExecutionWithTrace, Query, QueryError,
+        MissingRowPolicy, PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
         executor::{
             EntityAuthority, ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
             execute_sql_projection_rows_for_canister,
@@ -531,7 +531,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<SqlProjectionPayload, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let columns = projection_labels_from_query(query)?;
         let projected = execute_sql_projection_rows_for_canister(
@@ -552,7 +552,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: SqlCommand<E>,
     ) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         match command {
             SqlCommand::Query(query) => {
@@ -586,7 +586,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one typed SQL delete query and project deleted rows at the outer edge.
     fn execute_typed_sql_delete<E>(&self, query: &Query<E>) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let deleted = self.execute_query(query)?;
 
@@ -598,7 +598,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: SqlCommand<E>,
     ) -> Result<String, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Self::explain_sql_from_command::<E>(command, SqlLaneKind::Explain)
     }
@@ -609,7 +609,7 @@ impl<C: CanisterKind> DbSession<C> {
         lane: SqlLaneKind,
     ) -> Result<String, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         match command {
             SqlCommand::Query(_)
@@ -692,7 +692,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one reduced SQL `SELECT`/`DELETE` statement for entity `E`.
     pub fn execute_sql<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let query = self.query_from_sql::<E>(sql)?;
         if query.has_grouping() {
@@ -710,7 +710,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// shape per statement and preserves existing terminal semantics.
     pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<Value, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let command = compile_sql_global_aggregate_command::<E>(sql, MissingRowPolicy::Ignore)
             .map_err(map_sql_lowering_error)?;
@@ -819,7 +819,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let query = self.query_from_sql::<E>(sql)?;
         if !query.has_grouping() {
@@ -836,7 +836,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one reduced SQL statement into one unified SQL dispatch payload.
     pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = self.parse_sql_statement(sql)?;
 
@@ -849,7 +849,7 @@ impl<C: CanisterKind> DbSession<C> {
         parsed: &SqlParsedStatement,
     ) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let prepared = self.prepare_sql_dispatch_parsed(parsed, E::MODEL.entity_name())?;
 
@@ -862,7 +862,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &SqlPreparedStatement,
     ) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let lowered = lower_sql_command_from_prepared_statement(
             prepared.prepared.clone(),
@@ -897,7 +897,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &SqlPreparedStatement,
     ) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let lowered =
             self.lower_sql_dispatch_query_lane_prepared(prepared, E::MODEL.primary_key.name)?;
@@ -951,7 +951,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
     ) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_lowered_sql_dispatch_query_core(
             lowered,
@@ -967,7 +967,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
     ) -> Result<SqlDispatchResult, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let Some(query) = lowered.query().cloned() else {
             return Err(QueryError::execute(InternalError::classified(
@@ -1031,7 +1031,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
     ) -> Result<String, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Self::explain_lowered_sql_dispatch_core(lowered, E::MODEL)
     }
@@ -1081,7 +1081,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: SqlGlobalAggregateCommand<E>,
     ) -> Result<String, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         match mode {
             SqlExplainMode::Plan => {

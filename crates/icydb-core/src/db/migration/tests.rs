@@ -27,7 +27,7 @@ use crate::{
     traits::{EntityIdentity, EntityKind, Path},
     types::Ulid,
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
@@ -58,7 +58,9 @@ crate::test_store! {
 /// This entity keeps migration tests focused on commit-marker row semantics.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct MigrationEntity {
     id: Ulid,
     rank: u32,

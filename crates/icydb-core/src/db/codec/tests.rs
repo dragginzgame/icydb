@@ -9,9 +9,9 @@ use crate::{
 };
 
 use super::{
-    MAX_ROW_BYTES, ROW_FORMAT_VERSION_CURRENT, ROW_FORMAT_VERSION_PREVIOUS,
-    deserialize_persisted_payload, deserialize_protocol_payload, deserialize_row,
-    map_deserialize_error, serialize_row_payload, serialize_row_payload_with_version,
+    MAX_ROW_BYTES, ROW_FORMAT_VERSION_CURRENT, deserialize_persisted_payload,
+    deserialize_protocol_payload, deserialize_row, map_deserialize_error, serialize_row_payload,
+    serialize_row_payload_with_version,
 };
 
 #[test]
@@ -61,26 +61,6 @@ fn deserialize_row_current_version_succeeds() {
 }
 
 #[test]
-fn deserialize_row_previous_version_succeeds() {
-    let payload = serialize(&17_u16).expect("test payload encode should succeed");
-    let bytes = serialize_row_payload_with_version(payload, ROW_FORMAT_VERSION_PREVIOUS)
-        .expect("row envelope encode at previous version should work");
-    let decoded = deserialize_row::<u16>(&bytes)
-        .expect("previous row format version decode should succeed under N-1 window");
-
-    assert_eq!(decoded, 17_u16);
-}
-
-#[test]
-fn deserialize_row_legacy_payload_succeeds() {
-    let legacy_payload = serialize(&23_u8).expect("legacy payload encode should succeed");
-    let decoded = deserialize_row::<u8>(&legacy_payload)
-        .expect("legacy payloads must decode under N-1 compatibility fallback");
-
-    assert_eq!(decoded, 23_u8);
-}
-
-#[test]
 fn deserialize_row_future_version_fails_closed() {
     let payload = serialize(&7_u8).expect("test payload encode should succeed");
     let future_version = ROW_FORMAT_VERSION_CURRENT.saturating_add(1);
@@ -94,13 +74,12 @@ fn deserialize_row_future_version_fails_closed() {
 }
 
 #[test]
-fn deserialize_row_older_than_window_fails_closed() {
+fn deserialize_row_older_version_fails_closed() {
     let payload = serialize(&9_u8).expect("test payload encode should succeed");
-    let older_than_window = ROW_FORMAT_VERSION_PREVIOUS.saturating_sub(1);
-    let bytes = serialize_row_payload_with_version(payload, older_than_window)
+    let older_version = ROW_FORMAT_VERSION_CURRENT.saturating_sub(1);
+    let bytes = serialize_row_payload_with_version(payload, older_version)
         .expect("older-version envelope encode should succeed for decode test");
-    let err =
-        deserialize_row::<u8>(&bytes).expect_err("older-than-window row versions must fail closed");
+    let err = deserialize_row::<u8>(&bytes).expect_err("older row format versions must fail");
 
     assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
     assert_eq!(err.origin, ErrorOrigin::Serialize);

@@ -30,11 +30,10 @@ pub(in crate::db) use hash_stream::{
 /// Max serialized bytes for a single row (protocol-level limit).
 pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 /// Current persisted row format version.
-pub(in crate::db) const ROW_FORMAT_VERSION_CURRENT: u8 = 2;
-/// Previous persisted row format version accepted during decode.
-pub(in crate::db) const ROW_FORMAT_VERSION_PREVIOUS: u8 = ROW_FORMAT_VERSION_CURRENT - 1;
+pub(in crate::db) const ROW_FORMAT_VERSION_CURRENT: u8 = 1;
 
 // Persisted row envelope payload: (format_version, encoded_row_bytes).
+#[cfg(test)]
 type PersistedRowEnvelope = (u8, Vec<u8>);
 
 ///
@@ -50,30 +49,26 @@ type PersistedRowEnvelope = (u8, Vec<u8>);
 ///
 
 /// Deserialize one persisted row payload using the DB row-size policy.
+#[cfg(test)]
 pub(in crate::db) fn deserialize_row<T>(bytes: &[u8]) -> Result<T, InternalError>
 where
     T: DeserializeOwned,
 {
-    // Phase 1: decode the canonical row envelope first.
-    let envelope = match deserialize_bounded::<PersistedRowEnvelope>(bytes, MAX_ROW_BYTES as usize)
-    {
-        Ok(envelope) => Some(envelope),
-        Err(SerializeError::DeserializeSizeLimitExceeded { len, max_bytes }) => {
-            return Err(map_deserialize_error(
-                SerializeError::DeserializeSizeLimitExceeded { len, max_bytes },
-                "row",
-            ));
-        }
-        Err(SerializeError::Deserialize(_) | SerializeError::Serialize(_)) => None,
-    };
+    let (format_version, payload) =
+        match deserialize_bounded::<PersistedRowEnvelope>(bytes, MAX_ROW_BYTES as usize) {
+            Ok(envelope) => envelope,
+            Err(SerializeError::DeserializeSizeLimitExceeded { len, max_bytes }) => {
+                return Err(map_deserialize_error(
+                    SerializeError::DeserializeSizeLimitExceeded { len, max_bytes },
+                    "row",
+                ));
+            }
+            Err(source) => return Err(map_deserialize_error(source, "row")),
+        };
 
-    if let Some((format_version, payload)) = envelope {
-        validate_row_format_version(format_version)?;
-        return deserialize_persisted_payload(&payload, MAX_ROW_BYTES as usize, "row");
-    }
+    validate_row_format_version(format_version)?;
 
-    // Phase 2: legacy fallback for pre-envelope row payloads (compatibility V-1).
-    deserialize_persisted_payload(bytes, MAX_ROW_BYTES as usize, "row")
+    deserialize_persisted_payload(&payload, MAX_ROW_BYTES as usize, "row")
 }
 
 /// Wrap an already-serialized entity payload in the canonical persisted row envelope.
@@ -112,24 +107,16 @@ where
     deserialize_bounded(bytes, max_bytes)
 }
 
-// Validate persisted row format version against the N-1 compatibility window.
+// Validate persisted row format version against the single supported slot format.
+#[cfg(test)]
 fn validate_row_format_version(format_version: u8) -> Result<(), InternalError> {
-    if format_version == ROW_FORMAT_VERSION_CURRENT || format_version == ROW_FORMAT_VERSION_PREVIOUS
-    {
+    if format_version == ROW_FORMAT_VERSION_CURRENT {
         return Ok(());
-    }
-
-    if format_version > ROW_FORMAT_VERSION_CURRENT {
-        return Err(InternalError::serialize_incompatible_persisted_format(
-            format!(
-                "row format version {format_version} is newer than runtime version {ROW_FORMAT_VERSION_CURRENT}",
-            ),
-        ));
     }
 
     Err(InternalError::serialize_incompatible_persisted_format(
         format!(
-            "row format version {format_version} is outside compatibility window [{ROW_FORMAT_VERSION_PREVIOUS}, {ROW_FORMAT_VERSION_CURRENT}]",
+            "row format version {format_version} is unsupported by runtime version {ROW_FORMAT_VERSION_CURRENT}",
         ),
     ))
 }

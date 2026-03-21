@@ -1,7 +1,7 @@
 use crate::{
     db::{
         DbSession, EntityResponse, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace,
-        Query, QueryError, QueryTracePlan, TraceExecutionStrategy,
+        PersistedRow, Query, QueryError, QueryTracePlan, TraceExecutionStrategy,
         access::AccessStrategy,
         executor::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy, LoadExecutor},
         query::{
@@ -20,7 +20,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one scalar load/delete query and return materialized response rows.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: compile typed intent into one executable plan contract.
         let mode = query.mode();
@@ -41,7 +41,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let result = match mode {
             QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
@@ -59,7 +59,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(LoadExecutor<E>, ExecutablePlan<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let plan = query.plan()?.into_executable();
 
@@ -167,7 +167,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
@@ -238,7 +238,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();

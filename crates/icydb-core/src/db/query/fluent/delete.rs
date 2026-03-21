@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession,
+        DbSession, PersistedRow,
         predicate::Predicate,
         query::{
             api::ResponseCardinalityExt,
@@ -38,7 +38,7 @@ where
 
 impl<'a, E> FluentDeleteQuery<'a, E>
 where
-    E: EntityKind,
+    E: PersistedRow,
 {
     pub(crate) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
         Self { session, query }

@@ -4,13 +4,19 @@
 //! Boundary: executor row filtering uses this runtime program.
 
 use crate::{
-    db::predicate::{
-        CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel,
-        ResolvedComparePredicate, ResolvedPredicate, TextOp, compare_eq, compare_order,
-        compare_text,
+    db::{
+        data::{ScalarSlotValueRef, ScalarValueRef, SlotReader},
+        predicate::{
+            CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel,
+            ResolvedComparePredicate, ResolvedPredicate, TextOp, compare_eq, compare_order,
+            compare_text,
+        },
     },
-    model::entity::{EntityModel, resolve_field_slot},
-    traits::{EntityKind, EntityValue},
+    model::{
+        entity::{EntityModel, resolve_field_slot},
+        field::LeafCodec,
+    },
+    traits::EntityKind,
     value::{TextMode, Value},
 };
 use std::cmp::Ordering;
@@ -47,12 +53,6 @@ impl PredicateProgram {
         Self { resolved }
     }
 
-    /// Evaluate one precompiled predicate program against one entity.
-    #[must_use]
-    pub(in crate::db) fn eval<E: EntityValue>(&self, entity: &E) -> bool {
-        eval_with_resolved_slots(&self.resolved, &mut |slot| entity.get_value_by_index(slot))
-    }
-
     /// Evaluate one precompiled predicate program against one slot-reader callback.
     #[must_use]
     pub(in crate::db) fn eval_with_slot_reader(
@@ -60,6 +60,14 @@ impl PredicateProgram {
         read_slot: &mut dyn FnMut(usize) -> Option<Value>,
     ) -> bool {
         eval_with_resolved_slots(&self.resolved, read_slot)
+    }
+
+    /// Evaluate one precompiled predicate program against one structural slot reader.
+    pub(in crate::db) fn eval_with_structural_slot_reader(
+        &self,
+        slots: &mut dyn SlotReader,
+    ) -> Result<bool, crate::error::InternalError> {
+        eval_with_structural_slots(&self.resolved, slots)
     }
 
     /// Borrow the resolved predicate tree used by runtime evaluators.
@@ -244,6 +252,397 @@ fn eval_compare_with_resolved_slots(
     };
 
     eval_compare_values(&actual, cmp.op, &cmp.value, &cmp.coercion)
+}
+
+// Evaluate one slot-resolved predicate against one structural slot reader.
+fn eval_with_structural_slots(
+    predicate: &ResolvedPredicate,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    match predicate {
+        ResolvedPredicate::True => Ok(true),
+        ResolvedPredicate::False => Ok(false),
+        ResolvedPredicate::And(children) => {
+            for child in children {
+                if !eval_with_structural_slots(child, slots)? {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        }
+        ResolvedPredicate::Or(children) => {
+            for child in children {
+                if eval_with_structural_slots(child, slots)? {
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
+        }
+        ResolvedPredicate::Not(inner) => Ok(!eval_with_structural_slots(inner, slots)?),
+        ResolvedPredicate::Compare(cmp) => eval_compare_with_structural_slots(cmp, slots),
+        ResolvedPredicate::IsNull { field_slot } => {
+            eval_is_null_with_structural_slots(*field_slot, slots)
+        }
+        ResolvedPredicate::IsNotNull { field_slot } => {
+            eval_is_not_null_with_structural_slots(*field_slot, slots)
+        }
+        ResolvedPredicate::IsMissing { field_slot } => {
+            Ok(field_slot.is_none_or(|slot| !slots.has(slot)))
+        }
+        ResolvedPredicate::IsEmpty { field_slot } => {
+            eval_is_empty_with_structural_slots(*field_slot, slots)
+        }
+        ResolvedPredicate::IsNotEmpty { field_slot } => {
+            eval_is_not_empty_with_structural_slots(*field_slot, slots)
+        }
+        ResolvedPredicate::TextContains { field_slot, value } => {
+            eval_text_contains_with_structural_slots(*field_slot, value, TextMode::Cs, slots)
+        }
+        ResolvedPredicate::TextContainsCi { field_slot, value } => {
+            eval_text_contains_with_structural_slots(*field_slot, value, TextMode::Ci, slots)
+        }
+    }
+}
+
+// Evaluate one comparison predicate through the structural slot seam.
+fn eval_compare_with_structural_slots(
+    cmp: &ResolvedComparePredicate,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = cmp.field_slot else {
+        return Ok(false);
+    };
+    let Some(field) = slots.model().fields().get(field_slot) else {
+        return Ok(false);
+    };
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+        && let Some(actual) = slots.get_scalar(field_slot)?
+        && let Some(result) = eval_compare_scalar_slot(actual, cmp.op, &cmp.value, &cmp.coercion)
+    {
+        return Ok(result);
+    }
+
+    let Some(actual) = slots.get_value(field_slot)? else {
+        return Ok(false);
+    };
+
+    Ok(eval_compare_values(
+        &actual,
+        cmp.op,
+        &cmp.value,
+        &cmp.coercion,
+    ))
+}
+
+// Evaluate `IS NULL` through the structural slot seam.
+fn eval_is_null_with_structural_slots(
+    field_slot: Option<usize>,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+    let Some(field) = slots.model().fields().get(field_slot) else {
+        return Ok(false);
+    };
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+        return Ok(matches!(
+            slots.get_scalar(field_slot)?,
+            Some(ScalarSlotValueRef::Null)
+        ));
+    }
+
+    Ok(matches!(slots.get_value(field_slot)?, Some(Value::Null)))
+}
+
+// Evaluate `IS NOT NULL` through the structural slot seam.
+fn eval_is_not_null_with_structural_slots(
+    field_slot: Option<usize>,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+    let Some(field) = slots.model().fields().get(field_slot) else {
+        return Ok(false);
+    };
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+        return Ok(matches!(
+            slots.get_scalar(field_slot)?,
+            Some(ScalarSlotValueRef::Value(_))
+        ));
+    }
+
+    Ok(matches!(slots.get_value(field_slot)?, Some(value) if !matches!(value, Value::Null)))
+}
+
+// Evaluate `IS EMPTY` through the structural slot seam.
+fn eval_is_empty_with_structural_slots(
+    field_slot: Option<usize>,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+    let Some(field) = slots.model().fields().get(field_slot) else {
+        return Ok(false);
+    };
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+        && let Some(actual) = slots.get_scalar(field_slot)?
+    {
+        return Ok(match actual {
+            ScalarSlotValueRef::Null => false,
+            ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => text.is_empty(),
+            ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)) => bytes.is_empty(),
+            ScalarSlotValueRef::Value(_) => false,
+        });
+    }
+
+    Ok(slots
+        .get_value(field_slot)?
+        .is_some_and(|value| is_empty_value(&value)))
+}
+
+// Evaluate `IS NOT EMPTY` through the structural slot seam.
+fn eval_is_not_empty_with_structural_slots(
+    field_slot: Option<usize>,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+    if !slots.has(field_slot) {
+        return Ok(false);
+    }
+
+    eval_is_empty_with_structural_slots(Some(field_slot), slots).map(|empty| !empty)
+}
+
+// Evaluate `TEXT CONTAINS` through the structural slot seam.
+fn eval_text_contains_with_structural_slots(
+    field_slot: Option<usize>,
+    value: &Value,
+    mode: TextMode,
+    slots: &mut dyn SlotReader,
+) -> Result<bool, crate::error::InternalError> {
+    let Some(field_slot) = field_slot else {
+        return Ok(false);
+    };
+    let Some(field) = slots.model().fields().get(field_slot) else {
+        return Ok(false);
+    };
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+        && let Some(actual) = slots.get_scalar(field_slot)?
+    {
+        return Ok(match (actual, value) {
+            (ScalarSlotValueRef::Value(ScalarValueRef::Text(actual)), Value::Text(needle)) => {
+                text_contains_scalar(actual, needle, mode)
+            }
+            _ => false,
+        });
+    }
+
+    Ok(slots
+        .get_value(field_slot)?
+        .is_some_and(|actual| actual.text_contains(value, mode).unwrap_or(false)))
+}
+
+// Evaluate one compare op directly against one scalar slot value when possible.
+fn eval_compare_scalar_slot(
+    actual: ScalarSlotValueRef<'_>,
+    op: CompareOp,
+    value: &Value,
+    coercion: &CoercionSpec,
+) -> Option<bool> {
+    match actual {
+        ScalarSlotValueRef::Null => Some(eval_compare_values(&Value::Null, op, value, coercion)),
+        ScalarSlotValueRef::Value(ScalarValueRef::Text(actual)) => {
+            eval_text_scalar_compare(actual, op, value, coercion)
+        }
+        ScalarSlotValueRef::Value(ScalarValueRef::Blob(_)) => None,
+        ScalarSlotValueRef::Value(ScalarValueRef::Bool(actual)) => Some(eval_compare_values(
+            &Value::Bool(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Date(actual)) => Some(eval_compare_values(
+            &Value::Date(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Duration(actual)) => Some(eval_compare_values(
+            &Value::Duration(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Float32(actual)) => Some(eval_compare_values(
+            &Value::Float32(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Float64(actual)) => Some(eval_compare_values(
+            &Value::Float64(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Int(actual)) => Some(eval_compare_values(
+            &Value::Int(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Principal(actual)) => Some(eval_compare_values(
+            &Value::Principal(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Subaccount(actual)) => Some(eval_compare_values(
+            &Value::Subaccount(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(actual)) => Some(eval_compare_values(
+            &Value::Timestamp(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Uint(actual)) => Some(eval_compare_values(
+            &Value::Uint(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Ulid(actual)) => Some(eval_compare_values(
+            &Value::Ulid(actual),
+            op,
+            value,
+            coercion,
+        )),
+        ScalarSlotValueRef::Value(ScalarValueRef::Unit) => {
+            Some(eval_compare_values(&Value::Unit, op, value, coercion))
+        }
+    }
+}
+
+// Evaluate one scalar text compare without allocating an owned `Value::Text`.
+fn eval_text_scalar_compare(
+    actual: &str,
+    op: CompareOp,
+    value: &Value,
+    coercion: &CoercionSpec,
+) -> Option<bool> {
+    let mode = match coercion.id {
+        crate::db::predicate::CoercionId::Strict => TextMode::Cs,
+        crate::db::predicate::CoercionId::TextCasefold => TextMode::Ci,
+        _ => return None,
+    };
+
+    match op {
+        CompareOp::Eq => match value {
+            Value::Text(expected) => {
+                Some(compare_scalar_text(actual, expected, mode) == Ordering::Equal)
+            }
+            _ => None,
+        },
+        CompareOp::Ne => match value {
+            Value::Text(expected) => {
+                Some(compare_scalar_text(actual, expected, mode) != Ordering::Equal)
+            }
+            _ => None,
+        },
+        CompareOp::Lt => match value {
+            Value::Text(expected) => Some(compare_scalar_text(actual, expected, mode).is_lt()),
+            _ => None,
+        },
+        CompareOp::Lte => match value {
+            Value::Text(expected) => Some(compare_scalar_text(actual, expected, mode).is_le()),
+            _ => None,
+        },
+        CompareOp::Gt => match value {
+            Value::Text(expected) => Some(compare_scalar_text(actual, expected, mode).is_gt()),
+            _ => None,
+        },
+        CompareOp::Gte => match value {
+            Value::Text(expected) => Some(compare_scalar_text(actual, expected, mode).is_ge()),
+            _ => None,
+        },
+        CompareOp::StartsWith => match value {
+            Value::Text(expected) => Some(text_starts_with_scalar(actual, expected, mode)),
+            _ => None,
+        },
+        CompareOp::EndsWith => match value {
+            Value::Text(expected) => Some(text_ends_with_scalar(actual, expected, mode)),
+            _ => None,
+        },
+        CompareOp::In => {
+            let Value::List(items) = value else {
+                return None;
+            };
+            Some(items.iter().any(|item| {
+                matches!(item, Value::Text(expected) if compare_scalar_text(actual, expected, mode) == Ordering::Equal)
+            }))
+        }
+        CompareOp::NotIn => {
+            let Value::List(items) = value else {
+                return None;
+            };
+            Some(!items.iter().any(|item| {
+                matches!(item, Value::Text(expected) if compare_scalar_text(actual, expected, mode) == Ordering::Equal)
+            }))
+        }
+        CompareOp::Contains => None,
+    }
+}
+
+fn compare_scalar_text(actual: &str, expected: &str, mode: TextMode) -> Ordering {
+    match mode {
+        TextMode::Cs => actual.cmp(expected),
+        TextMode::Ci => casefold_scalar_text(actual).cmp(&casefold_scalar_text(expected)),
+    }
+}
+
+fn text_contains_scalar(actual: &str, needle: &str, mode: TextMode) -> bool {
+    match mode {
+        TextMode::Cs => actual.contains(needle),
+        TextMode::Ci => casefold_scalar_text(actual).contains(&casefold_scalar_text(needle)),
+    }
+}
+
+fn text_starts_with_scalar(actual: &str, prefix: &str, mode: TextMode) -> bool {
+    match mode {
+        TextMode::Cs => actual.starts_with(prefix),
+        TextMode::Ci => casefold_scalar_text(actual).starts_with(&casefold_scalar_text(prefix)),
+    }
+}
+
+fn text_ends_with_scalar(actual: &str, suffix: &str, mode: TextMode) -> bool {
+    match mode {
+        TextMode::Cs => actual.ends_with(suffix),
+        TextMode::Ci => casefold_scalar_text(actual).ends_with(&casefold_scalar_text(suffix)),
+    }
+}
+
+fn casefold_scalar_text(input: &str) -> String {
+    if input.is_ascii() {
+        return input.to_ascii_lowercase();
+    }
+
+    input.to_lowercase()
 }
 
 /// Shared compare-op semantics for slot-path evaluation.

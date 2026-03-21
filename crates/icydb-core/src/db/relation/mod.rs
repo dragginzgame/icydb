@@ -26,7 +26,9 @@ pub(crate) use metadata::{StrongRelationTargetInfo, strong_relation_target_from_
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_rows,
 };
-pub(in crate::db) use save_validate::validate_save_strong_relations;
+pub(in crate::db) use save_validate::{
+    model_has_strong_relation_targets, validate_save_strong_relations,
+};
 pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
 
 ///

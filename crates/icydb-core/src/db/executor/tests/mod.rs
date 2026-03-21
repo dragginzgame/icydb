@@ -49,7 +49,7 @@ use crate::{
     types::{Date, Duration, Timestamp, Ulid},
     value::Value,
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
@@ -117,7 +117,7 @@ static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
 /// SimpleEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct SimpleEntity {
     id: Ulid,
 }
@@ -140,7 +140,7 @@ crate::test_entity_schema! {
 /// IndexedMetricsEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct IndexedMetricsEntity {
     id: Ulid,
     tag: u32,
@@ -177,7 +177,7 @@ crate::test_entity_schema! {
 /// UniqueIndexRangeEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct UniqueIndexRangeEntity {
     id: Ulid,
     code: u32,
@@ -214,7 +214,7 @@ crate::test_entity_schema! {
 /// PushdownParityEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct PushdownParityEntity {
     id: Ulid,
     group: u32,
@@ -253,7 +253,7 @@ crate::test_entity_schema! {
 /// TextPrefixParityEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct TextPrefixParityEntity {
     id: Ulid,
     label: String,
@@ -288,7 +288,7 @@ crate::test_entity_schema! {
 /// ExpressionCasefoldParityEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct ExpressionCasefoldParityEntity {
     id: Ulid,
     email: String,
@@ -328,7 +328,7 @@ crate::test_entity_schema! {
 /// ExpressionUpperParityEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct ExpressionUpperParityEntity {
     id: Ulid,
     email: String,
@@ -368,7 +368,7 @@ crate::test_entity_schema! {
 /// SingletonUnitEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct SingletonUnitEntity {
     id: (),
     label: String,
@@ -393,7 +393,7 @@ crate::test_entity_schema! {
 /// PhaseEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct PhaseEntity {
     id: Ulid,
     opt_rank: Option<u32>,
@@ -429,7 +429,7 @@ crate::test_entity_schema! {
 /// TemporalBoundaryEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct TemporalBoundaryEntity {
     id: Ulid,
     occurred_on: Date,
@@ -560,7 +560,7 @@ static REL_DB: Db<RelationTestCanister> =
 /// RelationTargetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct RelationTargetEntity {
     id: Ulid,
 }
@@ -583,7 +583,7 @@ crate::test_entity_schema! {
 /// RelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct RelationSourceEntity {
     id: Ulid,
     target: Ulid,
@@ -620,7 +620,7 @@ crate::test_entity_schema! {
 /// WeakSingleRelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct WeakSingleRelationSourceEntity {
     id: Ulid,
     target: Ulid,
@@ -657,7 +657,7 @@ crate::test_entity_schema! {
 /// WeakOptionalRelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct WeakOptionalRelationSourceEntity {
     id: Ulid,
     target: Option<Ulid>,
@@ -694,7 +694,7 @@ crate::test_entity_schema! {
 /// WeakListRelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct WeakListRelationSourceEntity {
     id: Ulid,
     targets: Vec<Ulid>,

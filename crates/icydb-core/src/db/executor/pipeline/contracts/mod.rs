@@ -9,7 +9,7 @@ mod post_access;
 
 use crate::{
     db::{
-        Db, GroupedRow,
+        Db, GroupedRow, PersistedRow,
         cursor::{ContinuationToken, GroupedContinuationToken},
         data::DataRow,
         direction::Direction,
@@ -90,7 +90,7 @@ pub(in crate::db) struct CursorPage<E: EntityKind> {
 
 impl<E> CursorPage<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     /// Build one typed cursor page from structural rows plus cursor state.
     #[inline(never)]
@@ -111,7 +111,7 @@ impl StructuralCursorPage {
         self,
     ) -> Result<EntityResponse<E>, InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: PersistedRow + EntityValue,
     {
         let (data_rows, _) = self.into_parts();
 
@@ -122,7 +122,7 @@ impl StructuralCursorPage {
     #[inline(never)]
     pub(in crate::db::executor) fn into_cursor_page<E>(self) -> Result<CursorPage<E>, InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: PersistedRow + EntityValue,
     {
         let (data_rows, next_cursor) = self.into_parts();
 

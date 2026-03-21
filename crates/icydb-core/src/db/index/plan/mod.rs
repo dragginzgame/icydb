@@ -12,7 +12,7 @@ use crate::{
         Db,
         commit::CommitIndexOp,
         cursor::IndexScanContinuationInput,
-        data::{DataKey, RawRow, StorageKey},
+        data::{DataKey, RawRow, SlotReader, StorageKey},
         direction::Direction,
         executor::Context,
         index::{
@@ -23,7 +23,7 @@ use crate::{
     },
     error::InternalError,
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, EntityValue},
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
@@ -223,79 +223,88 @@ pub(in crate::db) fn compile_index_membership_predicate<E: EntityKind>(
     Ok(Some(PredicateProgram::compile::<E>(predicate)))
 }
 
-/// Build one index key for an entity after applying optional predicate gating.
-pub(in crate::db) fn index_key_for_entity_with_membership<E: EntityKind + EntityValue>(
+/// Build one index key from one slot reader after applying optional predicate gating.
+pub(in crate::db) fn index_key_for_slot_reader_with_membership<E: EntityKind>(
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
-    entity: &E,
+    storage_key: StorageKey,
+    slots: &mut dyn SlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
-    if let Some(predicate_program) = predicate_program
-        && !predicate_program.eval(entity)
-    {
-        return Ok(None);
+    if let Some(predicate_program) = predicate_program {
+        let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
+        if !keep_row {
+            return Ok(None);
+        }
     }
 
-    IndexKey::new(entity, index)
+    let index_key = IndexKey::new_from_slots(E::ENTITY_TAG, storage_key, slots, index)?;
+
+    Ok(index_key)
 }
 
-/// Plan all index mutations for a single entity transition.
-///
-/// This function:
-/// - Loads existing index entries
-/// - Validates unique constraints
-/// - Computes the exact index writes/deletes required
-///
-/// All fallible work happens here. The returned plan is safe to apply
-/// infallibly after a commit marker is written.
-pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
+/// Plan all index mutations for one persisted-row transition without
+/// reconstructing a typed entity from bytes.
+pub(in crate::db) fn plan_index_mutation_for_slot_reader<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_reader: &dyn PrimaryRowReader<E>,
     index_reader: &dyn IndexEntryReader<E>,
-    old: Option<&E>,
-    new: Option<&E>,
+    old_storage_key: Option<StorageKey>,
+    mut old_slots: Option<&mut dyn SlotReader>,
+    new_storage_key: Option<StorageKey>,
+    mut new_slots: Option<&mut dyn SlotReader>,
 ) -> Result<IndexMutationPlan, InternalError> {
-    // Phase 1: derive old/new entity identities and allocate plan buffers.
-    let old_entity_key = old.map(|entity| entity.id().key());
-    let new_entity_key = new.map(|entity| entity.id().key());
-    let old_entity_storage_key = old_entity_key
-        .as_ref()
-        .map(|key| StorageKey::try_from_value(&key.to_value()))
-        .transpose()?;
-    let new_entity_storage_key = new_entity_key
-        .as_ref()
-        .map(|key| StorageKey::try_from_value(&key.to_value()))
-        .transpose()?;
-
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
 
-    // Phase 2: per-index load, validate, and synthesize commit ops.
+    // Phase 1: per-index load, validate, and synthesize commit ops from
+    // slot-reader projections only.
     for index in E::INDEXES {
         let store = db
             .with_store_registry(|registry| registry.try_get_store(index.store()))?
             .index_store();
         let membership_program = compile_index_membership_predicate::<E>(index)?;
 
-        let old_key = match old {
-            Some(entity) => {
-                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)?
+        let old_key = match old_slots.as_deref_mut() {
+            Some(slots) => {
+                let Some(storage_key) = old_storage_key else {
+                    return Err(InternalError::index_internal(
+                        "missing old entity key for structural index removal".to_string(),
+                    ));
+                };
+                index_key_for_slot_reader_with_membership::<E>(
+                    index,
+                    membership_program.as_ref(),
+                    storage_key,
+                    slots,
+                )?
             }
             None => None,
         };
-        let new_key = match new {
-            Some(entity) => {
-                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)?
+        let new_key = match new_slots.as_deref_mut() {
+            Some(slots) => {
+                let Some(storage_key) = new_storage_key else {
+                    return Err(InternalError::index_internal(
+                        "missing new entity key for structural index insertion".to_string(),
+                    ));
+                };
+                index_key_for_slot_reader_with_membership::<E>(
+                    index,
+                    membership_program.as_ref(),
+                    storage_key,
+                    slots,
+                )?
             }
             None => None,
         };
 
         let old_entry = load_existing_entry(index_reader, store, index, old_key.as_ref())?;
 
-        // Prevalidate membership so commit-phase mutations cannot surface corruption.
+        // Phase 2: ensure any existing old membership is still present before
+        // commit-phase mutations become mechanical.
         if let Some(old_key) = &old_key {
-            let Some(old_entity_storage_key) = old_entity_storage_key else {
+            let Some(old_storage_key) = old_storage_key else {
                 return Err(InternalError::index_internal(
-                    "missing old entity key for index removal".to_string(),
+                    "missing old entity key for structural index removal".to_string(),
                 ));
             };
 
@@ -304,7 +313,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
                     index.fields().join(", "),
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_storage_key)
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key)
                 ))
             })?;
 
@@ -317,12 +326,12 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                 )));
             }
 
-            if !entry.contains(old_entity_storage_key) {
+            if !entry.contains(old_storage_key) {
                 return Err(InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
                     index.fields().join(", "),
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_storage_key)
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key)
                 )));
             }
         }
@@ -333,23 +342,17 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             load_existing_entry(index_reader, store, index, new_key.as_ref())?
         };
 
-        // Unique validation is evaluated through the provided reader view for
-        // the target unique value. During commit-window preflight that reader
-        // can include staged prior row ops (overlay), so same-window conflicts
-        // are validated against the correct logical ownership model.
-        let unique_new_entity = if new_key.is_some() { new } else { None };
-        let unique_new_entity_key = if new_key.is_some() {
-            new_entity_key.as_ref()
-        } else {
-            None
-        };
         unique::validate_unique_constraint::<E>(
             row_reader,
             index_reader,
             index,
             store,
-            unique_new_entity_key,
-            unique_new_entity,
+            if new_key.is_some() {
+                new_storage_key
+            } else {
+                None
+            },
+            new_key.as_ref(),
         )?;
 
         commit_ops::build_commit_ops_for_index(
@@ -360,14 +363,13 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             new_key,
             old_entry,
             new_entry,
-            old_entity_storage_key,
-            new_entity_storage_key,
+            old_storage_key,
+            new_storage_key,
         )?;
 
         apply.push(IndexApplyPlan { index, store });
     }
 
-    // Phase 3: return deterministic apply + commit-op plan.
     Ok(IndexMutationPlan { apply, commit_ops })
 }
 

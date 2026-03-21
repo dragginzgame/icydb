@@ -8,7 +8,8 @@ use crate::{
         Db,
         commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{
-            DataKey, DataRow, PersistedEntityRow, RawDataKey, RawRow, decode_raw_row_for_entity_key,
+            DataKey, DataRow, PersistedEntityRow, PersistedRow, RawDataKey, RawRow,
+            decode_raw_row_for_entity_key,
         },
         executor::{
             AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutablePlan,
@@ -130,7 +131,7 @@ struct PreparedDeleteCommit {
 }
 
 /// Decode raw access rows into typed delete rows with key/entity checks.
-pub(super) fn decode_rows<E: EntityKind + EntityValue>(
+pub(super) fn decode_rows<E: PersistedRow + EntityValue>(
     rows: Vec<DataRow>,
 ) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
@@ -225,7 +226,7 @@ fn prepare_typed_delete_rows<E>(
     data_rows: Vec<DataRow>,
 ) -> Result<TypedDeletePreparation<E>, InternalError>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     // Phase 1: decode structural access rows into typed delete candidates.
     let mut rows = decode_rows::<E>(data_rows)?;
@@ -309,14 +310,14 @@ where
 #[derive(Clone, Copy)]
 pub(in crate::db) struct DeleteExecutor<E>
 where
-    E: EntityKind,
+    E: PersistedRow,
 {
     db: Db<E::Canister>,
 }
 
 impl<E> DeleteExecutor<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     /// Construct one delete executor bound to a database handle.
     #[must_use]

@@ -4,19 +4,22 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::executor::{
-        ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
-        pipeline::contracts::{CursorPage, LoadExecutor},
-        pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
-        pipeline::orchestrator::LoadExecutionSurface,
+    db::{
+        PersistedRow,
+        executor::{
+            ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
+            pipeline::contracts::{CursorPage, LoadExecutor},
+            pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
+            pipeline::orchestrator::LoadExecutionSurface,
+        },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
 };
 
 impl<E> LoadExecutor<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     // Execute one traced paged scalar load and materialize traced page output.
     pub(in crate::db::executor) fn execute_load_scalar_page_with_trace(

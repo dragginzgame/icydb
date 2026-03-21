@@ -19,7 +19,7 @@ use crate::{
     testing,
     value::{Value, with_test_hash_override},
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 
 type FinalizedGroupedRow = super::engine::GroupedAggregateOutput;
@@ -34,7 +34,9 @@ crate::test_store! {
     canister = GroupedStateTestCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct GroupedStateTestEntity {
     id: u64,
 }

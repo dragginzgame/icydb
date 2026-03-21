@@ -5,12 +5,11 @@
 
 use crate::{
     db::{
-        codec::{MAX_ROW_BYTES, deserialize_row, serialize_row_payload},
-        data::DataKey,
+        codec::{MAX_ROW_BYTES, serialize_row_payload},
+        data::{DataKey, PersistedRow, StructuralSlotReader, encode_persisted_row},
     },
     error::InternalError,
-    serialize::serialize,
-    traits::{EntityKind, Storable},
+    traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
@@ -79,11 +78,9 @@ impl RawRow {
     /// Encode one entity into the canonical persisted row envelope.
     pub(crate) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
     where
-        E: EntityKind,
+        E: PersistedRow,
     {
-        let payload = serialize(entity).map_err(|err| {
-            InternalError::serialize_internal(format!("row encode failed: {err}"))
-        })?;
+        let payload = encode_persisted_row(entity)?;
         let encoded = serialize_row_payload(payload)?;
 
         Self::try_new(encoded).map_err(InternalError::from)
@@ -106,10 +103,13 @@ impl RawRow {
     }
 
     /// Decode into an entity.
-    pub(crate) fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
+    pub(crate) fn try_decode<E: PersistedRow>(&self) -> Result<E, RowDecodeError> {
         // Keep deserialize failures structured so callers can classify decode
         // boundary errors without parsing free-form strings.
-        deserialize_row::<E>(&self.0).map_err(|source| RowDecodeError::Deserialize { source })
+        let mut slots = StructuralSlotReader::from_raw_row(self, E::MODEL)
+            .map_err(|source| RowDecodeError::Deserialize { source })?;
+        E::materialize_from_slots(&mut slots)
+            .map_err(|source| RowDecodeError::Deserialize { source })
     }
 }
 

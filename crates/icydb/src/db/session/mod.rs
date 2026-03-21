@@ -9,7 +9,7 @@ use crate::db::{
 };
 use crate::{
     db::{
-        EntityFieldDescription, EntitySchemaDescription, StorageReport,
+        EntityFieldDescription, EntitySchemaDescription, PersistedRow, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
@@ -110,7 +110,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: PersistedRow<Canister = C>,
     {
         FluentLoadQuery {
             inner: self.inner.load::<E>(),
@@ -123,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: MissingRowPolicy,
     ) -> FluentLoadQuery<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: PersistedRow<Canister = C>,
     {
         FluentLoadQuery {
             inner: self.inner.load_with_consistency::<E>(consistency),
@@ -172,7 +172,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_sql::<E>(sql)?))
     }
@@ -181,7 +181,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let parsed = self.parse_sql_statement(sql)?;
 
@@ -195,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
         parsed: &SqlParsedStatement,
     ) -> Result<SqlQueryResult, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let result = self.inner.execute_sql_dispatch_parsed::<E>(&parsed.inner)?;
 
@@ -212,7 +212,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &SqlPreparedStatement,
     ) -> Result<SqlQueryResult, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let result = self
             .inner
@@ -231,7 +231,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &SqlPreparedStatement,
     ) -> Result<SqlQueryResult, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let result = self
             .inner
@@ -264,7 +264,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &core::db::LoweredSqlCommand,
     ) -> Result<SqlQueryResult, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let result = self
             .inner
@@ -284,7 +284,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &core::db::LoweredSqlCommand,
     ) -> Result<SqlQueryResult, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let explain = self.inner.explain_lowered_sql_dispatch::<E>(lowered)?;
 
@@ -334,7 +334,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<crate::value::Value, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(self.inner.execute_sql_aggregate::<E>(sql)?)
     }
@@ -347,7 +347,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedGroupedResponse, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let execution = self.inner.execute_sql_grouped::<E>(sql, cursor_token)?;
         let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
@@ -362,7 +362,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: PersistedRow<Canister = C>,
     {
         SessionDeleteQuery {
             inner: self.inner.delete::<E>(),
@@ -375,7 +375,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: MissingRowPolicy,
     ) -> SessionDeleteQuery<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: PersistedRow<Canister = C>,
     {
         SessionDeleteQuery {
             inner: self.inner.delete_with_consistency::<E>(consistency),
@@ -450,7 +450,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_query(query)?))
     }
@@ -470,7 +470,7 @@ impl<C: CanisterKind> DbSession<C> {
         cursor_token: Option<&str>,
     ) -> Result<PagedGroupedResponse, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let execution = self.inner.execute_grouped(query, cursor_token)?;
         let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
@@ -488,7 +488,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn insert<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteResponse::new(self.inner.insert(entity)?))
     }
@@ -503,7 +503,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
             self.inner.insert_many_atomic(entities)?,
@@ -518,7 +518,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
             self.inner.insert_many_non_atomic(entities)?,
@@ -527,7 +527,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteResponse::new(self.inner.replace(entity)?))
     }
@@ -542,7 +542,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
             self.inner.replace_many_atomic(entities)?,
@@ -557,7 +557,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
             self.inner.replace_many_non_atomic(entities)?,
@@ -566,7 +566,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteResponse::new(self.inner.update(entity)?))
     }
@@ -581,7 +581,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
             self.inner.update_many_atomic(entities)?,
@@ -596,7 +596,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
             self.inner.update_many_non_atomic(entities)?,

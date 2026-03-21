@@ -16,7 +16,7 @@ use crate::{
     types::{Decimal, Ulid},
     value::Value,
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -70,7 +70,9 @@ crate::test_store! {
     canister = AggregateFieldCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct AggregateFieldEntity {
     id: Ulid,
     rank: u32,

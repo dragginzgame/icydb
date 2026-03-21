@@ -16,8 +16,8 @@ mod write;
 use crate::{
     db::{
         Db, EntityFieldDescription, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
-        IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PlanError, Query,
-        QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PersistedRow,
+        PlanError, Query, QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
         executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
@@ -108,7 +108,7 @@ impl<C: CanisterKind> DbSession<C> {
         map: impl FnOnce(T) -> R,
     ) -> Result<R, InternalError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         let value = self.with_metrics(|| op(self.save_executor::<E>()))?;
 
@@ -121,7 +121,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(SaveExecutor<E>) -> Result<E, InternalError>,
     ) -> Result<E, InternalError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_save_with(op, std::convert::identity)
     }
@@ -131,7 +131,7 @@ impl<C: CanisterKind> DbSession<C> {
         op: impl FnOnce(SaveExecutor<E>) -> Result<Vec<E>, InternalError>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_save_with(op, WriteBatchResponse::new)
     }
@@ -165,7 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn delete<E>(&self) -> FluentDeleteQuery<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: PersistedRow<Canister = C>,
     {
         FluentDeleteQuery::new(self, Query::new(MissingRowPolicy::Ignore).delete())
     }
@@ -177,7 +177,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: MissingRowPolicy,
     ) -> FluentDeleteQuery<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: PersistedRow<Canister = C>,
     {
         FluentDeleteQuery::new(self, Query::new(consistency).delete())
     }
@@ -292,7 +292,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub(in crate::db) const fn delete_executor<E>(&self) -> DeleteExecutor<E>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         DeleteExecutor::new(self.db, self.debug)
     }
@@ -300,7 +300,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub(in crate::db) const fn save_executor<E>(&self) -> SaveExecutor<E>
     where
-        E: EntityKind<Canister = C> + EntityValue,
+        E: PersistedRow<Canister = C> + EntityValue,
     {
         SaveExecutor::new(self.db, self.debug)
     }

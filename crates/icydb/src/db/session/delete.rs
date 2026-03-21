@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        Row,
+        PersistedRow, Row,
         query::{
             Query, QueryTracePlan,
             expr::{FilterExpr, SortExpr},
@@ -10,7 +10,7 @@ use crate::{
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
-    traits::{EntityKind, EntityValue, SingletonEntity},
+    traits::{EntityValue, SingletonEntity},
     types::Id,
 };
 use icydb_core as core;
@@ -21,11 +21,11 @@ use icydb_core as core;
 /// Session-bound fluent wrapper for delete queries.
 ///
 
-pub struct SessionDeleteQuery<'a, E: EntityKind> {
+pub struct SessionDeleteQuery<'a, E: PersistedRow> {
     pub(crate) inner: core::db::FluentDeleteQuery<'a, E>,
 }
 
-impl<E: EntityKind> SessionDeleteQuery<'_, E> {
+impl<E: PersistedRow> SessionDeleteQuery<'_, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -61,7 +61,7 @@ impl<E: EntityKind> SessionDeleteQuery<'_, E> {
     }
 }
 
-impl<E: EntityKind + SingletonEntity> SessionDeleteQuery<'_, E> {
+impl<E: PersistedRow + SingletonEntity> SessionDeleteQuery<'_, E> {
     /// Delete the singleton entity.
     #[must_use]
     pub fn only(mut self) -> Self

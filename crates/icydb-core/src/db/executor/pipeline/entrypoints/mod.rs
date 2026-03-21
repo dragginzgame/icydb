@@ -8,7 +8,7 @@ mod scalar;
 
 use crate::{
     db::{
-        Db,
+        Db, PersistedRow,
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
             ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
@@ -70,7 +70,12 @@ where
     ) -> Result<ResolvedLoadCursorContext, InternalError> {
         resolve_entrypoint_cursor(plan, cursor, execution_mode)
     }
+}
 
+impl<E> LoadExecutor<E>
+where
+    E: PersistedRow + EntityValue,
+{
     // Execute one scalar load plan without explicit cursor input.
     #[inline(never)]
     pub(crate) fn execute(

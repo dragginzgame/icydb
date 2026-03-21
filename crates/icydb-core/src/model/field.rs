@@ -24,6 +24,48 @@ pub enum FieldStorageDecode {
 }
 
 ///
+/// ScalarCodec
+///
+/// ScalarCodec identifies the canonical binary leaf encoding used for one
+/// scalar persisted field payload.
+/// These codecs are fixed-width or span-bounded by the surrounding row slot
+/// container; they do not perform map/array/value dispatch.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScalarCodec {
+    Blob,
+    Bool,
+    Date,
+    Duration,
+    Float32,
+    Float64,
+    Int64,
+    Principal,
+    Subaccount,
+    Text,
+    Timestamp,
+    Uint64,
+    Ulid,
+    Unit,
+}
+
+///
+/// LeafCodec
+///
+/// LeafCodec declares whether one persisted field payload uses a dedicated
+/// scalar codec or falls back to CBOR leaf decoding.
+/// The row container consults this metadata before deciding whether a slot can
+/// stay on the scalar fast path.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LeafCodec {
+    Scalar(ScalarCodec),
+    CborFallback,
+}
+
+///
 /// EnumVariantModel
 ///
 /// EnumVariantModel carries structural decode metadata for one generated enum
@@ -93,6 +135,8 @@ pub struct FieldModel {
     pub(crate) kind: FieldKind,
     /// Persisted field decode contract used by structural runtime decoders.
     pub(crate) storage_decode: FieldStorageDecode,
+    /// Leaf payload codec used by slot readers and writers.
+    pub(crate) leaf_codec: LeafCodec,
 }
 
 impl FieldModel {
@@ -113,6 +157,7 @@ impl FieldModel {
             name,
             kind,
             storage_decode,
+            leaf_codec: leaf_codec_for(kind, storage_decode),
         }
     }
 
@@ -132,6 +177,50 @@ impl FieldModel {
     #[must_use]
     pub const fn storage_decode(&self) -> FieldStorageDecode {
         self.storage_decode
+    }
+
+    /// Return the persisted leaf payload codec.
+    #[must_use]
+    pub const fn leaf_codec(&self) -> LeafCodec {
+        self.leaf_codec
+    }
+}
+
+// Resolve the canonical leaf codec from semantic field kind plus storage
+// contract. Fields that intentionally persist as `Value` or that still require
+// recursive payload decoding remain on the shared CBOR fallback.
+const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> LeafCodec {
+    if matches!(storage_decode, FieldStorageDecode::Value) {
+        return LeafCodec::CborFallback;
+    }
+
+    match kind {
+        FieldKind::Blob => LeafCodec::Scalar(ScalarCodec::Blob),
+        FieldKind::Bool => LeafCodec::Scalar(ScalarCodec::Bool),
+        FieldKind::Date => LeafCodec::Scalar(ScalarCodec::Date),
+        FieldKind::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
+        FieldKind::Float32 => LeafCodec::Scalar(ScalarCodec::Float32),
+        FieldKind::Float64 => LeafCodec::Scalar(ScalarCodec::Float64),
+        FieldKind::Int => LeafCodec::Scalar(ScalarCodec::Int64),
+        FieldKind::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
+        FieldKind::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
+        FieldKind::Text => LeafCodec::Scalar(ScalarCodec::Text),
+        FieldKind::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
+        FieldKind::Uint => LeafCodec::Scalar(ScalarCodec::Uint64),
+        FieldKind::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
+        FieldKind::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
+        FieldKind::Relation { key_kind, .. } => leaf_codec_for(*key_kind, storage_decode),
+        FieldKind::Account
+        | FieldKind::Decimal { .. }
+        | FieldKind::Enum { .. }
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::List(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Set(_)
+        | FieldKind::Structured { .. }
+        | FieldKind::Uint128
+        | FieldKind::UintBig => LeafCodec::CborFallback,
     }
 }
 

@@ -6,6 +6,7 @@
 use crate::{
     db::{
         PagedGroupedExecutionWithTrace, PagedLoadExecution, PagedLoadExecutionWithTrace,
+        PersistedRow,
         query::fluent::load::FluentLoadQuery,
         query::intent::{Query, QueryError},
     },
@@ -28,7 +29,7 @@ where
 
 impl<'a, E> FluentLoadQuery<'a, E>
 where
-    E: EntityKind,
+    E: PersistedRow,
 {
     /// Enter typed cursor-pagination mode for this query.
     ///
@@ -51,7 +52,7 @@ where
     /// The returned cursor token is opaque and must be passed back via `.cursor(...)`.
     pub fn execute_paged(self) -> Result<PagedLoadExecution<E>, QueryError>
     where
-        E: EntityValue,
+        E: PersistedRow + EntityValue,
     {
         self.page()?.execute()
     }
@@ -62,7 +63,7 @@ where
     /// execution to keep grouped response shape explicit.
     pub fn execute_grouped(self) -> Result<PagedGroupedExecutionWithTrace, QueryError>
     where
-        E: EntityValue,
+        E: PersistedRow + EntityValue,
     {
         self.session
             .execute_grouped(self.query(), self.cursor_token.as_deref())
@@ -71,7 +72,7 @@ where
 
 impl<E> PagedLoadQuery<'_, E>
 where
-    E: EntityKind,
+    E: PersistedRow,
 {
     // ------------------------------------------------------------------
     // Intent inspection
@@ -104,7 +105,7 @@ where
     /// snapshot/version pinned across requests.
     pub fn execute(self) -> Result<PagedLoadExecution<E>, QueryError>
     where
-        E: EntityValue,
+        E: PersistedRow + EntityValue,
     {
         self.execute_with_trace()
             .map(PagedLoadExecutionWithTrace::into_execution)
@@ -117,7 +118,7 @@ where
     /// change query planning or result semantics.
     pub fn execute_with_trace(self) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
-        E: EntityValue,
+        E: PersistedRow + EntityValue,
     {
         self.inner.ensure_paged_mode_ready()?;
 

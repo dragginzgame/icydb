@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        codec::{ROW_FORMAT_VERSION_CURRENT, ROW_FORMAT_VERSION_PREVIOUS},
+        codec::ROW_FORMAT_VERSION_CURRENT,
         commit::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
             commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
@@ -31,7 +31,7 @@ use crate::{
     types::Ulid,
     value::{Value, ValueEnum},
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, collections::BTreeSet};
 
@@ -59,7 +59,9 @@ crate::test_store! {
 /// RecoveryTestEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryTestEntity {
     id: Ulid,
 }
@@ -78,52 +80,66 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryIndexedEntity {
     id: Ulid,
     group: u32,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryUniqueEntity {
     id: Ulid,
     email: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryUniqueCasefoldEntity {
     id: Ulid,
     email: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryUpperExpressionEntity {
     id: Ulid,
     email: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryConditionalEntity {
     id: Ulid,
     group: u32,
     active: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryConditionalUniqueEntity {
     id: Ulid,
     email: String,
     active: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RecoveryConditionalUniqueCasefoldEntity {
     id: Ulid,
     email: String,
     active: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct RecoveryConditionalUniqueEnumEntity {
     id: Ulid,
     status: Value,
@@ -716,29 +732,36 @@ fn conditional_unique_enum_data_key(id: Ulid) -> RawDataKey {
 }
 
 fn indexed_row_bytes(entity: &RecoveryIndexedEntity) -> Vec<u8> {
-    serialize(entity).expect("indexed row serialization should succeed")
+    canonical_row_bytes(entity)
 }
 
 fn unique_row_bytes(entity: &RecoveryUniqueEntity) -> Vec<u8> {
-    serialize(entity).expect("unique row serialization should succeed")
+    canonical_row_bytes(entity)
 }
 
 fn conditional_row_bytes(entity: &RecoveryConditionalEntity) -> Vec<u8> {
-    serialize(entity).expect("conditional row serialization should succeed")
+    canonical_row_bytes(entity)
 }
 
 fn conditional_unique_row_bytes(entity: &RecoveryConditionalUniqueEntity) -> Vec<u8> {
-    serialize(entity).expect("conditional-unique row serialization should succeed")
+    canonical_row_bytes(entity)
 }
 
 fn conditional_unique_casefold_row_bytes(
     entity: &RecoveryConditionalUniqueCasefoldEntity,
 ) -> Vec<u8> {
-    serialize(entity).expect("conditional-unique-casefold row serialization should succeed")
+    canonical_row_bytes(entity)
 }
 
 fn conditional_unique_enum_row_bytes(entity: &RecoveryConditionalUniqueEnumEntity) -> Vec<u8> {
-    serialize(entity).expect("conditional-unique-enum row serialization should succeed")
+    canonical_row_bytes(entity)
+}
+
+fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
+    RawRow::from_entity(entity)
+        .expect("canonical row encoding should succeed")
+        .as_bytes()
+        .to_vec()
 }
 
 const RECOVERY_STATUS_ENUM_PATH: &str = "db::commit::tests::RecoveryConditionalStatus";
@@ -1476,7 +1499,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
-    let row_bytes = serialize(&entity).expect("entity serialization should succeed");
+    let row_bytes = canonical_row_bytes(&entity);
     let row_op = row_op_for_path(
         RecoveryIndexedEntity::PATH,
         data_key.as_bytes().to_vec(),
@@ -1545,7 +1568,7 @@ fn recovery_replay_is_idempotent() {
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
-    let row_bytes = serialize(&entity).expect("entity serialization should succeed");
+    let row_bytes = canonical_row_bytes(&entity);
     let marker = CommitMarker::new(vec![row_op_for_path(
         RecoveryTestEntity::PATH,
         raw_key.as_bytes().to_vec(),
@@ -1621,9 +1644,11 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
     };
     let marker_payload = serialize(&marker).expect("marker payload encode should succeed");
     let future_version = COMMIT_MARKER_FORMAT_VERSION_CURRENT.saturating_add(1);
-    let encoded = serialize(&(future_version, marker_payload))
+    let marker_bytes = serialize(&(future_version, marker_payload))
         .expect("future-version marker envelope encode should succeed");
-    store::set_raw_commit_marker_bytes_for_tests(encoded)
+    let control_slot_bytes = serialize(&(*b"CMCS", 1_u8, marker_bytes, Vec::<u8>::new()))
+        .expect("control-slot envelope encode should succeed");
+    store::set_raw_commit_marker_bytes_for_tests(control_slot_bytes)
         .expect("test helper should persist raw marker bytes");
 
     let err =
@@ -1657,7 +1682,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let first_row = serialize(&first).expect("first row serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
 
     let second = RecoveryIndexedEntity {
         id: Ulid::from_u128(914),
@@ -1667,7 +1692,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
-    let second_row = serialize(&second).expect("second row serialization should succeed");
+    let second_row = canonical_row_bytes(&second);
     let unsupported_path = "commit_tests::UnknownEntity";
     let marker = CommitMarker::new(vec![
         row_op_for_path(
@@ -1778,7 +1803,7 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
-    let row_bytes = serialize(&entity).expect("entity serialization should succeed");
+    let row_bytes = canonical_row_bytes(&entity);
     let marker = CommitMarker::new(vec![row_op_for_path(
         RecoveryTestEntity::PATH,
         raw_key.as_bytes().to_vec(),
@@ -1897,7 +1922,7 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
-    let row = serialize(&entity).expect("entity serialization should succeed");
+    let row = canonical_row_bytes(&entity);
 
     let marker = CommitMarker::new(vec![row_op_for_path_with_schema(
         RecoveryTestEntity::PATH,
@@ -1955,8 +1980,8 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
-    let first_row = serialize(&first).expect("first entity serialization should succeed");
-    let second_row = serialize(&second).expect("second entity serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     let marker = CommitMarker::new(vec![
         row_op_for_path(
@@ -2017,8 +2042,8 @@ fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
-    let first_row = serialize(&first).expect("first entity serialization should succeed");
-    let second_row = serialize(&second).expect("second entity serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     // Simulate an interrupted atomic batch by persisting the marker without apply.
     let marker = CommitMarker::new(vec![
@@ -2108,8 +2133,8 @@ fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
         .expect("second unique data key should build")
         .to_raw()
         .expect("second unique data key should encode");
-    let first_row = serialize(&first).expect("first unique row serialization should succeed");
-    let second_row = serialize(&second).expect("second unique row serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     // Simulate interrupted atomic marker persistence for two writes that conflict
     // on one unique secondary index value.
@@ -2205,10 +2230,8 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
         .to_raw()
         .expect("second replay key should encode");
 
-    let replay_first_row =
-        serialize(&replay_first).expect("first replay row serialization should succeed");
-    let replay_second_row =
-        serialize(&replay_second).expect("second replay row serialization should succeed");
+    let replay_first_row = canonical_row_bytes(&replay_first);
+    let replay_second_row = canonical_row_bytes(&replay_second);
 
     let replay_marker = CommitMarker::new(vec![
         row_op_for_path_with_schema(
@@ -2333,10 +2356,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
                 .as_bytes()
                 .to_vec(),
             None,
-            Some(
-                serialize(&replay_first)
-                    .expect("first casefold replay row serialization should succeed"),
-            ),
+            Some(canonical_row_bytes(&replay_first)),
             commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
         ),
         row_op_for_path_with_schema(
@@ -2348,10 +2368,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
                 .as_bytes()
                 .to_vec(),
             None,
-            Some(
-                serialize(&replay_second)
-                    .expect("second casefold replay row serialization should succeed"),
-            ),
+            Some(canonical_row_bytes(&replay_second)),
             commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
         ),
     ])
@@ -2506,10 +2523,10 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
         .to_raw()
         .expect("second data key should encode");
 
-    let old_first_row = serialize(&old_first).expect("old first serialization should succeed");
-    let old_second_row = serialize(&old_second).expect("old second serialization should succeed");
-    let new_first_row = serialize(&new_first).expect("new first serialization should succeed");
-    let new_second_row = serialize(&new_second).expect("new second serialization should succeed");
+    let old_first_row = canonical_row_bytes(&old_first);
+    let old_second_row = canonical_row_bytes(&old_second);
+    let new_first_row = canonical_row_bytes(&new_first);
+    let new_second_row = canonical_row_bytes(&new_second);
 
     // Phase 1: establish the pre-update durable state (group=10).
     let seed_marker = CommitMarker::new(vec![
@@ -2569,12 +2586,12 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
     );
     assert_eq!(
         row_bytes_for(&first_key),
-        Some(serialize(&old_first).expect("old first serialization should succeed")),
+        Some(canonical_row_bytes(&old_first)),
         "pre-recovery row bytes should still reflect old update state"
     );
     assert_eq!(
         row_bytes_for(&second_key),
-        Some(serialize(&old_second).expect("old second serialization should succeed")),
+        Some(canonical_row_bytes(&old_second)),
         "pre-recovery row bytes should still reflect old update state"
     );
     let pre_update_old_indexed_first =
@@ -2664,8 +2681,8 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
-    let first_row = serialize(&first).expect("first entity serialization should succeed");
-    let second_row = serialize(&second).expect("second entity serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     // Phase 1: replay two inserts sharing the same index key.
     let save_marker = CommitMarker::new(vec![
@@ -2747,8 +2764,8 @@ fn recovery_replay_preserves_index_key_raw_bytes_across_reloads() {
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
-    let first_row = serialize(&first).expect("first entity serialization should succeed");
-    let second_row = serialize(&second).expect("second entity serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     let index = RecoveryIndexedEntity::INDEXES[0];
     let mut expected = vec![
@@ -2825,8 +2842,8 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
-    let first_row = serialize(&first).expect("first row serialization should succeed");
-    let second_row = serialize(&second).expect("second row serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     let index = RecoveryIndexedEntity::INDEXES[0];
     let stale_key = IndexKey::new(&stale, index)
@@ -2922,8 +2939,8 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         .expect("inactive data key should build")
         .to_raw()
         .expect("inactive data key should encode");
-    let active_row = serialize(&active).expect("active row serialization should succeed");
-    let inactive_row = serialize(&inactive).expect("inactive row serialization should succeed");
+    let active_row = canonical_row_bytes(&active);
+    let inactive_row = canonical_row_bytes(&inactive);
 
     let index = RecoveryConditionalEntity::INDEXES[0];
     let inactive_index_key = IndexKey::new(&inactive, index)
@@ -3026,9 +3043,8 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         .expect("second expression data key should build")
         .to_raw()
         .expect("second expression data key should encode");
-    let first_row = serialize(&first).expect("first expression row serialization should succeed");
-    let second_row =
-        serialize(&second).expect("second expression row serialization should succeed");
+    let first_row = canonical_row_bytes(&first);
+    let second_row = canonical_row_bytes(&second);
 
     let index = RecoveryUpperExpressionEntity::INDEXES[0];
     let stale_key = IndexKey::new(&stale, index)
@@ -3088,46 +3104,6 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         index_key_bytes_snapshot(),
         expected,
         "startup rebuild should drop stale expression index entries and recreate canonical UPPER(email) keys from rows",
-    );
-}
-
-#[test]
-fn recovery_startup_rebuild_decodes_previous_row_format_within_window() {
-    reset_recovery_state();
-
-    let entity = RecoveryIndexedEntity {
-        id: Ulid::from_u128(924),
-        group: 33,
-    };
-    let raw_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
-        .expect("row key should build")
-        .to_raw()
-        .expect("row key should encode");
-    let payload = serialize(&entity).expect("entity payload should encode");
-    let previous_version_row = serialize(&(ROW_FORMAT_VERSION_PREVIOUS, payload))
-        .expect("previous-version row envelope should encode");
-
-    with_recovery_store(|store| {
-        store.with_data_mut(|data_store| {
-            data_store.insert(
-                raw_key,
-                RawRow::try_new(previous_version_row)
-                    .expect("previous-version row should fit raw row bounds"),
-            );
-        });
-    });
-
-    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
-    begin_commit(marker).expect("begin_commit should persist marker");
-    ensure_recovered(&DB).expect("recovery should accept previous-version row formats");
-
-    assert!(
-        !commit_marker_present().expect("commit marker check should succeed"),
-        "commit marker should be cleared after successful recovery",
-    );
-    assert_eq!(
-        indexed_ids_for(&entity).expect("index entry should exist after rebuild"),
-        std::iter::once(entity.id).collect::<BTreeSet<_>>(),
     );
 }
 

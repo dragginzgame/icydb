@@ -6,10 +6,13 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        data::StorageKey,
+        data::{ScalarSlotValueRef, SlotReader, StorageKey},
         index::{
             derive_index_expression_value,
-            key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
+            key::{
+                EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError,
+                encode_canonical_index_component_from_scalar,
+            },
         },
     },
     error::InternalError,
@@ -17,7 +20,6 @@ use crate::{
         entity::{EntityModel, resolve_field_slot},
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
-    traits::{EntityKind, EntityValue, FieldValue},
     types::EntityTag,
     value::Value,
 };
@@ -68,6 +70,84 @@ where
 }
 
 impl IndexKey {
+    /// Build an index key from one structural slot reader plus runtime identity.
+    /// Plain field key items read scalar slot values directly when available.
+    pub(crate) fn new_from_slots(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        slots: &mut dyn SlotReader,
+        index: &IndexModel,
+    ) -> Result<Option<Self>, InternalError> {
+        // Phase 1: validate declared index shape and collect encoded components.
+        let index_component_count = match index.key_items() {
+            IndexKeyItemsRef::Fields(fields) => fields.len(),
+            IndexKeyItemsRef::Items(items) => items.len(),
+        };
+        if index_component_count > MAX_INDEX_FIELDS {
+            return Err(InternalError::index_invariant(format!(
+                "index '{}' has {} fields (max {})",
+                index.name(),
+                index_component_count,
+                MAX_INDEX_FIELDS
+            )));
+        }
+
+        let mut components = Vec::with_capacity(index_component_count);
+
+        // Phase 2: materialize canonical field/expression key item values.
+        match index.key_items() {
+            IndexKeyItemsRef::Fields(fields) => {
+                for &field in fields {
+                    let key_item = IndexKeyItem::Field(field);
+                    let Some(component) = index_component_bytes_from_slots(slots, index, key_item)?
+                    else {
+                        return Ok(None);
+                    };
+
+                    if component.len() > Self::MAX_COMPONENT_SIZE {
+                        return Err(InternalError::index_unsupported(format!(
+                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                            key_item.canonical_text(),
+                            component.len(),
+                            Self::MAX_COMPONENT_SIZE
+                        )));
+                    }
+
+                    components.push(component);
+                }
+            }
+            IndexKeyItemsRef::Items(items) => {
+                for &key_item in items {
+                    let Some(component) = index_component_bytes_from_slots(slots, index, key_item)?
+                    else {
+                        return Ok(None);
+                    };
+
+                    if component.len() > Self::MAX_COMPONENT_SIZE {
+                        return Err(InternalError::index_unsupported(format!(
+                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                            key_item.canonical_text(),
+                            component.len(),
+                            Self::MAX_COMPONENT_SIZE
+                        )));
+                    }
+
+                    components.push(component);
+                }
+            }
+        }
+
+        // Phase 3: encode the already-materialized primary key and assemble the full key.
+        let primary_key = storage_key.to_bytes()?.to_vec();
+
+        Ok(Some(Self {
+            key_kind: IndexKeyKind::User,
+            index_id: IndexId::new(entity_tag, index.ordinal()),
+            components,
+            primary_key,
+        }))
+    }
+
     /// Build an index key from one structural row slot reader plus runtime identity.
     /// Returns `Ok(None)` when indexed values are non-indexable.
     pub(crate) fn new_from_slot_reader<F>(
@@ -182,13 +262,15 @@ impl IndexKey {
         }))
     }
 
-    /// Build an index key; returns `Ok(None)` when indexed values are non-indexable.
+    /// Build an index key from a typed entity for test-only parity checks.
     /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
-    pub(crate) fn new<E: EntityKind + EntityValue>(
+    #[cfg(test)]
+    pub(crate) fn new<E: crate::traits::EntityKind + crate::traits::EntityValue>(
         entity: &E,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
-        let entity_key_value = entity.id().key().to_value();
+        let entity_key = entity.id().key();
+        let entity_key_value = crate::traits::FieldValue::to_value(&entity_key);
         let storage_key = StorageKey::try_from_value(&entity_key_value)?;
         let mut read_slot = |slot| entity.get_value_by_index(slot);
 
@@ -424,6 +506,83 @@ impl IndexKey {
 
         (lower_bound, upper_bound)
     }
+}
+
+// Build one canonical index component directly from one slot reader.
+fn index_component_bytes_from_slots(
+    slots: &mut dyn SlotReader,
+    index: &IndexModel,
+    key_item: IndexKeyItem,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let field = key_item.field();
+    let Some(field_index) = resolve_field_slot(slots.model(), field) else {
+        return Err(InternalError::index_invariant(format!(
+            "index key item field missing on entity model: {field}",
+        )));
+    };
+
+    match key_item {
+        IndexKeyItem::Field(_) => {
+            if let Some(source) = slots.get_scalar(field_index)? {
+                return encode_scalar_index_component(source);
+            }
+
+            let Some(value) = slots.get_value(field_index)? else {
+                return Err(InternalError::index_invariant(format!(
+                    "index key item field missing on lookup row: {field}",
+                )));
+            };
+
+            encode_value_index_component(value)
+        }
+        IndexKeyItem::Expression(expression) => {
+            let Some(source) = slots.get_value(field_index)? else {
+                return Err(InternalError::index_invariant(format!(
+                    "index key item field missing on lookup row: {field}",
+                )));
+            };
+            let Some(value) = value_for_expression(index, expression, source)? else {
+                return Ok(None);
+            };
+
+            encode_value_index_component(value)
+        }
+    }
+}
+
+// Encode one scalar slot value into canonical index bytes.
+fn encode_scalar_index_component(
+    source: ScalarSlotValueRef<'_>,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    match source {
+        ScalarSlotValueRef::Null => Ok(None),
+        ScalarSlotValueRef::Value(source) => {
+            match encode_canonical_index_component_from_scalar(source) {
+                Ok(component) => Ok(Some(component)),
+                Err(
+                    OrderedValueEncodeError::NullNotIndexable
+                    | OrderedValueEncodeError::UnsupportedValueKind { .. },
+                ) => Ok(None),
+                Err(err) => Err(err.into()),
+            }
+        }
+    }
+}
+
+// Encode one owned runtime value into canonical index bytes.
+fn encode_value_index_component(value: Value) -> Result<Option<Vec<u8>>, InternalError> {
+    let encoded = match EncodedValue::try_from_ref(&value) {
+        Ok(encoded) => encoded,
+        Err(
+            OrderedValueEncodeError::NullNotIndexable
+            | OrderedValueEncodeError::UnsupportedValueKind { .. },
+        ) => {
+            return Ok(None);
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    Ok(Some(encoded.encoded().to_vec()))
 }
 
 fn normalize_range_component_bound<C: AsRef<[u8]>>(

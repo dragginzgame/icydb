@@ -9,6 +9,7 @@ mod take;
 
 use crate::{
     db::{
+        PersistedRow,
         data::DataKey,
         executor::{
             PreparedLoadPlan,
@@ -118,7 +119,7 @@ where
 
 impl<E> LoadExecutor<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     // Execute one scalar ranking terminal family request from the typed API
     // boundary and immediately hand off to shared materialized ranking logic.

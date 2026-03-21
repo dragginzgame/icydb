@@ -26,9 +26,7 @@ use std::borrow::Cow;
 pub(crate) const COMMIT_LABEL: &str = "CommitMarker";
 const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
-pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;
-pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_PREVIOUS: u8 =
-    COMMIT_MARKER_FORMAT_VERSION_CURRENT - 1;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 

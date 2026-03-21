@@ -9,22 +9,15 @@ use crate::model::field::EnumVariantModel;
 use crate::types::Ulid;
 use crate::{
     db::{
-        data::{
-            DataRow, RawRow, StorageKey, StructuralRowDecodeError, StructuralRowObject,
-            StructuralRowSlots, decode_structural_field_value,
-        },
+        data::decode_structural_field_bytes,
+        data::{DataRow, RawRow, ScalarSlotValueRef, SlotReader, StorageKey, StructuralSlotReader},
         executor::terminal::page::KernelRow,
     },
     error::InternalError,
-    model::{
-        entity::{EntityModel, resolve_primary_key_slot},
-        field::{FieldKind, FieldStorageDecode},
-    },
+    model::entity::{EntityModel, resolve_primary_key_slot},
+    model::field::{FieldKind, FieldStorageDecode, LeafCodec},
     value::Value,
 };
-#[cfg(test)]
-use serde_cbor::Value as CborValue;
-
 ///
 /// RowFieldLayout
 ///
@@ -39,6 +32,7 @@ struct RowFieldLayout {
     name: &'static str,
     kind: FieldKind,
     storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
 }
 
 ///
@@ -69,6 +63,7 @@ impl RowLayout {
                 name: field.name(),
                 kind: field.kind(),
                 storage_decode: field.storage_decode(),
+                leaf_codec: field.leaf_codec(),
             })
             .collect::<Vec<_>>();
 
@@ -120,46 +115,56 @@ fn decode_kernel_row_structural(
     layout: &RowLayout,
     data_row: DataRow,
 ) -> Result<KernelRow, InternalError> {
-    let row_object = decode_row_object(&data_row.1)?;
-    let row_slots = row_object.slots_for_model(layout.model);
-    let slots = layout
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(slot, field)| decode_row_field(&row_slots, slot, field))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut row_fields = decode_row_fields(&data_row.1, layout.model)?;
+    let mut slots = Vec::with_capacity(layout.fields.len());
+
+    // Phase 1: decode declared slots through the canonical structural slot reader.
+    for (slot, field) in layout.fields.iter().enumerate() {
+        slots.push(decode_row_field(&mut row_fields, slot, field)?);
+    }
+
+    // Phase 2: verify the decoded primary-key value still matches storage identity.
     validate_primary_key_slot(layout, data_row.0.storage_key(), slots.as_slice())?;
 
     Ok(KernelRow::new(data_row, slots))
 }
 
-// Decode the persisted row envelope into the canonical structural row object.
-fn decode_row_object(row: &RawRow) -> Result<StructuralRowObject, InternalError> {
-    StructuralRowObject::from_raw_row(row).map_err(|err| match err {
-        StructuralRowDecodeError::Deserialize(source) => source,
-        StructuralRowDecodeError::ExpectedTopLevelMap => {
-            InternalError::serialize_corruption("row decode failed: expected top-level CBOR map")
-        }
-    })
+// Decode the persisted row envelope into slot-aligned encoded field payload spans.
+fn decode_row_fields<'a>(
+    row: &'a RawRow,
+    model: &'static EntityModel,
+) -> Result<StructuralSlotReader<'a>, InternalError> {
+    StructuralSlotReader::from_raw_row(row, model)
 }
 
-// Decode one declared field from the persisted row object.
+// Decode one declared field from the persisted row field bytes.
 fn decode_row_field(
-    row_slots: &StructuralRowSlots<'_>,
+    row_fields: &mut StructuralSlotReader<'_>,
     slot: usize,
     field: &RowFieldLayout,
 ) -> Result<Option<Value>, InternalError> {
-    let Some(raw_value) = row_slots.field(slot) else {
+    // Phase 1: keep scalar slots on the borrowed fast path when possible.
+    if matches!(field.leaf_codec, LeafCodec::Scalar(_))
+        && let Some(value) = row_fields.get_scalar(slot)?
+    {
+        return Ok(Some(match value {
+            ScalarSlotValueRef::Null => Value::Null,
+            ScalarSlotValueRef::Value(value) => value.into_value(),
+        }));
+    }
+
+    // Phase 2: fall back to the declared field decode contract for complex payloads.
+    let Some(bytes) = row_fields.get_bytes(slot) else {
         return Err(InternalError::serialize_corruption(format!(
             "row decode failed: missing declared field `{}`",
             field.name,
         )));
     };
-    let value = decode_structural_field_value(raw_value, field.kind, field.storage_decode)
-        .map_err(|err| {
+    let value =
+        decode_structural_field_bytes(bytes, field.kind, field.storage_decode).map_err(|err| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field `{}` kind={:?}: {}",
-                field.name, field.kind, err
+                "row decode failed for field '{}' kind={:?}: {err}",
+                field.name, field.kind,
             ))
         })?;
 
@@ -206,12 +211,12 @@ mod tests {
     use super::*;
     use crate::{
         error::{ErrorClass, ErrorOrigin},
-        model::field::FieldKind,
+        model::field::{FieldKind, FieldStorageDecode},
         traits::EntitySchema,
         types::{Blob, Text},
         value::{Value, ValueEnum},
     };
-    use icydb_derive::FieldProjection;
+    use icydb_derive::{FieldProjection, PersistedRow};
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
@@ -225,7 +230,9 @@ mod tests {
         canister = RowDecodeCanister,
     }
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+    #[derive(
+        Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+    )]
     struct RowDecodeEntity {
         id: Ulid,
         title: Text,
@@ -262,10 +269,8 @@ mod tests {
             .expect("structural row decode should succeed")
     }
 
-    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
-        let bytes =
-            serde_cbor::to_vec(value).expect("test fixture should serialize into CBOR bytes");
-        serde_cbor::from_slice(&bytes).expect("test fixture should decode into CBOR tree")
+    fn to_cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
+        serde_cbor::to_vec(value).expect("test fixture should serialize into CBOR bytes")
     }
 
     #[test]
@@ -314,8 +319,8 @@ mod tests {
 
     #[test]
     fn structural_row_decoder_returns_null_for_structured_field_kind() {
-        let decoded = decode_structural_field_value(
-            &to_cbor_value(&vec!["x".to_string(), "y".to_string()]),
+        let decoded = decode_structural_field_bytes(
+            &to_cbor_bytes(&vec!["x".to_string(), "y".to_string()]),
             FieldKind::Structured { queryable: false },
             FieldStorageDecode::ByKind,
         )
@@ -332,8 +337,8 @@ mod tests {
             FieldStorageDecode::ByKind,
         )];
 
-        let decoded = decode_structural_field_value(
-            &to_cbor_value(&serde_cbor::Value::Map(BTreeMap::from([(
+        let decoded = decode_structural_field_bytes(
+            &to_cbor_bytes(&serde_cbor::Value::Map(BTreeMap::from([(
                 serde_cbor::Value::Text("Loaded".to_string()),
                 serde_cbor::Value::Integer(7),
             )]))),
@@ -353,7 +358,7 @@ mod tests {
         );
     }
 
-    #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
     struct RowDecodeValueEntity {
         id: Ulid,
         status: Value,

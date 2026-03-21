@@ -27,7 +27,7 @@ use crate::{
     traits::{EntityKind, Path, Storable, StoreKind},
     types::{EntityTag, Ulid},
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use serde_cbor::Value as CborValue;
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
@@ -60,7 +60,16 @@ impl StoreKind for DiagnosticsStoreA {
     type Canister = DiagnosticsCanister;
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    FieldProjection,
+    PartialEq,
+    PersistedRow,
+    Serialize,
+)]
 struct IntegrityIndexedEntity {
     id: Ulid,
     email: String,

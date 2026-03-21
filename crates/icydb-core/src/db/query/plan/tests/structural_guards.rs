@@ -6,6 +6,7 @@
 use super::PlanModelEntity;
 use crate::{
     db::{
+        PersistedRow,
         access::AccessPath,
         executor::{
             ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
@@ -20,7 +21,7 @@ use crate::{
             resolve_global_distinct_field_aggregate,
         },
     },
-    traits::{EntityKind, EntitySchema, EntityValue},
+    traits::{EntitySchema, EntityValue},
     value::Value,
 };
 use std::{
@@ -60,7 +61,7 @@ fn assert_global_distinct_builder_signature(
 
 fn assert_executor_entry_signatures<E>()
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     let executable_new: ExecutablePlanNewFn<E> = ExecutablePlan::<E>::new;
     let load_execute: LoadExecuteFn<E> = LoadExecutor::<E>::execute;
@@ -130,7 +131,7 @@ fn executor_entry_contract_requires_planned_query_wrapping() {
     #[expect(dead_code)]
     fn compile_only<E>()
     where
-        E: EntityKind + EntityValue,
+        E: PersistedRow + EntityValue,
     {
         assert_executor_entry_signatures::<E>();
     }

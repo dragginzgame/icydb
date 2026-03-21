@@ -8,8 +8,8 @@ use crate::{
         Db,
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
         data::{
-            DataKey, RawDataKey, RawRow, StorageKey, StructuralRowDecodeError, StructuralRowObject,
-            StructuralRowSlots, decode_structural_field_value,
+            DataKey, RawDataKey, RawRow, SlotReader, StorageKey, StructuralSlotReader,
+            decode_structural_field_bytes,
         },
         index::{
             EncodedValue, IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry,
@@ -151,9 +151,9 @@ pub(super) fn relation_target_keys_for_source_row(
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<BTreeSet<RawDataKey>, InternalError> {
-    let row_object = decode_relation_row_object(raw_row, source_info, relation)?;
-    let row_slots = row_object.slots_for_model(source_model);
-    let relation_value = decode_relation_field_from_row_slots(&row_slots, source_info, relation)?;
+    let mut row_fields = decode_relation_row_fields(raw_row, source_model, source_info, relation)?;
+    let relation_value =
+        decode_relation_field_from_row_fields(&mut row_fields, source_info, relation)?;
 
     relation_target_keys_from_value(source_info, relation.field_name, relation, &relation_value)
 }
@@ -258,47 +258,39 @@ pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
     Ok(Some(target_data_key))
 }
 
-// Decode one persisted row into the top-level CBOR object map used by
-// structural relation-field extraction.
-fn decode_relation_row_object(
-    raw_row: &RawRow,
-    source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
-) -> Result<StructuralRowObject, InternalError> {
-    StructuralRowObject::from_raw_row(raw_row).map_err(|err| match err {
-        StructuralRowDecodeError::Deserialize(source) => source,
-        StructuralRowDecodeError::ExpectedTopLevelMap => InternalError::serialize_corruption(
-            format!(
-                "relation source row decode failed: expected CBOR map: source={} field={} target={}",
-                source.path, relation.field_name, relation.target_path,
-            ),
-        ),
-    })
+// Decode one persisted row into model slot-aligned encoded field payload spans.
+fn decode_relation_row_fields<'a>(
+    raw_row: &'a RawRow,
+    source_model: &'static EntityModel,
+    _source: ReverseRelationSourceInfo,
+    _relation: StrongRelationInfo,
+) -> Result<StructuralSlotReader<'a>, InternalError> {
+    StructuralSlotReader::from_raw_row(raw_row, source_model)
 }
 
 // Decode the one strong-relation field payload needed by structural delete
-// validation directly from the persisted row object.
-fn decode_relation_field_from_row_slots(
-    row_slots: &StructuralRowSlots<'_>,
+// validation directly from the encoded field payload bytes.
+fn decode_relation_field_from_row_fields(
+    row_fields: &mut StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<Value, InternalError> {
-    let Some(raw_value) = row_slots.field(relation.field_index) else {
+    validate_relation_field_kind(relation.field_kind)?;
+
+    let Some(bytes) = row_fields.get_bytes(relation.field_index) else {
         return Err(InternalError::serialize_corruption(format!(
             "relation source row decode failed: missing field: source={} field={} target={}",
             source.path, relation.field_name, relation.target_path,
         )));
     };
-
-    validate_relation_field_kind(relation.field_kind)?;
-
-    decode_structural_field_value(raw_value, relation.field_kind, FieldStorageDecode::ByKind)
-        .map_err(|err| {
+    decode_structural_field_bytes(bytes, relation.field_kind, FieldStorageDecode::ByKind).map_err(
+        |err| {
             InternalError::serialize_corruption(format!(
                 "relation source row decode failed: source={} field={} target={} ({err})",
                 source.path, relation.field_name, relation.target_path,
             ))
-        })
+        },
+    )
 }
 
 // Enforce the narrow relation-field shapes that strong-relation structural
@@ -333,6 +325,7 @@ fn validate_relation_key_kind(key_kind: FieldKind) -> Result<(), InternalError> 
         ))),
     }
 }
+
 /// Build one reverse-index mutation for one touched target key.
 fn prepare_reverse_relation_index_mutation_for_target(
     source: ReverseRelationSourceInfo,

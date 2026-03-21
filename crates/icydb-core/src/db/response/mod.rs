@@ -11,7 +11,7 @@ mod paged;
 mod private;
 
 use crate::{
-    db::data::{DataRow, decode_data_rows_into_entity_response},
+    db::data::{DataRow, PersistedRow, decode_data_rows_into_entity_response},
     prelude::*,
     traits::EntityValue,
     types::Id,
@@ -238,7 +238,7 @@ impl<E: EntityKind> Response<Row<E>> {
         rows: Vec<DataRow>,
     ) -> Result<Self, crate::error::InternalError>
     where
-        E: EntityValue,
+        E: PersistedRow + EntityValue,
     {
         decode_data_rows_into_entity_response::<E>(rows)
     }

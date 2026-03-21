@@ -36,7 +36,7 @@ use crate::{
     types::Ulid,
     value::Value,
 };
-use icydb_derive::FieldProjection;
+use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 
@@ -65,7 +65,7 @@ static ROUTE_MATRIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     false,
 )];
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
 struct RouteMatrixEntity {
     id: Ulid,
     rank: u32,

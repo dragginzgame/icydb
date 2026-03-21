@@ -380,6 +380,7 @@ impl HasTraits for Entity {
             TraitKind::EntityKind,
             TraitKind::EntityValue,
             TraitKind::FieldProjection,
+            TraitKind::PersistedRow,
         ]);
 
         traits.into_vec()
@@ -391,6 +392,7 @@ impl HasTraits for Entity {
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::EntityValue => EntityValueTrait::strategy(self),
+            TraitKind::PersistedRow => PersistedRowTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),

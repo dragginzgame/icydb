@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        PersistedRow,
         executor::{
             ExecutablePlan, pipeline::contracts::LoadExecutor,
             terminal::ranking::RankingTerminalBoundaryRequest,
@@ -13,14 +14,14 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
     types::Id,
     value::Value,
 };
 
 impl<E> LoadExecutor<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     /// Execute one `top_k_by(field, k)` terminal over materialized load rows
     /// using one planner-resolved field slot.

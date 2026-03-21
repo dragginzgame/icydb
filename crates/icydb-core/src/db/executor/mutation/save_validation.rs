@@ -5,9 +5,10 @@
 
 use crate::{
     db::{
+        PersistedRow,
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
-        relation::validate_save_strong_relations,
+        relation::{model_has_strong_relation_targets, validate_save_strong_relations},
         schema::{SchemaInfo, literal_matches_type},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -23,13 +24,15 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-impl<E: EntityKind + EntityValue> SaveExecutor<E> {
+impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Execute the canonical save preflight pipeline before commit planning.
     pub(super) fn preflight_entity(&self, entity: &mut E) -> Result<(), InternalError> {
         sanitize(entity)?;
         validate(entity)?;
         Self::ensure_entity_invariants(entity)?;
-        validate_save_strong_relations::<E>(&self.db, entity)?;
+        if model_has_strong_relation_targets(E::MODEL) {
+            validate_save_strong_relations::<E>(&self.db, entity)?;
+        }
 
         Ok(())
     }
@@ -121,10 +124,17 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        let indexed_fields = indexed_field_set::<E>();
+        let indexed_fields = if E::INDEXES.is_empty() {
+            None
+        } else {
+            Some(indexed_field_set::<E>())
+        };
         for (field_index, field) in E::MODEL.fields.iter().enumerate() {
             let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-                let note = if indexed_fields.contains(field.name) {
+                let note = if indexed_fields
+                    .as_ref()
+                    .is_some_and(|fields| fields.contains(field.name))
+                {
                     " (indexed)"
                 } else {
                     ""
@@ -286,13 +296,11 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             ))
         })?;
 
-        let normalized = Value::normalize_map_entries(entries.clone()).map_err(|err| {
-            crate::db::error::executor_invariant(format!(
-                "map field entries cannot be normalized: {} field={field_name} ({err})",
-                E::PATH
-            ))
-        })?;
-        if normalized.as_slice() != entries.as_slice() {
+        // Save preflight only needs to prove the incoming map is already
+        // canonical. Re-normalizing through an owned clone would drag the full
+        // sort path into every save-capable entity even though write-boundary
+        // validation never consumes the reordered output.
+        if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
             return Err(crate::db::error::executor_invariant(format!(
                 "map field entries are not in canonical deterministic order: {} field={field_name}",
                 E::PATH

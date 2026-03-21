@@ -5,19 +5,20 @@
 
 use crate::{
     db::{
+        PersistedRow,
         data::{DataKey, DataRow},
         executor::{aggregate::field::FieldSlot, pipeline::contracts::LoadExecutor},
         response::EntityResponse,
     },
     error::InternalError,
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
     value::Value,
 };
 
 impl<E> LoadExecutor<E>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     // Reduce one materialized response into a deterministic top-k response
     // ordered by `(field_value_desc, primary_key_asc)`.

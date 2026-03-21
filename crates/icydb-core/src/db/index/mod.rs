@@ -27,8 +27,8 @@ pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_m
 pub(in crate::db) use plan::{
     IndexEntryReader, IndexMutationPlan, PrimaryRowReader, SealedIndexEntryReader,
     SealedPrimaryRowReader, SealedStructuralIndexEntryReader, StructuralIndexEntryReader,
-    compile_index_membership_predicate, index_key_for_entity_with_membership,
-    plan_index_mutation_for_entity,
+    compile_index_membership_predicate, index_key_for_slot_reader_with_membership,
+    plan_index_mutation_for_slot_reader,
 };
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram,

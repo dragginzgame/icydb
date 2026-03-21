@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, DataRow, RawRow},
+        data::{DataKey, DataRow, PersistedRow, RawRow},
         response::{EntityResponse, Row},
     },
     error::InternalError,
@@ -64,7 +64,7 @@ impl ErasedEntityResponseBuilder {
     // Allocate one erased typed row buffer for one concrete entity response.
     fn new<E>(capacity: usize) -> Self
     where
-        E: EntityKind + EntityValue,
+        E: PersistedRow + EntityValue,
     {
         let rows = Vec::<Row<E>>::with_capacity(capacity);
 
@@ -86,7 +86,7 @@ impl ErasedEntityResponseBuilder {
     // Finish one typed entity response and reclaim the owned erased row buffer.
     fn finish<E>(self) -> EntityResponse<E>
     where
-        E: EntityKind + EntityValue,
+        E: PersistedRow + EntityValue,
     {
         let this = ManuallyDrop::new(self);
 
@@ -119,7 +119,7 @@ pub(in crate::db) fn decode_raw_row_for_entity_key<E>(
     raw_row: &RawRow,
 ) -> Result<(E::Key, E), InternalError>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     let expected_key = data_key.try_key::<E>()?;
     let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
@@ -155,7 +155,7 @@ pub(in crate::db) fn decode_and_validate_entity_key<
     map_key_mismatch: MismatchErrMap,
 ) -> Result<E, InternalError>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
     DecodeFn: FnOnce() -> Result<E, DecodeErr>,
     DecodeErrMap: FnOnce(DecodeErr) -> InternalError,
     MismatchErrMap: FnOnce(E::Key, E::Key) -> InternalError,
@@ -175,7 +175,7 @@ pub(in crate::db) fn decode_data_row_into_entity_row<E>(
     row: DataRow,
 ) -> Result<Row<E>, InternalError>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     let row = PersistedEntityRow::from_data_row(row);
     let (data_key, raw_row) = row.into_parts();
@@ -190,7 +190,7 @@ pub(in crate::db) fn decode_data_rows_into_entity_response<E>(
     rows: Vec<DataRow>,
 ) -> Result<EntityResponse<E>, InternalError>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     let mut builder = ErasedEntityResponseBuilder::new::<E>(rows.len());
 
@@ -245,7 +245,7 @@ where
 // erased response-state buffer selected by the builder vtable.
 unsafe fn push_decoded_entity_row<E>(state: *mut (), row: DataRow) -> Result<(), InternalError>
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     let row = decode_data_row_into_entity_row::<E>(row)?;
 
@@ -261,7 +261,7 @@ where
 // Drop one erased typed response-state buffer when decode aborts before finish.
 unsafe fn drop_entity_response_state<E>(state: *mut ())
 where
-    E: EntityKind + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     // SAFETY:
     // - `state` originates from `ErasedEntityResponseBuilder::new::<E>`

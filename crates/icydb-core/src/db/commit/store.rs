@@ -7,9 +7,8 @@ use crate::{
     db::{
         codec::deserialize_persisted_payload,
         commit::{
-            COMMIT_MARKER_FORMAT_VERSION_CURRENT, COMMIT_MARKER_FORMAT_VERSION_PREVIOUS,
-            CommitMarker, MAX_COMMIT_BYTES, commit_corruption, memory::commit_memory_id,
-            validate_commit_marker_shape,
+            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
+            commit_corruption, memory::commit_memory_id, validate_commit_marker_shape,
         },
     },
     error::InternalError,
@@ -93,46 +92,44 @@ impl RawCommitMarker {
 // Decode commit control-slot bytes into marker + migration payload bytes.
 //
 // Compatibility contract:
-// - current control-slot version is accepted
-// - legacy pre-control-slot payloads are treated as raw commit-marker bytes
-//   with empty migration-state bytes
+// - only the canonical control-slot envelope is accepted
 fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), InternalError> {
     if bytes.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let envelope = match deserialize_bounded::<PersistedCommitControlEnvelope>(
-        bytes,
-        MAX_COMMIT_BYTES as usize,
-    ) {
-        Ok(envelope) => Some(envelope),
-        Err(SerializeError::DeserializeSizeLimitExceeded { len, max_bytes }) => {
-            return Err(commit_corruption(format!(
-                "commit marker exceeds max size: {len} bytes (limit {max_bytes})",
-            )));
-        }
-        Err(SerializeError::Deserialize(_) | SerializeError::Serialize(_)) => None,
-    };
+    let (magic, control_version, marker_bytes, migration_bytes) =
+        match deserialize_bounded::<PersistedCommitControlEnvelope>(
+            bytes,
+            MAX_COMMIT_BYTES as usize,
+        ) {
+            Ok(envelope) => envelope,
+            Err(SerializeError::DeserializeSizeLimitExceeded { len, max_bytes }) => {
+                return Err(commit_corruption(format!(
+                    "commit marker exceeds max size: {len} bytes (limit {max_bytes})",
+                )));
+            }
+            Err(SerializeError::Deserialize(_) | SerializeError::Serialize(_)) => {
+                return Err(commit_corruption(
+                    "commit control-slot decode failed: expected canonical envelope",
+                ));
+            }
+        };
 
-    if let Some((magic, control_version, marker_bytes, migration_bytes)) = envelope {
-        if magic != COMMIT_CONTROL_MAGIC {
-            return Err(InternalError::serialize_incompatible_persisted_format(
-                "commit control-slot magic mismatch".to_string(),
-            ));
-        }
-        if control_version != COMMIT_CONTROL_STATE_VERSION_CURRENT {
-            return Err(InternalError::serialize_incompatible_persisted_format(
-                format!(
-                    "commit control-slot version {control_version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
-                ),
-            ));
-        }
-
-        return Ok((marker_bytes, migration_bytes));
+    if magic != COMMIT_CONTROL_MAGIC {
+        return Err(InternalError::serialize_incompatible_persisted_format(
+            "commit control-slot magic mismatch".to_string(),
+        ));
+    }
+    if control_version != COMMIT_CONTROL_STATE_VERSION_CURRENT {
+        return Err(InternalError::serialize_incompatible_persisted_format(
+            format!(
+                "commit control-slot version {control_version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
+            ),
+        ));
     }
 
-    // Legacy fallback: slot stores only commit-marker bytes.
-    Ok((bytes.to_vec(), Vec::new()))
+    Ok((marker_bytes, migration_bytes))
 }
 
 // Encode marker + migration payload bytes into the persisted control-slot format.
@@ -175,62 +172,43 @@ fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalErr
     })
 }
 
-// Decode one commit marker with version-aware envelope semantics.
-//
-// Compatibility contract:
-// - current envelope version (V) is accepted
-// - previous envelope version (V-1) is accepted
-// - legacy unversioned markers are treated as V-1 for migration safety
-// - future or too-old envelope versions fail closed as incompatible format
+// Decode one commit marker with strict envelope semantics.
 fn decode_commit_marker(bytes: &[u8]) -> Result<CommitMarker, InternalError> {
-    // Phase 1: try decoding the explicit versioned envelope first.
-    let envelope = match deserialize_bounded::<PersistedCommitMarkerEnvelope>(
+    let (format_version, marker_payload) = match deserialize_bounded::<PersistedCommitMarkerEnvelope>(
         bytes,
         MAX_COMMIT_BYTES as usize,
     ) {
-        Ok(envelope) => Some(envelope),
+        Ok(envelope) => envelope,
         Err(SerializeError::DeserializeSizeLimitExceeded { len, max_bytes }) => {
             return Err(commit_corruption(format!(
                 "commit marker exceeds max size: {len} bytes (limit {max_bytes})",
             )));
         }
-        Err(SerializeError::Deserialize(_) | SerializeError::Serialize(_)) => None,
+        Err(SerializeError::Deserialize(_) | SerializeError::Serialize(_)) => {
+            return Err(commit_corruption(
+                "commit marker decode failed: expected canonical envelope",
+            ));
+        }
     };
+    validate_commit_marker_format_version(format_version)?;
 
-    if let Some((format_version, marker_payload)) = envelope {
-        validate_commit_marker_format_version(format_version)?;
-        return deserialize_persisted_payload::<CommitMarker>(
-            &marker_payload,
-            MAX_COMMIT_BYTES as usize,
-            "commit marker payload",
-        )
-        .map_err(commit_corruption);
-    }
-
-    // Phase 2: fallback to legacy pre-envelope marker payloads (treated as V-1).
-    deserialize_persisted_payload::<CommitMarker>(bytes, MAX_COMMIT_BYTES as usize, "commit marker")
-        .map_err(commit_corruption)
+    deserialize_persisted_payload::<CommitMarker>(
+        &marker_payload,
+        MAX_COMMIT_BYTES as usize,
+        "commit marker payload",
+    )
+    .map_err(commit_corruption)
 }
 
-// Validate marker envelope version against the N-1 compatibility window.
+// Validate marker envelope version against the single supported format.
 fn validate_commit_marker_format_version(format_version: u8) -> Result<(), InternalError> {
-    if format_version == COMMIT_MARKER_FORMAT_VERSION_CURRENT
-        || format_version == COMMIT_MARKER_FORMAT_VERSION_PREVIOUS
-    {
+    if format_version == COMMIT_MARKER_FORMAT_VERSION_CURRENT {
         return Ok(());
-    }
-
-    if format_version > COMMIT_MARKER_FORMAT_VERSION_CURRENT {
-        return Err(InternalError::serialize_incompatible_persisted_format(
-            format!(
-                "commit marker format version {format_version} is newer than runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
-            ),
-        ));
     }
 
     Err(InternalError::serialize_incompatible_persisted_format(
         format!(
-            "commit marker format version {format_version} is outside compatibility window [{COMMIT_MARKER_FORMAT_VERSION_PREVIOUS}, {COMMIT_MARKER_FORMAT_VERSION_CURRENT}]",
+            "commit marker format version {format_version} is unsupported by runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
         ),
     ))
 }
@@ -415,8 +393,7 @@ mod tests {
         db::{
             codec::MAX_ROW_BYTES,
             commit::{
-                COMMIT_MARKER_FORMAT_VERSION_CURRENT, COMMIT_MARKER_FORMAT_VERSION_PREVIOUS,
-                CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
+                COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
             },
             data::DataKey,
         },
@@ -433,6 +410,15 @@ mod tests {
         extra: u8,
     }
 
+    // Wrap one test marker payload in the canonical marker envelope so strict
+    // decode still reaches shape validation.
+    fn encode_test_marker_payload<T: Serialize>(value: &T) -> Vec<u8> {
+        let payload = serialize(value).expect("test marker payload encode should succeed");
+
+        serialize(&(COMMIT_MARKER_FORMAT_VERSION_CURRENT, payload))
+            .expect("test marker envelope encode should succeed")
+    }
+
     #[test]
     fn commit_marker_rejects_unknown_fields() {
         let marker = CommitMarkerWithExtra {
@@ -441,7 +427,7 @@ mod tests {
             extra: 1,
         };
 
-        let bytes = serialize(&marker).expect("serialize marker with extra field");
+        let bytes = encode_test_marker_payload(&marker);
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("unknown field should be rejected");
@@ -484,41 +470,6 @@ mod tests {
     }
 
     #[test]
-    fn commit_marker_previous_version_round_trip_succeeds() {
-        let marker = CommitMarker {
-            id: [8u8; 16],
-            row_ops: Vec::new(),
-        };
-        let marker_payload =
-            serialize(&marker).expect("marker payload encode for previous version should succeed");
-        let encoded = serialize(&(COMMIT_MARKER_FORMAT_VERSION_PREVIOUS, marker_payload))
-            .expect("previous-version marker envelope encode should succeed");
-        let decoded = RawCommitMarker(encoded)
-            .try_decode()
-            .expect("previous-version marker envelope should decode")
-            .expect("marker payload should be present");
-
-        assert_eq!(decoded.id, marker.id);
-        assert_eq!(decoded.row_ops.len(), 0);
-    }
-
-    #[test]
-    fn commit_marker_legacy_payload_round_trip_succeeds() {
-        let marker = CommitMarker {
-            id: [7u8; 16],
-            row_ops: Vec::new(),
-        };
-        let legacy_payload = serialize(&marker).expect("legacy marker payload encode should work");
-        let decoded = RawCommitMarker(legacy_payload)
-            .try_decode()
-            .expect("legacy marker payload should decode via compatibility fallback")
-            .expect("marker payload should be present");
-
-        assert_eq!(decoded.id, marker.id);
-        assert_eq!(decoded.row_ops.len(), 0);
-    }
-
-    #[test]
     fn commit_marker_future_version_fails_closed() {
         let marker = CommitMarker {
             id: [6u8; 16],
@@ -538,19 +489,19 @@ mod tests {
     }
 
     #[test]
-    fn commit_marker_older_than_window_fails_closed() {
+    fn commit_marker_older_version_fails_closed() {
         let marker = CommitMarker {
             id: [5u8; 16],
             row_ops: Vec::new(),
         };
         let marker_payload =
             serialize(&marker).expect("marker payload encode for old-version test should work");
-        let older_than_window = COMMIT_MARKER_FORMAT_VERSION_PREVIOUS.saturating_sub(1);
-        let encoded = serialize(&(older_than_window, marker_payload))
+        let older_version = COMMIT_MARKER_FORMAT_VERSION_CURRENT.saturating_sub(1);
+        let encoded = serialize(&(older_version, marker_payload))
             .expect("older-version marker envelope encode should succeed");
         let err = RawCommitMarker(encoded)
             .try_decode()
-            .expect_err("older-than-window marker versions must fail closed");
+            .expect_err("older marker versions must fail closed");
 
         assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
         assert_eq!(err.origin, ErrorOrigin::Serialize);
@@ -609,7 +560,7 @@ mod tests {
             )],
         };
 
-        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let bytes = encode_test_marker_payload(&marker);
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op without before/after should be rejected");
@@ -636,7 +587,7 @@ mod tests {
             )],
         };
 
-        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let bytes = encode_test_marker_payload(&marker);
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op with empty entity path should be rejected");
@@ -662,7 +613,7 @@ mod tests {
             )],
         };
 
-        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let bytes = encode_test_marker_payload(&marker);
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op with invalid key length should be rejected");
@@ -691,7 +642,7 @@ mod tests {
             )],
         };
 
-        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let bytes = encode_test_marker_payload(&marker);
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op with invalid key shape should be rejected");
@@ -717,7 +668,7 @@ mod tests {
             )],
         };
 
-        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let bytes = encode_test_marker_payload(&marker);
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op with oversized payload should be rejected");

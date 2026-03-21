@@ -471,7 +471,7 @@ where
         return Value::Map(entries);
     }
 
-    entries.sort_by(|(left_key, _), (right_key, _)| Value::canonical_cmp_key(left_key, right_key));
+    Value::sort_map_entries_in_place(entries.as_mut_slice());
 
     for i in 1..entries.len() {
         let (left_key, _) = &entries[i - 1];
