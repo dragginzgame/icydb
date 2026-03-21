@@ -129,52 +129,6 @@ where
                 .ok_or_else(|| InternalError::store_not_found(key.to_string()))
         })?
     }
-
-    /// Read one raw row by key, classifying missing rows as store corruption.
-    pub(in crate::db) fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
-        self.with_store(|s| {
-            let raw = key.to_raw()?;
-            s.get(&raw).ok_or_else(|| {
-                ExecutorError::store_corruption(format!("missing row: {key}")).into()
-            })
-        })?
-    }
-
-    // Load rows for an ordered key stream by preserving the stream order.
-    /// Materialize rows for an ordered key stream while preserving stream order.
-    pub(in crate::db::executor) fn rows_from_ordered_key_stream(
-        &self,
-        key_stream: &mut dyn OrderedKeyStream,
-        consistency: MissingRowPolicy,
-    ) -> Result<Vec<DataRow>, InternalError> {
-        // Shared scan loop runs once in a non-generic helper; this wrapper only
-        // supplies the entity-owned consistency read contract.
-        collect_rows_from_ordered_key_stream_shared(key_stream, &mut |key| {
-            self.read_row_with_consistency_skip_not_found(key, consistency)
-        })
-    }
-
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
-
-    // Read one row under one consistency contract, treating not-found as skip.
-    fn read_row_with_consistency_skip_not_found(
-        &self,
-        key: &DataKey,
-        consistency: MissingRowPolicy,
-    ) -> Result<Option<RawRow>, InternalError> {
-        let row = match consistency {
-            MissingRowPolicy::Error => self.read_strict(key),
-            MissingRowPolicy::Ignore => self.read(key),
-        };
-
-        match row {
-            Ok(row) => Ok(Some(row)),
-            Err(err) if err.is_not_found() => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
 }
 
 // Read one raw row under one consistency contract from structural store authority.
@@ -356,23 +310,4 @@ fn sum_row_payload_bytes_from_ordered_key_stream_shared(
     }
 
     Ok(total)
-}
-
-// Shared ordered key-stream scan loop used by row materialization.
-// Entity wrappers provide consistency-aware row reads via callback injection.
-fn collect_rows_from_ordered_key_stream_shared(
-    key_stream: &mut dyn OrderedKeyStream,
-    read_row: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
-) -> Result<Vec<DataRow>, InternalError> {
-    let mut rows = Vec::new();
-
-    while let Some(key) = key_stream.next_key()? {
-        // Row storage is authoritative. Index-backed access paths only supply
-        // candidate keys and must always be validated by a data-store read.
-        if let Some(row) = read_row(&key)? {
-            rows.push((key, row));
-        }
-    }
-
-    Ok(rows)
 }

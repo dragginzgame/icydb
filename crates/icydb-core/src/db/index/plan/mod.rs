@@ -27,7 +27,9 @@ use crate::{
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
-pub(in crate::db) use private::{SealedIndexEntryReader, SealedPrimaryRowReader};
+pub(in crate::db) use private::{
+    SealedIndexEntryReader, SealedPrimaryRowReader, SealedStructuralIndexEntryReader,
+};
 
 ///
 /// IndexApplyPlan
@@ -93,6 +95,24 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
     ) -> Result<Vec<StorageKey>, InternalError>;
 }
 
+///
+/// StructuralIndexEntryReader
+///
+/// Narrow nongeneric read port used by structural relation/commit helpers that
+/// only need authoritative index-entry lookup.
+///
+
+pub(in crate::db) trait StructuralIndexEntryReader:
+    SealedStructuralIndexEntryReader
+{
+    /// Return the index entry for `(store, key)`, or `None` when no entry exists.
+    fn read_index_entry_structural(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError>;
+}
+
 impl<E> PrimaryRowReader<E> for Context<'_, E>
 where
     E: EntityKind + EntityValue,
@@ -148,6 +168,39 @@ where
 }
 
 impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
+
+impl<E> StructuralIndexEntryReader for Context<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry_structural(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        IndexEntryReader::<E>::read_index_entry(self, store, key)
+    }
+}
+
+impl<E> SealedStructuralIndexEntryReader for Context<'_, E> where E: EntityKind + EntityValue {}
+
+impl<E> StructuralIndexEntryReader for dyn IndexEntryReader<E> + '_
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry_structural(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        self.read_index_entry(store, key)
+    }
+}
+
+impl<E> SealedStructuralIndexEntryReader for dyn IndexEntryReader<E> + '_ where
+    E: EntityKind + EntityValue
+{
+}
 
 /// Compile the optional conditional-index predicate into one runtime program.
 pub(in crate::db) fn compile_index_membership_predicate<E: EntityKind>(

@@ -12,8 +12,8 @@ use crate::{
         Db,
         commit::ensure_recovered,
         executor::{
-            Context, route::build_execution_route_plan_for_mutation_with_model,
-            validate_executor_plan,
+            Context, EntityAuthority, route::build_execution_route_plan_for_mutation_with_model,
+            validate_executor_plan_for_authority,
         },
         query::plan::AccessPlannedQuery,
     },
@@ -37,15 +37,13 @@ where
     Ok(db.context::<E>())
 }
 
-/// Validate mutation-plan executor contracts before write-phase execution.
-pub(in crate::db::executor) fn preflight_mutation_plan<E>(
+/// Validate mutation-plan executor contracts using structural authority only.
+pub(in crate::db::executor) fn preflight_mutation_plan_for_authority(
+    authority: EntityAuthority,
     plan: &AccessPlannedQuery,
-) -> Result<(), InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    validate_executor_plan::<E>(plan)?;
-    let _ = build_execution_route_plan_for_mutation_with_model(E::MODEL, plan)?;
+) -> Result<(), InternalError> {
+    validate_executor_plan_for_authority(authority, plan)?;
+    let _ = build_execution_route_plan_for_mutation_with_model(authority.model(), plan)?;
 
     Ok(())
 }

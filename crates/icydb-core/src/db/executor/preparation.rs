@@ -11,7 +11,6 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     model::entity::{EntityModel, resolve_field_slot},
-    traits::EntityKind,
 };
 
 ///
@@ -100,14 +99,4 @@ pub(in crate::db::executor) fn slot_map_for_model_plan(
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<usize>> {
     resolved_index_slots_for_access_path(model, plan.access.resolve_strategy().executable())
-}
-
-/// Resolve one structural slot map for one entity-bound plan at the execution boundary.
-pub(in crate::db::executor) fn slot_map_for_entity_plan<E>(
-    plan: &AccessPlannedQuery,
-) -> Option<Vec<usize>>
-where
-    E: EntityKind,
-{
-    slot_map_for_model_plan(E::MODEL, plan)
 }

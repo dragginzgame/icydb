@@ -9,22 +9,7 @@ use crate::{
         query::plan::AccessPlannedQuery, schema::SchemaInfo,
     },
     error::InternalError,
-    traits::EntityKind,
 };
-
-/// Validate plans at executor boundaries and surface invariant violations.
-///
-/// Ownership:
-/// - defensive execution-boundary guardrail, not a semantic owner
-/// - must enforce structural integrity only, never user-shape semantics
-///
-/// Any disagreement with logical validation indicates an internal bug and is not
-/// a recoverable user-input condition.
-pub(in crate::db::executor) fn validate_executor_plan<E: EntityKind>(
-    plan: &AccessPlannedQuery,
-) -> Result<(), InternalError> {
-    validate_executor_plan_for_authority(EntityAuthority::for_type::<E>(), plan)
-}
 
 /// Validate plans at executor boundaries using structural entity authority.
 pub(in crate::db::executor) fn validate_executor_plan_for_authority(

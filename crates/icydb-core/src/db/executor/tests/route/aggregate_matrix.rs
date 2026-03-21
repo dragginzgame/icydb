@@ -1462,7 +1462,7 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
     let execution_preparation = ExecutionPreparation::from_plan(
         RouteMatrixEntity::MODEL,
         &plan,
-        crate::db::executor::preparation::slot_map_for_entity_plan::<RouteMatrixEntity>(&plan),
+        crate::db::executor::preparation::slot_map_for_model_plan(RouteMatrixEntity::MODEL, &plan),
     );
     let predicate_slots = execution_preparation
         .compiled_predicate()

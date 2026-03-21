@@ -10,19 +10,19 @@ use crate::{
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
         data::{DataKey, RawDataKey, RawRow, StorageKey},
         index::{
-            EncodedValue, IndexEntry, IndexEntryReader, IndexId, IndexKeyKind, IndexStore,
-            RawIndexEntry, RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
+            EncodedValue, IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry,
+            RawIndexKey, StructuralIndexEntryReader, raw_keys_for_encoded_prefix_with_kind,
         },
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
             for_each_relation_target_value,
-            metadata::{StrongRelationInfo, strong_relations_for_source},
+            metadata::{StrongRelationInfo, strong_relations_for_model},
             raw_relation_target_key,
         },
     },
     error::InternalError,
-    model::field::FieldKind,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    model::{entity::EntityModel, field::FieldKind},
+    traits::{CanisterKind, EntityKind},
     types::EntityTag,
     value::Value,
 };
@@ -38,14 +38,14 @@ use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 ///
 
 #[derive(Clone, Copy)]
-pub(super) struct ReverseRelationSourceInfo {
+pub(crate) struct ReverseRelationSourceInfo {
     path: &'static str,
     entity_tag: EntityTag,
 }
 
 impl ReverseRelationSourceInfo {
     /// Lower one typed source entity into the structural authority used by reverse-index prep.
-    pub(super) const fn for_type<S>() -> Self
+    pub(crate) const fn for_type<S>() -> Self
     where
         S: EntityKind,
     {
@@ -422,20 +422,20 @@ fn prepare_reverse_relation_index_mutation_for_target(
 ///
 /// This derives mechanical index writes/deletes that keep delete-time strong
 /// relation validation O(referrers) instead of O(source rows).
-pub(crate) fn prepare_reverse_relation_index_mutations_for_source_rows<S>(
-    db: &Db<S::Canister>,
-    index_reader: &(impl IndexEntryReader<S> + ?Sized),
+pub(crate) fn prepare_reverse_relation_index_mutations_for_source_rows<C>(
+    db: &Db<C>,
+    index_reader: &dyn StructuralIndexEntryReader,
+    source: ReverseRelationSourceInfo,
+    source_model: &'static EntityModel,
     source_storage_key: StorageKey,
     old_row: Option<&RawRow>,
     new_row: Option<&RawRow>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
 where
-    S: EntityKind + EntityValue,
+    C: CanisterKind,
 {
-    let source = ReverseRelationSourceInfo::for_type::<S>();
-
     // Phase 1: short-circuit when the source entity has no strong relations.
-    let relations = strong_relations_for_source::<S>(None);
+    let relations = strong_relations_for_model(source_model, None);
     if relations.is_empty() {
         return Ok(Vec::new());
     }
@@ -491,7 +491,7 @@ where
                 continue;
             };
 
-            let existing = index_reader.read_index_entry(target_store, &reverse_key)?;
+            let existing = index_reader.read_index_entry_structural(target_store, &reverse_key)?;
             let target = ReverseRelationMutationTarget {
                 target_store,
                 reverse_key,

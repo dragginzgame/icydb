@@ -68,11 +68,6 @@ pub(super) const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: us
     span.set_rows(len as u64);
 }
 
-/// Record per-request rows scanned metrics with saturated diagnostics counts.
-pub(super) fn record_rows_scanned<E: EntityKind>(rows_scanned: usize) {
-    record_rows_scanned_for_path(E::PATH, rows_scanned);
-}
-
 /// Record per-request rows scanned metrics for one structural entity path.
 pub(super) fn record_rows_scanned_for_path(entity_path: &'static str, rows_scanned: usize) {
     record(MetricsEvent::RowsScanned {

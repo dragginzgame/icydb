@@ -64,7 +64,6 @@ pub(in crate::db::executor) use order::{
     compare_orderable_row_with_boundary, resolve_structural_order,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
-pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
 #[cfg(feature = "sql")]

@@ -4,6 +4,7 @@
 //! Boundary: defines lightweight relation metadata contracts consumed by relation validators.
 
 use crate::{
+    model::entity::EntityModel,
     model::field::{FieldKind, RelationStrength},
     traits::EntityKind,
     types::EntityTag,
@@ -107,7 +108,15 @@ pub(super) fn strong_relations_for_source<S>(
 where
     S: EntityKind,
 {
-    S::MODEL
+    strong_relations_for_model(S::MODEL, target_path_filter)
+}
+
+/// Resolve strong relation descriptors for one source model, optionally filtered by target path.
+pub(super) fn strong_relations_for_model(
+    model: &'static EntityModel,
+    target_path_filter: Option<&str>,
+) -> Vec<StrongRelationInfo> {
+    model
         .fields
         .iter()
         .enumerate()

@@ -20,3 +20,11 @@ pub(in crate::db) trait SealedPrimaryRowReader<E: EntityKind + EntityValue> {}
 ///
 
 pub(in crate::db) trait SealedIndexEntryReader<E: EntityKind + EntityValue> {}
+
+///
+/// SealedStructuralIndexEntryReader
+///
+/// Internal marker used to seal nongeneric structural index-entry readers.
+///
+
+pub(in crate::db) trait SealedStructuralIndexEntryReader {}

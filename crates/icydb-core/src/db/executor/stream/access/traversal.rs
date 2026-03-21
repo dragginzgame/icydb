@@ -5,16 +5,15 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, StructuralKey},
-        data::DataRow,
+        access::StructuralKey,
         executor::{
-            Context, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
+            ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             stream::{
                 access::{
                     bindings::{
-                        AccessScanContinuationInput, AccessSpecCursor, AccessStreamBindings,
-                        ExecutableAccess, IndexStreamConstraints, StreamExecutionHints,
+                        AccessScanContinuationInput, AccessSpecCursor, ExecutableAccess,
+                        IndexStreamConstraints, StreamExecutionHints,
                     },
                     physical,
                 },
@@ -25,10 +24,8 @@ use crate::{
             },
             traversal::validate_index_range_spec_alignment,
         },
-        predicate::MissingRowPolicy,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 ///
@@ -161,67 +158,6 @@ impl AccessTraversalRuntime<StructuralKey> for StructuralTraversalRuntime {
             physical_fetch_hint: hints.physical_fetch_hint,
             index_predicate_execution: hints.predicate_execution,
         })
-    }
-}
-
-impl<E> Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Resolve structural access-plan rows using default ascending traversal with no anchor.
-    pub(in crate::db) fn rows_from_structural_access_plan(
-        &self,
-        access: &AccessPlan<StructuralKey>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        index_range_specs: &[LoweredIndexRangeSpec],
-        consistency: MissingRowPolicy,
-    ) -> Result<Vec<DataRow>, InternalError>
-    where
-        E: EntityKind,
-    {
-        self.rows_from_structural_access_plan_with_scan_continuation(
-            access,
-            index_prefix_specs,
-            index_range_specs,
-            consistency,
-            AccessScanContinuationInput::initial_asc(),
-        )
-    }
-
-    /// Resolve a structural access plan to an ordered key stream while consuming lowered specs.
-    pub(in crate::db::executor) fn ordered_key_stream_from_structural_runtime_access(
-        &self,
-        request: ExecutableAccess<'_, StructuralKey>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        StructuralTraversalRuntime::new(self.structural_store()?, E::ENTITY_TAG)
-            .ordered_key_stream_from_structural_runtime_access(request)
-    }
-
-    /// Resolve rows from a structural access plan with explicit continuation scan bindings.
-    pub(in crate::db) fn rows_from_structural_access_plan_with_scan_continuation(
-        &self,
-        access: &AccessPlan<StructuralKey>,
-        index_prefix_specs: &[LoweredIndexPrefixSpec],
-        index_range_specs: &[LoweredIndexRangeSpec],
-        consistency: MissingRowPolicy,
-        continuation: AccessScanContinuationInput<'_>,
-    ) -> Result<Vec<DataRow>, InternalError>
-    where
-        E: EntityKind,
-    {
-        let bindings = AccessStreamBindings {
-            index_prefix_specs,
-            index_range_specs,
-            continuation,
-        };
-        let executable_access = ExecutableAccess::new(access, bindings, None, None);
-        let mut key_stream =
-            self.ordered_key_stream_from_structural_runtime_access(executable_access)?;
-
-        self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }
 }
 

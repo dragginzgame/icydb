@@ -15,7 +15,8 @@ use crate::{
         data::{RawDataKey, RawRow, StorageKey},
         index::{
             IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
-            SealedIndexEntryReader, SealedPrimaryRowReader, key_within_envelope,
+            SealedIndexEntryReader, SealedPrimaryRowReader, SealedStructuralIndexEntryReader,
+            StructuralIndexEntryReader, key_within_envelope,
         },
     },
     error::InternalError,
@@ -198,6 +199,24 @@ where
 }
 
 impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E> where E: EntityKind + EntityValue {}
+
+impl<E> StructuralIndexEntryReader for PreflightStoreOverlay<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry_structural(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        IndexEntryReader::<E>::read_index_entry(self, store, key)
+    }
+}
+
+impl<E> SealedStructuralIndexEntryReader for PreflightStoreOverlay<'_, E> where
+    E: EntityKind + EntityValue
+{
+}
 
 /// Aggregate index and reverse-index deltas across prepared row operations.
 #[must_use]

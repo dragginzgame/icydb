@@ -6,23 +6,32 @@
 use crate::{
     db::{
         Db,
-        commit::CommitRowOp,
-        data::{DataKey, DataRow, PersistedEntityRow, RawRow, decode_raw_row_for_entity_key},
+        commit::{CommitRowOp, CommitSchemaFingerprint},
+        data::{
+            DataKey, DataRow, PersistedEntityRow, RawDataKey, RawRow, decode_raw_row_for_entity_key,
+        },
         executor::{
-            ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutablePlan,
+            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl,
+            StructuralTraversalRuntime, drive_key_stream_with_control_flow,
             mutation::{
-                commit_delete_row_ops_with_window, mutation_write_context, preflight_mutation_plan,
+                commit_delete_row_ops_with_window, mutation_write_context,
+                preflight_mutation_plan_for_authority,
             },
-            plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
-            preparation::slot_map_for_entity_plan,
+            plan_metrics::{record_plan_metrics, record_rows_scanned_for_path, set_rows_from_len},
+            preparation::slot_map_for_model_plan,
+            read_data_row_with_consistency_from_store,
             traversal::row_read_consistency_for_plan,
         },
-        response::EntityResponse,
+        predicate::MissingRowPolicy,
+        query::plan::AccessPlannedQuery,
+        registry::StoreHandle,
+        response::{EntityResponse, Row},
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
-    traits::{EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue},
     types::Id,
 };
 use std::collections::BTreeSet;
@@ -47,6 +56,79 @@ impl<E: EntityKind> DeleteRow<E> {
     }
 }
 
+///
+/// DeleteExecutionAuthority
+///
+/// Structural authority bundle for nongeneric delete planning and commit
+/// preparation phases.
+///
+
+struct DeleteExecutionAuthority {
+    entity: EntityAuthority,
+    schema_fingerprint: CommitSchemaFingerprint,
+}
+
+impl DeleteExecutionAuthority {
+    /// Lower one entity type into the structural authority used by delete execution.
+    fn for_type<E>() -> Self
+    where
+        E: EntityKind,
+    {
+        Self {
+            entity: EntityAuthority::for_type::<E>(),
+            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+        }
+    }
+}
+
+///
+/// PreparedDeleteExecutionState
+///
+/// Generic-free delete execution payload after typed `ExecutablePlan<E>` is
+/// consumed into structural planner and compilation state.
+///
+
+struct PreparedDeleteExecutionState {
+    authority: DeleteExecutionAuthority,
+    logical_plan: AccessPlannedQuery,
+    execution_preparation: ExecutionPreparation,
+    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+}
+
+impl PreparedDeleteExecutionState {
+    /// Return row-read missing-row policy for this delete execution.
+    const fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(&self.logical_plan)
+    }
+}
+
+///
+/// TypedDeletePreparation
+///
+/// Typed delete leaf output containing only the entity-shaped response rows
+/// plus rollback rows needed by structural commit preparation.
+///
+
+struct TypedDeletePreparation<E>
+where
+    E: EntityKind,
+{
+    response_rows: Vec<Row<E>>,
+    rollback_rows: Vec<(RawDataKey, RawRow)>,
+}
+
+///
+/// PreparedDeleteCommit
+///
+/// Generic-free delete commit payload after structural relation validation and
+/// rollback-row materialization.
+///
+
+struct PreparedDeleteCommit {
+    row_ops: Vec<CommitRowOp>,
+}
+
 /// Decode raw access rows into typed delete rows with key/entity checks.
 pub(super) fn decode_rows<E: EntityKind + EntityValue>(
     rows: Vec<DataRow>,
@@ -64,6 +146,154 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
             })
         })
         .collect()
+}
+
+// Prepare one generic-free delete execution state after the typed plan shell is consumed.
+fn prepare_delete_execution_state(
+    authority: DeleteExecutionAuthority,
+    logical_plan: AccessPlannedQuery,
+    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+) -> Result<PreparedDeleteExecutionState, InternalError> {
+    // Phase 1: validate the structural mutation plan before touching store access.
+    preflight_mutation_plan_for_authority(authority.entity, &logical_plan)?;
+
+    // Phase 2: build reusable delete predicate/index preparation once.
+    let execution_preparation = ExecutionPreparation::from_plan(
+        authority.entity.model(),
+        &logical_plan,
+        slot_map_for_model_plan(authority.entity.model(), &logical_plan),
+    );
+
+    Ok(PreparedDeleteExecutionState {
+        authority,
+        logical_plan,
+        execution_preparation,
+        index_prefix_specs,
+        index_range_specs,
+    })
+}
+
+// Resolve structural access rows for one delete execution without carrying `Context<E>`.
+fn resolve_delete_candidate_rows(
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+) -> Result<Vec<DataRow>, InternalError> {
+    // Phase 1: resolve the structural access plan into one ordered key stream.
+    let runtime = StructuralTraversalRuntime::new(store, prepared.authority.entity.entity_tag());
+    let bindings = crate::db::executor::AccessStreamBindings::new(
+        prepared.index_prefix_specs.as_slice(),
+        prepared.index_range_specs.as_slice(),
+        AccessScanContinuationInput::initial_asc(),
+    );
+    let executable_access =
+        ExecutableAccess::new(&prepared.logical_plan.access, bindings, None, None);
+    let mut key_stream =
+        runtime.ordered_key_stream_from_structural_runtime_access(executable_access)?;
+
+    // Phase 2: materialize rows through the structural consistency boundary.
+    collect_delete_rows_from_key_stream(store, key_stream.as_mut(), prepared.consistency())
+}
+
+// Materialize ordered delete rows from one structural key stream.
+fn collect_delete_rows_from_key_stream(
+    store: StoreHandle,
+    key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
+    consistency: MissingRowPolicy,
+) -> Result<Vec<DataRow>, InternalError> {
+    let mut rows = Vec::with_capacity(key_stream.exact_key_count_hint().unwrap_or(0));
+
+    drive_key_stream_with_control_flow(
+        key_stream,
+        &mut || KeyStreamLoopControl::Emit,
+        &mut |key| {
+            if let Some(row) = read_data_row_with_consistency_from_store(store, &key, consistency)?
+            {
+                rows.push(row);
+            }
+
+            Ok(KeyStreamLoopControl::Emit)
+        },
+    )?;
+
+    Ok(rows)
+}
+
+// Decode, filter, and format typed delete rows while returning structural rollback data.
+fn prepare_typed_delete_rows<E>(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+) -> Result<TypedDeletePreparation<E>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    // Phase 1: decode structural access rows into typed delete candidates.
+    let mut rows = decode_rows::<E>(data_rows)?;
+
+    // Phase 2: apply typed delete post-access filtering and ordering.
+    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate::<E, _, _>(
+        &prepared.logical_plan,
+        &mut rows,
+        prepared.execution_preparation.compiled_predicate(),
+    )?;
+    let _ = stats.delete_was_limited;
+    let _ = stats.rows_after_cursor;
+
+    // Phase 3: package typed responses and structural rollback rows separately.
+    let mut response_rows = Vec::with_capacity(rows.len());
+    let mut rollback_rows = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        let response_id = Id::from_key(row.key.try_key::<E>()?);
+        let rollback_row = row.raw.take().ok_or_else(|| {
+            InternalError::store_internal("missing raw row for delete rollback".to_string())
+        })?;
+        let rollback_key = row.key.to_raw()?;
+
+        response_rows.push(Row::new(response_id, row.entity));
+        rollback_rows.push((rollback_key, rollback_row));
+    }
+
+    Ok(TypedDeletePreparation {
+        response_rows,
+        rollback_rows,
+    })
+}
+
+// Prepare the nongeneric delete commit payload from structural rollback rows.
+fn prepare_delete_commit<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    authority: &DeleteExecutionAuthority,
+    rollback_rows: &[(RawDataKey, RawRow)],
+) -> Result<PreparedDeleteCommit, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: reject target deletes that are still strongly referenced.
+    let deleted_target_keys = rollback_rows
+        .iter()
+        .map(|(raw_key, _)| *raw_key)
+        .collect::<BTreeSet<_>>();
+    db.validate_delete_strong_relations(authority.entity.entity_path(), &deleted_target_keys)?;
+
+    // Phase 2: force store resolution before the commit window begins.
+    store.with_data(|_| ());
+
+    // Phase 3: assemble mechanical delete commit row ops.
+    let row_ops = rollback_rows
+        .iter()
+        .map(|(raw_key, raw_row)| {
+            Ok(CommitRowOp::new(
+                authority.entity.entity_path(),
+                raw_key.as_bytes().to_vec(),
+                Some(raw_row.as_bytes().to_vec()),
+                None,
+                authority.schema_fingerprint,
+            ))
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+
+    Ok(PreparedDeleteCommit { row_ops })
 }
 
 ///
@@ -103,6 +333,7 @@ where
         self,
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
+        // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
         if plan.is_grouped() {
             return Err(crate::db::error::executor_unsupported(
                 "grouped query execution is not yet enabled in this release",
@@ -115,94 +346,43 @@ where
             ));
         }
         (|| {
-            // Phase 1: preflight plan + context setup before any commit-window work.
+            // Phase 2: prepare structural authority and delete execution inputs once.
+            let authority = DeleteExecutionAuthority::for_type::<E>();
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
-            let plan = plan.into_plan();
-            let execution_preparation = ExecutionPreparation::from_plan(
-                E::MODEL,
-                &plan,
-                slot_map_for_entity_plan::<E>(&plan),
-            );
-            preflight_mutation_plan::<E>(&plan)?;
+            let logical_plan = plan.into_plan();
+            let prepared = prepare_delete_execution_state(
+                authority,
+                logical_plan,
+                index_prefix_specs,
+                index_range_specs,
+            )?;
             let ctx = mutation_write_context::<E>(&self.db)?;
+            let store = ctx.structural_store()?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);
-            record_plan_metrics(&plan.access);
+            record_plan_metrics(&prepared.logical_plan.access);
 
-            // Access phase: resolve candidate rows before delete filtering.
-            let data_rows = ctx.rows_from_structural_access_plan(
-                &plan.access,
-                index_prefix_specs.as_slice(),
-                index_range_specs.as_slice(),
-                row_read_consistency_for_plan(&plan),
-            )?;
-            record_rows_scanned::<E>(data_rows.len());
+            // Phase 3: resolve structural access rows before typed delete semantics run.
+            let data_rows = resolve_delete_candidate_rows(store, &prepared)?;
+            record_rows_scanned_for_path(prepared.authority.entity.entity_path(), data_rows.len());
 
-            // Decode rows into entities before post-access filtering.
-            let mut rows = decode_rows::<E>(data_rows)?;
-
-            // Post-access phase: filter, order, and apply delete limits.
-            let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate::<E, _, _>(
-                &plan,
-                &mut rows,
-                execution_preparation.compiled_predicate(),
-            )?;
-            let _ = stats.delete_was_limited;
-            let _ = stats.rows_after_cursor;
-
-            if rows.is_empty() {
+            // Phase 4: run the typed delete leaf and package structural rollback rows.
+            let typed = prepare_typed_delete_rows::<E>(&prepared, data_rows)?;
+            if typed.response_rows.is_empty() {
                 set_rows_from_len(&mut span, 0);
-                return Ok(EntityResponse::from_rows(
-                    Vec::<crate::db::response::Row<E>>::new(),
-                ));
+                return Ok(EntityResponse::new(Vec::new()));
             }
 
-            // Relation phase: reject target deletes that are still strongly referenced.
-            let deleted_target_keys = rows
-                .iter()
-                .map(|row| row.key.to_raw())
-                .collect::<Result<BTreeSet<_>, InternalError>>()?;
-            self.db
-                .validate_delete_strong_relations(E::PATH, &deleted_target_keys)?;
-            let response_ids = rows
-                .iter()
-                .map(|row| Ok(Id::from_key(row.key.try_key::<E>()?)))
-                .collect::<Result<Vec<_>, InternalError>>()?;
+            // Phase 5: keep relation validation and commit assembly on the structural path.
+            let commit =
+                prepare_delete_commit(&self.db, store, &prepared.authority, &typed.rollback_rows)?;
+            commit_delete_row_ops_with_window::<E>(&self.db, commit.row_ops, "delete_row_apply")?;
 
-            // Preflight store access to ensure no fallible work remains post-commit.
-            ctx.with_store(|_| ())?;
-            let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-            let row_ops = rows
-                .iter_mut()
-                .map(|row| {
-                    let raw_key = row.key.to_raw()?;
-                    let raw_row = row.raw.take().ok_or_else(|| {
-                        InternalError::store_internal(
-                            "missing raw row for delete rollback".to_string(),
-                        )
-                    })?;
-                    Ok(CommitRowOp::new(
-                        E::PATH,
-                        raw_key.as_bytes().to_vec(),
-                        Some(raw_row.as_bytes().to_vec()),
-                        None,
-                        schema_fingerprint,
-                    ))
-                })
-                .collect::<Result<Vec<_>, InternalError>>()?;
-            commit_delete_row_ops_with_window::<E>(&self.db, row_ops, "delete_row_apply")?;
+            // Phase 6: return the already-prepared typed delete response rows.
+            set_rows_from_len(&mut span, typed.response_rows.len());
 
-            // Response identifiers are validated before begin_commit. The apply
-            // phase remains mechanical after the commit boundary.
-            let res = response_ids
-                .into_iter()
-                .zip(rows)
-                .map(|(id, row)| (id, row.entity))
-                .collect::<Vec<_>>();
-            set_rows_from_len(&mut span, res.len());
-
-            Ok(EntityResponse::from_rows(res))
+            Ok(EntityResponse::new(typed.response_rows))
         })()
     }
 }
