@@ -98,6 +98,28 @@ struct PreparedRowCommitMaterialization {
     data_key: RawDataKey,
     data_value: Option<RawRow>,
 }
+
+///
+/// CommitPrepareIndexReader
+///
+/// Object-safe combined reader boundary for commit preparation.
+/// This keeps the outer commit-prep shell from monomorphizing separately for
+/// each concrete reader implementation while preserving the existing typed and
+/// structural index-read contracts underneath.
+///
+
+trait CommitPrepareIndexReader<E: EntityKind + EntityValue>:
+    IndexEntryReader<E> + StructuralIndexEntryReader
+{
+}
+
+impl<E, T> CommitPrepareIndexReader<E> for T
+where
+    E: EntityKind + EntityValue,
+    T: IndexEntryReader<E> + StructuralIndexEntryReader + ?Sized,
+{
+}
+
 /// Prepare a typed row-level commit op for one entity type.
 ///
 /// This resolves store handles and index/data mutations so commit/recovery
@@ -123,16 +145,14 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
 // Keep the full commit-preparation body out of the thin wrapper entrypoints so
 // codegen does not clone the same logic into both prepare surfaces per entity.
 #[inline(never)]
-fn prepare_row_commit_for_entity_impl<E, R, I>(
+fn prepare_row_commit_for_entity_impl<E>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
-    row_reader: &R,
-    index_reader: &I,
+    row_reader: &dyn PrimaryRowReader<E>,
+    index_reader: &dyn CommitPrepareIndexReader<E>,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where
     E: EntityKind + EntityValue,
-    R: PrimaryRowReader<E>,
-    I: IndexEntryReader<E> + StructuralIndexEntryReader,
 {
     let authority = CommitPrepareAuthority::for_type::<E>();
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
@@ -153,7 +173,7 @@ where
 fn prepare_typed_commit_leaf<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_reader: &dyn PrimaryRowReader<E>,
-    index_reader: &dyn IndexEntryReader<E>,
+    index_reader: &dyn CommitPrepareIndexReader<E>,
     data_key: &DataKey,
     old_row: Option<&RawRow>,
     new_row: Option<&RawRow>,

@@ -249,8 +249,8 @@ pub(in crate::db) fn index_key_for_entity_with_membership<E: EntityKind + Entity
 /// infallibly after a commit marker is written.
 pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
-    row_reader: &(impl PrimaryRowReader<E> + ?Sized),
-    index_reader: &(impl IndexEntryReader<E> + ?Sized),
+    row_reader: &dyn PrimaryRowReader<E>,
+    index_reader: &dyn IndexEntryReader<E>,
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
@@ -372,7 +372,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
 }
 
 pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
-    index_reader: &(impl IndexEntryReader<E> + ?Sized),
+    index_reader: &dyn IndexEntryReader<E>,
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     key: Option<&IndexKey>,

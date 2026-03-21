@@ -32,8 +32,8 @@ use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
 /// and rejects only conflicting ownership.
 #[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
-    row_reader: &(impl PrimaryRowReader<E> + ?Sized),
-    index_reader: &(impl IndexEntryReader<E> + ?Sized),
+    row_reader: &dyn PrimaryRowReader<E>,
+    index_reader: &dyn IndexEntryReader<E>,
     index: &IndexModel,
     store: &'static LocalKey<RefCell<IndexStore>>,
     new_key: Option<&E::Key>,
