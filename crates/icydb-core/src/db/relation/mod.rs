@@ -24,7 +24,7 @@ use std::{collections::BTreeSet, fmt::Display};
 use metadata::StrongRelationInfo;
 
 pub(crate) use metadata::{StrongRelationTargetInfo, strong_relation_target_from_kind};
-pub(crate) use reverse_index::prepare_reverse_relation_index_mutations_for_source;
+pub(crate) use reverse_index::prepare_reverse_relation_index_mutations_for_source_rows;
 pub(in crate::db) use save_validate::validate_save_strong_relations;
 pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
 

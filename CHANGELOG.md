@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.61.x] - 2026-03-20 - Entity Macro Compression
 
+- `0.61.6` keeps flattening the simple-entity runtime floor by moving both strong-relation delete validation and reverse-index preparation onto structural row bytes and validated structural keys, which cuts the `one_simple -> ten_simple` shrunk slope from `541,782` to `533,160` bytes and pushes the old relation-side helper families out of the top debug monos list.
 - `0.61.5` keeps flattening the simple-entity runtime floor by shrinking the remaining lowered-SQL query fallback again, which removes the old SQL query wrapper families from the top debug monos list and cuts the `one_simple -> ten_simple` shrunk slope from `544,944` to `541,782` bytes.
 - `0.61.4` keeps flattening the simple-entity runtime floor by moving scalar execution, more of SQL dispatch, reverse-relation index preparation, global-aggregate `EXPLAIN`, and the lowered-SQL query lane onto structural helpers, which cuts the `one_simple -> ten_simple` shrunk slope from `729,703` to `544,944` bytes and leaves relation validation/preparation as the next big duplicated families instead of the earlier SQL wrappers.
 - `0.61.3` is the already-shipped release cut for the `0.61.2` macro-compression checkpoint, so the deeper simple-entity flattening work now records under `0.61.4` instead of being mixed into the prior shipped `0.61.3` notes.

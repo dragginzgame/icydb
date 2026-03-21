@@ -17,7 +17,7 @@ use crate::{
             compile_index_membership_predicate, index_key_for_entity_with_membership,
             plan_index_mutation_for_entity,
         },
-        relation::prepare_reverse_relation_index_mutations_for_source,
+        relation::prepare_reverse_relation_index_mutations_for_source_rows,
         schema::commit_schema_fingerprint_for_entity,
     },
     error::{ErrorClass, InternalError},
@@ -117,10 +117,14 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         )
     };
 
-    let old_entity = op
+    let old_pair = op
         .before
         .as_ref()
-        .map(|bytes| decode_entity_from_marker_row(bytes, "before"))
+        .map(|bytes| {
+            let row = RawRow::try_new(bytes.clone())?;
+            let entity = decode_entity_from_marker_row(bytes, "before")?;
+            Ok::<(RawRow, E), InternalError>((row, entity))
+        })
         .transpose()?;
     let new_pair = op
         .after
@@ -132,7 +136,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         })
         .transpose()?;
 
-    if old_entity.is_none() && new_pair.is_none() {
+    if old_pair.is_none() && new_pair.is_none() {
         return Err(InternalError::store_corruption(
             "commit marker row op is a no-op (before/after both missing)",
         ));
@@ -143,16 +147,19 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         db,
         row_reader,
         index_reader,
-        old_entity.as_ref(),
+        old_pair.as_ref().map(|(_, entity)| entity),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;
-    let index_delta_kind_by_key =
-        annotate_forward_index_delta_kinds::<E>(old_entity.as_ref(), new_pair.as_ref())?;
-    let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source::<E>(
+    let index_delta_kind_by_key = annotate_forward_index_delta_kinds::<E>(
+        old_pair.as_ref().map(|(_, entity)| entity),
+        new_pair.as_ref(),
+    )?;
+    let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_rows::<E>(
         db,
         index_reader,
-        old_entity.as_ref(),
-        new_pair.as_ref().map(|(_, entity)| entity),
+        data_key.storage_key(),
+        old_pair.as_ref().map(|(row, _)| row),
+        new_pair.as_ref().map(|(row, _)| row),
     )?;
     let data_store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
     let data_value = new_pair.map(|(row, _)| row);

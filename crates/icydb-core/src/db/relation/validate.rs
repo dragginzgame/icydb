@@ -12,8 +12,9 @@ use crate::{
             decode_relation_target_data_key_for_relation,
             metadata::{StrongRelationInfo, strong_relations_for_source},
             reverse_index::{
-                ReverseRelationSourceInfo, decode_reverse_entry, relation_target_keys_for_source,
-                relation_target_store, reverse_index_key_for_target_value,
+                ReverseRelationSourceInfo, decode_reverse_entry,
+                relation_target_keys_for_source_row, relation_target_store,
+                reverse_index_key_for_target_value,
             },
         },
     },
@@ -97,16 +98,8 @@ where
                     )));
                 };
 
-                let source = source_raw_row.try_decode::<S>().map_err(|err| {
-                    InternalError::serialize_corruption(format!(
-                            "source row decode failed during delete relation validation: source={} ({err})",
-                            S::PATH
-                        ),
-                    )
-                })?;
-
                 let source_targets =
-                    relation_target_keys_for_source(&source, source_info, relation)?;
+                    relation_target_keys_for_source_row(&source_raw_row, source_info, relation)?;
                 if source_targets.contains(target_raw_key) {
                     record(MetricsEvent::RelationValidation {
                         entity_path: S::PATH,

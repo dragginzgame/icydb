@@ -19,6 +19,7 @@ use crate::{
 pub(super) struct StrongRelationInfo {
     pub(super) field_index: usize,
     pub(super) field_name: &'static str,
+    pub(super) field_kind: FieldKind,
     pub(super) target_path: &'static str,
     pub(super) target_entity_name: &'static str,
     pub(super) target_entity_tag: EntityTag,
@@ -91,6 +92,7 @@ const fn strong_relation_from_field(
     Some(StrongRelationInfo {
         field_index,
         field_name,
+        field_kind: *kind,
         target_path: target.target_path,
         target_entity_name: target.target_entity_name,
         target_entity_tag: target.target_entity_tag,

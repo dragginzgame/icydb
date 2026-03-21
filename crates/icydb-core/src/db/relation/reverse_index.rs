@@ -6,8 +6,9 @@
 use crate::{
     db::{
         Db,
+        codec::deserialize_row,
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
-        data::{DataKey, RawDataKey, StorageKey},
+        data::{DataKey, RawDataKey, RawRow, StorageKey},
         index::{
             EncodedValue, IndexEntry, IndexEntryReader, IndexId, IndexKeyKind, IndexStore,
             RawIndexEntry, RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
@@ -20,10 +21,12 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue, FieldValue},
+    model::field::FieldKind,
+    traits::{CanisterKind, EntityKind, EntityValue},
     types::EntityTag,
     value::Value,
 };
+use serde_cbor::{Value as CborValue, value::from_value as cbor_from_value};
 use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 
 ///
@@ -127,25 +130,20 @@ fn relation_target_keys_from_value(
     Ok(keys)
 }
 
-/// Read relation-target key set from one source entity and relation descriptor.
-pub(super) fn relation_target_keys_for_source<S>(
-    source: &S,
+/// Read relation-target raw keys directly from one persisted source row.
+///
+/// This structural path exists for delete validation, where the runtime only
+/// needs the relation field payload and should not decode the full typed
+/// entity inside the hot blocked-delete proof loop.
+pub(super) fn relation_target_keys_for_source_row(
+    raw_row: &RawRow,
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<BTreeSet<RawDataKey>, InternalError>
-where
-    S: EntityKind + EntityValue,
-{
-    let value = source
-        .get_value_by_index(relation.field_index)
-        .ok_or_else(|| {
-            crate::db::error::executor_internal(format!(
-                "entity field missing during strong relation processing: source={} field={}",
-                source_info.path, relation.field_name,
-            ))
-        })?;
+) -> Result<BTreeSet<RawDataKey>, InternalError> {
+    let row_map = decode_relation_row_map(raw_row, source_info, relation)?;
+    let relation_value = decode_relation_field_from_row_map(&row_map, source_info, relation)?;
 
-    relation_target_keys_from_value(source_info, relation.field_name, relation, &value)
+    relation_target_keys_from_value(source_info, relation.field_name, relation, &relation_value)
 }
 
 /// Decode a reverse-index entry into source-key membership.
@@ -248,6 +246,123 @@ fn decode_relation_target_data_key_for_relation(
     Ok(Some(target_data_key))
 }
 
+// Decode one persisted row into the top-level CBOR object map used by
+// structural relation-field extraction.
+fn decode_relation_row_map(
+    raw_row: &RawRow,
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+) -> Result<std::collections::BTreeMap<CborValue, CborValue>, InternalError> {
+    let decoded = deserialize_row::<CborValue>(raw_row.as_bytes())?;
+    let CborValue::Map(map) = unwrap_cbor_tags(decoded) else {
+        return Err(InternalError::serialize_corruption(format!(
+            "relation source row decode failed: expected CBOR map: source={} field={} target={}",
+            source.path, relation.field_name, relation.target_path,
+        )));
+    };
+
+    Ok(map)
+}
+
+// Decode the one strong-relation field payload needed by structural delete
+// validation directly from the persisted row object.
+fn decode_relation_field_from_row_map(
+    row_map: &std::collections::BTreeMap<CborValue, CborValue>,
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+) -> Result<Value, InternalError> {
+    let lookup_key = CborValue::Text(relation.field_name.to_string());
+    let Some(raw_value) = row_map.get(&lookup_key) else {
+        return Err(InternalError::serialize_corruption(format!(
+            "relation source row decode failed: missing field: source={} field={} target={}",
+            source.path, relation.field_name, relation.target_path,
+        )));
+    };
+
+    decode_relation_field_value(raw_value, relation.field_kind).map_err(|message| {
+        InternalError::serialize_corruption(format!(
+            "relation source row decode failed: source={} field={} target={} ({message})",
+            source.path, relation.field_name, relation.target_path,
+        ))
+    })
+}
+
+// Decode one strong-relation field payload using only the narrow storage-key
+// field kinds allowed for relation targets.
+fn decode_relation_field_value(raw_value: &CborValue, kind: FieldKind) -> Result<Value, String> {
+    let raw_value = unwrap_cbor_tags(raw_value.clone());
+    if matches!(raw_value, CborValue::Null) {
+        return Ok(Value::Null);
+    }
+
+    match kind {
+        FieldKind::Relation { key_kind, .. } => decode_relation_key_value(raw_value, *key_kind),
+        FieldKind::List(FieldKind::Relation { key_kind, .. })
+        | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
+            decode_relation_key_list_value(raw_value, **key_kind)
+        }
+        other => Err(format!(
+            "invalid strong relation field kind during structural decode: {other:?}"
+        )),
+    }
+}
+
+// Decode one storage-key-compatible relation id into the runtime `Value`
+// representation used by the existing raw-key builder.
+fn decode_relation_key_value(raw_value: CborValue, key_kind: FieldKind) -> Result<Value, String> {
+    match key_kind {
+        FieldKind::Account => decode_typed_relation_key(raw_value, Value::Account),
+        FieldKind::Int => decode_typed_relation_key(raw_value, Value::Int),
+        FieldKind::Principal => decode_typed_relation_key(raw_value, Value::Principal),
+        FieldKind::Subaccount => decode_typed_relation_key(raw_value, Value::Subaccount),
+        FieldKind::Timestamp => decode_typed_relation_key(raw_value, Value::Timestamp),
+        FieldKind::Uint => decode_typed_relation_key(raw_value, Value::Uint),
+        FieldKind::Ulid => decode_typed_relation_key(raw_value, Value::Ulid),
+        FieldKind::Unit => decode_typed_relation_key(raw_value, |()| Value::Unit),
+        other => Err(format!(
+            "unsupported strong relation key kind during structural decode: {other:?}"
+        )),
+    }
+}
+
+// Decode one list/set relation payload by decoding each storage-key-compatible item.
+fn decode_relation_key_list_value(
+    raw_value: CborValue,
+    key_kind: FieldKind,
+) -> Result<Value, String> {
+    let CborValue::Array(items) = raw_value else {
+        return Err("expected CBOR array for relation collection".to_string());
+    };
+    let items = items
+        .into_iter()
+        .map(|item| decode_relation_key_value(item, key_kind))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Value::List(items))
+}
+
+// Decode one typed storage-key payload through serde CBOR and map it into one `Value`.
+fn decode_typed_relation_key<T>(
+    raw_value: CborValue,
+    into_value: impl FnOnce(T) -> Value,
+) -> Result<Value, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    cbor_from_value::<T>(raw_value)
+        .map(into_value)
+        .map_err(|err| format!("typed CBOR decode failed: {err}"))
+}
+
+// Strip transparent CBOR tags before decoding relation field payloads.
+fn unwrap_cbor_tags(mut value: CborValue) -> CborValue {
+    while let CborValue::Tag(_, inner) = value {
+        value = *inner;
+    }
+
+    value
+}
+
 /// Build one reverse-index mutation for one touched target key.
 fn prepare_reverse_relation_index_mutation_for_target(
     source: ReverseRelationSourceInfo,
@@ -307,11 +422,12 @@ fn prepare_reverse_relation_index_mutation_for_target(
 ///
 /// This derives mechanical index writes/deletes that keep delete-time strong
 /// relation validation O(referrers) instead of O(source rows).
-pub(crate) fn prepare_reverse_relation_index_mutations_for_source<S>(
+pub(crate) fn prepare_reverse_relation_index_mutations_for_source_rows<S>(
     db: &Db<S::Canister>,
     index_reader: &(impl IndexEntryReader<S> + ?Sized),
-    old: Option<&S>,
-    new: Option<&S>,
+    source_storage_key: StorageKey,
+    old_row: Option<&RawRow>,
+    new_row: Option<&RawRow>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
 where
     S: EntityKind + EntityValue,
@@ -324,39 +440,33 @@ where
         return Ok(Vec::new());
     }
 
-    // Phase 2: capture the old/new source ids used to remove/insert reverse members.
-    let old_source_key = old
-        .map(|entity| StorageKey::try_from_value(&entity.id().key().to_value()))
-        .transpose()?;
-    let new_source_key = new
-        .map(|entity| StorageKey::try_from_value(&entity.id().key().to_value()))
-        .transpose()?;
+    // Phase 2: derive the single source storage key once from the already-validated
+    // commit marker key instead of recomputing it through typed entity ids.
+    let old_source_key = old_row.map(|_| source_storage_key);
+    let new_source_key = new_row.map(|_| source_storage_key);
 
     let mut ops = Vec::new();
 
-    // Phase 3: evaluate each strong relation independently and derive index deltas.
+    // Phase 3: evaluate each strong relation independently and derive index deltas
+    // directly from persisted row payloads.
     for relation in relations {
-        // Build target-key sets before/after the mutation to compute membership deltas.
-        let old_targets = match old {
-            Some(entity) => relation_target_keys_for_source(entity, source, relation)?,
+        let old_targets = match old_row {
+            Some(row) => relation_target_keys_for_source_row(row, source, relation)?,
             None => BTreeSet::new(),
         };
-        let new_targets = match new {
-            Some(entity) => relation_target_keys_for_source(entity, source, relation)?,
+        let new_targets = match new_row {
+            Some(row) => relation_target_keys_for_source_row(row, source, relation)?,
             None => BTreeSet::new(),
         };
 
-        // Resolve the reverse-index store for this relation once per relation.
         let target_store = relation_target_store(db, source, relation)?;
 
-        // Only keys touched by either side can produce a reverse-index mutation.
         let touched_target_keys = old_targets
             .union(&new_targets)
             .copied()
             .collect::<BTreeSet<_>>();
 
         for target_raw_key in touched_target_keys {
-            // Determine whether membership actually changed for this target key.
             let old_contains = old_targets.contains(&target_raw_key);
             let new_contains = new_targets.contains(&target_raw_key);
 
