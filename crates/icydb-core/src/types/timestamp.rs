@@ -275,7 +275,7 @@ fn parse_fractional_nanoseconds(bytes: &[u8]) -> Result<u32, String> {
             .ok_or_else(|| timestamp_parse_error(ERR_INVALID_FRACTIONAL_SECONDS))?;
         value = value
             .checked_mul(10)
-            .and_then(|current| current.checked_add(digit as u32))
+            .and_then(|current| current.checked_add(<u32 as From<u8>>::from(digit)))
             .ok_or_else(|| timestamp_parse_error(ERR_FRACTIONAL_SECONDS_OVERFLOW))?;
     }
     for _ in bytes.len().min(9)..9 {

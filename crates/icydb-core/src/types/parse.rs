@@ -12,7 +12,7 @@ pub(crate) fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {
         if digit > 9 {
             return None;
         }
-        value = value.checked_mul(10)?.checked_add(digit as i32)?;
+        value = value.checked_mul(10)?.checked_add(i32::from(digit))?;
     }
 
     Some(value)
