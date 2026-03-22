@@ -7,7 +7,8 @@
 use crate::{
     db::data::{
         DataKey, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes,
-        decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+        decode_storage_key_field_bytes, decode_structural_field_by_kind_bytes,
+        decode_structural_value_storage_bytes,
     },
     error::InternalError,
     model::{
@@ -467,36 +468,36 @@ impl<'a> StructuralSlotReader<'a> {
     }
 
     /// Validate the decoded primary-key slot against the authoritative row key.
-    pub(in crate::db) fn validate_storage_key_for_entity<E: EntityKind>(
+    pub(in crate::db) fn validate_storage_key(
         &self,
         data_key: &DataKey,
     ) -> Result<(), InternalError> {
-        let Some(primary_key_slot) = resolve_primary_key_slot(E::MODEL) else {
+        let Some(primary_key_slot) = resolve_primary_key_slot(self.model) else {
             return Err(InternalError::index_invariant(format!(
-                "entity primary key field missing during structural row validation: {} field={}",
-                E::PATH,
-                E::PRIMARY_KEY
+                "entity primary key field missing during structural row validation: {}",
+                self.model.path(),
             )));
         };
         let field = self.field_model(primary_key_slot)?;
-        let primary_key_value = match self.get_scalar(primary_key_slot)? {
-            Some(ScalarSlotValueRef::Null) => Some(Value::Null),
-            Some(ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
+        let decoded_key = match self.get_scalar(primary_key_slot)? {
+            Some(ScalarSlotValueRef::Null) => None,
+            Some(ScalarSlotValueRef::Value(value)) => storage_key_from_scalar_ref(value),
             None => match self.field_bytes.field(primary_key_slot) {
-                Some(raw_value) => Some(decode_non_scalar_slot_value(raw_value, field)?),
+                Some(raw_value) => Some(
+                    decode_storage_key_field_bytes(raw_value, field.kind).map_err(|err| {
+                        InternalError::serialize_corruption(format!(
+                            "row decode failed: primary-key value is not storage-key encodable: {data_key} ({err})",
+                        ))
+                    })?,
+                ),
                 None => None,
             },
         };
-        let Some(primary_key_value) = primary_key_value else {
+        let Some(decoded_key) = decoded_key else {
             return Err(InternalError::serialize_corruption(format!(
                 "row decode failed: missing primary-key slot while validating {data_key}",
             )));
         };
-        let decoded_key = StorageKey::try_from_value(&primary_key_value).map_err(|err| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed: primary-key value is not storage-key encodable: {data_key} ({err})",
-            ))
-        })?;
         let expected_key = data_key.storage_key();
 
         if decoded_key != expected_key {
@@ -516,6 +517,21 @@ impl<'a> StructuralSlotReader<'a> {
                 self.model.path(),
             ))
         })
+    }
+}
+
+// Convert one scalar slot fast-path value into its storage-key form when the
+// field kind is storage-key-compatible.
+const fn storage_key_from_scalar_ref(value: ScalarValueRef<'_>) -> Option<StorageKey> {
+    match value {
+        ScalarValueRef::Int(value) => Some(StorageKey::Int(value)),
+        ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
+        ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
+        ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
+        ScalarValueRef::Uint(value) => Some(StorageKey::Uint(value)),
+        ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
+        ScalarValueRef::Unit => Some(StorageKey::Unit),
+        _ => None,
     }
 }
 

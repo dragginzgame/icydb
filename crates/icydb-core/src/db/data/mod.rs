@@ -32,8 +32,8 @@ pub use store::DataStore;
 #[cfg(test)]
 pub(in crate::db) use structural_field::decode_structural_field_bytes;
 pub(in crate::db) use structural_field::{
-    decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
-    decode_structural_value_storage_bytes,
+    decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
+    decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
 };
 pub(in crate::db) use structural_row::{
     StructuralRowDecodeError, StructuralRowFieldBytes, decode_structural_row_cbor,

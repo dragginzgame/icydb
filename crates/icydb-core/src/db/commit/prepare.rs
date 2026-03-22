@@ -233,13 +233,9 @@ fn decode_commit_marker_row_slots<'a, E: EntityKind>(
             InternalError::serialize_corruption(message)
         }
     })?;
-    slots
-        .validate_storage_key_for_entity::<E>(data_key)
-        .map_err(|err| {
-            InternalError::store_corruption(format!(
-                "commit marker {label} row key mismatch: {err}"
-            ))
-        })?;
+    slots.validate_storage_key(data_key).map_err(|err| {
+        InternalError::store_corruption(format!("commit marker {label} row key mismatch: {err}"))
+    })?;
 
     Ok(slots)
 }

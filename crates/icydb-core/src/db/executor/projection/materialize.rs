@@ -6,10 +6,7 @@
 #[cfg(feature = "sql")]
 use crate::db::{
     Db,
-    data::{
-        DataKey, DataRow, SlotReader, StorageKey, StructuralSlotReader,
-        decode_slot_value_by_contract,
-    },
+    data::{DataKey, DataRow, StructuralSlotReader, decode_slot_value_by_contract},
     executor::pipeline::entrypoints::execute_prepared_scalar_rows_for_canister,
     executor::{EntityAuthority, PreparedLoadPlan},
 };
@@ -25,7 +22,7 @@ use crate::{
         query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
     },
     error::InternalError,
-    model::entity::{EntityModel, resolve_primary_key_slot},
+    model::entity::EntityModel,
     traits::CanisterKind,
     value::Value,
 };
@@ -268,7 +265,7 @@ fn project_scalar_data_rows_from_projection_structural(
     // expression path only.
     for (data_key, raw_row) in rows {
         let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
-        validate_projection_row_primary_key(data_key.storage_key(), &row_fields)?;
+        row_fields.validate_storage_key(data_key)?;
 
         let mut values = Vec::with_capacity(compiled_fields.len());
         for compiled in compiled_fields {
@@ -299,7 +296,7 @@ fn project_generic_data_rows_from_projection_structural(
     // genuinely leave the scalar seam.
     for (data_key, raw_row) in rows {
         let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
-        validate_projection_row_primary_key(data_key.storage_key(), &row_fields)?;
+        row_fields.validate_storage_key(data_key)?;
 
         let mut values = Vec::with_capacity(projection.len());
         let mut slot_cache: Vec<Option<Value>> = vec![None; model.fields().len()];
@@ -327,35 +324,4 @@ fn project_generic_data_rows_from_projection_structural(
     }
 
     Ok(projected_rows)
-}
-
-#[cfg(feature = "sql")]
-fn validate_projection_row_primary_key(
-    expected_key: StorageKey,
-    row_fields: &StructuralSlotReader<'_>,
-) -> Result<(), InternalError> {
-    let Some(primary_key_slot) = resolve_primary_key_slot(row_fields.model()) else {
-        return Err(crate::db::error::query_executor_invariant(
-            "projection row missing primary-key slot",
-        ));
-    };
-
-    let Some(primary_key_value) = decode_slot_value_by_contract(row_fields, primary_key_slot)?
-    else {
-        return Err(InternalError::serialize_corruption(
-            "projection row decode failed: missing primary-key slot value",
-        ));
-    };
-    let decoded_key = StorageKey::try_from_value(&primary_key_value).map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "projection row decode failed: primary-key value is not storage-key encodable: {err}",
-        ))
-    })?;
-    if decoded_key != expected_key {
-        return Err(InternalError::store_corruption(format!(
-            "projection row key mismatch: expected {expected_key}, found {decoded_key}",
-        )));
-    }
-
-    Ok(())
 }

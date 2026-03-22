@@ -216,7 +216,7 @@ fn decode_unique_row_storage_key<E: EntityKind>(
         ))
     })?;
     row_fields
-        .validate_storage_key_for_entity::<E>(data_key)
+        .validate_storage_key(data_key)
         .map_err(|source| {
             InternalError::index_plan_serialize_corruption(format!(
                 "failed to decode structural primary-key slot: {data_key} ({source})"

@@ -127,6 +127,30 @@ pub(in crate::db) fn decode_relation_target_storage_keys_bytes(
     }
 }
 
+/// Decode one storage-key-compatible field payload directly into its canonical
+/// `StorageKey` form.
+pub(in crate::db) fn decode_storage_key_field_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<StorageKey, StructuralFieldDecodeError> {
+    match kind {
+        FieldKind::Account => decode_account_storage_key_bytes(raw_bytes),
+        FieldKind::Int => decode_int_storage_key_bytes(raw_bytes),
+        FieldKind::Principal => decode_principal_storage_key_bytes(raw_bytes),
+        FieldKind::Relation { key_kind, .. } => {
+            decode_storage_key_field_bytes(raw_bytes, *key_kind)
+        }
+        FieldKind::Subaccount => decode_subaccount_storage_key_bytes(raw_bytes),
+        FieldKind::Timestamp => decode_timestamp_storage_key_bytes(raw_bytes),
+        FieldKind::Uint => decode_uint_storage_key_bytes(raw_bytes),
+        FieldKind::Ulid => decode_ulid_storage_key_bytes(raw_bytes),
+        FieldKind::Unit => decode_unit_storage_key_bytes(raw_bytes),
+        other => Err(StructuralFieldDecodeError::new(format!(
+            "unsupported storage-key field kind during structural key decode: {other:?}"
+        ))),
+    }
+}
+
 // Decode one singular relation payload, treating explicit null as "no target".
 fn decode_optional_relation_storage_key_bytes(
     raw_bytes: &[u8],
@@ -187,19 +211,7 @@ fn decode_relation_storage_key_scalar_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
 ) -> Result<StorageKey, StructuralFieldDecodeError> {
-    match key_kind {
-        FieldKind::Account => decode_account_storage_key_bytes(raw_bytes),
-        FieldKind::Int => decode_int_storage_key_bytes(raw_bytes),
-        FieldKind::Principal => decode_principal_storage_key_bytes(raw_bytes),
-        FieldKind::Subaccount => decode_subaccount_storage_key_bytes(raw_bytes),
-        FieldKind::Timestamp => decode_timestamp_storage_key_bytes(raw_bytes),
-        FieldKind::Uint => decode_uint_storage_key_bytes(raw_bytes),
-        FieldKind::Ulid => decode_ulid_storage_key_bytes(raw_bytes),
-        FieldKind::Unit => decode_unit_storage_key_bytes(raw_bytes),
-        other => Err(StructuralFieldDecodeError::new(format!(
-            "unsupported strong relation key kind during structural key decode: {other:?}"
-        ))),
-    }
+    decode_storage_key_field_bytes(raw_bytes, key_kind)
 }
 
 // Parse one bounded CBOR container length into a host `usize`.
