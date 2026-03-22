@@ -16,12 +16,20 @@ pub fn assert_generated_sql_dispatch_surface_is_stable(actor: &str) {
         "generated sql_dispatch must include from_statement_route resolver"
     );
     assert!(
-        actor.contains("pub struct SqlLaneTable"),
-        "generated sql_dispatch must include one SqlLaneTable function-pointer descriptor"
-    );
-    assert!(
         actor.contains("pub struct SqlEntityDescriptor"),
         "generated sql_dispatch must include one SqlEntityDescriptor runtime descriptor"
+    );
+    assert!(
+        actor.contains("pub query : fn (") || actor.contains("pub query: fn("),
+        "generated sql_dispatch must include direct query function pointers on SqlEntityDescriptor"
+    );
+    assert!(
+        actor.contains("pub explain : fn (") || actor.contains("pub explain: fn("),
+        "generated sql_dispatch must include direct explain function pointers on SqlEntityDescriptor"
+    );
+    assert!(
+        !actor.contains("pub struct SqlLaneTable"),
+        "generated sql_dispatch must not reintroduce the removed SqlLaneTable layer"
     );
     assert!(
         actor.contains("SQL_ENTITY_DESCRIPTORS"),
