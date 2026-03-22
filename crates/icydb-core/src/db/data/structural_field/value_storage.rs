@@ -4,9 +4,9 @@
 //! Boundary: `FieldStorageDecode::Value` and conservative fallback paths route through this module.
 
 use crate::db::data::structural_field::cbor::{
-    cbor_text_literal_eq, decode_cbor_float, decode_cbor_integer, decode_text_scalar_bytes,
-    parse_tagged_cbor_head, parse_tagged_variant_payload_bytes, payload_bytes, skip_cbor_value,
-    walk_cbor_array_items, walk_cbor_map_entries,
+    decode_cbor_float, decode_cbor_integer, decode_text_scalar_bytes, parse_tagged_cbor_head,
+    parse_tagged_variant_payload_bytes, payload_bytes, skip_cbor_value, walk_cbor_array_items,
+    walk_cbor_map_entries,
 };
 use crate::db::data::structural_field::leaf::{
     decode_account_value_bytes, decode_date_value_bytes, decode_decimal_value_bytes,
@@ -51,6 +51,14 @@ enum ValueVariantTag {
     Unit,
 }
 
+// Tag the fixed field names inside the persisted `ValueEnum` payload struct.
+#[derive(Clone, Copy)]
+enum ValueEnumFieldTag {
+    Variant,
+    Path,
+    Payload,
+}
+
 // Resolve one tagged `Value` variant label into its decode contract.
 fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, StructuralFieldDecodeError> {
     let tag = match variant {
@@ -86,6 +94,17 @@ fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, StructuralF
     };
 
     Ok(tag)
+}
+
+// Resolve one raw CBOR-encoded `ValueEnum` field name without re-running text
+// literal decoding for each known field.
+fn parse_value_enum_field_tag(raw_bytes: &[u8]) -> Option<ValueEnumFieldTag> {
+    match raw_bytes {
+        b"\x67variant" => Some(ValueEnumFieldTag::Variant),
+        b"\x64path" => Some(ValueEnumFieldTag::Path),
+        b"\x67payload" => Some(ValueEnumFieldTag::Payload),
+        _ => None,
+    }
 }
 
 // Push one recursively tagged `Value` list item into the decoded buffer.
@@ -338,12 +357,17 @@ fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, Structural
         cursor = skip_cbor_value(raw_bytes, cursor)?;
         let field_value = &raw_bytes[field_value_start..cursor];
 
-        if cbor_text_literal_eq(field_name, b"variant")? {
-            variant = Some(decode_required_text_value_field(field_value)?);
-        } else if cbor_text_literal_eq(field_name, b"path")? {
-            path = decode_optional_text_value_field(field_value)?;
-        } else if cbor_text_literal_eq(field_name, b"payload")? {
-            payload = decode_optional_nested_value_field(field_value)?;
+        match parse_value_enum_field_tag(field_name) {
+            Some(ValueEnumFieldTag::Variant) => {
+                variant = Some(decode_required_text_value_field(field_value)?);
+            }
+            Some(ValueEnumFieldTag::Path) => {
+                path = decode_optional_text_value_field(field_value)?;
+            }
+            Some(ValueEnumFieldTag::Payload) => {
+                payload = decode_optional_nested_value_field(field_value)?;
+            }
+            None => {}
         }
     }
 

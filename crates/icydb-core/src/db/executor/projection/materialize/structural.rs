@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        data::{DataKey, DataRow, StructuralSlotReader, decode_slot_value_by_contract},
+        data::{DataRow, StructuralSlotReader, decode_slot_value_by_contract},
         executor::pipeline::entrypoints::execute_prepared_scalar_rows_for_canister,
         executor::{
             EntityAuthority, PreparedLoadPlan,
@@ -91,12 +91,8 @@ where
         page.data_rows(),
     )?;
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
-    let rows = projected
-        .into_iter()
-        .map(|(_, values)| values)
-        .collect::<Vec<_>>();
 
-    Ok(SqlStructuralProjectionRows::new(rows, row_count))
+    Ok(SqlStructuralProjectionRows::new(projected, row_count))
 }
 
 #[cfg(feature = "sql")]
@@ -104,7 +100,7 @@ fn project_data_rows_from_projection_structural(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
     rows: &[DataRow],
-) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+) -> Result<Vec<Vec<Value>>, InternalError> {
     match compile_structural_projection_plan(model, projection) {
         StructuralProjectionPlan::Scalar(compiled_fields) => {
             project_scalar_data_rows_from_projection_structural(
@@ -145,7 +141,7 @@ fn project_scalar_data_rows_from_projection_structural(
     compiled_fields: &[ScalarProjectionExpr],
     rows: &[DataRow],
     model: &'static EntityModel,
-) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: evaluate fully scalar projections through the compiled scalar
@@ -165,7 +161,7 @@ fn project_scalar_data_rows_from_projection_structural(
                 })?;
             values.push(value);
         }
-        projected_rows.push((data_key.clone(), values));
+        projected_rows.push(values);
     }
 
     Ok(projected_rows)
@@ -176,7 +172,7 @@ fn project_generic_data_rows_from_projection_structural(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
     rows: &[DataRow],
-) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: keep the generic evaluator isolated to projection shapes that
@@ -207,7 +203,7 @@ fn project_generic_data_rows_from_projection_structural(
         if let Some(err) = slot_error {
             return Err(err);
         }
-        projected_rows.push((data_key.clone(), values));
+        projected_rows.push(values);
     }
 
     Ok(projected_rows)

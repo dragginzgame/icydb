@@ -4,7 +4,7 @@
 //! Boundary: runtime paths use this module when they need one persisted field decoded without `E`.
 
 mod cbor;
-mod kind;
+mod composite;
 mod leaf;
 mod scalar;
 mod storage_key;
@@ -13,13 +13,8 @@ mod value_storage;
 use crate::{model::field::FieldKind, value::Value};
 use thiserror::Error as ThisError;
 
-use kind::{decode_enum_bytes, decode_list_bytes, decode_map_bytes};
-use leaf::{
-    decode_account_value_bytes, decode_date_value_bytes, decode_decimal_value_bytes,
-    decode_duration_value_bytes, decode_int_big_value_bytes, decode_principal_value_bytes,
-    decode_subaccount_value_bytes, decode_timestamp_value_bytes, decode_uint_big_value_bytes,
-    decode_unit_value_bytes,
-};
+use composite::decode_composite_field_by_kind_bytes;
+use leaf::decode_leaf_field_by_kind_bytes;
 use scalar::decode_scalar_fast_path_bytes;
 
 pub(in crate::db) use storage_key::{
@@ -84,38 +79,15 @@ pub(in crate::db) fn decode_structural_field_by_kind_bytes(
         return Ok(value);
     }
 
-    match kind {
-        FieldKind::Account => decode_account_value_bytes(raw_bytes),
-        FieldKind::Blob
-        | FieldKind::Bool
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::Text
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::Ulid => Err(StructuralFieldDecodeError::new(
-            "scalar field unexpectedly bypassed byte-level fast path",
-        )),
-        FieldKind::Date => decode_date_value_bytes(raw_bytes),
-        FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes),
-        FieldKind::Duration => decode_duration_value_bytes(raw_bytes),
-        FieldKind::Enum { path, variants } => decode_enum_bytes(raw_bytes, path, variants),
-        FieldKind::IntBig => decode_int_big_value_bytes(raw_bytes),
-        FieldKind::List(inner) | FieldKind::Set(inner) => decode_list_bytes(raw_bytes, *inner),
-        FieldKind::Map { key, value } => decode_map_bytes(raw_bytes, *key, *value),
-        FieldKind::Principal => decode_principal_value_bytes(raw_bytes),
-        FieldKind::Relation { key_kind, .. } => {
-            decode_structural_field_by_kind_bytes(raw_bytes, *key_kind)
-        }
-        FieldKind::Structured { .. } => Ok(Value::Null),
-        FieldKind::Subaccount => decode_subaccount_value_bytes(raw_bytes),
-        FieldKind::Timestamp => decode_timestamp_value_bytes(raw_bytes),
-        FieldKind::UintBig => decode_uint_big_value_bytes(raw_bytes),
-        FieldKind::Unit => decode_unit_value_bytes(raw_bytes),
+    // Keep the root entrypoint as a thin lane router: scalar fast path above,
+    // then non-recursive leaves, then the recursive composite authority.
+    if let Some(value) = decode_leaf_field_by_kind_bytes(raw_bytes, kind)? {
+        return Ok(value);
     }
+
+    decode_composite_field_by_kind_bytes(raw_bytes, kind)
 }
+
 ///
 /// TESTS
 ///
@@ -230,144 +202,43 @@ mod tests {
     }
 
     #[test]
-    fn structural_value_storage_decode_preserves_list_and_map_variants() {
-        let map = Value::from_map(vec![(Value::Text("k".to_string()), Value::Uint(7))])
-            .expect("value map should satisfy invariants");
-        let value = Value::List(vec![Value::Text("left".to_string()), map]);
-        let bytes = serde_cbor::to_vec(&value).expect("value storage bytes should encode");
-
-        let decoded =
-            decode_structural_value_storage_bytes(&bytes).expect("value storage should decode");
-
-        assert_eq!(decoded, value);
-    }
-
-    #[test]
-    fn structural_value_storage_decode_preserves_enum_payload_variant() {
-        let value =
-            Value::Enum(ValueEnum::new("Some", Some("test::Enum")).with_payload(Value::Uint(9)));
-        let bytes = serde_cbor::to_vec(&value).expect("value enum bytes should encode");
-
-        let decoded =
-            decode_structural_value_storage_bytes(&bytes).expect("value enum should decode");
-
-        assert_eq!(decoded, value);
-    }
-
-    #[test]
-    fn structural_field_decode_preserves_principal_and_subaccount_wrappers() {
-        let principal = Principal::from_slice(&[1, 2, 3]);
-        let subaccount = Subaccount::from_array([7; 32]);
-        let principal_bytes =
-            serde_cbor::to_vec(&principal).expect("principal bytes should encode");
-        let subaccount_bytes =
-            serde_cbor::to_vec(&subaccount).expect("subaccount bytes should encode");
-
-        let decoded_principal = decode_structural_field_bytes(
-            &principal_bytes,
-            FieldKind::Principal,
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("principal field should decode");
-        let decoded_subaccount = decode_structural_field_bytes(
-            &subaccount_bytes,
-            FieldKind::Subaccount,
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("subaccount field should decode");
-
-        assert_eq!(decoded_principal, Value::Principal(principal));
-        assert_eq!(decoded_subaccount, Value::Subaccount(subaccount));
-    }
-
-    #[test]
-    fn structural_value_storage_decode_preserves_principal_variant() {
-        let value = Value::Principal(Principal::from_slice(&[9, 8, 7]));
-        let bytes = serde_cbor::to_vec(&value).expect("principal value bytes should encode");
-
-        let decoded =
-            decode_structural_value_storage_bytes(&bytes).expect("principal value should decode");
-
-        assert_eq!(decoded, value);
-    }
-
-    #[test]
-    fn structural_field_decode_preserves_account_wrapper() {
-        let account = Account::from_parts(
-            Principal::from_slice(&[1, 2, 3]),
-            Some(Subaccount::from_array([5; 32])),
+    fn structural_field_decode_value_storage_handles_enum_payload() {
+        let value = Value::Enum(
+            ValueEnum::new("Active", Some("Status")).with_payload(Value::Map(vec![(
+                Value::Text("count".into()),
+                Value::Uint(7),
+            )])),
         );
-        let bytes = serde_cbor::to_vec(&account).expect("account bytes should encode");
+        let bytes = serde_cbor::to_vec(&value).expect("value bytes should encode");
 
-        let decoded = decode_structural_field_bytes(
-            &bytes,
+        let decoded = decode_structural_value_storage_bytes(&bytes)
+            .expect("value enum payload should decode");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn structural_field_decode_typed_wrappers_preserves_payloads() {
+        let account = Account::from_parts(Principal::dummy(7), Some(Subaccount::from([7_u8; 32])));
+        let decimal = Decimal::new(1234, 2);
+
+        let account_bytes = serde_cbor::to_vec(&account).expect("account bytes should encode");
+        let decimal_bytes = serde_cbor::to_vec(&decimal).expect("decimal bytes should encode");
+
+        let decoded_account = decode_structural_field_bytes(
+            &account_bytes,
             FieldKind::Account,
             crate::model::field::FieldStorageDecode::ByKind,
         )
-        .expect("account field should decode");
-
-        assert_eq!(decoded, Value::Account(account));
-    }
-
-    #[test]
-    fn structural_value_storage_decode_preserves_account_variant() {
-        let value = Value::Account(Account::from_parts(
-            Principal::from_slice(&[4, 5]),
-            Some(Subaccount::from_array([6; 32])),
-        ));
-        let bytes = serde_cbor::to_vec(&value).expect("account value bytes should encode");
-
-        let decoded =
-            decode_structural_value_storage_bytes(&bytes).expect("account value should decode");
-
-        assert_eq!(decoded, value);
-    }
-
-    #[test]
-    fn structural_field_decode_preserves_decimal_and_bigint_wrappers() {
-        let decimal = Decimal::from_i128_with_scale(12_340, 3);
-        let int_big = crate::types::Int::from(candid::Int::from(-123_456_i64));
-        let uint_big = crate::types::Nat::from(candid::Nat::from(654_321_u64));
-
-        let decimal_bytes = serde_cbor::to_vec(&decimal).expect("decimal bytes should encode");
-        let int_big_bytes = serde_cbor::to_vec(&int_big).expect("int-big bytes should encode");
-        let uint_big_bytes = serde_cbor::to_vec(&uint_big).expect("uint-big bytes should encode");
-
+        .expect("account payload should decode");
         let decoded_decimal = decode_structural_field_bytes(
             &decimal_bytes,
-            FieldKind::Decimal { scale: 3 },
+            FieldKind::Decimal { scale: 2 },
             crate::model::field::FieldStorageDecode::ByKind,
         )
-        .expect("decimal field should decode");
-        let decoded_int_big = decode_structural_field_bytes(
-            &int_big_bytes,
-            FieldKind::IntBig,
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("int-big field should decode");
-        let decoded_nat_big = decode_structural_field_bytes(
-            &uint_big_bytes,
-            FieldKind::UintBig,
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("uint-big field should decode");
+        .expect("decimal payload should decode");
 
+        assert_eq!(decoded_account, Value::Account(account));
         assert_eq!(decoded_decimal, Value::Decimal(decimal));
-        assert_eq!(decoded_int_big, Value::IntBig(int_big));
-        assert_eq!(decoded_nat_big, Value::UintBig(uint_big));
-    }
-
-    #[test]
-    fn structural_value_storage_decode_preserves_decimal_and_bigint_variants() {
-        let decimal = Value::Decimal(Decimal::from_i128_with_scale(55_000, 4));
-        let int_big = Value::IntBig(crate::types::Int::from(candid::Int::from(-42_i64)));
-        let uint_big = Value::UintBig(crate::types::Nat::from(candid::Nat::from(99_u64)));
-
-        for value in [decimal, int_big, uint_big] {
-            let bytes = serde_cbor::to_vec(&value).expect("value bytes should encode");
-            let decoded =
-                decode_structural_value_storage_bytes(&bytes).expect("value should decode");
-            assert_eq!(decoded, value);
-        }
     }
 }

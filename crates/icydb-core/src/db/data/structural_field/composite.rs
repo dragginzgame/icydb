@@ -1,7 +1,7 @@
-//! Module: data::structural_field::kind
-//! Responsibility: composite `ByKind` field decode for lists, maps, and schema enums.
-//! Does not own: low-level CBOR parsing, typed wrapper payloads, or `FieldStorageDecode::Value`.
-//! Boundary: the structural-field root calls into this module when a field contract requires recursive `ByKind` decode.
+//! Module: data::structural_field::composite
+//! Responsibility: recursive composite `ByKind` decode for lists, maps, enums, and relation re-entry.
+//! Does not own: low-level CBOR parsing, scalar fast paths, or non-recursive typed leaves.
+//! Boundary: the structural-field root routes composite kinds here after scalar and leaf lanes are ruled out.
 
 use crate::db::data::structural_field::cbor::{
     parse_tagged_variant_payload_bytes, walk_cbor_array_items, walk_cbor_map_entries,
@@ -18,10 +18,22 @@ use crate::{
     value::{Value, ValueEnum},
 };
 
-// Carry the output buffer plus the declared inner field kind for list/set decode.
+///
+/// KindArrayDecodeState
+///
+/// KindArrayDecodeState carries the recursive list/set decode buffer together
+/// with the declared inner field contract.
+///
+
 type KindArrayDecodeState = (Vec<Value>, FieldKind);
 
-// Carry the output buffer plus declared key/value kinds for map decode.
+///
+/// KindMapDecodeState
+///
+/// KindMapDecodeState carries the recursive map decode buffer together with
+/// the declared key/value field contracts.
+///
+
 type KindMapDecodeState = (Vec<(Value, Value)>, FieldKind, FieldKind);
 
 // Push one by-kind list item into the decoded runtime value buffer.
@@ -60,7 +72,7 @@ fn push_kind_map_entry(
 
 // Decode one list/set field directly from CBOR bytes and recurse only through
 // the declared item contract.
-pub(super) fn decode_list_bytes(
+fn decode_list_bytes(
     raw_bytes: &[u8],
     inner: FieldKind,
 ) -> Result<Value, StructuralFieldDecodeError> {
@@ -78,7 +90,7 @@ pub(super) fn decode_list_bytes(
 
 // Decode one map field directly from CBOR bytes and recurse only through the
 // declared key/value contracts.
-pub(super) fn decode_map_bytes(
+fn decode_map_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
     value_kind: FieldKind,
@@ -97,7 +109,7 @@ pub(super) fn decode_map_bytes(
 
 // Decode one enum field directly from CBOR bytes using the schema-declared
 // variant payload contract when available.
-pub(super) fn decode_enum_bytes(
+fn decode_enum_bytes(
     raw_bytes: &[u8],
     path: &'static str,
     variants: &'static [EnumVariantModel],
@@ -134,5 +146,47 @@ pub(super) fn decode_enum_bytes(
         ))
     } else {
         Ok(Value::Enum(ValueEnum::new(variant, Some(path))))
+    }
+}
+
+/// Decode one recursive composite `ByKind` field payload.
+///
+/// Composite decode owns all recursive re-entry back into the structural-field
+/// boundary. Leaf kinds are intentionally rejected here so the root stays a
+/// thin lane router instead of a mixed recursive hub.
+pub(super) fn decode_composite_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Value, StructuralFieldDecodeError> {
+    match kind {
+        FieldKind::Enum { path, variants } => decode_enum_bytes(raw_bytes, path, variants),
+        FieldKind::List(inner) | FieldKind::Set(inner) => decode_list_bytes(raw_bytes, *inner),
+        FieldKind::Map { key, value } => decode_map_bytes(raw_bytes, *key, *value),
+        FieldKind::Relation { key_kind, .. } => {
+            decode_structural_field_by_kind_bytes(raw_bytes, *key_kind)
+        }
+        FieldKind::Account
+        | FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Principal
+        | FieldKind::Structured { .. }
+        | FieldKind::Subaccount
+        | FieldKind::Text
+        | FieldKind::Timestamp
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::UintBig
+        | FieldKind::Ulid
+        | FieldKind::Unit => Err(StructuralFieldDecodeError::new(
+            "leaf field unexpectedly routed through composite decode",
+        )),
     }
 }

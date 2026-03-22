@@ -8,6 +8,7 @@ use crate::{
         Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
+    types::parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     value::Value,
 };
 use candid::CandidType;
@@ -174,34 +175,6 @@ impl Date {
             }
         })
     }
-}
-
-// Parse one fixed-width ASCII digit slice into an `i32`.
-fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {
-    let mut value = 0_i32;
-    for &byte in bytes {
-        let digit = byte.checked_sub(b'0')?;
-        if digit > 9 {
-            return None;
-        }
-        value = value.checked_mul(10)?.checked_add(i32::from_u8(digit)?)?;
-    }
-
-    Some(value)
-}
-
-// Parse one fixed-width ASCII digit slice into a `u8`.
-fn parse_fixed_ascii_u8(bytes: &[u8]) -> Option<u8> {
-    let mut value = 0_u8;
-    for &byte in bytes {
-        let digit = byte.checked_sub(b'0')?;
-        if digit > 9 {
-            return None;
-        }
-        value = value.checked_mul(10)?.checked_add(digit)?;
-    }
-
-    Some(value)
 }
 
 impl Atomic for Date {}

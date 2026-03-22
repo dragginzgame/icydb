@@ -13,6 +13,7 @@ mod float;
 mod identity;
 mod int;
 mod nat;
+mod parse;
 mod principal;
 mod subaccount;
 mod timestamp;

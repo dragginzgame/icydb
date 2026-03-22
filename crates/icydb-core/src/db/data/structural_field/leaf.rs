@@ -16,6 +16,50 @@ use crate::{
 use candid::{Int as WrappedInt, Nat as WrappedNat};
 use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
+/// Decode one non-recursive `ByKind` field payload.
+///
+/// Leaf decoders never recurse back into the structural-field root. Composite
+/// kinds stay in the composite lane so recursive re-entry has one owner.
+pub(super) fn decode_leaf_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: crate::model::field::FieldKind,
+) -> Result<Option<Value>, StructuralFieldDecodeError> {
+    let value = match kind {
+        crate::model::field::FieldKind::Account => decode_account_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Blob
+        | crate::model::field::FieldKind::Bool
+        | crate::model::field::FieldKind::Float32
+        | crate::model::field::FieldKind::Float64
+        | crate::model::field::FieldKind::Int
+        | crate::model::field::FieldKind::Int128
+        | crate::model::field::FieldKind::Text
+        | crate::model::field::FieldKind::Uint
+        | crate::model::field::FieldKind::Uint128
+        | crate::model::field::FieldKind::Ulid => {
+            return Err(StructuralFieldDecodeError::new(
+                "scalar field unexpectedly bypassed byte-level fast path",
+            ));
+        }
+        crate::model::field::FieldKind::Date => decode_date_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Decimal { .. } => decode_decimal_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::IntBig => decode_int_big_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Principal => decode_principal_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Structured { .. } => Value::Null,
+        crate::model::field::FieldKind::Subaccount => decode_subaccount_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Timestamp => decode_timestamp_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::UintBig => decode_uint_big_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Unit => decode_unit_value_bytes(raw_bytes)?,
+        crate::model::field::FieldKind::Enum { .. }
+        | crate::model::field::FieldKind::List(_)
+        | crate::model::field::FieldKind::Map { .. }
+        | crate::model::field::FieldKind::Relation { .. }
+        | crate::model::field::FieldKind::Set(_) => return Ok(None),
+    };
+
+    Ok(Some(value))
+}
+
 // Carry the partially decoded account payload while the shared map walker
 // visits account fields.
 type AccountDecodeState = (
@@ -84,17 +128,7 @@ pub(super) fn decode_account_payload(
 pub(super) fn decode_decimal_value_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, StructuralFieldDecodeError> {
-    let Some((major, _, _)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated decimal payload",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after decimal payload",
-        ));
-    }
+    let (major, _, _) = parse_complete_top_level_payload(raw_bytes, "decimal")?;
 
     let value = match major {
         3 => decode_required_text_payload(raw_bytes, "decimal")?
@@ -117,17 +151,7 @@ pub(super) fn decode_decimal_value_bytes(
 pub(super) fn decode_duration_value_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, StructuralFieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated duration payload",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after duration payload",
-        ));
-    }
+    let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, "duration")?;
 
     let value = match major {
         0 => Duration::from_millis(argument),
@@ -160,17 +184,8 @@ pub(super) fn decode_timestamp_value_bytes(
 pub(super) fn decode_timestamp_payload(
     raw_bytes: &[u8],
 ) -> Result<Timestamp, StructuralFieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated timestamp payload",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after timestamp payload",
-        ));
-    }
+    let (major, argument, payload_start) =
+        parse_complete_top_level_payload(raw_bytes, "timestamp")?;
 
     let value = match major {
         0 | 1 => {
@@ -258,17 +273,7 @@ pub(super) fn decode_subaccount_payload(
 fn decode_optional_subaccount_value(
     raw_bytes: &[u8],
 ) -> Result<Option<crate::types::Subaccount>, StructuralFieldDecodeError> {
-    let Some((major, argument, _)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated subaccount payload",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after subaccount payload",
-        ));
-    }
+    let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, "subaccount")?;
     if major == 7 && argument == 22 {
         return Ok(None);
     }
@@ -345,17 +350,7 @@ fn decode_bigint_tuple_payload(
 
 // Decode one bigint sign payload serialized as -1, 0, or 1.
 fn decode_bigint_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, StructuralFieldDecodeError> {
-    let Some((major, argument, _)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated bigint sign payload",
-        ));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after bigint sign payload",
-        ));
-    }
+    let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, "bigint sign")?;
 
     match decode_cbor_integer(major, argument)? {
         -1 => Ok(BigIntSign::Minus),
@@ -425,17 +420,7 @@ fn decode_required_text_payload<'a>(
     raw_bytes: &'a [u8],
     label: &'static str,
 ) -> Result<&'a str, StructuralFieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(format!(
-            "typed CBOR decode failed: truncated {label} payload"
-        )));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(format!(
-            "typed CBOR decode failed: trailing bytes after {label} payload"
-        )));
-    }
+    let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, label)?;
     if major != 3 {
         return Err(StructuralFieldDecodeError::new(format!(
             "typed CBOR decode failed: expected a text string for {label}"
@@ -451,17 +436,7 @@ fn decode_required_bytes_payload<'a>(
     raw_bytes: &'a [u8],
     label: &'static str,
 ) -> Result<&'a [u8], StructuralFieldDecodeError> {
-    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(format!(
-            "typed CBOR decode failed: truncated {label} payload"
-        )));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(format!(
-            "typed CBOR decode failed: trailing bytes after {label} payload"
-        )));
-    }
+    let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, label)?;
     if major != 2 {
         return Err(StructuralFieldDecodeError::new(format!(
             "typed CBOR decode failed: expected a byte string for {label}"
@@ -477,17 +452,7 @@ fn decode_required_u32_payload(
     raw_bytes: &[u8],
     label: &'static str,
 ) -> Result<u32, StructuralFieldDecodeError> {
-    let Some((major, argument, _)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(format!(
-            "typed CBOR decode failed: truncated {label} payload"
-        )));
-    };
-    let end = skip_cbor_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(format!(
-            "typed CBOR decode failed: trailing bytes after {label} payload"
-        )));
-    }
+    let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, label)?;
     if major != 0 {
         return Err(StructuralFieldDecodeError::new(format!(
             "typed CBOR decode failed: expected unsigned integer for {label}"
@@ -499,6 +464,28 @@ fn decode_required_u32_payload(
             "typed CBOR decode failed: {label} out of u32 range"
         ))
     })
+}
+
+// Parse one top-level CBOR payload and enforce that it consumes the whole
+// provided byte slice.
+fn parse_complete_top_level_payload(
+    raw_bytes: &[u8],
+    label: &'static str,
+) -> Result<(u8, u64, usize), StructuralFieldDecodeError> {
+    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+        return Err(StructuralFieldDecodeError::new(format!(
+            "typed CBOR decode failed: truncated {label} payload"
+        )));
+    };
+
+    let end = skip_cbor_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(StructuralFieldDecodeError::new(format!(
+            "typed CBOR decode failed: trailing bytes after {label} payload"
+        )));
+    }
+
+    Ok((major, argument, payload_start))
 }
 
 // Apply Decimal's binary mantissa/scale validation without routing through
