@@ -13,14 +13,8 @@ use crate::{
 use candid::CandidType;
 use derive_more::{Add, AddAssign, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{self, Debug, Display},
-    sync::OnceLock,
-};
-use time::{Date as TimeDate, Duration as TimeDuration, Month, format_description::FormatItem};
-
-// FORMAT
-static FORMAT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
+use std::fmt::{self, Debug, Display};
+use time::{Date as TimeDate, Duration as TimeDuration, Month};
 
 // Invariant:
 // Date is internally stored as days since Unix epoch (`i32`).
@@ -135,11 +129,20 @@ impl Date {
     }
 
     /// Parse a strict ISO `YYYY-MM-DD` string into a `Date`.
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        let format =
-            FORMAT.get_or_init(|| time::format_description::parse("[year]-[month]-[day]").unwrap());
+        let bytes = s.as_bytes();
+        if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+            return None;
+        }
 
-        TimeDate::parse(s, format).ok().map(Self::from_time_date)
+        // Phase 1: decode one strict fixed-width `YYYY-MM-DD` payload without
+        // routing through the heavier `time` text parser.
+        let year = parse_fixed_ascii_i32(&bytes[0..4])?;
+        let month = parse_fixed_ascii_u8(&bytes[5..7])?;
+        let day = parse_fixed_ascii_u8(&bytes[8..10])?;
+
+        Self::new_checked(year, month, day)
     }
 
     /// Parse supported text date inputs.
@@ -171,6 +174,34 @@ impl Date {
             }
         })
     }
+}
+
+// Parse one fixed-width ASCII digit slice into an `i32`.
+fn parse_fixed_ascii_i32(bytes: &[u8]) -> Option<i32> {
+    let mut value = 0_i32;
+    for &byte in bytes {
+        let digit = byte.checked_sub(b'0')?;
+        if digit > 9 {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(i32::from_u8(digit)?)?;
+    }
+
+    Some(value)
+}
+
+// Parse one fixed-width ASCII digit slice into a `u8`.
+fn parse_fixed_ascii_u8(bytes: &[u8]) -> Option<u8> {
+    let mut value = 0_u8;
+    for &byte in bytes {
+        let digit = byte.checked_sub(b'0')?;
+        if digit > 9 {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(digit)?;
+    }
+
+    Some(value)
 }
 
 impl Atomic for Date {}

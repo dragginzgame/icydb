@@ -149,47 +149,72 @@ impl Duration {
 
     /// Parse integer milliseconds or unit-suffixed strings (`ms`, `s`, `m`, `h`, `d`).
     pub fn parse_flexible(s: &str) -> Result<Self, String> {
-        if let Ok(n) = s.parse::<u64>() {
-            return Ok(Self::from_millis(n));
-        }
+        // Phase 1: split one strict ASCII duration into digit and suffix parts
+        // without routing through the heavier generic integer parser.
+        let (digits, unit) = split_duration_digits_and_unit(s)
+            .ok_or_else(|| "invalid duration format".to_string())?;
+        let value = parse_duration_ascii_u64(digits)
+            .ok_or_else(|| "invalid duration format".to_string())?;
 
-        if let Some(v) = s.strip_suffix("ms") {
-            return v
-                .parse::<u64>()
-                .map(Self::from_millis)
-                .map_err(|e| e.to_string());
-        }
+        // Phase 2: apply the accepted unit family with the existing saturating
+        // constructors so overflow semantics stay unchanged.
+        let duration = match unit {
+            DurationUnit::Millis => Self::from_millis(value),
+            DurationUnit::Seconds => Self::from_secs(value),
+            DurationUnit::Minutes => Self::from_minutes(value),
+            DurationUnit::Hours => Self::from_hours(value),
+            DurationUnit::Days => Self::from_days(value),
+        };
 
-        if let Some(v) = s.strip_suffix("s") {
-            return v
-                .parse::<u64>()
-                .map(Self::from_secs)
-                .map_err(|e| e.to_string());
-        }
-
-        if let Some(v) = s.strip_suffix("m") {
-            return v
-                .parse::<u64>()
-                .map(Self::from_minutes)
-                .map_err(|e| e.to_string());
-        }
-
-        if let Some(v) = s.strip_suffix("h") {
-            return v
-                .parse::<u64>()
-                .map(Self::from_hours)
-                .map_err(|e| e.to_string());
-        }
-
-        if let Some(v) = s.strip_suffix("d") {
-            return v
-                .parse::<u64>()
-                .map(Self::from_days)
-                .map_err(|e| e.to_string());
-        }
-
-        Err("invalid duration format".to_string())
+        Ok(duration)
     }
+}
+
+#[derive(Clone, Copy)]
+enum DurationUnit {
+    Millis,
+    Seconds,
+    Minutes,
+    Hours,
+    Days,
+}
+
+// Split one duration literal into its digit prefix and accepted unit suffix.
+fn split_duration_digits_and_unit(s: &str) -> Option<(&str, DurationUnit)> {
+    if let Some(value) = s.strip_suffix("ms") {
+        return Some((value, DurationUnit::Millis));
+    }
+    if let Some(value) = s.strip_suffix('s') {
+        return Some((value, DurationUnit::Seconds));
+    }
+    if let Some(value) = s.strip_suffix('m') {
+        return Some((value, DurationUnit::Minutes));
+    }
+    if let Some(value) = s.strip_suffix('h') {
+        return Some((value, DurationUnit::Hours));
+    }
+    if let Some(value) = s.strip_suffix('d') {
+        return Some((value, DurationUnit::Days));
+    }
+    if !s.is_empty() {
+        return Some((s, DurationUnit::Millis));
+    }
+
+    None
+}
+
+// Parse one ASCII digit string into `u64`.
+fn parse_duration_ascii_u64(s: &str) -> Option<u64> {
+    let mut value = 0_u64;
+    for byte in s.bytes() {
+        let digit = byte.checked_sub(b'0')?;
+        if digit > 9 {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(u64::from_u8(digit)?)?;
+    }
+
+    Some(value)
 }
 
 impl Add for Duration {

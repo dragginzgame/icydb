@@ -92,7 +92,6 @@ impl Timestamp {
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
         let dt = OffsetDateTime::parse(s, &Rfc3339)
             .map_err(|e| format!("timestamp parse error: {e}"))?;
-
         let ts_millis = dt.unix_timestamp_nanos() / 1_000_000;
         let ts_millis = i64::try_from(ts_millis)
             .map_err(|_| "timestamp parse error: out-of-range unix millis".to_string())?;

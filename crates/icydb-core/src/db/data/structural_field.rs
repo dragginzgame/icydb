@@ -226,6 +226,10 @@ type RelationKeyDecodeState = (Vec<StorageKey>, FieldKind);
 type ValueArrayDecodeState = Vec<Value>;
 type KindArrayDecodeState = (Vec<Value>, FieldKind);
 type KindMapDecodeState = (Vec<(Value, Value)>, FieldKind, FieldKind);
+type AccountDecodeState = (
+    Option<crate::types::Principal>,
+    Option<crate::types::Subaccount>,
+);
 type UntypedMapDecodeState = Vec<(Value, Value)>;
 type ArrayItemDecodeFn = unsafe fn(&[u8], *mut ()) -> Result<(), StructuralFieldDecodeError>;
 type MapEntryDecodeFn = unsafe fn(&[u8], &[u8], *mut ()) -> Result<(), StructuralFieldDecodeError>;
@@ -435,7 +439,31 @@ fn push_value_storage_map_entry_item(
     context: *mut (),
 ) -> Result<(), StructuralFieldDecodeError> {
     let entries = unsafe { &mut *context.cast::<Vec<(Value, Value)>>() };
-    entries.push(decode_value_storage_map_entry_bytes(item_bytes)?);
+    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(item_bytes, 0)? else {
+        return Err(StructuralFieldDecodeError::new(
+            "typed CBOR decode failed: truncated value map entry",
+        ));
+    };
+    if major != 4 || argument != 2 {
+        return Err(StructuralFieldDecodeError::new(
+            "expected two-item CBOR array for value map entry",
+        ));
+    }
+
+    let key_start = cursor;
+    cursor = skip_cbor_value(item_bytes, cursor)?;
+    let value_start = cursor;
+    cursor = skip_cbor_value(item_bytes, cursor)?;
+    if cursor != item_bytes.len() {
+        return Err(StructuralFieldDecodeError::new(
+            "typed CBOR decode failed: trailing bytes after value map entry",
+        ));
+    }
+
+    entries.push((
+        decode_structural_value_storage_bytes(&item_bytes[key_start..value_start])?,
+        decode_structural_value_storage_bytes(&item_bytes[value_start..cursor])?,
+    ));
 
     Ok(())
 }
@@ -472,6 +500,27 @@ fn push_untyped_map_entry(
         decode_untyped_shallow_bytes(key_bytes)?,
         decode_untyped_shallow_bytes(value_bytes)?,
     ));
+
+    Ok(())
+}
+
+// Push one decoded account field into the running account payload state.
+//
+// Safety:
+// `context` must be a valid `AccountDecodeState`.
+fn push_account_field(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), StructuralFieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<AccountDecodeState>() };
+    let field_name = decode_required_text_payload(key_bytes, "account field name")?;
+
+    match field_name {
+        "owner" => state.0 = Some(decode_principal_payload(value_bytes)?),
+        "subaccount" => state.1 = decode_optional_subaccount_value(value_bytes)?,
+        _ => {}
+    }
 
     Ok(())
 }
@@ -829,67 +878,32 @@ fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDec
 
 // Decode one account payload from its persisted CBOR struct form.
 fn decode_account_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated account payload",
-        ));
-    };
-    if major != 5 {
-        return Err(StructuralFieldDecodeError::new(
-            "expected CBOR map for account payload",
-        ));
-    }
+    decode_account_payload(raw_bytes).map(Value::Account)
+}
 
-    let entry_count = usize::try_from(argument)
-        .map_err(|_| StructuralFieldDecodeError::new("expected bounded CBOR map length"))?;
-    let mut owner = None;
-    let mut subaccount = None;
+// Decode one account payload from its persisted CBOR struct form.
+fn decode_account_payload(raw_bytes: &[u8]) -> Result<Account, StructuralFieldDecodeError> {
+    let mut state: AccountDecodeState = (None, None);
+    walk_cbor_map_entries(
+        raw_bytes,
+        "expected CBOR map for account payload",
+        "typed CBOR decode failed: trailing bytes after account payload",
+        (&raw mut state).cast(),
+        push_account_field,
+    )?;
 
-    for _ in 0..entry_count {
-        let (field_name, next_cursor) = parse_text_scalar_at(raw_bytes, cursor)?;
-        cursor = next_cursor;
-
-        let field_value_start = cursor;
-        cursor = skip_cbor_value(raw_bytes, cursor)?;
-        let field_value = &raw_bytes[field_value_start..cursor];
-
-        match field_name {
-            "owner" => match decode_principal_value_bytes(field_value)? {
-                Value::Principal(value) => owner = Some(value),
-                _ => {
-                    return Err(StructuralFieldDecodeError::new(
-                        "typed CBOR decode failed: invalid account owner payload",
-                    ));
-                }
-            },
-            "subaccount" => subaccount = decode_optional_subaccount_value(field_value)?,
-            _ => {}
-        }
-    }
-
-    if cursor != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after account payload",
-        ));
-    }
-
-    let owner = owner.ok_or_else(|| {
+    let owner = state.0.ok_or_else(|| {
         StructuralFieldDecodeError::new("typed CBOR decode failed: missing account owner field")
     })?;
 
-    Ok(Value::Account(Account::from_parts(owner, subaccount)))
+    Ok(Account::from_parts(owner, state.1))
 }
 
 // Decode one account relation-key payload without routing through typed serde.
 fn decode_account_storage_key_bytes(
     raw_bytes: &[u8],
 ) -> Result<StorageKey, StructuralFieldDecodeError> {
-    match decode_account_value_bytes(raw_bytes)? {
-        Value::Account(value) => Ok(StorageKey::Account(value)),
-        _ => Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: invalid account storage key payload",
-        )),
-    }
+    decode_account_payload(raw_bytes).map(StorageKey::Account)
 }
 
 // Decode one decimal payload from its persisted binary-or-text CBOR form.
@@ -959,6 +973,11 @@ fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFiel
 
 // Decode one timestamp payload from its persisted integer-or-string CBOR form.
 fn decode_timestamp_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+    decode_timestamp_payload(raw_bytes).map(Value::Timestamp)
+}
+
+// Decode one timestamp payload from its persisted integer-or-string CBOR form.
+fn decode_timestamp_payload(raw_bytes: &[u8]) -> Result<Timestamp, StructuralFieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(StructuralFieldDecodeError::new(
             "typed CBOR decode failed: truncated timestamp payload",
@@ -995,7 +1014,7 @@ fn decode_timestamp_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFie
         }
     };
 
-    Ok(Value::Timestamp(value))
+    Ok(value)
 }
 
 // Decode one arbitrary-precision signed integer payload from its persisted
@@ -1017,22 +1036,32 @@ fn decode_uint_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFiel
 
 // Decode one principal payload from its persisted CBOR byte-string form.
 fn decode_principal_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
-    let bytes = decode_required_bytes_payload(raw_bytes, "principal")?;
-    let principal = crate::types::Principal::try_from_bytes(bytes).map_err(|err| {
-        StructuralFieldDecodeError::new(format!("typed CBOR decode failed: {err}"))
-    })?;
+    decode_principal_payload(raw_bytes).map(Value::Principal)
+}
 
-    Ok(Value::Principal(principal))
+// Decode one principal payload from its persisted CBOR byte-string form.
+fn decode_principal_payload(
+    raw_bytes: &[u8],
+) -> Result<crate::types::Principal, StructuralFieldDecodeError> {
+    let bytes = decode_required_bytes_payload(raw_bytes, "principal")?;
+    crate::types::Principal::try_from_bytes(bytes)
+        .map_err(|err| StructuralFieldDecodeError::new(format!("typed CBOR decode failed: {err}")))
 }
 
 // Decode one subaccount payload from its persisted CBOR sequence or byte-string
 // form.
 fn decode_subaccount_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+    decode_subaccount_payload(raw_bytes).map(Value::Subaccount)
+}
+
+// Decode one subaccount payload from its persisted CBOR sequence or byte-string
+// form.
+fn decode_subaccount_payload(
+    raw_bytes: &[u8],
+) -> Result<crate::types::Subaccount, StructuralFieldDecodeError> {
     let bytes = decode_subaccount_payload_bytes(raw_bytes)?;
 
-    Ok(Value::Subaccount(crate::types::Subaccount::from_array(
-        bytes,
-    )))
+    Ok(crate::types::Subaccount::from_array(bytes))
 }
 
 // Decode one optional subaccount field, treating explicit null as absence.
@@ -1054,12 +1083,7 @@ fn decode_optional_subaccount_value(
         return Ok(None);
     }
 
-    match decode_subaccount_value_bytes(raw_bytes)? {
-        Value::Subaccount(value) => Ok(Some(value)),
-        _ => Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: invalid subaccount payload",
-        )),
-    }
+    decode_subaccount_payload(raw_bytes).map(Some)
 }
 
 // Decode one decimal binary payload tuple `(mantissa_bytes, scale)`.
@@ -1206,36 +1230,21 @@ fn decode_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDec
 fn decode_timestamp_storage_key_bytes(
     raw_bytes: &[u8],
 ) -> Result<StorageKey, StructuralFieldDecodeError> {
-    match decode_timestamp_value_bytes(raw_bytes)? {
-        Value::Timestamp(value) => Ok(StorageKey::Timestamp(value)),
-        _ => Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: invalid timestamp storage key payload",
-        )),
-    }
+    decode_timestamp_payload(raw_bytes).map(StorageKey::Timestamp)
 }
 
 // Decode one principal relation-key payload without routing through typed serde.
 fn decode_principal_storage_key_bytes(
     raw_bytes: &[u8],
 ) -> Result<StorageKey, StructuralFieldDecodeError> {
-    match decode_principal_value_bytes(raw_bytes)? {
-        Value::Principal(value) => Ok(StorageKey::Principal(value)),
-        _ => Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: invalid principal storage key payload",
-        )),
-    }
+    decode_principal_payload(raw_bytes).map(StorageKey::Principal)
 }
 
 // Decode one subaccount relation-key payload without routing through typed serde.
 fn decode_subaccount_storage_key_bytes(
     raw_bytes: &[u8],
 ) -> Result<StorageKey, StructuralFieldDecodeError> {
-    match decode_subaccount_value_bytes(raw_bytes)? {
-        Value::Subaccount(value) => Ok(StorageKey::Subaccount(value)),
-        _ => Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: invalid subaccount storage key payload",
-        )),
-    }
+    decode_subaccount_payload(raw_bytes).map(StorageKey::Subaccount)
 }
 
 // Decode one ULID relation-key payload directly from its persisted CBOR text form.
@@ -1648,37 +1657,6 @@ fn decode_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralF
         .map_err(|err| StructuralFieldDecodeError::new(format!("typed CBOR decode failed: {err}")))
 }
 
-// Decode one persisted `Value::Map` entry tuple from raw CBOR bytes.
-fn decode_value_storage_map_entry_bytes(
-    raw_bytes: &[u8],
-) -> Result<(Value, Value), StructuralFieldDecodeError> {
-    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: truncated value map entry",
-        ));
-    };
-    if major != 4 || argument != 2 {
-        return Err(StructuralFieldDecodeError::new(
-            "expected two-item CBOR array for value map entry",
-        ));
-    }
-
-    let key_start = cursor;
-    cursor = skip_cbor_value(raw_bytes, cursor)?;
-    let value_start = cursor;
-    cursor = skip_cbor_value(raw_bytes, cursor)?;
-    if cursor != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after value map entry",
-        ));
-    }
-
-    Ok((
-        decode_structural_value_storage_bytes(&raw_bytes[key_start..value_start])?,
-        decode_structural_value_storage_bytes(&raw_bytes[value_start..cursor])?,
-    ))
-}
-
 // Decode one persisted `Value::Enum` payload struct without routing through the
 // generic `Value` deserializer.
 fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
@@ -1734,7 +1712,6 @@ fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, Structural
     Ok(Value::Enum(value))
 }
 
-// Decode one required text field from the `ValueEnum` payload struct.
 fn decode_required_text_value_field(raw_bytes: &[u8]) -> Result<&str, StructuralFieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(StructuralFieldDecodeError::new(
