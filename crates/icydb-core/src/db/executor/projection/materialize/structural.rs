@@ -114,9 +114,7 @@ fn compile_structural_projection_plan(
     for field in projection.fields() {
         match field {
             crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } => {
-                let Some(compiled) = compile_scalar_projection_expr(model, expr) else {
-                    return None;
-                };
+                let compiled = compile_scalar_projection_expr(model, expr)?;
                 compiled_fields.push(compiled);
             }
         }
