@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.62.x] - 2026-03-21 - Structural Persisted-Row Decode
 
+- `0.62.5` reorganizes the remaining explicit runtime decode and projection surfaces into clearer owner modules, splitting the structural field decoder and projection materialization/evaluation into smaller boundaries so follow-up work can stay coherent without undoing the post-serde architecture.
 - `0.62.4` reorganizes the remaining explicit field decoder into clear owner modules (`cbor`, `scalar`, `kind`, `leaf`, `storage_key`, and `value_storage`) and updates the design/status docs so the post-serde cleanup can continue from a cleaner structure instead of one growing file.
 - `0.62.3` keeps shaving the remaining explicit structural decoder by tightening storage-key and account leaf decode, reusing one slot-validation path across projection and recovery checks, and replacing the heavy date parser with a fixed-width parser, which lowers the simple-entity audit floor again to about `24,947` raw wasm bytes per added entity.
 - `0.62.2` finishes the structural runtime cut by removing the last runtime `serde_cbor` decode path, moving predicate/index/projection work onto shared scalar programs, shrinking the remaining structural field decoder, and lowering the simple-entity audit floor to about `24,987` raw wasm bytes per added entity.
