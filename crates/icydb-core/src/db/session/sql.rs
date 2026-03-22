@@ -18,9 +18,9 @@ use crate::{
             LoweredSqlCommand, LoweredSqlLaneKind, LoweredSqlQuery,
             PreparedSqlStatement as CorePreparedSqlStatement, SqlCommand,
             SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
-            StructuralSqlGlobalAggregateCommand, bind_lowered_sql_command,
-            bind_lowered_sql_explain_global_aggregate_structural, bind_lowered_sql_query,
-            bind_lowered_sql_query_structural, compile_sql_command,
+            StructuralSqlGlobalAggregateCommand, apply_lowered_select_shape,
+            bind_lowered_sql_command, bind_lowered_sql_delete_query,
+            bind_lowered_sql_explain_global_aggregate_structural, compile_sql_command,
             compile_sql_global_aggregate_command, lower_sql_command_from_prepared_statement,
             lowered_sql_command_lane, prepare_sql_statement,
             render_lowered_sql_explain_plan_or_json,
@@ -953,12 +953,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.execute_lowered_sql_dispatch_query_core(
-            lowered,
-            E::MODEL,
-            EntityAuthority::for_type::<E>(),
-            Self::execute_lowered_sql_dispatch_delete::<E>,
-        )
+        self.execute_lowered_sql_dispatch_query_core::<E>(lowered)
     }
 
     // Execute one lowered SQL DELETE command through the minimal typed fallback.
@@ -969,7 +964,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let Some(query) = lowered.query().cloned() else {
+        let Some(query) = lowered.query() else {
             return Err(QueryError::execute(InternalError::classified(
                 ErrorClass::Unsupported,
                 ErrorOrigin::Query,
@@ -984,44 +979,42 @@ impl<C: CanisterKind> DbSession<C> {
             )));
         };
 
-        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
-            .map_err(map_sql_lowering_error)?;
+        let LoweredSqlQuery::Delete(delete) = query else {
+            unreachable!("validated delete lane should remain delete-shaped");
+        };
+        let query = bind_lowered_sql_delete_query::<E>(delete.clone(), MissingRowPolicy::Ignore);
 
         self.execute_typed_sql_delete(&query)
     }
 
     // Execute one lowered SQL query command through the shared structural core
     // and delegate only true typed DELETE fallback to the caller.
-    fn execute_lowered_sql_dispatch_query_core(
+    fn execute_lowered_sql_dispatch_query_core<E>(
         &self,
         lowered: &LoweredSqlCommand,
-        model: &'static EntityModel,
-        authority: EntityAuthority,
-        execute_delete: fn(&Self, &LoweredSqlCommand) -> Result<SqlDispatchResult, QueryError>,
-    ) -> Result<SqlDispatchResult, QueryError> {
-        let lane = session_sql_lane(lowered);
-        if lane != SqlLaneKind::Query {
-            return Err(unsupported_sql_lane_error(SqlSurface::QueryFrom, lane));
-        }
-
-        let Some(query) = lowered.query().cloned() else {
-            return Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "lowered SQL query dispatch requires one lowered query command",
-            )));
+    ) -> Result<SqlDispatchResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let Some(query) = lowered.query() else {
+            return Err(unsupported_sql_lane_error(
+                SqlSurface::QueryFrom,
+                session_sql_lane(lowered),
+            ));
         };
 
         match query {
-            LoweredSqlQuery::Select(_) => {
-                let structural =
-                    bind_lowered_sql_query_structural(model, query, MissingRowPolicy::Ignore)
-                        .map_err(map_sql_lowering_error)?;
+            LoweredSqlQuery::Select(select) => {
+                let structural = apply_lowered_select_shape(
+                    StructuralQuery::new(E::MODEL, MissingRowPolicy::Ignore),
+                    select.clone(),
+                )
+                .map_err(map_sql_lowering_error)?;
 
-                self.execute_structural_sql_projection(structural, authority)
+                self.execute_structural_sql_projection(structural, EntityAuthority::for_type::<E>())
                     .map(SqlProjectionPayload::into_dispatch_result)
             }
-            LoweredSqlQuery::Delete(_) => execute_delete(self, lowered),
+            LoweredSqlQuery::Delete(_) => self.execute_lowered_sql_dispatch_delete::<E>(lowered),
         }
     }
 

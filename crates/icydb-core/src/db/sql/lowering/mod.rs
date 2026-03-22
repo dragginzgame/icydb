@@ -810,28 +810,40 @@ fn lower_having_clauses(
     Ok(lowered)
 }
 
-fn apply_lowered_select_shape(
+pub(in crate::db) fn apply_lowered_select_shape(
     mut query: StructuralQuery,
     lowered: LoweredSelectShape,
 ) -> Result<StructuralQuery, SqlLoweringError> {
+    let LoweredSelectShape {
+        scalar_projection_fields,
+        grouped_projection_aggregates,
+        group_by_fields,
+        distinct,
+        having,
+        predicate,
+        order_by,
+        limit,
+        offset,
+    } = lowered;
+
     // Phase 1: apply grouped declaration semantics.
-    for field in lowered.group_by_fields {
+    for field in group_by_fields {
         query = query.group_by(field)?;
     }
 
     // Phase 2: apply scalar DISTINCT and projection contracts.
-    if lowered.distinct {
+    if distinct {
         query = query.distinct();
     }
-    if let Some(fields) = lowered.scalar_projection_fields {
+    if let Some(fields) = scalar_projection_fields {
         query = query.select_fields(fields);
     }
-    for aggregate in lowered.grouped_projection_aggregates {
+    for aggregate in grouped_projection_aggregates {
         query = query.aggregate(lower_aggregate_call(aggregate)?);
     }
 
     // Phase 3: bind resolved HAVING clauses against grouped terminals.
-    for clause in lowered.having {
+    for clause in having {
         match clause {
             ResolvedHavingClause::GroupField { field, op, value } => {
                 query = query.having_group(field, op, value)?;
@@ -846,19 +858,16 @@ fn apply_lowered_select_shape(
         }
     }
 
-    // Phase 4: attach filter/order/page semantics.
-    if let Some(predicate) = lowered.predicate {
-        query = query.filter(predicate);
-    }
-    query = apply_order_terms_structural(query, lowered.order_by);
-    if let Some(limit) = lowered.limit {
-        query = query.limit(limit);
-    }
-    if let Some(offset) = lowered.offset {
-        query = query.offset(offset);
-    }
-
-    Ok(query)
+    // Phase 4: attach the shared filter/order/page tail through the base-query lane.
+    Ok(apply_lowered_base_query_shape(
+        query,
+        LoweredBaseQueryShape {
+            predicate,
+            order_by,
+            limit,
+            offset,
+        },
+    ))
 }
 
 fn apply_lowered_base_query_shape(
@@ -888,11 +897,31 @@ pub(in crate::db) fn bind_lowered_sql_query_structural(
         LoweredSqlQuery::Select(select) => {
             apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
         }
-        LoweredSqlQuery::Delete(delete) => Ok(apply_lowered_base_query_shape(
-            StructuralQuery::new(model, consistency).delete(),
+        LoweredSqlQuery::Delete(delete) => Ok(bind_lowered_sql_delete_query_structural(
+            model,
             delete,
+            consistency,
         )),
     }
+}
+
+pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
+    model: &'static crate::model::entity::EntityModel,
+    delete: LoweredBaseQueryShape,
+    consistency: MissingRowPolicy,
+) -> StructuralQuery {
+    apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
+}
+
+pub(in crate::db) fn bind_lowered_sql_delete_query<E: EntityKind>(
+    lowered: LoweredBaseQueryShape,
+    consistency: MissingRowPolicy,
+) -> Query<E> {
+    Query::from_inner(bind_lowered_sql_delete_query_structural(
+        E::MODEL,
+        lowered,
+        consistency,
+    ))
 }
 
 pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(

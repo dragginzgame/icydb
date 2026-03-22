@@ -55,14 +55,6 @@ impl SqlStructuralProjectionRows {
     }
 }
 
-#[cfg(feature = "sql")]
-// Compile the projection once so row materialization can dispatch into one
-// scalar-only or generic-only loop.
-enum StructuralProjectionPlan {
-    Scalar(Vec<ScalarProjectionExpr>),
-    Generic,
-}
-
 /// Execute one scalar load plan through the shared structural SQL projection
 /// path and return only projected SQL values.
 #[cfg(feature = "sql")]
@@ -101,39 +93,36 @@ fn project_data_rows_from_projection_structural(
     projection: &ProjectionSpec,
     rows: &[DataRow],
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    match compile_structural_projection_plan(model, projection) {
-        StructuralProjectionPlan::Scalar(compiled_fields) => {
-            project_scalar_data_rows_from_projection_structural(
-                compiled_fields.as_slice(),
-                rows,
-                model,
-            )
-        }
-        StructuralProjectionPlan::Generic => {
-            project_generic_data_rows_from_projection_structural(model, projection, rows)
-        }
+    if let Some(compiled_fields) = compile_structural_projection_plan(model, projection) {
+        return project_scalar_data_rows_from_projection_structural(
+            compiled_fields.as_slice(),
+            rows,
+            model,
+        );
     }
+
+    project_generic_data_rows_from_projection_structural(model, projection, rows)
 }
 
 #[cfg(feature = "sql")]
 fn compile_structural_projection_plan(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
-) -> StructuralProjectionPlan {
+) -> Option<Vec<ScalarProjectionExpr>> {
     let mut compiled_fields = Vec::with_capacity(projection.len());
 
     for field in projection.fields() {
         match field {
             crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } => {
                 let Some(compiled) = compile_scalar_projection_expr(model, expr) else {
-                    return StructuralProjectionPlan::Generic;
+                    return None;
                 };
                 compiled_fields.push(compiled);
             }
         }
     }
 
-    StructuralProjectionPlan::Scalar(compiled_fields)
+    Some(compiled_fields)
 }
 
 #[cfg(feature = "sql")]
@@ -203,6 +192,7 @@ fn project_generic_data_rows_from_projection_structural(
         if let Some(err) = slot_error {
             return Err(err);
         }
+
         projected_rows.push(values);
     }
 

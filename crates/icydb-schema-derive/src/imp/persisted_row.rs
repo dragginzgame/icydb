@@ -70,18 +70,6 @@ impl Imp<Entity> for PersistedRowTrait {
 
                     Ok(())
                 }
-
-                fn project_slot(
-                    slots: &mut dyn ::icydb::db::SlotReader,
-                    slot: usize,
-                ) -> Result<Option<::icydb::value::Value>, ::icydb::db::InternalError> {
-                    let entity = Self::materialize_from_slots(slots)?;
-
-                    Ok(<Self as ::icydb::traits::FieldProjection>::get_value_by_index(
-                        &entity,
-                        slot,
-                    ))
-                }
             })
             .to_token_stream();
 

@@ -7,10 +7,7 @@ use crate::prelude::*;
 pub struct EntityKindTrait {}
 
 impl Imp<Entity> for EntityKindTrait {
-    #[expect(clippy::too_many_lines)]
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let store = &node.store;
-
         let pk_entry = node
             .fields
             .get(&node.primary_key.field)
@@ -19,116 +16,25 @@ impl Imp<Entity> for EntityKindTrait {
 
         // PK key shape must always follow the declared field type.
         let pk_key_type = pk_entry.value.item.type_expr();
-
-        let resolved_entity_name = node
-            .name
-            .as_ref()
-            .map_or_else(|| node.def.ident().to_string(), LitStr::value);
-        let entity_tag = entity_tag_for_name(&resolved_entity_name);
-
-        let entity_name = if let Some(name) = &node.name {
-            quote!(#name)
-        } else {
-            let ident = node.def.ident();
-            quote!(stringify!(#ident))
-        };
-
-        let field_refs: Vec<Ident> = node.fields.iter().map(Field::const_ident).collect();
+        let store = &node.store;
+        let resolved_entity_name = resolved_entity_name(node);
         let relation_key_type_assertions = relation_key_type_assertions(node);
-
-        let indexes = node
-            .indexes
-            .iter()
-            .enumerate()
-            .map(|(ordinal, index)| index.runtime_part(&resolved_entity_name, store, ordinal))
-            .collect::<Vec<_>>();
-
         let ident = node.def.ident();
 
-        let storage_tokens = quote! {
-            impl ::icydb::traits::EntityKey for #ident {
-                type Key = #pk_key_type;
-            }
-        };
-
-        let identity_tokens = Implementor::new(&node.def, TraitKind::EntityIdentity)
-            .set_tokens(quote! {
-                const ENTITY_NAME: &'static str = #entity_name;
-                const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
-            })
-            .to_token_stream();
-
-        let schema_tokens = Implementor::new(&node.def, TraitKind::EntitySchema)
-            .set_tokens(quote! {
-                const FIELDS: &'static [&'static str] = &[
-                    #( Self::#field_refs.as_str() ),*
-                ];
-                const INDEXES: &'static [&'static ::icydb::model::index::IndexModel] =
-                    &[#(&#indexes),*];
-                const MODEL: &'static ::icydb::model::entity::EntityModel =
-                    &Self::__ENTITY_MODEL;
-            })
-            .to_token_stream();
-
-        let placement_tokens = Implementor::new(&node.def, TraitKind::EntityPlacement)
-            .set_tokens(quote! {
-                type Store = #store;
-                type Canister =
-                    <Self::Store as ::icydb::traits::StoreKind>::Canister;
-            })
-            .to_token_stream();
-
-        let generated_tag_tokens = quote! {
-            impl #ident {
-                #[doc(hidden)]
-                pub const __ENTITY_TAG_CONST: ::icydb::types::EntityTag = {
-                    const RAW_ENTITY_TAG: u64 = #entity_tag;
-                    ::icydb::types::EntityTag::new(RAW_ENTITY_TAG)
-                };
-            }
-        };
-
-        let kind_tokens = Implementor::new(&node.def, TraitKind::EntityKind)
-            .set_tokens(quote! {
-                const ENTITY_TAG: ::icydb::types::EntityTag =
-                    Self::__ENTITY_TAG_CONST;
-            })
-            .to_token_stream();
-
         let mut tokens = TokenStream::new();
-        tokens.extend(storage_tokens);
-        tokens.extend(identity_tokens);
-        tokens.extend(schema_tokens);
-        tokens.extend(placement_tokens);
-        tokens.extend(generated_tag_tokens);
-        tokens.extend(kind_tokens);
+        tokens.extend(entity_key_impl_tokens(&ident, &pk_key_type));
+        tokens.extend(entity_identity_impl_tokens(node, pk_ident));
+        tokens.extend(entity_schema_impl_tokens(
+            node,
+            &resolved_entity_name,
+            store,
+        ));
+        tokens.extend(entity_placement_impl_tokens(&node.def, store));
+        tokens.extend(entity_kind_impl_tokens(&node.def, &resolved_entity_name));
         tokens.extend(quote! {
             #(#relation_key_type_assertions)*
         });
-
-        let test_mod = format_ident!("__entity_model_test_{ident}");
-        tokens.extend(quote! {
-            #[cfg(test)]
-            mod #test_mod {
-                use super::*;
-
-                #[test]
-                fn model_consistency() {
-                    let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
-                    let names = <#ident as ::icydb::traits::EntitySchema>::FIELDS;
-
-                    assert_eq!(model.fields().len(), names.len());
-                    for (field, name) in model.fields().iter().zip(names.iter()) {
-                        assert_eq!(field.name(), *name);
-                    }
-
-                    assert!(model
-                        .fields()
-                        .iter()
-                        .any(|field| ::core::ptr::eq(field, model.primary_key())));
-                }
-            }
-        });
+        tokens.extend(model_consistency_test_tokens(&ident));
 
         // Unit primary keys model singleton entities.
         if matches!(
@@ -141,6 +47,116 @@ impl Imp<Entity> for EntityKindTrait {
         }
 
         Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+fn entity_key_impl_tokens(ident: &Ident, pk_key_type: &TokenStream) -> TokenStream {
+    quote! {
+        impl ::icydb::traits::EntityKey for #ident {
+            type Key = #pk_key_type;
+        }
+    }
+}
+
+fn entity_identity_impl_tokens(node: &Entity, pk_ident: &Ident) -> TokenStream {
+    let entity_name = entity_name_tokens(node);
+
+    Implementor::new(&node.def, TraitKind::EntityIdentity)
+        .set_tokens(quote! {
+            const ENTITY_NAME: &'static str = #entity_name;
+            const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
+        })
+        .to_token_stream()
+}
+
+fn entity_schema_impl_tokens(
+    node: &Entity,
+    resolved_entity_name: &str,
+    store: &Path,
+) -> TokenStream {
+    let field_refs: Vec<Ident> = node.fields.iter().map(Field::const_ident).collect();
+    let indexes = node
+        .indexes
+        .iter()
+        .enumerate()
+        .map(|(ordinal, index)| index.runtime_part(resolved_entity_name, store, ordinal))
+        .collect::<Vec<_>>();
+
+    Implementor::new(&node.def, TraitKind::EntitySchema)
+        .set_tokens(quote! {
+            const FIELDS: &'static [&'static str] = &[
+                #( Self::#field_refs.as_str() ),*
+            ];
+            const INDEXES: &'static [&'static ::icydb::model::index::IndexModel] =
+                &[#(&#indexes),*];
+            const MODEL: &'static ::icydb::model::entity::EntityModel =
+                &Self::__ENTITY_MODEL;
+        })
+        .to_token_stream()
+}
+
+fn entity_placement_impl_tokens(def: &Def, store: &Path) -> TokenStream {
+    Implementor::new(def, TraitKind::EntityPlacement)
+        .set_tokens(quote! {
+            type Store = #store;
+            type Canister =
+                <Self::Store as ::icydb::traits::StoreKind>::Canister;
+        })
+        .to_token_stream()
+}
+
+fn entity_kind_impl_tokens(def: &Def, resolved_entity_name: &str) -> TokenStream {
+    let entity_tag = entity_tag_for_name(resolved_entity_name);
+
+    Implementor::new(def, TraitKind::EntityKind)
+        .set_tokens(quote! {
+            const ENTITY_TAG: ::icydb::types::EntityTag = {
+                const RAW_ENTITY_TAG: u64 = #entity_tag;
+                ::icydb::types::EntityTag::new(RAW_ENTITY_TAG)
+            };
+        })
+        .to_token_stream()
+}
+
+fn entity_name_tokens(node: &Entity) -> TokenStream {
+    if let Some(name) = &node.name {
+        quote!(#name)
+    } else {
+        let ident = node.def.ident();
+        quote!(stringify!(#ident))
+    }
+}
+
+fn resolved_entity_name(node: &Entity) -> String {
+    node.name
+        .as_ref()
+        .map_or_else(|| node.def.ident().to_string(), LitStr::value)
+}
+
+fn model_consistency_test_tokens(ident: &Ident) -> TokenStream {
+    let test_mod = format_ident!("__entity_model_test_{ident}");
+
+    quote! {
+        #[cfg(test)]
+        mod #test_mod {
+            use super::*;
+
+            #[test]
+            fn model_consistency() {
+                let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
+                let names = <#ident as ::icydb::traits::EntitySchema>::FIELDS;
+
+                assert_eq!(model.fields().len(), names.len());
+                for (field, name) in model.fields().iter().zip(names.iter()) {
+                    assert_eq!(field.name(), *name);
+                }
+
+                assert!(model
+                    .fields()
+                    .iter()
+                    .any(|field| ::core::ptr::eq(field, model.primary_key())));
+            }
+        }
     }
 }
 

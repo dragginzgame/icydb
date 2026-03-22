@@ -145,42 +145,11 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
     for (entity_id, (entity_path, _entity)) in entities.into_iter().enumerate() {
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+        let callbacks = sql_lane_callback_tokens(entity_id, &entity_ty);
+        let descriptor = sql_descriptor_entry_tokens(entity_id, &entity_ty);
 
-        let query_fn_ident = format_ident!("__sql_query_{entity_id}");
-        let explain_fn_ident = format_ident!("__sql_explain_{entity_id}");
-        let lane_table_ident = format_ident!("SQL_LANE_TABLE_{entity_id}");
-
-        lane_callback_defs.extend(quote! {
-            fn #query_fn_ident(
-                lowered: &::icydb::__macro::LoweredSqlCommand,
-            ) -> Result<SqlQueryResult, Error> {
-                db().execute_lowered_sql_dispatch_query::<#entity_ty>(lowered)
-            }
-        });
-
-        lane_callback_defs.extend(quote! {
-            fn #explain_fn_ident(
-                lowered: &::icydb::__macro::LoweredSqlCommand,
-            ) -> Result<SqlQueryResult, Error> {
-                db().explain_lowered_sql_dispatch::<#entity_ty>(lowered)
-            }
-        });
-
-        lane_callback_defs.extend(quote! {
-            static #lane_table_ident: SqlLaneTable = SqlLaneTable {
-                query: #query_fn_ident,
-                explain: #explain_fn_ident,
-            };
-        });
-
-        descriptor_entries.extend(quote! {
-            SqlEntityDescriptor {
-                entity_id: #entity_id,
-                name: <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
-                schema: <#entity_ty as ::icydb::traits::EntitySchema>::MODEL,
-                routes: &#lane_table_ident,
-            },
-        });
+        lane_callback_defs.extend(callbacks);
+        descriptor_entries.extend(descriptor);
     }
 
     quote! {
@@ -201,17 +170,6 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             };
 
             ///
-            /// SqlLaneTable
-            ///
-            /// Static function table for one SQL entity route.
-            ///
-            #[derive(Clone, Copy, Debug)]
-            pub struct SqlLaneTable {
-                pub query: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
-                pub explain: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
-            }
-
-            ///
             /// SqlEntityDescriptor
             ///
             /// Immutable runtime SQL descriptor for one concrete entity route.
@@ -221,7 +179,8 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 pub entity_id: usize,
                 pub name: &'static str,
                 pub schema: &'static ::icydb::model::entity::EntityModel,
-                pub routes: &'static SqlLaneTable,
+                pub query: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
+                pub explain: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
             }
 
             ///
@@ -284,7 +243,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                     self,
                     lowered: &::icydb::__macro::LoweredSqlCommand,
                 ) -> Result<SqlQueryResult, Error> {
-                    (self.descriptor.routes.query)(lowered)
+                    (self.descriptor.query)(lowered)
                 }
 
                 /// Execute one already-lowered SQL explain statement for this concrete route.
@@ -292,7 +251,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                     self,
                     lowered: &::icydb::__macro::LoweredSqlCommand,
                 ) -> Result<SqlQueryResult, Error> {
-                    (self.descriptor.routes.explain)(lowered)
+                    (self.descriptor.explain)(lowered)
                 }
 
                 /// Describe this route's schema using descriptor-owned model authority.
@@ -471,5 +430,39 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 format!("EXPLAIN {trimmed} ORDER BY {order_field} ASC")
             }
         }
+    }
+}
+
+fn sql_lane_callback_tokens(entity_id: usize, entity_ty: &syn::Path) -> TokenStream {
+    let query_fn_ident = format_ident!("__sql_query_{entity_id}");
+    let explain_fn_ident = format_ident!("__sql_explain_{entity_id}");
+
+    quote! {
+        fn #query_fn_ident(
+            lowered: &::icydb::__macro::LoweredSqlCommand,
+        ) -> Result<SqlQueryResult, Error> {
+            db().execute_lowered_sql_dispatch_query::<#entity_ty>(lowered)
+        }
+
+        fn #explain_fn_ident(
+            lowered: &::icydb::__macro::LoweredSqlCommand,
+        ) -> Result<SqlQueryResult, Error> {
+            db().explain_lowered_sql_dispatch::<#entity_ty>(lowered)
+        }
+    }
+}
+
+fn sql_descriptor_entry_tokens(entity_id: usize, entity_ty: &syn::Path) -> TokenStream {
+    let query_fn_ident = format_ident!("__sql_query_{entity_id}");
+    let explain_fn_ident = format_ident!("__sql_explain_{entity_id}");
+
+    quote! {
+        SqlEntityDescriptor {
+            entity_id: #entity_id,
+            name: <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+            schema: <#entity_ty as ::icydb::traits::EntitySchema>::MODEL,
+            query: #query_fn_ident,
+            explain: #explain_fn_ident,
+        },
     }
 }

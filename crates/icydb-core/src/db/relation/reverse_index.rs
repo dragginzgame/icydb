@@ -125,7 +125,7 @@ pub(super) fn relation_target_keys_for_source_row(
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<BTreeSet<RawDataKey>, InternalError> {
-    let row_fields = decode_relation_row_fields(raw_row, source_model, source_info, relation)?;
+    let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
 
     // Phase 1: keep single relation slots on the scalar fast path when the
     // persisted field already uses a storage-key-compatible leaf codec.
@@ -238,16 +238,6 @@ pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
     Ok(Some(target_data_key))
 }
 
-// Decode one persisted row into model slot-aligned encoded field payload spans.
-fn decode_relation_row_fields<'a>(
-    raw_row: &'a RawRow,
-    source_model: &'static EntityModel,
-    _source: ReverseRelationSourceInfo,
-    _relation: StrongRelationInfo,
-) -> Result<StructuralSlotReader<'a>, InternalError> {
-    StructuralSlotReader::from_raw_row(raw_row, source_model)
-}
-
 // Decode the one strong-relation field payload needed by structural delete
 // validation directly into raw target keys from the encoded field bytes.
 fn relation_target_keys_from_field_bytes(
@@ -290,20 +280,15 @@ fn relation_target_keys_from_scalar_slot(
     match row_fields.get_scalar(relation.field_index)? {
         Some(ScalarSlotValueRef::Null) => Ok(Some(BTreeSet::new())),
         Some(ScalarSlotValueRef::Value(value)) => {
-            let mut keys = BTreeSet::new();
             let storage_key = storage_key_from_relation_scalar(value).ok_or_else(|| {
                 InternalError::serialize_corruption(format!(
                     "relation source row decode failed: unsupported scalar relation key: source={} field={} target={}",
                     source.path, relation.field_name, relation.target_path,
                 ))
             })?;
-            keys.insert(raw_relation_target_key_from_storage_key(
-                source,
-                relation,
-                storage_key,
-            )?);
+            let key = raw_relation_target_key_from_storage_key(source, relation, storage_key)?;
 
-            Ok(Some(keys))
+            Ok(Some(BTreeSet::from([key])))
         }
         None if row_fields.has(relation.field_index) => Ok(None),
         None => Err(InternalError::serialize_corruption(format!(
@@ -480,19 +465,14 @@ where
 
         let target_store = relation_target_store(db, source, relation)?;
 
-        let touched_target_keys = old_targets
-            .union(&new_targets)
-            .copied()
-            .collect::<BTreeSet<_>>();
-
-        for target_raw_key in touched_target_keys {
-            let old_contains = old_targets.contains(&target_raw_key);
-            let new_contains = new_targets.contains(&target_raw_key);
+        for target_raw_key in old_targets.union(&new_targets) {
+            let old_contains = old_targets.contains(target_raw_key);
+            let new_contains = new_targets.contains(target_raw_key);
 
             let Some(target_data_key) = decode_relation_target_data_key_for_relation(
                 source,
                 relation,
-                &target_raw_key,
+                target_raw_key,
                 RelationTargetDecodeContext::ReverseIndexPrepare,
                 RelationTargetMismatchPolicy::Reject,
             )?

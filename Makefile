@@ -28,9 +28,9 @@ help:
 	@echo "Version Management:"
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
-	@echo "  patch            Bump patch version (0.0.x)"
-	@echo "  minor            Bump minor version (0.x.0)"
-	@echo "  major            Bump major version (x.0.0)"
+	@echo "  patch            Run tests, then bump patch version (0.0.x)"
+	@echo "  minor            Run tests, then bump minor version (0.x.0)"
+	@echo "  major            Run tests, then bump major version (x.0.0)"
 	@echo "  release          CI-driven release (local target is no-op)"
 	@echo ""
 	@echo "Development:"
@@ -88,7 +88,7 @@ install-hooks ensure-hooks:
 
 
 #
-# Version management (always format first)
+# Version management (always format and test first)
 #
 
 version:
@@ -97,13 +97,13 @@ version:
 tags:
 	@git tag --sort=-version:refname | head -10
 
-patch: ensure-clean fmt
+patch: ensure-clean fmt test
 	@scripts/ci/bump-version.sh patch
 
-minor: ensure-clean fmt
+minor: ensure-clean fmt test
 	@scripts/ci/bump-version.sh minor
 
-major: ensure-clean fmt
+major: ensure-clean fmt test
 	@scripts/ci/bump-version.sh major
 
 release: ensure-clean
