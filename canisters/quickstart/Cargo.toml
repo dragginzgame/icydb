@@ -22,5 +22,8 @@ icydb-testing-quickstart-fixtures = { workspace = true }
 icydb = { path = "../../crates/icydb", default-features = false }
 icydb-testing-quickstart-fixtures = { workspace = true }
 
+[dev-dependencies]
+icydb-testing-wasm-fixtures = { workspace = true }
+
 [lints]
 workspace = true

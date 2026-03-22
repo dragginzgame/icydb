@@ -271,6 +271,7 @@ dependencies = [
  "ic-cdk",
  "icydb",
  "icydb-testing-quickstart-fixtures",
+ "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]

@@ -56,6 +56,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 #[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::{SqlQueryResult, User, db, sql_dispatch};
+    use icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_is_stable;
 
     fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
         sql_dispatch::query(sql).expect("sql_dispatch query should succeed")
@@ -95,14 +96,8 @@ mod tests {
     fn generated_sql_dispatch_surface_is_stable() {
         let actor = include_str!(concat!(env!("OUT_DIR"), "/actor.rs"));
 
-        assert!(
-            actor.contains("pub mod sql_dispatch"),
-            "generated actor surface must include sql_dispatch module"
-        );
-        assert!(
-            actor.contains("from_statement_route"),
-            "generated sql_dispatch must include from_statement_route resolver"
-        );
+        assert_generated_sql_dispatch_surface_is_stable(actor);
+
         assert!(
             !actor.contains("from_statement_sql"),
             "generated sql_dispatch must not include removed from_statement_sql resolver"
@@ -112,40 +107,8 @@ mod tests {
             "generated sql_dispatch must include from_entity_name resolver"
         );
         assert!(
-            actor.contains("pub struct SqlLaneTable"),
-            "generated sql_dispatch must include one SqlLaneTable function-pointer descriptor"
-        );
-        assert!(
-            actor.contains("pub struct SqlEntityDescriptor"),
-            "generated sql_dispatch must include one SqlEntityDescriptor runtime descriptor"
-        );
-        assert!(
-            actor.contains("SQL_ENTITY_DESCRIPTORS"),
-            "generated sql_dispatch must include one static descriptor table"
-        );
-        assert!(
-            !actor.contains("enum SqlEntityRoute"),
-            "generated sql_dispatch must not regress to enum-based per-entity routing"
-        );
-        assert!(
-            actor.contains("pub fn query ("),
-            "generated sql_dispatch must include query convenience entrypoint"
-        );
-        assert!(
             !actor.contains("pub fn query_rows ("),
             "generated sql_dispatch must not include removed query_rows convenience entrypoint"
-        );
-        assert!(
-            !actor.contains("pub fn describe_schema ("),
-            "generated sql_dispatch must not include removed describe_schema helper"
-        );
-        assert!(
-            !actor.contains("pub fn describe ("),
-            "generated sql_dispatch must not include removed describe helper"
-        );
-        assert!(
-            !actor.contains("pub fn show_indexes ("),
-            "generated sql_dispatch must not include removed show_indexes helper"
         );
     }
 
