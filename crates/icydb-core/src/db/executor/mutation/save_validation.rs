@@ -76,19 +76,21 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
+        let primary_key_name = E::MODEL.primary_key().name();
+
         // Phase 1: validate primary key field presence and *shape*.
         let Some(pk_field_index) = resolve_primary_key_slot(E::MODEL) else {
             return Err(crate::db::error::executor_invariant(format!(
                 "entity primary key field missing: {} field={}",
                 E::PATH,
-                E::PRIMARY_KEY
+                primary_key_name
             )));
         };
         let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
             crate::db::error::executor_invariant(format!(
                 "entity primary key field missing: {} field={}",
                 E::PATH,
-                E::PRIMARY_KEY
+                primary_key_name
             ))
         })?;
 
@@ -98,18 +100,18 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             return Err(crate::db::error::executor_invariant(format!(
                 "entity primary key field has invalid value: {} field={} value={pk_value:?}",
                 E::PATH,
-                E::PRIMARY_KEY
+                primary_key_name
             )));
         }
 
         // If schema knows the PK type, enforce literal shape compatibility.
-        if let Some(pk_type) = schema.field(E::PRIMARY_KEY)
+        if let Some(pk_type) = schema.field(primary_key_name)
             && !literal_matches_type(&pk_value, pk_type)
         {
             return Err(crate::db::error::executor_invariant(format!(
                 "entity primary key field type mismatch: {} field={} value={pk_value:?}",
                 E::PATH,
-                E::PRIMARY_KEY
+                primary_key_name
             )));
         }
 
@@ -119,12 +121,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             return Err(crate::db::error::executor_invariant(format!(
                 "entity primary key mismatch: {} field={} field_value={pk_value:?} id_key={identity_pk:?}",
                 E::PATH,
-                E::PRIMARY_KEY
+                primary_key_name
             )));
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        let indexed_fields = if E::INDEXES.is_empty() {
+        let indexed_fields = if E::MODEL.indexes().is_empty() {
             None
         } else {
             Some(indexed_field_set::<E>())
@@ -339,7 +341,7 @@ impl CachedInvariant {
 // Build the set of fields referenced by indexes for an entity.
 fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
     let mut fields = BTreeSet::new();
-    for index in E::INDEXES {
+    for index in E::MODEL.indexes() {
         fields.extend(index.fields().iter().copied());
     }
 

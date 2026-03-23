@@ -33,7 +33,6 @@ crate::test_entity! {
     ident = GroupStructureValidateEntity,
     id = Ulid,
     entity_name = "GroupStructureValidateEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

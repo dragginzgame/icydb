@@ -147,6 +147,71 @@ macro_rules! test_store {
     };
 }
 
+/// Hidden helper that keeps the common runtime trait surface for test entities
+/// in one place so the two public test helper macros cannot drift.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_test_entity_runtime_surface {
+    ($entity:ident, $id_ty:ty, $entity_name:expr, $model_ident:ident) => {
+        impl $crate::traits::EntityKey for $entity {
+            type Key = $id_ty;
+        }
+
+        impl $crate::traits::Path for $entity {
+            const PATH: &'static str = concat!(module_path!(), "::", stringify!($entity));
+        }
+
+        impl $crate::traits::EntityIdentity for $entity {
+            const ENTITY_NAME: &'static str = $entity_name;
+        }
+
+        impl $crate::traits::EntitySchema for $entity {
+            const MODEL: &'static $crate::model::entity::EntityModel = &Self::$model_ident;
+        }
+    };
+}
+
+/// Hidden helper that builds the shared static model storage used by both test
+/// entity helper macros.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_test_entity_model_storage {
+    (
+        $entity:ident,
+        $entity_name:expr,
+        $pk_index:expr,
+        fields = [ $( $field_model:expr ),+ $(,)? ],
+        indexes = [ $( $index:expr ),* $(,)? ],
+    ) => {
+        impl $entity {
+            const FIELD_MODELS: [$crate::model::field::FieldModel;
+                $crate::impl_test_entity_model_storage!(@count $( $field_model ),+)
+            ] = [
+                $( $field_model, )+
+            ];
+            const INDEXES_DEF: [&'static $crate::model::index::IndexModel;
+                $crate::impl_test_entity_model_storage!(@count $( $index ),*)
+            ] = [
+                $( $index, )*
+            ];
+            const MODEL_DEF: $crate::model::entity::EntityModel =
+                $crate::testing::entity_model_from_static(
+                    concat!(module_path!(), "::", stringify!($entity)),
+                    $entity_name,
+                    &Self::FIELD_MODELS[$pk_index],
+                    &Self::FIELD_MODELS,
+                    &Self::INDEXES_DEF,
+                );
+        }
+    };
+    (@count $( $value:expr ),* ) => {
+        <[()]>::len(&[ $( $crate::impl_test_entity_model_storage!(@unit $value) ),* ])
+    };
+    (@unit $value:expr) => {
+        ()
+    };
+}
+
 ///
 /// test_entity
 ///
@@ -159,60 +224,25 @@ macro_rules! test_entity {
         ident = $name:ident,
         id = $id_ty:ty,
         entity_name = $entity_name:expr,
-        primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
     ) => {
         struct $name;
 
-        impl $name {
-            const FIELD_MODELS: [$crate::model::field::FieldModel;
-                $crate::test_entity!(@count $( $field_name ),+)
-            ] = [
+        $crate::impl_test_entity_model_storage!(
+            $name,
+            $entity_name,
+            $pk_index,
+            fields = [
                 $(
-                    $crate::model::field::FieldModel::new($field_name, $field_kind),
-                )+
-            ];
-            const INDEXES_DEF: [&'static $crate::model::index::IndexModel;
-                $crate::test_entity!(@count $( $index ),*)
-            ] = [
-                $( $index, )*
-            ];
-            const MODEL_DEF: $crate::model::entity::EntityModel =
-                $crate::testing::entity_model_from_static(
-                    concat!(module_path!(), "::", stringify!($name)),
-                    $entity_name,
-                    &Self::FIELD_MODELS[$pk_index],
-                    &Self::FIELD_MODELS,
-                    &Self::INDEXES_DEF,
-                );
-        }
+                    $crate::model::field::FieldModel::new($field_name, $field_kind)
+                ),+
+            ],
+            indexes = [ $( $index ),* ],
+        );
 
-        impl $crate::traits::EntityKey for $name {
-            type Key = $id_ty;
-        }
-
-        impl $crate::traits::Path for $name {
-            const PATH: &'static str = concat!(module_path!(), "::", stringify!($name));
-        }
-
-        impl $crate::traits::EntityIdentity for $name {
-            const ENTITY_NAME: &'static str = $entity_name;
-            const PRIMARY_KEY: &'static str = $primary_key;
-        }
-
-        impl $crate::traits::EntitySchema for $name {
-            const MODEL: &'static $crate::model::entity::EntityModel = &Self::MODEL_DEF;
-            const INDEXES: &'static [&'static $crate::model::index::IndexModel] =
-                &Self::INDEXES_DEF;
-        }
-    };
-    (@count $( $value:expr ),* ) => {
-        <[()]>::len(&[ $( $crate::test_entity!(@unit $value) ),* ])
-    };
-    (@unit $value:expr) => {
-        ()
+        $crate::impl_test_entity_runtime_surface!($name, $id_ty, $entity_name, MODEL_DEF);
     };
 }
 
@@ -238,61 +268,31 @@ macro_rules! test_entity_schema {
         ident = $entity:ident,
         id = $id_ty:ty,
         entity_name = $entity_name:expr,
-        primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
     ) => {
         $crate::impl_test_entity_markers!($entity);
 
-        impl $entity {
-            const TEST_FIELD_MODELS: [$crate::model::field::FieldModel;
-                $crate::test_entity_schema!(@count $( $field_name ),+)
-            ] = [
+        $crate::impl_test_entity_model_storage!(
+            $entity,
+            $entity_name,
+            $pk_index,
+            fields = [
                 $(
-                    $crate::test_entity_schema!(@field_model $field_name, $field_kind $(, $field_decode)?),
-                )+
-            ];
-            const TEST_INDEXES_DEF: [&'static $crate::model::index::IndexModel;
-                $crate::test_entity_schema!(@count $( $index ),*)
-            ] = [
-                $( $index, )*
-            ];
-            const TEST_MODEL_DEF: $crate::model::entity::EntityModel =
-                $crate::testing::entity_model_from_static(
-                    concat!(module_path!(), "::", stringify!($entity)),
-                    $entity_name,
-                    &Self::TEST_FIELD_MODELS[$pk_index],
-                    &Self::TEST_FIELD_MODELS,
-                    &Self::TEST_INDEXES_DEF,
-                );
-        }
+                    $crate::test_entity_schema!(@field_model $field_name, $field_kind $(, $field_decode)?)
+                ),+
+            ],
+            indexes = [ $( $index ),* ],
+        );
 
-        impl $crate::traits::EntityKey for $entity {
-            type Key = $id_ty;
-        }
-
-        impl $crate::traits::Path for $entity {
-            const PATH: &'static str = concat!(module_path!(), "::", stringify!($entity));
-        }
-
-        impl $crate::traits::EntityIdentity for $entity {
-            const ENTITY_NAME: &'static str = $entity_name;
-            const PRIMARY_KEY: &'static str = $primary_key;
-        }
-
-        impl $crate::traits::EntitySchema for $entity {
-            const MODEL: &'static $crate::model::entity::EntityModel = &Self::TEST_MODEL_DEF;
-            const INDEXES: &'static [&'static $crate::model::index::IndexModel] =
-                &Self::TEST_INDEXES_DEF;
-        }
+        $crate::impl_test_entity_runtime_surface!($entity, $id_ty, $entity_name, MODEL_DEF);
     };
     (
         ident = $entity:ident,
         id = $id_ty:ty,
         entity_name = $entity_name:expr,
         entity_tag = $entity_tag:expr,
-        primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
@@ -303,7 +303,6 @@ macro_rules! test_entity_schema {
             ident = $entity,
             id = $id_ty,
             entity_name = $entity_name,
-            primary_key = $primary_key,
             pk_index = $pk_index,
             fields = [ $( ($field_name, $field_kind $(, $field_decode )? ) ),+ ],
             indexes = [ $( $index ),* ],
@@ -324,7 +323,6 @@ macro_rules! test_entity_schema {
         id_field = $id_field:ident,
         entity_name = $entity_name:expr,
         entity_tag = $entity_tag:expr,
-        primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr $(, $field_decode:expr )? ) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
@@ -336,7 +334,6 @@ macro_rules! test_entity_schema {
             id = $id_ty,
             entity_name = $entity_name,
             entity_tag = $entity_tag,
-            primary_key = $primary_key,
             pk_index = $pk_index,
             fields = [ $( ($field_name, $field_kind $(, $field_decode )? ) ),+ ],
             indexes = [ $( $index ),* ],
@@ -357,7 +354,6 @@ macro_rules! test_entity_schema {
         singleton = true,
         entity_name = $entity_name:expr,
         entity_tag = $entity_tag:expr,
-        primary_key = $primary_key:expr,
         pk_index = $pk_index:expr,
         fields = [ $( ($field_name:expr, $field_kind:expr) ),+ $(,)? ],
         indexes = [ $( $index:expr ),* $(,)? ],
@@ -370,7 +366,6 @@ macro_rules! test_entity_schema {
             id_field = $id_field,
             entity_name = $entity_name,
             entity_tag = $entity_tag,
-            primary_key = $primary_key,
             pk_index = $pk_index,
             fields = [ $( ($field_name, $field_kind) ),+ ],
             indexes = [ $( $index ),* ],
@@ -379,11 +374,5 @@ macro_rules! test_entity_schema {
         }
 
         impl $crate::traits::SingletonEntity for $entity {}
-    };
-    (@count $( $value:expr ),* ) => {
-        <[()]>::len(&[ $( $crate::test_entity_schema!(@unit $value) ),* ])
-    };
-    (@unit $value:expr) => {
-        ()
     };
 }

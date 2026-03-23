@@ -72,7 +72,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "MigrationEntity",
     entity_tag = crate::testing::MIGRATION_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("rank", FieldKind::Uint)],
     indexes = [],

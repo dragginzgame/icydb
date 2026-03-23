@@ -12,7 +12,6 @@ impl Imp<Entity> for EntityKindTrait {
             .fields
             .get(&node.primary_key.field)
             .expect("primary key field must be validated before derive generation");
-        let pk_ident = &node.primary_key.field;
 
         // PK key shape must always follow the declared field type.
         let pk_key_type = pk_entry.value.item.type_expr();
@@ -24,7 +23,6 @@ impl Imp<Entity> for EntityKindTrait {
         Some(TraitStrategy::from_impl(entity_kind_strategy_tokens(
             node,
             pk_entry,
-            pk_ident,
             &pk_key_type,
             store,
             &resolved_entity_name,
@@ -34,11 +32,9 @@ impl Imp<Entity> for EntityKindTrait {
     }
 }
 
-#[expect(clippy::too_many_arguments)]
 fn entity_kind_strategy_tokens(
     node: &Entity,
     pk_entry: &Field,
-    pk_ident: &Ident,
     pk_key_type: &TokenStream,
     store: &Path,
     resolved_entity_name: &str,
@@ -47,7 +43,7 @@ fn entity_kind_strategy_tokens(
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
     tokens.extend(entity_key_impl_tokens(ident, pk_key_type));
-    tokens.extend(entity_identity_impl_tokens(node, pk_ident));
+    tokens.extend(entity_identity_impl_tokens(node));
     tokens.extend(entity_schema_impl_tokens(node, resolved_entity_name, store));
     tokens.extend(entity_placement_impl_tokens(&node.def, store));
     tokens.extend(entity_kind_impl_tokens(&node.def, resolved_entity_name));
@@ -71,33 +67,23 @@ fn entity_key_impl_tokens(ident: &Ident, pk_key_type: &TokenStream) -> TokenStre
     }
 }
 
-fn entity_identity_impl_tokens(node: &Entity, pk_ident: &Ident) -> TokenStream {
+fn entity_identity_impl_tokens(node: &Entity) -> TokenStream {
     let entity_name = entity_name_tokens(node);
 
     Implementor::new(&node.def, TraitKind::EntityIdentity)
         .set_tokens(quote! {
             const ENTITY_NAME: &'static str = #entity_name;
-            const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
         })
         .to_token_stream()
 }
 
 fn entity_schema_impl_tokens(
     node: &Entity,
-    resolved_entity_name: &str,
-    store: &Path,
+    _resolved_entity_name: &str,
+    _store: &Path,
 ) -> TokenStream {
-    let indexes = node
-        .indexes
-        .iter()
-        .enumerate()
-        .map(|(ordinal, index)| index.runtime_part(resolved_entity_name, store, ordinal))
-        .collect::<Vec<_>>();
-
     Implementor::new(&node.def, TraitKind::EntitySchema)
         .set_tokens(quote! {
-            const INDEXES: &'static [&'static ::icydb::model::index::IndexModel] =
-                &[#(&#indexes),*];
             const MODEL: &'static ::icydb::model::entity::EntityModel =
                 &Self::__ENTITY_MODEL;
         })

@@ -51,13 +51,29 @@ fn field_const_tokens(node: &Entity) -> Vec<TokenStream> {
 
 fn model_storage_tokens(node: &Entity) -> TokenStream {
     let model_fields_exprs: Vec<TokenStream> = node.fields.iter().map(model_field_expr).collect();
+    let resolved_entity_name = node
+        .name
+        .as_ref()
+        .map_or_else(|| node.def.ident().to_string(), LitStr::value);
+    let index_exprs = node
+        .indexes
+        .iter()
+        .enumerate()
+        .map(|(ordinal, index)| index.runtime_part(&resolved_entity_name, &node.store, ordinal))
+        .collect::<Vec<_>>();
     let fields_len = LitInt::new(&node.fields.len().to_string(), Span::call_site());
+    let indexes_len = LitInt::new(&index_exprs.len().to_string(), Span::call_site());
     let model_fields_ident = format_ident!("__MODEL_FIELDS");
+    let indexes_ident = format_ident!("__ENTITY_INDEXES");
 
     quote! {
         const #model_fields_ident:
             [::icydb::model::field::FieldModel; #fields_len] = [
                 #(#model_fields_exprs),*
+            ];
+        const #indexes_ident:
+            [&'static ::icydb::model::index::IndexModel; #indexes_len] = [
+                #(&#index_exprs),*
             ];
     }
 }
@@ -71,6 +87,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
     let pk_index = LitInt::new(&pk_index.to_string(), Span::call_site());
     let model_fields_ident = format_ident!("__MODEL_FIELDS");
     let model_ident = format_ident!("__ENTITY_MODEL");
+    let indexes_ident = format_ident!("__ENTITY_INDEXES");
 
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
@@ -79,7 +96,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
                 <Self as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
                 &Self::#model_fields_ident[#pk_index],
                 &Self::#model_fields_ident,
-                <Self as ::icydb::traits::EntitySchema>::INDEXES,
+                &Self::#indexes_ident,
             );
     }
 }

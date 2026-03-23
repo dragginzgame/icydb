@@ -252,7 +252,6 @@ mod tests {
         id_field = id,
         entity_name = "RowDecodeEntity",
         entity_tag = crate::testing::PROBE_ENTITY_TAG,
-        primary_key = "id",
         pk_index = 0,
         fields = [
             ("id", FieldKind::Ulid),
@@ -385,7 +384,6 @@ mod tests {
         id_field = id,
         entity_name = "RowDecodeValueEntity",
         entity_tag = crate::testing::PROBE_ENTITY_TAG,
-        primary_key = "id",
         pk_index = 0,
         fields = [
             ("id", FieldKind::Ulid),

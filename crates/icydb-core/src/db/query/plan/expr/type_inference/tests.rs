@@ -29,7 +29,6 @@ crate::test_entity! {
     ident = ExprInferenceEntity,
     id = crate::types::Ulid,
     entity_name = "ExprInferenceEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

@@ -137,7 +137,6 @@ mod tests {
     }
     impl EntityIdentity for VectorEntity {
         const ENTITY_NAME: &'static str = "VectorEntity";
-        const PRIMARY_KEY: &'static str = "id";
     }
 
     struct OtherEntity;
@@ -146,7 +145,6 @@ mod tests {
     }
     impl EntityIdentity for OtherEntity {
         const ENTITY_NAME: &'static str = "OtherEntity";
-        const PRIMARY_KEY: &'static str = "id";
     }
 
     #[test]

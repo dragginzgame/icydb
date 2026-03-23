@@ -72,7 +72,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryTestEntity",
     entity_tag = crate::testing::RECOVERY_TEST_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
     indexes = [],
@@ -242,7 +241,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryIndexedEntity",
     entity_tag = crate::testing::RECOVERY_INDEXED_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("group", FieldKind::Uint)],
     indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
@@ -256,7 +254,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryUniqueEntity",
     entity_tag = crate::testing::RECOVERY_UNIQUE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
     indexes = [&RECOVERY_UNIQUE_INDEX_MODELS[0]],
@@ -270,7 +267,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryUniqueCasefoldEntity",
     entity_tag = crate::testing::RECOVERY_UNIQUE_CASEFOLD_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
     indexes = [&RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
@@ -284,7 +280,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryUpperExpressionEntity",
     entity_tag = crate::testing::RECOVERY_UPPER_EXPRESSION_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
     indexes = [&RECOVERY_UPPER_EXPRESSION_INDEX_MODELS[0]],
@@ -298,7 +293,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryConditionalEntity",
     entity_tag = crate::testing::RECOVERY_CONDITIONAL_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -316,7 +310,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryConditionalUniqueEntity",
     entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -334,7 +327,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryConditionalUniqueCasefoldEntity",
     entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -352,7 +344,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RecoveryConditionalUniqueEnumEntity",
     entity_tag = crate::testing::RECOVERY_CONDITIONAL_UNIQUE_ENUM_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -589,7 +580,7 @@ fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
 }
 
 fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
-    let index = RecoveryIndexedEntity::INDEXES[0];
+    let index = RecoveryIndexedEntity::MODEL.indexes()[0];
     let index_key = IndexKey::new(entity, index)
         .expect("index key build should succeed")
         .expect("index key should exist")
@@ -613,7 +604,7 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
 }
 
 fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTreeSet<Ulid>> {
-    let index = RecoveryConditionalEntity::INDEXES[0];
+    let index = RecoveryConditionalEntity::MODEL.indexes()[0];
     let index_key = IndexKey::new(entity, index)
         .expect("conditional index key build should succeed")
         .expect("conditional index key should exist")
@@ -2770,7 +2761,7 @@ fn recovery_replay_preserves_index_key_raw_bytes_across_reloads() {
     let first_row = canonical_row_bytes(&first);
     let second_row = canonical_row_bytes(&second);
 
-    let index = RecoveryIndexedEntity::INDEXES[0];
+    let index = RecoveryIndexedEntity::MODEL.indexes()[0];
     let mut expected = vec![
         IndexKey::new(&first, index)
             .expect("first index key build should succeed")
@@ -2848,7 +2839,7 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
     let first_row = canonical_row_bytes(&first);
     let second_row = canonical_row_bytes(&second);
 
-    let index = RecoveryIndexedEntity::INDEXES[0];
+    let index = RecoveryIndexedEntity::MODEL.indexes()[0];
     let stale_key = IndexKey::new(&stale, index)
         .expect("stale key build should succeed")
         .expect("stale key should exist")
@@ -2945,7 +2936,7 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
     let active_row = canonical_row_bytes(&active);
     let inactive_row = canonical_row_bytes(&inactive);
 
-    let index = RecoveryConditionalEntity::INDEXES[0];
+    let index = RecoveryConditionalEntity::MODEL.indexes()[0];
     let inactive_index_key = IndexKey::new(&inactive, index)
         .expect("inactive index key build should succeed")
         .expect("inactive index key should exist")
@@ -3049,7 +3040,7 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
     let first_row = canonical_row_bytes(&first);
     let second_row = canonical_row_bytes(&second);
 
-    let index = RecoveryUpperExpressionEntity::INDEXES[0];
+    let index = RecoveryUpperExpressionEntity::MODEL.indexes()[0];
     let stale_key = IndexKey::new(&stale, index)
         .expect("stale expression index key build should succeed")
         .expect("stale expression index key should exist")
@@ -3171,7 +3162,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         id: Ulid::from_u128(922),
         group: 77,
     };
-    let index = RecoveryIndexedEntity::INDEXES[0];
+    let index = RecoveryIndexedEntity::MODEL.indexes()[0];
     let sentinel_key = IndexKey::new(&sentinel, index)
         .expect("sentinel key build should succeed")
         .expect("sentinel key should exist")

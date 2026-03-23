@@ -30,7 +30,6 @@ crate::test_entity! {
     ident = GroupProjectionValidateEntity,
     id = Ulid,
     entity_name = "GroupProjectionValidateEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

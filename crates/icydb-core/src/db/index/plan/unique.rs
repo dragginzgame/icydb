@@ -208,11 +208,12 @@ fn decode_unique_row_storage_key<E: EntityKind>(
     data_key: &DataKey,
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<StorageKey, InternalError> {
+    let primary_key_name = E::MODEL.primary_key().name();
     let _ = resolve_primary_key_slot(E::MODEL).ok_or_else(|| {
         InternalError::index_invariant(format!(
             "entity primary key field missing during unique validation: {} field={}",
             E::PATH,
-            E::PRIMARY_KEY
+            primary_key_name
         ))
     })?;
     row_fields

@@ -64,7 +64,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "ProjectionEvalEntity",
     entity_tag = crate::testing::PROJECTION_EVAL_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

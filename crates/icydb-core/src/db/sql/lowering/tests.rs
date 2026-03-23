@@ -43,7 +43,6 @@ crate::test_entity_schema! {
     id = Ulid,
     entity_name = "SqlLowerEntity",
 entity_tag = crate::testing::SQL_LOWER_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

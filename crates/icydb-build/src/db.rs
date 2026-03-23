@@ -163,29 +163,28 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
 
 fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
     let entities = builder.get_entities();
-
-    let mut lane_callback_defs = quote!();
+    let canister = &builder.canister;
+    let canister_path: syn::Path = parse_str(&canister.def().path())
+        .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def().path()));
     let mut descriptor_entries = quote!();
 
-    for (entity_id, (entity_path, _entity)) in entities.into_iter().enumerate() {
+    for (entity_path, _entity) in entities {
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
-        let callbacks = sql_lane_callback_tokens(entity_id, &entity_ty);
-        let descriptor = sql_descriptor_entry_tokens(entity_id, &entity_ty);
-
-        lane_callback_defs.extend(callbacks);
+        let descriptor = sql_descriptor_entry_tokens(&entity_ty);
         descriptor_entries.extend(descriptor);
     }
 
-    sql_dispatch_module_tokens(lane_callback_defs, descriptor_entries)
+    sql_dispatch_module_tokens(&canister_path, descriptor_entries)
 }
 
 fn sql_dispatch_module_tokens(
-    lane_callback_defs: TokenStream,
+    canister_path: &syn::Path,
     descriptor_entries: TokenStream,
 ) -> TokenStream {
     let imports = sql_dispatch_import_tokens();
     let types = sql_dispatch_type_tokens();
+    let callbacks = sql_dispatch_callback_tokens(canister_path);
     let route_impl = sql_dispatch_route_impl_tokens();
     let query_surface = sql_dispatch_query_surface_tokens();
     let errors = sql_dispatch_error_tokens();
@@ -201,8 +200,7 @@ fn sql_dispatch_module_tokens(
         pub mod sql_dispatch {
             #imports
             #types
-
-            #lane_callback_defs
+            #callbacks
 
             static SQL_ENTITY_DESCRIPTORS: &[SqlEntityDescriptor] = &[
                 #descriptor_entries
@@ -236,7 +234,6 @@ fn sql_dispatch_type_tokens() -> TokenStream {
         ///
         #[derive(Clone, Copy, Debug)]
         pub struct SqlEntityDescriptor {
-            pub entity_id: usize,
             pub name: &'static str,
             pub schema: &'static ::icydb::model::entity::EntityModel,
             pub query: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
@@ -251,6 +248,34 @@ fn sql_dispatch_type_tokens() -> TokenStream {
         #[derive(Clone, Copy, Debug)]
         pub struct SqlEntityRoute {
             descriptor: &'static SqlEntityDescriptor,
+        }
+    }
+}
+
+fn sql_dispatch_callback_tokens(canister_path: &syn::Path) -> TokenStream {
+    quote! {
+        // These shared callbacks are referenced indirectly through the
+        // descriptor function-pointer table rather than by direct call sites.
+        #[allow(dead_code)]
+        fn sql_query_callback<E>(
+            lowered: &::icydb::__macro::LoweredSqlCommand,
+        ) -> Result<SqlQueryResult, Error>
+        where
+            E: ::icydb::db::PersistedRow<Canister = #canister_path> + ::icydb::traits::EntityValue,
+        {
+            db().execute_lowered_sql_dispatch_query::<E>(lowered)
+        }
+
+        // These shared callbacks are referenced indirectly through the
+        // descriptor function-pointer table rather than by direct call sites.
+        #[allow(dead_code)]
+        fn sql_explain_callback<E>(
+            lowered: &::icydb::__macro::LoweredSqlCommand,
+        ) -> Result<SqlQueryResult, Error>
+        where
+            E: ::icydb::db::PersistedRow<Canister = #canister_path> + ::icydb::traits::EntityValue,
+        {
+            db().explain_lowered_sql_dispatch::<E>(lowered)
         }
     }
 }
@@ -498,36 +523,13 @@ fn sql_dispatch_error_tokens() -> TokenStream {
     }
 }
 
-fn sql_lane_callback_tokens(entity_id: usize, entity_ty: &syn::Path) -> TokenStream {
-    let query_fn_ident = format_ident!("__sql_query_{entity_id}");
-    let explain_fn_ident = format_ident!("__sql_explain_{entity_id}");
-
-    quote! {
-        fn #query_fn_ident(
-            lowered: &::icydb::__macro::LoweredSqlCommand,
-        ) -> Result<SqlQueryResult, Error> {
-            db().execute_lowered_sql_dispatch_query::<#entity_ty>(lowered)
-        }
-
-        fn #explain_fn_ident(
-            lowered: &::icydb::__macro::LoweredSqlCommand,
-        ) -> Result<SqlQueryResult, Error> {
-            db().explain_lowered_sql_dispatch::<#entity_ty>(lowered)
-        }
-    }
-}
-
-fn sql_descriptor_entry_tokens(entity_id: usize, entity_ty: &syn::Path) -> TokenStream {
-    let query_fn_ident = format_ident!("__sql_query_{entity_id}");
-    let explain_fn_ident = format_ident!("__sql_explain_{entity_id}");
-
+fn sql_descriptor_entry_tokens(entity_ty: &syn::Path) -> TokenStream {
     quote! {
         SqlEntityDescriptor {
-            entity_id: #entity_id,
             name: <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
             schema: <#entity_ty as ::icydb::traits::EntitySchema>::MODEL,
-            query: #query_fn_ident,
-            explain: #explain_fn_ident,
+            query: sql_query_callback::<#entity_ty>,
+            explain: sql_explain_callback::<#entity_ty>,
         },
     }
 }

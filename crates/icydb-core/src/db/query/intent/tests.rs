@@ -195,7 +195,6 @@ crate::test_entity_schema! {
     id = Ulid,
     entity_name = "PlanEntity",
     entity_tag = crate::testing::PLAN_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -213,7 +212,6 @@ crate::test_entity_schema! {
     singleton = true,
     entity_name = "PlanSingleton",
     entity_tag = crate::testing::PLAN_SINGLETON_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Unit),
@@ -228,7 +226,6 @@ crate::test_entity_schema! {
     id = Ulid,
     entity_name = "PlanNumericEntity",
     entity_tag = crate::testing::PLAN_NUMERIC_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

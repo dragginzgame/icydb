@@ -33,7 +33,6 @@ crate::test_entity! {
 ident = ExplainPushdownEntity,
     id = Ulid,
     entity_name = "PushdownEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

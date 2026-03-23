@@ -31,7 +31,6 @@ crate::test_entity! {
     ident = PlanValidatePushdownEntity,
     id = Ulid,
     entity_name = "IndexedEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

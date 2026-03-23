@@ -94,7 +94,6 @@ crate::test_entity! {
     ident = PlanModelEntity,
     id = Ulid,
     entity_name = "PlanEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -107,7 +106,6 @@ crate::test_entity! {
     ident = PlanRangeEntity,
     id = Ulid,
     entity_name = "PlanRangeEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -122,7 +120,6 @@ crate::test_entity! {
     ident = PlanFilteredEntity,
     id = Ulid,
     entity_name = "PlanFilteredEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -136,7 +133,6 @@ crate::test_entity! {
     ident = PlanFilteredNumericEntity,
     id = Ulid,
     entity_name = "PlanFilteredNumericEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -149,7 +145,6 @@ crate::test_entity! {
     ident = PlanExpressionCasefoldEntity,
     id = Ulid,
     entity_name = "PlanExpressionCasefoldEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -162,7 +157,6 @@ crate::test_entity! {
     ident = PlanFilteredExpressionCasefoldEntity,
     id = Ulid,
     entity_name = "PlanFilteredExpressionCasefoldEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -176,7 +170,6 @@ crate::test_entity! {
     ident = PlanExpressionUpperEntity,
     id = Ulid,
     entity_name = "PlanExpressionUpperEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

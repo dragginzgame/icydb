@@ -128,7 +128,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "TargetEntity",
     entity_tag = crate::testing::TARGET_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
     indexes = [],
@@ -152,7 +151,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "SourceEntity",
     entity_tag = crate::testing::SOURCE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -189,7 +187,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "InvalidRelationMetadataEntity",
     entity_tag = crate::testing::INVALID_RELATION_METADATA_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -235,7 +232,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "SourceSetEntity",
     entity_tag = crate::testing::SOURCE_SET_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -270,7 +266,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "UniqueEmailEntity",
     entity_tag = crate::testing::UNIQUE_EMAIL_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
     indexes = [&UNIQUE_EMAIL_INDEX],
@@ -322,7 +317,6 @@ crate::test_entity_schema! {
     id_field = actual_id,
     entity_name = "MismatchedPkEntity",
     entity_tag = crate::testing::MISMATCHED_PK_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("actual_id", FieldKind::Ulid)],
     indexes = [],
@@ -346,7 +340,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "DecimalScaleEntity",
     entity_tag = crate::testing::DECIMAL_SCALE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

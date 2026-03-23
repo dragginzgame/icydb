@@ -178,7 +178,7 @@ fn prepare_forward_index_commit_leaf<E: EntityKind + EntityValue>(
 ) -> Result<ForwardIndexCommitPreparation, InternalError> {
     // Skip typed row reconstruction entirely when the entity has no secondary
     // indexes. In that case this leaf has no forward-index work to perform.
-    if E::INDEXES.is_empty() {
+    if E::MODEL.indexes().is_empty() {
         return Ok(ForwardIndexCommitPreparation {
             index_plan: IndexMutationPlan {
                 apply: Vec::new(),
@@ -327,7 +327,7 @@ fn annotate_forward_index_delta_kinds_from_slots<E: EntityKind>(
     mut new_slots: Option<&mut dyn SlotReader>,
 ) -> Result<BTreeMap<RawIndexKey, PreparedIndexDeltaKind>, InternalError> {
     let mut index_delta_kind_by_key = BTreeMap::new();
-    for index in E::INDEXES {
+    for index in E::MODEL.indexes() {
         let membership_program = compile_index_membership_predicate::<E>(index)?;
         let old_key = match old_slots.as_deref_mut() {
             Some(slots) => old_storage_key

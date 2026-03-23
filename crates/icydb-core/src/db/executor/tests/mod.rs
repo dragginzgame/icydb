@@ -128,7 +128,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "SimpleEntity",
     entity_tag = crate::testing::SIMPLE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
     indexes = [],
@@ -161,7 +160,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "IndexedMetricsEntity",
     entity_tag = crate::testing::INDEXED_METRICS_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -198,7 +196,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "UniqueIndexRangeEntity",
     entity_tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -236,7 +233,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "PushdownParityEntity",
     entity_tag = crate::testing::PUSHDOWN_PARITY_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -273,7 +269,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "TextPrefixParityEntity",
     entity_tag = crate::testing::TEXT_PREFIX_PARITY_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -312,7 +307,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "ExpressionCasefoldParityEntity",
     entity_tag = crate::testing::EXPRESSION_CASEFOLD_PARITY_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -352,7 +346,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "ExpressionUpperParityEntity",
     entity_tag = crate::testing::EXPRESSION_UPPER_PARITY_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -381,7 +374,6 @@ crate::test_entity_schema! {
     singleton = true,
     entity_name = "SingletonUnitEntity",
     entity_tag = crate::testing::SINGLETON_UNIT_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Unit), ("label", FieldKind::Text)],
     indexes = [],
@@ -410,7 +402,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "PhaseEntity",
     entity_tag = crate::testing::PHASE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -443,7 +434,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "TemporalBoundaryEntity",
     entity_tag = crate::testing::TEMPORAL_BOUNDARY_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -571,7 +561,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RelationTargetEntity",
     entity_tag = crate::testing::RELATION_TARGET_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
     indexes = [],
@@ -595,7 +584,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "RelationSourceEntity",
     entity_tag = crate::testing::RELATION_SOURCE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -632,7 +620,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "WeakSingleRelationSourceEntity",
     entity_tag = crate::testing::WEAK_SINGLE_RELATION_SOURCE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -669,7 +656,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "WeakOptionalRelationSourceEntity",
     entity_tag = crate::testing::WEAK_OPTIONAL_RELATION_SOURCE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -715,7 +701,6 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "WeakListRelationSourceEntity",
     entity_tag = crate::testing::WEAK_LIST_RELATION_SOURCE_ENTITY_TAG,
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

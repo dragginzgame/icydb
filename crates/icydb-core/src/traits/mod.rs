@@ -145,26 +145,28 @@ impl EntityKeyBytes for () {
 ///
 /// EntityIdentity
 ///
-/// Semantic primary-key metadata about an entity.
+/// Stable external identity metadata about an entity.
 ///
-/// These constants name identity metadata only. They do not imply trust, ownership,
-/// authorization, or existence.
+/// This trait names the externally visible entity identity only.
+/// Primary-key field authority lives on `EntitySchema::MODEL`.
+/// These constants do not imply trust, ownership, authorization, or existence.
 ///
 
 pub trait EntityIdentity: EntityKey {
     const ENTITY_NAME: &'static str;
-    const PRIMARY_KEY: &'static str;
 }
 
 ///
 /// EntitySchema
 ///
-/// Declared schema facts for an entity.
+/// Declared runtime schema facts for an entity.
+///
+/// `MODEL` is the sole runtime authority for field, primary-key, and index
+/// metadata consumed by planning and execution.
 ///
 
 pub trait EntitySchema: EntityIdentity {
     const MODEL: &'static EntityModel;
-    const INDEXES: &'static [&'static IndexModel];
 }
 
 // ============================================================================

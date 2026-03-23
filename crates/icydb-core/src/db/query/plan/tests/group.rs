@@ -41,7 +41,6 @@ crate::test_entity! {
     ident = PlanValidateGroupedEntity,
     id = Ulid,
     entity_name = "IndexedEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),

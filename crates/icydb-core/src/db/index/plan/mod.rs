@@ -254,12 +254,13 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader<E: EntityKind + EntityV
     new_storage_key: Option<StorageKey>,
     mut new_slots: Option<&mut dyn SlotReader>,
 ) -> Result<IndexMutationPlan, InternalError> {
-    let mut apply = Vec::with_capacity(E::INDEXES.len());
+    let indexes = E::MODEL.indexes();
+    let mut apply = Vec::with_capacity(indexes.len());
     let mut commit_ops = Vec::new();
 
     // Phase 1: per-index load, validate, and synthesize commit ops from
     // slot-reader projections only.
-    for index in E::INDEXES {
+    for index in indexes {
         let store = db
             .with_store_registry(|registry| registry.try_get_store(index.store()))?
             .index_store();

@@ -370,7 +370,6 @@ mod tests {
 
         impl EntityIdentity for TestEntity {
             const ENTITY_NAME: &'static str = "TestEntity";
-            const PRIMARY_KEY: &'static str = "id";
         }
 
         let id = Id::<TestEntity>::from_key(42);

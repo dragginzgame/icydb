@@ -39,7 +39,6 @@ crate::test_entity! {
     ident = PlanValidateIndexedEntity,
     id = Ulid,
     entity_name = "IndexedEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -53,7 +52,6 @@ crate::test_entity! {
     ident = PlanValidateListEntity,
     id = Ulid,
     entity_name = "ListEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
@@ -66,7 +64,6 @@ crate::test_entity! {
     ident = PlanValidateMapEntity,
     id = Ulid,
     entity_name = "MapEntity",
-    primary_key = "id",
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
