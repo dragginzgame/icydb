@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "canister_minimal"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "canister_one_complex"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "canister_one_simple"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "canister_quickstart"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "canister_ten_complex"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -287,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "canister_ten_simple"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1188,7 +1188,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1222,11 +1222,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.62.7"
+version = "0.62.8"
 
 [[package]]
 name = "icydb-schema"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "canic-utils",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1279,7 +1279,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-one-complex-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1306,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-one-simple-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-quickstart-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-ten-complex-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-ten-simple-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-fixtures"
-version = "0.62.7"
+version = "0.62.8"
 dependencies = [
  "icydb",
 ]
@@ -1409,9 +1409,9 @@ checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
 name = "iri-string"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c91338f0783edbd6195decb37bae672fd3b165faffb89bf7b9e6942f8b1a731a"
+checksum = "d8e7418f59cc01c88316161279a7f665217ae316b388e58a0d10e29f54f1e5eb"
 dependencies = [
  "memchr",
  "serde",
