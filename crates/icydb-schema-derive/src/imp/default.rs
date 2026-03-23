@@ -56,36 +56,17 @@ impl Imp<Enum> for DefaultTrait {
 
 impl Imp<Record> for DefaultTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(default_strategy(&node.def, &node.fields))
+        Some(record_default_strategy(&node.def, &node.fields))
     }
 }
 
-// default_strategy
-fn default_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+// Records use explicit field defaults only when at least one field declares one.
+fn record_default_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
     if fields.iter().all(|f| f.default.is_none()) {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
 
-    // assignments
-    let assignments = fields.into_iter().map(|f| {
-        let ident = &f.ident;
-        let expr = f.default_expr();
-
-        quote!(#ident: #expr)
-    });
-
-    // build default
-    let q = quote! {
-        fn default() -> Self {
-            Self { #(#assignments),* }
-        }
-    };
-
-    let tokens = Implementor::new(def, TraitKind::Default)
-        .set_tokens(q)
-        .to_token_stream();
-
-    TraitStrategy::from_impl(tokens)
+    struct_default_strategy(def, fields.iter().map(record_default_assignment))
 }
 
 fn default_strategy_entity(node: &Entity) -> TraitStrategy {
@@ -95,32 +76,13 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
     }
 
     let primary_key = &node.primary_key.field;
-    let assignments = fields.iter().map(|f| {
-        let ident = &f.ident;
 
-        if ident == primary_key {
-            if let Some(default) = &f.default {
-                quote!(#ident: (#default).into())
-            } else {
-                quote!(#ident: Default::default())
-            }
-        } else {
-            let expr = f.default_expr();
-            quote!(#ident: #expr)
-        }
-    });
-
-    let q = quote! {
-        fn default() -> Self {
-            Self { #(#assignments),* }
-        }
-    };
-
-    let tokens = Implementor::new(node.def(), TraitKind::Default)
-        .set_tokens(q)
-        .to_token_stream();
-
-    TraitStrategy::from_impl(tokens)
+    struct_default_strategy(
+        node.def(),
+        fields
+            .iter()
+            .map(|field| entity_default_assignment(field, primary_key)),
+    )
 }
 
 ///
@@ -145,5 +107,46 @@ impl Imp<Newtype> for DefaultTrait {
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+// Build one explicit `Default` impl for a struct-like node from field assignments.
+fn struct_default_strategy(
+    def: &Def,
+    assignments: impl Iterator<Item = TokenStream>,
+) -> TraitStrategy {
+    let assignments: Vec<_> = assignments.collect();
+    let tokens = Implementor::new(def, TraitKind::Default)
+        .set_tokens(quote! {
+            fn default() -> Self {
+                Self { #(#assignments),* }
+            }
+        })
+        .to_token_stream();
+
+    TraitStrategy::from_impl(tokens)
+}
+
+// Record fields always lower through the declared default expression.
+fn record_default_assignment(field: &Field) -> TokenStream {
+    let ident = &field.ident;
+    let expr = field.default_expr();
+
+    quote!(#ident: #expr)
+}
+
+// Entity primary keys keep their special key-conversion/default behavior.
+fn entity_default_assignment(field: &Field, primary_key: &Ident) -> TokenStream {
+    let ident = &field.ident;
+
+    if ident == primary_key {
+        if let Some(default) = &field.default {
+            quote!(#ident: (#default).into())
+        } else {
+            quote!(#ident: Default::default())
+        }
+    } else {
+        let expr = field.default_expr();
+        quote!(#ident: #expr)
     }
 }

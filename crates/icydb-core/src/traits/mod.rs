@@ -164,7 +164,6 @@ pub trait EntityIdentity: EntityKey {
 
 pub trait EntitySchema: EntityIdentity {
     const MODEL: &'static EntityModel;
-    const FIELDS: &'static [&'static str];
     const INDEXES: &'static [&'static IndexModel];
 }
 

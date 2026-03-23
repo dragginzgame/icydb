@@ -19,30 +19,9 @@ pub struct MapCollectionTrait {}
 impl Imp<List> for CollectionTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
+        let iter_ty = quote!(::std::slice::Iter<'a, #item>);
 
-        let q = quote! {
-            type Item = #item;
-
-            type Iter<'a> = ::std::slice::Iter<'a, #item>
-            where
-                Self: 'a;
-
-            fn iter(&self) -> Self::Iter<'_> {
-                self.0.iter()
-            }
-
-            fn len(&self) -> usize {
-                self.0.len()
-            }
-        };
-
-        let tokens = Implementor::new(node.def(), TraitKind::Collection)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(quote! {
-            #tokens
-        }))
+        Some(collection_trait_strategy(node.def(), item, iter_ty))
     }
 }
 
@@ -53,30 +32,9 @@ impl Imp<List> for CollectionTrait {
 impl Imp<Set> for CollectionTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
+        let iter_ty = quote!(::std::collections::btree_set::Iter<'a, #item>);
 
-        let q = quote! {
-            type Item = #item;
-
-            type Iter<'a> = ::std::collections::btree_set::Iter<'a, #item>
-            where
-                Self: 'a;
-
-            fn iter(&self) -> Self::Iter<'_> {
-                self.0.iter()
-            }
-
-            fn len(&self) -> usize {
-                self.0.len()
-            }
-        };
-
-        let tokens = Implementor::new(node.def(), TraitKind::Collection)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(quote! {
-            #tokens
-        }))
+        Some(collection_trait_strategy(node.def(), item, iter_ty))
     }
 }
 
@@ -88,30 +46,75 @@ impl Imp<Map> for MapCollectionTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let key = node.key.type_expr();
         let value = node.value.type_expr();
+        let iter_ty = quote!(::std::collections::btree_map::Iter<'a, #key, #value>);
 
-        let q = quote! {
-            type Key = #key;
-            type Value = #value;
+        Some(map_collection_trait_strategy(
+            node.def(),
+            key,
+            value,
+            iter_ty,
+        ))
+    }
+}
 
-            type Iter<'a> = ::std::collections::btree_map::Iter<'a, #key, #value>
-            where
-                Self: 'a;
+fn collection_trait_strategy(def: &Def, item: TokenStream, iter_ty: TokenStream) -> TraitStrategy {
+    let tokens = Implementor::new(def, TraitKind::Collection)
+        .set_tokens(collection_trait_tokens(item, iter_ty))
+        .to_token_stream();
 
-            fn iter(&self) -> Self::Iter<'_> {
-                self.0.iter()
-            }
+    TraitStrategy::from_impl(tokens)
+}
 
-            fn len(&self) -> usize {
-                self.0.len()
-            }
-        };
+fn collection_trait_tokens(item: TokenStream, iter_ty: TokenStream) -> TokenStream {
+    quote! {
+        type Item = #item;
 
-        let tokens = Implementor::new(node.def(), TraitKind::MapCollection)
-            .set_tokens(q)
-            .to_token_stream();
+        type Iter<'a> = #iter_ty
+        where
+            Self: 'a;
 
-        Some(TraitStrategy::from_impl(quote! {
-            #tokens
-        }))
+        fn iter(&self) -> Self::Iter<'_> {
+            self.0.iter()
+        }
+
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+}
+
+fn map_collection_trait_strategy(
+    def: &Def,
+    key: TokenStream,
+    value: TokenStream,
+    iter_ty: TokenStream,
+) -> TraitStrategy {
+    let tokens = Implementor::new(def, TraitKind::MapCollection)
+        .set_tokens(map_collection_trait_tokens(key, value, iter_ty))
+        .to_token_stream();
+
+    TraitStrategy::from_impl(tokens)
+}
+
+fn map_collection_trait_tokens(
+    key: TokenStream,
+    value: TokenStream,
+    iter_ty: TokenStream,
+) -> TokenStream {
+    quote! {
+        type Key = #key;
+        type Value = #value;
+
+        type Iter<'a> = #iter_ty
+        where
+            Self: 'a;
+
+        fn iter(&self) -> Self::Iter<'_> {
+            self.0.iter()
+        }
+
+        fn len(&self) -> usize {
+            self.0.len()
+        }
     }
 }

@@ -11,23 +11,25 @@ use syn::LitInt;
 
 impl Imp<Entity> for InherentTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let field_consts = field_const_tokens(node);
-        let model_storage = model_storage_tokens(node);
-        let entity_model = entity_model_tokens(node);
-        let relation_accessors = relation_accessor_tokens(node.fields.iter());
-
-        let tokens = quote! {
-            #(#field_consts)*
-            #model_storage
-            #entity_model
-            #(#relation_accessors)*
-        };
-
         let impl_tokens = Implementor::new(node.def(), TraitKind::Inherent)
-            .set_tokens(tokens)
+            .set_tokens(entity_inherent_tokens(node))
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(impl_tokens))
+    }
+}
+
+fn entity_inherent_tokens(node: &Entity) -> TokenStream {
+    let field_consts = field_const_tokens(node);
+    let model_storage = model_storage_tokens(node);
+    let entity_model = entity_model_tokens(node);
+    let relation_accessors = relation_accessor_tokens(node.fields.iter());
+
+    quote! {
+        #(#field_consts)*
+        #model_storage
+        #entity_model
+        #(#relation_accessors)*
     }
 }
 

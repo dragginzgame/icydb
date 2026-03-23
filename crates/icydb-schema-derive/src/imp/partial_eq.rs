@@ -16,22 +16,24 @@ impl Imp<Newtype> for PartialEqTrait {
 
         let ident = &node.def.ident();
         let prim = &primitive.as_type();
+        Some(TraitStrategy::from_impl(newtype_partial_eq_tokens(
+            ident, prim,
+        )))
+    }
+}
 
-        // quote
-        let tokens = quote! {
-            impl PartialEq<#prim> for #ident {
-                fn eq(&self, other: &#prim) -> bool {
-                    self.0 == *other
-                }
+fn newtype_partial_eq_tokens(ident: &Ident, prim: &TokenStream) -> TokenStream {
+    quote! {
+        impl PartialEq<#prim> for #ident {
+            fn eq(&self, other: &#prim) -> bool {
+                self.0 == *other
             }
+        }
 
-            impl PartialEq<#ident> for #prim {
-                fn eq(&self, other: &#ident) -> bool {
-                    *self == other.0
-                }
+        impl PartialEq<#ident> for #prim {
+            fn eq(&self, other: &#ident) -> bool {
+                *self == other.0
             }
-        };
-
-        Some(TraitStrategy::from_impl(tokens))
+        }
     }
 }

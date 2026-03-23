@@ -192,10 +192,7 @@ impl Imp<List> for FieldValueTrait {
             quote!(::icydb::traits::field_value_vec_from_value::<#item>(value).map(Self)),
         );
 
-        Some(TraitStrategy::from_impl(field_value_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(field_value_strategy(node.def(), tokens))
     }
 }
 
@@ -219,10 +216,7 @@ impl Imp<Map> for FieldValueTrait {
             ),
         );
 
-        Some(TraitStrategy::from_impl(field_value_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(field_value_strategy(node.def(), tokens))
     }
 }
 
@@ -235,10 +229,7 @@ impl Imp<Newtype> for FieldValueTrait {
         let item = node.item.type_expr();
         let tokens = newtype_field_value_tokens(&item);
 
-        Some(TraitStrategy::from_impl(field_value_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(field_value_strategy(node.def(), tokens))
     }
 }
 
@@ -255,10 +246,7 @@ impl Imp<Set> for FieldValueTrait {
             quote!(::icydb::traits::field_value_btree_set_from_value::<#item>(value).map(Self)),
         );
 
-        Some(TraitStrategy::from_impl(field_value_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(field_value_strategy(node.def(), tokens))
     }
 }
 
@@ -268,10 +256,7 @@ impl Imp<Set> for FieldValueTrait {
 
 impl Imp<Record> for FieldValueTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_value_impl_tokens(
-            node.def(),
-            opaque_structured_field_value_tokens(),
-        )))
+        Some(opaque_structured_field_value_strategy(node.def()))
     }
 }
 
@@ -281,9 +266,14 @@ impl Imp<Record> for FieldValueTrait {
 
 impl Imp<Tuple> for FieldValueTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_value_impl_tokens(
-            node.def(),
-            opaque_structured_field_value_tokens(),
-        )))
+        Some(opaque_structured_field_value_strategy(node.def()))
     }
+}
+
+fn field_value_strategy(def: &Def, tokens: TokenStream) -> TraitStrategy {
+    TraitStrategy::from_impl(field_value_impl_tokens(def, tokens))
+}
+
+fn opaque_structured_field_value_strategy(def: &Def) -> TraitStrategy {
+    field_value_strategy(def, opaque_structured_field_value_tokens())
 }

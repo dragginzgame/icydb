@@ -21,19 +21,16 @@ impl Imp<Newtype> for NumCastTrait {
         let to_method = format_ident!("to_{}", num_fn);
         let from_method = format_ident!("from_{}", num_fn);
 
-        // quote
-        let q = quote! {
-            fn from<T: ::icydb::traits::NumToPrimitive>(n: T) -> Option<Self> {
-                let num = n.#to_method()?;
-                <Self as ::icydb::traits::NumFromPrimitive>::#from_method(num)
-            }
-        };
-
-        let tokens = Implementor::new(node.def(), TraitKind::NumCast)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+        Some(single_trait_strategy(
+            node.def(),
+            TraitKind::NumCast,
+            quote! {
+                fn from<T: ::icydb::traits::NumToPrimitive>(n: T) -> Option<Self> {
+                    let num = n.#to_method()?;
+                    <Self as ::icydb::traits::NumFromPrimitive>::#from_method(num)
+                }
+            },
+        ))
     }
 }
 
@@ -53,7 +50,6 @@ impl Imp<Newtype> for NumFromPrimitiveTrait {
 
         let item = &node.item.type_expr();
 
-        // quote
         let mut q = quote! {
             fn from_i64(n: i64) -> Option<Self> {
                 #item::from_i64(n).map(Self)
@@ -73,11 +69,11 @@ impl Imp<Newtype> for NumFromPrimitiveTrait {
             });
         }
 
-        let tokens = Implementor::new(node.def(), TraitKind::NumFromPrimitive)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+        Some(single_trait_strategy(
+            node.def(),
+            TraitKind::NumFromPrimitive,
+            q,
+        ))
     }
 }
 
@@ -93,20 +89,26 @@ pub struct NumToPrimitiveTrait {}
 
 impl Imp<Newtype> for NumToPrimitiveTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let q = quote! {
-            fn to_i64(&self) -> Option<i64> {
-                ::icydb::__reexports::num_traits::NumCast::from(self.0)
-            }
+        Some(single_trait_strategy(
+            node.def(),
+            TraitKind::NumToPrimitive,
+            quote! {
+                fn to_i64(&self) -> Option<i64> {
+                    ::icydb::__reexports::num_traits::NumCast::from(self.0)
+                }
 
-            fn to_u64(&self) -> Option<u64> {
-                ::icydb::__reexports::num_traits::NumCast::from(self.0)
-            }
-        };
-
-        let tokens = Implementor::new(node.def(), TraitKind::NumToPrimitive)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+                fn to_u64(&self) -> Option<u64> {
+                    ::icydb::__reexports::num_traits::NumCast::from(self.0)
+                }
+            },
+        ))
     }
+}
+
+fn single_trait_strategy(def: &Def, kind: TraitKind, tokens: TokenStream) -> TraitStrategy {
+    let tokens = Implementor::new(def, kind)
+        .set_tokens(tokens)
+        .to_token_stream();
+
+    TraitStrategy::from_impl(tokens)
 }

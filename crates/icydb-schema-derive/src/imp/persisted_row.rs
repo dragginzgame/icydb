@@ -78,31 +78,26 @@ impl Imp<Entity> for PersistedRowTrait {
 }
 
 fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> TokenStream {
-    let parsed = parse_type::<Type>(field_ty.clone()).expect("generated field type must parse");
-    if let Some(inner_ty) = option_inner_scalar_type(&parsed) {
-        return quote!(
+    match classify_persisted_field_type(field_ty) {
+        PersistedFieldType::OptionScalar(inner_ty) => quote!(
             ::icydb::db::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
                 bytes,
                 #field_name,
             )?
-        );
-    }
-
-    if is_scalar_type(&parsed) {
-        return quote!(
+        ),
+        PersistedFieldType::Scalar(parsed) => quote!(
             ::icydb::db::decode_persisted_scalar_slot_payload::<#parsed>(
                 bytes,
                 #field_name,
             )?
-        );
+        ),
+        PersistedFieldType::Structural(parsed) => quote!(
+            ::icydb::db::decode_persisted_slot_payload::<#parsed>(
+                bytes,
+                #field_name,
+            )?
+        ),
     }
-
-    quote!(
-        ::icydb::db::decode_persisted_slot_payload::<#parsed>(
-            bytes,
-            #field_name,
-        )?
-    )
 }
 
 fn persisted_field_encode_expr(
@@ -110,31 +105,47 @@ fn persisted_field_encode_expr(
     field_expr: TokenStream,
     field_name: &str,
 ) -> TokenStream {
-    let parsed = parse_type::<Type>(field_ty.clone()).expect("generated field type must parse");
-    if let Some(inner_ty) = option_inner_scalar_type(&parsed) {
-        return quote!(
+    match classify_persisted_field_type(field_ty) {
+        PersistedFieldType::OptionScalar(inner_ty) => quote!(
             ::icydb::db::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
                 #field_expr,
                 #field_name,
             )?
-        );
-    }
-
-    if is_scalar_type(&parsed) {
-        return quote!(
+        ),
+        PersistedFieldType::Scalar(_) => quote!(
             ::icydb::db::encode_persisted_scalar_slot_payload(
                 #field_expr,
                 #field_name,
             )?
-        );
+        ),
+        PersistedFieldType::Structural(_) => quote!(
+            ::icydb::db::encode_persisted_slot_payload(
+                #field_expr,
+                #field_name,
+            )?
+        ),
+    }
+}
+
+// Classifies one generated field type into the persisted-row emission lanes.
+enum PersistedFieldType {
+    OptionScalar(Type),
+    Scalar(Type),
+    Structural(Type),
+}
+
+fn classify_persisted_field_type(field_ty: &TokenStream) -> PersistedFieldType {
+    let parsed = parse_type::<Type>(field_ty.clone()).expect("generated field type must parse");
+
+    if let Some(inner_ty) = option_inner_scalar_type(&parsed) {
+        return PersistedFieldType::OptionScalar(inner_ty);
     }
 
-    quote!(
-        ::icydb::db::encode_persisted_slot_payload(
-            #field_expr,
-            #field_name,
-        )?
-    )
+    if is_scalar_type(&parsed) {
+        return PersistedFieldType::Scalar(parsed);
+    }
+
+    PersistedFieldType::Structural(parsed)
 }
 
 fn option_inner_scalar_type(ty: &Type) -> Option<Type> {

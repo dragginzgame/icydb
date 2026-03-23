@@ -39,19 +39,13 @@ impl_sanitize_auto!(Enum, List, Map, Newtype, Set);
 /// Do NOT recurse.
 impl Imp<Entity> for SanitizeAutoTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_list(
-            node.def(),
-            &node.fields,
-        )))
+        Some(field_list_sanitize_strategy(node.def(), &node.fields))
     }
 }
 
 impl Imp<Record> for SanitizeAutoTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_list(
-            node.def(),
-            &node.fields,
-        )))
+        Some(field_list_sanitize_strategy(node.def(), &node.fields))
     }
 }
 
@@ -82,19 +76,19 @@ impl SanitizeAutoFn for Newtype {
 /// - Only container-level sanitizers belong here
 impl SanitizeAutoFn for List {
     fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_sanitize_self(container_sanitizers(&node.ty.sanitizers, quote!(self.0)))
+        container_self_tokens(&node.ty.sanitizers)
     }
 }
 
 impl SanitizeAutoFn for Set {
     fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_sanitize_self(container_sanitizers(&node.ty.sanitizers, quote!(self.0)))
+        container_self_tokens(&node.ty.sanitizers)
     }
 }
 
 impl SanitizeAutoFn for Map {
     fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_sanitize_self(container_sanitizers(&node.ty.sanitizers, quote!(self.0)))
+        container_self_tokens(&node.ty.sanitizers)
     }
 }
 
@@ -137,6 +131,11 @@ fn container_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Op
     } else {
         Some(quote! { #(#stmts)* })
     }
+}
+
+/// List, set, and map containers share the same direct self-sanitizer shape.
+fn container_self_tokens(sanitizers: &[TypeSanitizer]) -> TokenStream {
+    fn_wrap_sanitize_self(container_sanitizers(sanitizers, quote!(self.0)))
 }
 
 /// Field-level sanitizers for Entity / Record.
@@ -204,6 +203,11 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
         #inherent_tokens
         #trait_tokens
     }
+}
+
+/// Entity and record sanitize generation share the same field-driven strategy.
+fn field_list_sanitize_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+    TraitStrategy::from_impl(field_list(def, fields))
 }
 
 /// Sanitizers for a newtype’s inner value (`self.0`).

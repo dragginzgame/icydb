@@ -43,19 +43,13 @@ impl_validate_auto!(Enum, List, Map, Newtype, Set);
 
 impl Imp<Entity> for ValidateAutoTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_list(
-            node.def(),
-            &node.fields,
-        )))
+        Some(field_list_validate_strategy(node.def(), &node.fields))
     }
 }
 
 impl Imp<Record> for ValidateAutoTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_list(
-            node.def(),
-            &node.fields,
-        )))
+        Some(field_list_validate_strategy(node.def(), &node.fields))
     }
 }
 
@@ -106,28 +100,7 @@ impl ValidateAutoFn for Enum {
 
 impl ValidateAutoFn for List {
     fn self_tokens(node: &Self) -> TokenStream {
-        let list_rules =
-            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
-
-        let item_rules =
-            generate_validators_inner(&node.item.validators, quote!(item), quote!(&mut item_ctx))
-                .map(|block| {
-                    let item_ident = format_ident!("__item");
-                    quote! {
-                        use ::icydb::traits::Collection;
-
-                        for (i, #item_ident) in self.iter().enumerate() {
-                            let item = #item_ident;
-                            let mut item_ctx = ::icydb::visitor::ScopedContext::new(
-                                ctx,
-                                ::icydb::visitor::PathSegment::Index(i),
-                            );
-                            #block
-                        }
-                    }
-                });
-
-        wrap_validate_self_fn(merge_rules(list_rules, item_rules))
+        collection_validate_self_tokens(&node.ty.validators, &node.item.validators)
     }
 }
 
@@ -180,12 +153,7 @@ impl ValidateAutoFn for Map {
 
 impl ValidateAutoFn for Newtype {
     fn self_tokens(node: &Self) -> TokenStream {
-        let type_rules =
-            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
-        let item_rules =
-            generate_validators_inner(&node.item.validators, quote!(&self.0), quote!(ctx));
-
-        wrap_validate_self_fn(merge_rules(type_rules, item_rules))
+        newtype_validate_self_tokens(node)
     }
 }
 
@@ -197,28 +165,7 @@ impl ValidateAutoFn for Newtype {
 
 impl ValidateAutoFn for Set {
     fn self_tokens(node: &Self) -> TokenStream {
-        let set_rules =
-            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
-
-        let item_rules =
-            generate_validators_inner(&node.item.validators, quote!(item), quote!(&mut item_ctx))
-                .map(|block| {
-                    let item_ident = format_ident!("__item");
-                    quote! {
-                        use ::icydb::traits::Collection;
-
-                        for (i, #item_ident) in self.iter().enumerate() {
-                            let item = #item_ident;
-                            let mut item_ctx = ::icydb::visitor::ScopedContext::new(
-                                ctx,
-                                ::icydb::visitor::PathSegment::Index(i),
-                            );
-                            #block
-                        }
-                    }
-                });
-
-        wrap_validate_self_fn(merge_rules(set_rules, item_rules))
+        collection_validate_self_tokens(&node.ty.validators, &node.item.validators)
     }
 }
 
@@ -235,6 +182,41 @@ fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenSt
         (None, y) => y,
         (Some(x), Some(y)) => Some(quote! { #x #y }),
     }
+}
+
+fn field_list_validate_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+    TraitStrategy::from_impl(field_list(def, fields))
+}
+
+// List and set item validators share the same indexed traversal shape.
+fn indexed_collection_item_rules(block: TokenStream) -> TokenStream {
+    let item_ident = format_ident!("__item");
+
+    quote! {
+        use ::icydb::traits::Collection;
+
+        for (i, #item_ident) in self.iter().enumerate() {
+            let item = #item_ident;
+            let mut item_ctx = ::icydb::visitor::ScopedContext::new(
+                ctx,
+                ::icydb::visitor::PathSegment::Index(i),
+            );
+            #block
+        }
+    }
+}
+
+fn collection_validate_self_tokens(
+    container_validators: &[TypeValidator],
+    item_validators: &[TypeValidator],
+) -> TokenStream {
+    let container_rules =
+        generate_validators_inner(container_validators, quote!(&self.0), quote!(ctx));
+    let item_rules =
+        generate_validators_inner(item_validators, quote!(item), quote!(&mut item_ctx))
+            .map(indexed_collection_item_rules);
+
+    wrap_validate_self_fn(merge_rules(container_rules, item_rules))
 }
 
 /// Field-level validators for Records / Entities
@@ -321,6 +303,13 @@ fn generate_validators_inner(
         .collect();
 
     Some(quote!(#(#exprs)*))
+}
+
+fn newtype_validate_self_tokens(node: &Newtype) -> TokenStream {
+    let type_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
+    let item_rules = generate_validators_inner(&node.item.validators, quote!(&self.0), quote!(ctx));
+
+    wrap_validate_self_fn(merge_rules(type_rules, item_rules))
 }
 
 /// Wrap inner tokens into `fn validate_self`

@@ -21,33 +21,46 @@ impl Imp<Entity> for EntityKindTrait {
         let relation_key_type_assertions = relation_key_type_assertions(node);
         let ident = node.def.ident();
 
-        let mut tokens = TokenStream::new();
-        tokens.extend(entity_key_impl_tokens(&ident, &pk_key_type));
-        tokens.extend(entity_identity_impl_tokens(node, pk_ident));
-        tokens.extend(entity_schema_impl_tokens(
+        Some(TraitStrategy::from_impl(entity_kind_strategy_tokens(
             node,
-            &resolved_entity_name,
+            pk_entry,
+            pk_ident,
+            &pk_key_type,
             store,
-        ));
-        tokens.extend(entity_placement_impl_tokens(&node.def, store));
-        tokens.extend(entity_kind_impl_tokens(&node.def, &resolved_entity_name));
-        tokens.extend(quote! {
-            #(#relation_key_type_assertions)*
-        });
-        tokens.extend(model_consistency_test_tokens(&ident));
-
-        // Unit primary keys model singleton entities.
-        if matches!(
-            pk_entry.value.item.target(),
-            ItemTarget::Primitive(Primitive::Unit)
-        ) {
-            tokens.extend(quote! {
-                impl ::icydb::traits::SingletonEntity for #ident {}
-            });
-        }
-
-        Some(TraitStrategy::from_impl(tokens))
+            &resolved_entity_name,
+            &relation_key_type_assertions,
+            &ident,
+        )))
     }
+}
+
+#[expect(clippy::too_many_arguments)]
+fn entity_kind_strategy_tokens(
+    node: &Entity,
+    pk_entry: &Field,
+    pk_ident: &Ident,
+    pk_key_type: &TokenStream,
+    store: &Path,
+    resolved_entity_name: &str,
+    relation_key_type_assertions: &[TokenStream],
+    ident: &Ident,
+) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    tokens.extend(entity_key_impl_tokens(ident, pk_key_type));
+    tokens.extend(entity_identity_impl_tokens(node, pk_ident));
+    tokens.extend(entity_schema_impl_tokens(node, resolved_entity_name, store));
+    tokens.extend(entity_placement_impl_tokens(&node.def, store));
+    tokens.extend(entity_kind_impl_tokens(&node.def, resolved_entity_name));
+    tokens.extend(quote! {
+        #(#relation_key_type_assertions)*
+    });
+    tokens.extend(model_consistency_test_tokens(ident));
+
+    if let Some(singleton) = singleton_entity_tokens(pk_entry, ident) {
+        tokens.extend(singleton);
+    }
+
+    tokens
 }
 
 fn entity_key_impl_tokens(ident: &Ident, pk_key_type: &TokenStream) -> TokenStream {
@@ -74,7 +87,6 @@ fn entity_schema_impl_tokens(
     resolved_entity_name: &str,
     store: &Path,
 ) -> TokenStream {
-    let field_refs: Vec<Ident> = node.fields.iter().map(Field::const_ident).collect();
     let indexes = node
         .indexes
         .iter()
@@ -84,9 +96,6 @@ fn entity_schema_impl_tokens(
 
     Implementor::new(&node.def, TraitKind::EntitySchema)
         .set_tokens(quote! {
-            const FIELDS: &'static [&'static str] = &[
-                #( Self::#field_refs.as_str() ),*
-            ];
             const INDEXES: &'static [&'static ::icydb::model::index::IndexModel] =
                 &[#(&#indexes),*];
             const MODEL: &'static ::icydb::model::entity::EntityModel =
@@ -127,6 +136,19 @@ fn entity_name_tokens(node: &Entity) -> TokenStream {
     }
 }
 
+fn singleton_entity_tokens(pk_entry: &Field, ident: &Ident) -> Option<TokenStream> {
+    if matches!(
+        pk_entry.value.item.target(),
+        ItemTarget::Primitive(Primitive::Unit)
+    ) {
+        Some(quote! {
+            impl ::icydb::traits::SingletonEntity for #ident {}
+        })
+    } else {
+        None
+    }
+}
+
 fn resolved_entity_name(node: &Entity) -> String {
     node.name
         .as_ref()
@@ -144,11 +166,12 @@ fn model_consistency_test_tokens(ident: &Ident) -> TokenStream {
             #[test]
             fn model_consistency() {
                 let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
-                let names = <#ident as ::icydb::traits::EntitySchema>::FIELDS;
 
-                assert_eq!(model.fields().len(), names.len());
-                for (field, name) in model.fields().iter().zip(names.iter()) {
-                    assert_eq!(field.name(), *name);
+                for field in model.fields() {
+                    assert!(
+                        !field.name().is_empty(),
+                        "generated runtime field names must not be empty",
+                    );
                 }
 
                 assert!(model

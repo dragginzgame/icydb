@@ -12,10 +12,7 @@ pub struct VisitableTrait {}
 
 impl Imp<Entity> for VisitableTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_list(
-            node.def(),
-            &node.fields,
-        )))
+        Some(field_list_visitable_strategy(node.def(), &node.fields))
     }
 }
 
@@ -46,27 +43,17 @@ impl Imp<Enum> for VisitableTrait {
 
 impl Imp<List> for VisitableTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let inner = quote! {
-            use ::icydb::traits::Collection;
-
-            for (i, v) in self.iter().enumerate() {
-                perform_visit(visitor, v, i);
-            }
-        };
-
+        let inner = immutable_collection_visit_tokens();
         let inner_mut = quote! {
             for (i, v) in self.0.iter_mut().enumerate() {
                 perform_visit_mut(visitor, v, i);
             }
         };
 
-        let q = quote_drives(&inner, &inner_mut);
-
-        let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+        Some(visitable_trait_strategy(
+            node.def(),
+            quote_drives(&inner, &inner_mut),
+        ))
     }
 }
 
@@ -129,10 +116,7 @@ impl Imp<Newtype> for VisitableTrait {
 
 impl Imp<Record> for VisitableTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_list(
-            node.def(),
-            &node.fields,
-        )))
+        Some(field_list_visitable_strategy(node.def(), &node.fields))
     }
 }
 
@@ -142,21 +126,12 @@ impl Imp<Record> for VisitableTrait {
 
 impl Imp<Set> for VisitableTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let inner = quote! {
-            use ::icydb::traits::Collection;
+        let inner = immutable_collection_visit_tokens();
 
-            for (i, v) in self.iter().enumerate() {
-                perform_visit(visitor, v, i);
-            }
-        };
-
-        let q = quote_drive(&inner); // Only immutable; mutating set entries can break hashing.
-
-        let tokens = Implementor::new(node.def(), TraitKind::Visitable)
-            .set_tokens(q)
-            .to_token_stream();
-
-        Some(TraitStrategy::from_impl(tokens))
+        Some(visitable_trait_strategy(
+            node.def(),
+            quote_drive(&inner), // Only immutable; mutating set entries can break hashing.
+        ))
     }
 }
 
@@ -278,6 +253,10 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
     }
 }
 
+fn field_list_visitable_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+    TraitStrategy::from_impl(field_list(def, fields))
+}
+
 // enum_variant
 fn enum_variant(variant: &EnumVariant) -> (TokenStream, TokenStream) {
     let ident = &variant.ident;
@@ -304,6 +283,24 @@ fn quote_drives(inner: &TokenStream, inner_mut: &TokenStream) -> TokenStream {
     quote! {
         #q
         #qm
+    }
+}
+
+fn visitable_trait_strategy(def: &Def, tokens: TokenStream) -> TraitStrategy {
+    let tokens = Implementor::new(def, TraitKind::Visitable)
+        .set_tokens(tokens)
+        .to_token_stream();
+
+    TraitStrategy::from_impl(tokens)
+}
+
+fn immutable_collection_visit_tokens() -> TokenStream {
+    quote! {
+        use ::icydb::traits::Collection;
+
+        for (i, v) in self.iter().enumerate() {
+            perform_visit(visitor, v, i);
+        }
     }
 }
 

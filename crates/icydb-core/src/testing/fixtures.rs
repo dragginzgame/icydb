@@ -174,11 +174,6 @@ macro_rules! test_entity {
                     $crate::model::field::FieldModel::new($field_name, $field_kind),
                 )+
             ];
-            const FIELD_NAMES: [&'static str;
-                $crate::test_entity!(@count $( $field_name ),+)
-            ] = [
-                $( $field_name, )+
-            ];
             const INDEXES_DEF: [&'static $crate::model::index::IndexModel;
                 $crate::test_entity!(@count $( $index ),*)
             ] = [
@@ -209,7 +204,6 @@ macro_rules! test_entity {
 
         impl $crate::traits::EntitySchema for $name {
             const MODEL: &'static $crate::model::entity::EntityModel = &Self::MODEL_DEF;
-            const FIELDS: &'static [&'static str] = &Self::FIELD_NAMES;
             const INDEXES: &'static [&'static $crate::model::index::IndexModel] =
                 &Self::INDEXES_DEF;
         }
@@ -259,11 +253,6 @@ macro_rules! test_entity_schema {
                     $crate::test_entity_schema!(@field_model $field_name, $field_kind $(, $field_decode)?),
                 )+
             ];
-            const TEST_FIELD_NAMES: [&'static str;
-                $crate::test_entity_schema!(@count $( $field_name ),+)
-            ] = [
-                $( $field_name, )+
-            ];
             const TEST_INDEXES_DEF: [&'static $crate::model::index::IndexModel;
                 $crate::test_entity_schema!(@count $( $index ),*)
             ] = [
@@ -294,7 +283,6 @@ macro_rules! test_entity_schema {
 
         impl $crate::traits::EntitySchema for $entity {
             const MODEL: &'static $crate::model::entity::EntityModel = &Self::TEST_MODEL_DEF;
-            const FIELDS: &'static [&'static str] = &Self::TEST_FIELD_NAMES;
             const INDEXES: &'static [&'static $crate::model::index::IndexModel] =
                 &Self::TEST_INDEXES_DEF;
         }
