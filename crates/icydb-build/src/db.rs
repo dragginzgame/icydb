@@ -234,20 +234,9 @@ fn sql_dispatch_type_tokens() -> TokenStream {
         ///
         #[derive(Clone, Copy, Debug)]
         pub struct SqlEntityDescriptor {
-            pub name: &'static str,
             pub schema: &'static ::icydb::model::entity::EntityModel,
             pub query: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
             pub explain: fn(&::icydb::__macro::LoweredSqlCommand) -> Result<SqlQueryResult, Error>,
-        }
-
-        ///
-        /// SqlEntityRoute
-        ///
-        /// One generated runtime route that resolves to one immutable entity descriptor.
-        ///
-        #[derive(Clone, Copy, Debug)]
-        pub struct SqlEntityRoute {
-            descriptor: &'static SqlEntityDescriptor,
         }
     }
 }
@@ -282,78 +271,30 @@ fn sql_dispatch_callback_tokens(canister_path: &syn::Path) -> TokenStream {
 
 fn sql_dispatch_route_impl_tokens() -> TokenStream {
     quote! {
-        impl SqlEntityRoute {
-            /// Resolve one runtime entity route from a parsed SQL statement.
-            pub fn from_statement_route(statement: &::icydb::db::SqlStatementRoute) -> Result<Self, Error> {
-                if statement.is_show_entities() {
-                    return Err(unsupported_entity_route_statement_error());
+        /// Resolve one descriptor from a parsed SQL statement.
+        fn from_statement_route(
+            statement: &::icydb::db::SqlStatementRoute,
+        ) -> Result<&'static SqlEntityDescriptor, Error> {
+            if statement.is_show_entities() {
+                return Err(unsupported_entity_route_statement_error());
+            }
+
+            let sql_entity = statement.entity();
+            from_entity_name(sql_entity)
+                .ok_or_else(|| unsupported_sql_entity_error(sql_entity))
+        }
+
+        /// Resolve one descriptor from one SQL entity identifier.
+        #[must_use]
+        fn from_entity_name(entity_name: &str) -> Option<&'static SqlEntityDescriptor> {
+            for descriptor in SQL_ENTITY_DESCRIPTORS {
+                if ::icydb::db::identifiers_tail_match(entity_name, descriptor.schema.name())
+                {
+                    return Some(descriptor);
                 }
-
-                let sql_entity = statement.entity();
-                Self::from_entity_name(sql_entity)
-                    .ok_or_else(|| unsupported_sql_entity_error(sql_entity))
             }
 
-            /// Resolve one runtime entity route from one SQL entity identifier.
-            #[must_use]
-            pub fn from_entity_name(entity_name: &str) -> Option<Self> {
-                for descriptor in SQL_ENTITY_DESCRIPTORS {
-                    if ::icydb::db::identifiers_tail_match(
-                        entity_name,
-                        descriptor.name,
-                    ) {
-                        return Some(Self { descriptor });
-                    }
-                }
-
-                None
-            }
-
-            /// Return this route's canonical entity name.
-            #[must_use]
-            pub const fn entity_name(self) -> &'static str {
-                self.descriptor.name
-            }
-
-            /// Return this route's primary-key field name.
-            #[must_use]
-            pub const fn primary_key_field(self) -> &'static str {
-                self.descriptor.schema.primary_key().name()
-            }
-
-            /// Execute one SQL statement for this concrete route.
-            pub fn execute_query(
-                self,
-                lowered: &::icydb::__macro::LoweredSqlCommand,
-            ) -> Result<SqlQueryResult, Error> {
-                (self.descriptor.query)(lowered)
-            }
-
-            /// Execute one already-lowered SQL explain statement for this concrete route.
-            pub fn execute_explain(
-                self,
-                lowered: &::icydb::__macro::LoweredSqlCommand,
-            ) -> Result<SqlQueryResult, Error> {
-                (self.descriptor.explain)(lowered)
-            }
-
-            /// Describe this route's schema using descriptor-owned model authority.
-            #[must_use]
-            pub fn describe_descriptor_model(self) -> ::icydb::db::EntitySchemaDescription {
-                db().describe_entity_model(self.descriptor.schema)
-            }
-
-            /// Return one stable index listing for this route's schema model.
-            #[must_use]
-            pub fn descriptor_index_names(self) -> Vec<String> {
-                db().show_indexes_for_model(self.descriptor.schema)
-            }
-
-            /// Return one stable column listing for this route's schema model.
-            #[must_use]
-            pub fn descriptor_column_descriptions(self) -> Vec<::icydb::db::EntityFieldDescription> {
-                db().show_columns_for_model(self.descriptor.schema)
-            }
+            None
         }
     }
 }
@@ -365,7 +306,7 @@ fn sql_dispatch_query_surface_tokens() -> TokenStream {
         pub fn entities() -> Vec<String> {
             SQL_ENTITY_DESCRIPTORS
                 .iter()
-                .map(|descriptor| descriptor.name.to_string())
+                .map(|descriptor| descriptor.schema.name().to_string())
                 .collect()
         }
 
@@ -399,18 +340,21 @@ fn sql_dispatch_query_surface_tokens() -> TokenStream {
             parsed: &::icydb::db::SqlParsedStatement,
             statement: &::icydb::db::SqlStatementRoute,
         ) -> Result<SqlQueryResult, Error> {
-            let route = SqlEntityRoute::from_statement_route(statement)?;
-            let prepared = db().prepare_sql_dispatch_parsed(parsed, route.entity_name())?;
-            let lowered =
-                db().lower_sql_dispatch_query_lane_prepared(&prepared, route.primary_key_field())?;
+            let descriptor = from_statement_route(statement)?;
+            let prepared =
+                db().prepare_sql_dispatch_parsed(parsed, descriptor.schema.name())?;
+            let lowered = db().lower_sql_dispatch_query_lane_prepared(
+                &prepared,
+                descriptor.schema.primary_key().name(),
+            )?;
             let result = if statement.is_explain() {
-                route.execute_explain(&lowered)
+                (descriptor.explain)(&lowered)
             } else {
-                route.execute_query(&lowered)
+                (descriptor.query)(&lowered)
             };
 
             if matches!(statement, ::icydb::db::SqlStatementRoute::Explain { .. }) {
-                return result.map_err(|err| explain_surface_error(sql, route, err));
+                return result.map_err(|err| explain_surface_error(sql, descriptor, err));
             }
 
             result
@@ -419,8 +363,8 @@ fn sql_dispatch_query_surface_tokens() -> TokenStream {
         fn describe_result_for_statement(
             statement: &::icydb::db::SqlStatementRoute,
         ) -> Result<SqlQueryResult, Error> {
-            let route = SqlEntityRoute::from_statement_route(statement)?;
-            let description = route.describe_descriptor_model();
+            let descriptor = from_statement_route(statement)?;
+            let description = db().describe_entity_model(descriptor.schema);
 
             Ok(SqlQueryResult::Describe(description))
         }
@@ -428,11 +372,11 @@ fn sql_dispatch_query_surface_tokens() -> TokenStream {
         fn show_indexes_result_for_statement(
             statement: &::icydb::db::SqlStatementRoute,
         ) -> Result<SqlQueryResult, Error> {
-            let route = SqlEntityRoute::from_statement_route(statement)?;
-            let indexes = route.descriptor_index_names();
+            let descriptor = from_statement_route(statement)?;
+            let indexes = db().show_indexes_for_model(descriptor.schema);
 
             Ok(SqlQueryResult::ShowIndexes {
-                entity: route.entity_name().to_string(),
+                entity: descriptor.schema.name().to_string(),
                 indexes,
             })
         }
@@ -440,11 +384,11 @@ fn sql_dispatch_query_surface_tokens() -> TokenStream {
         fn show_columns_result_for_statement(
             statement: &::icydb::db::SqlStatementRoute,
         ) -> Result<SqlQueryResult, Error> {
-            let route = SqlEntityRoute::from_statement_route(statement)?;
-            let columns = route.descriptor_column_descriptions();
+            let descriptor = from_statement_route(statement)?;
+            let columns = db().show_columns_for_model(descriptor.schema);
 
             Ok(SqlQueryResult::ShowColumns {
-                entity: route.entity_name().to_string(),
+                entity: descriptor.schema.name().to_string(),
                 columns,
             })
         }
@@ -479,7 +423,11 @@ fn sql_dispatch_error_tokens() -> TokenStream {
             )
         }
 
-        fn explain_surface_error(sql: &str, route: SqlEntityRoute, err: Error) -> Error {
+        fn explain_surface_error(
+            sql: &str,
+            descriptor: &'static SqlEntityDescriptor,
+            err: Error,
+        ) -> Error {
             if !matches!(
                 err.kind(),
                 ErrorKind::Query(QueryErrorKind::UnorderedPagination)
@@ -488,7 +436,10 @@ fn sql_dispatch_error_tokens() -> TokenStream {
             }
 
             let target_sql = ::icydb::db::sql::explain_target_sql(sql);
-            let suggestion = explain_order_hint_sql(target_sql, route.primary_key_field());
+            let suggestion = explain_order_hint_sql(
+                target_sql,
+                descriptor.schema.primary_key().name(),
+            );
             let message = format!(
                 "Cannot EXPLAIN this SQL statement.\n\nReason:\nThe wrapped query uses LIMIT or OFFSET without ORDER BY, so it is non-deterministic and not executable under IcyDB's ordering contract.\n\nSQL:\n{target_sql}\n\nHow to fix:\nAdd an explicit ORDER BY that produces a stable total order, for example:\n{suggestion}",
             );
@@ -526,7 +477,6 @@ fn sql_dispatch_error_tokens() -> TokenStream {
 fn sql_descriptor_entry_tokens(entity_ty: &syn::Path) -> TokenStream {
     quote! {
         SqlEntityDescriptor {
-            name: <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
             schema: <#entity_ty as ::icydb::traits::EntitySchema>::MODEL,
             query: sql_query_callback::<#entity_ty>,
             explain: sql_explain_callback::<#entity_ty>,

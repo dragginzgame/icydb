@@ -14,7 +14,7 @@ use crate::{
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue},
     types::EntityTag,
 };
 
@@ -64,7 +64,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     {
         Self::new(
             E::ENTITY_TAG,
-            <E as EntityIdentity>::ENTITY_NAME,
+            E::MODEL.name(),
             E::PATH,
             commit_schema_fingerprint_for_runtime_entity::<E>,
             prepare_row_commit_for_entity::<E>,

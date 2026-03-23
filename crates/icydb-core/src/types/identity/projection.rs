@@ -26,7 +26,7 @@
 //! in context.
 
 use crate::{
-    traits::{EntityIdentity, EntityKeyBytes},
+    traits::{EntityKey, EntityKeyBytes},
     types::Id,
 };
 use candid::CandidType;
@@ -100,7 +100,7 @@ impl fmt::Display for ProjectedIdentity {
 
 impl<E> Id<E>
 where
-    E: EntityIdentity,
+    E: EntityKey,
     E::Key: EntityKeyBytes,
 {
     /// Derive a deterministic, one-way external identifier from canonical key bytes.
@@ -127,7 +127,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::{EntityIdentity, EntityKey},
+        traits::EntityKey,
         types::{Id, Ulid},
     };
 
@@ -135,16 +135,10 @@ mod tests {
     impl EntityKey for VectorEntity {
         type Key = Ulid;
     }
-    impl EntityIdentity for VectorEntity {
-        const ENTITY_NAME: &'static str = "VectorEntity";
-    }
 
     struct OtherEntity;
     impl EntityKey for OtherEntity {
         type Key = Ulid;
-    }
-    impl EntityIdentity for OtherEntity {
-        const ENTITY_NAME: &'static str = "OtherEntity";
     }
 
     #[test]

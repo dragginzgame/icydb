@@ -201,7 +201,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(Self::map_sql_dispatch_result(
             result,
-            E::ENTITY_NAME.to_string(),
+            E::MODEL.name().to_string(),
         ))
     }
 
@@ -220,7 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(Self::map_sql_dispatch_result(
             result,
-            E::ENTITY_NAME.to_string(),
+            E::MODEL.name().to_string(),
         ))
     }
 
@@ -239,7 +239,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(Self::map_sql_dispatch_result(
             result,
-            E::ENTITY_NAME.to_string(),
+            E::MODEL.name().to_string(),
         ))
     }
 
@@ -272,7 +272,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(Self::map_sql_dispatch_result(
             result,
-            E::ENTITY_NAME.to_string(),
+            E::MODEL.name().to_string(),
         ))
     }
 
@@ -289,7 +289,7 @@ impl<C: CanisterKind> DbSession<C> {
         let explain = self.inner.explain_lowered_sql_dispatch::<E>(lowered)?;
 
         Ok(SqlQueryResult::Explain {
-            entity: E::ENTITY_NAME.to_string(),
+            entity: E::MODEL.name().to_string(),
             explain,
         })
     }

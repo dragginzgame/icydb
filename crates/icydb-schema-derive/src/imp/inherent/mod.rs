@@ -1,12 +1,10 @@
 mod collection;
 mod entity;
 mod model;
-mod relation;
 
 use crate::{
-    imp::inherent::{
-        model::{model_kind_from_item, model_kind_from_value, model_storage_decode_from_value},
-        relation::relation_accessor_tokens,
+    imp::inherent::model::{
+        model_kind_from_item, model_kind_from_value, model_storage_decode_from_value,
     },
     prelude::*,
 };
@@ -24,23 +22,27 @@ pub struct InherentTrait {}
 impl Imp<Enum> for InherentTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let variants = enum_variant_model_tokens(node);
-        let tokens = quote! {
-            pub const VARIANTS: &'static [::icydb::model::field::EnumVariantModel] = &[
+        let inherent_tokens = quote! {
+            const VARIANTS: &'static [::icydb::model::field::EnumVariantModel] = &[
                 #(#variants),*
             ];
-            pub const KIND: ::icydb::model::field::FieldKind =
+        };
+        let meta_impl = field_type_meta_impl_tokens(
+            node.def(),
+            quote! {
                 ::icydb::model::field::FieldKind::Enum {
                     path: Self::PATH,
                     variants: Self::VARIANTS,
-                };
-            pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                ::icydb::model::field::FieldStorageDecode::ByKind;
-        };
+                }
+            },
+            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
+        );
+        let inherent_impl = inherent_impl_tokens(node.def(), inherent_tokens);
 
-        Some(TraitStrategy::from_impl(inherent_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(TraitStrategy::from_impl(quote! {
+            #meta_impl
+            #inherent_impl
+        }))
     }
 }
 
@@ -103,40 +105,13 @@ fn enum_payload_supports_structural_descriptor(value: &Value) -> bool {
 impl Imp<Newtype> for InherentTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let kind = model_kind_from_item(&node.item);
-        let arithmetic_tokens = newtype_arithmetic_tokens(node);
-        let tokens = quote! {
-            pub const KIND: ::icydb::model::field::FieldKind = #kind;
-            pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                ::icydb::model::field::FieldStorageDecode::ByKind;
-            #arithmetic_tokens
-        };
+        let _ = node;
 
-        Some(TraitStrategy::from_impl(inherent_impl_tokens(
+        Some(TraitStrategy::from_impl(field_type_meta_impl_tokens(
             node.def(),
-            tokens,
+            kind,
+            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
         )))
-    }
-}
-
-fn newtype_arithmetic_tokens(node: &Newtype) -> TokenStream {
-    if let Some(primitive) = node.primitive
-        && primitive.supports_arithmetic()
-    {
-        quote! {
-            /// Saturating addition.
-            #[must_use]
-            pub fn saturating_add(self, rhs: Self) -> Self {
-                Self(self.0.saturating_add(rhs.0))
-            }
-
-            /// Saturating subtraction.
-            #[must_use]
-            pub fn saturating_sub(self, rhs: Self) -> Self {
-                Self(self.0.saturating_sub(rhs.0))
-            }
-        }
-    } else {
-        TokenStream::new()
     }
 }
 
@@ -146,14 +121,10 @@ fn newtype_arithmetic_tokens(node: &Newtype) -> TokenStream {
 
 impl Imp<Record> for InherentTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        let relation_accessors = relation_accessor_tokens(node.fields.iter());
-        let tokens = structured_inherent_tokens(quote! {
-            #(#relation_accessors)*
-        });
-
-        Some(TraitStrategy::from_impl(inherent_impl_tokens(
+        Some(TraitStrategy::from_impl(field_type_meta_impl_tokens(
             node.def(),
-            tokens,
+            quote!(::icydb::model::field::FieldKind::Structured { queryable: false }),
+            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
         )))
     }
 }
@@ -164,25 +135,32 @@ impl Imp<Record> for InherentTrait {
 
 impl Imp<Tuple> for InherentTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(inherent_impl_tokens(
+        Some(TraitStrategy::from_impl(field_type_meta_impl_tokens(
             node.def(),
-            structured_inherent_tokens(TokenStream::new()),
+            quote!(::icydb::model::field::FieldKind::Structured { queryable: false }),
+            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
         )))
-    }
-}
-
-fn structured_inherent_tokens(extra_tokens: TokenStream) -> TokenStream {
-    quote! {
-        pub const KIND: ::icydb::model::field::FieldKind =
-            ::icydb::model::field::FieldKind::Structured { queryable: false };
-        pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-            ::icydb::model::field::FieldStorageDecode::ByKind;
-        #extra_tokens
     }
 }
 
 fn inherent_impl_tokens(def: &Def, tokens: TokenStream) -> TokenStream {
     Implementor::new(def, TraitKind::Inherent)
         .set_tokens(tokens)
+        .to_token_stream()
+}
+
+// Emit the shared type-metadata impl so generated model assembly reads through
+// one trait boundary instead of per-type inherent constants.
+fn field_type_meta_impl_tokens(
+    def: &Def,
+    kind: TokenStream,
+    storage_decode: TokenStream,
+) -> TokenStream {
+    Implementor::new(def, TraitKind::FieldTypeMeta)
+        .set_tokens(quote! {
+            const KIND: ::icydb::model::field::FieldKind = #kind;
+            const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                #storage_decode;
+        })
         .to_token_stream()
 }

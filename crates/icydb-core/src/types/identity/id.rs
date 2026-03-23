@@ -5,8 +5,8 @@
 
 use crate::{
     traits::{
-        EntityIdentity, EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{GenerateKey, Subaccount},
     value::Value,
@@ -125,7 +125,7 @@ where
 
 impl<E> Id<E>
 where
-    E: EntityIdentity,
+    E: EntityKey,
     E::Key: EntityKeyBytes,
 {
     /// Derive the ledger subaccount for this identity.
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn subaccount_is_deterministic_for_same_id() {
         use crate::{
-            traits::{EntityIdentity, EntityKey},
+            traits::EntityKey,
             types::{Id, Subaccount},
         };
 
@@ -366,10 +366,6 @@ mod tests {
 
         impl EntityKey for TestEntity {
             type Key = u64;
-        }
-
-        impl EntityIdentity for TestEntity {
-            const ENTITY_NAME: &'static str = "TestEntity";
         }
 
         let id = Id::<TestEntity>::from_key(42);

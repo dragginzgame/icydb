@@ -45,7 +45,7 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
     testing::test_memory,
-    traits::{EntityIdentity, EntityKind, EntityValue, Path},
+    traits::{EntityKind, EntityValue, Path},
     types::{Date, Duration, Timestamp, Ulid},
     value::Value,
 };
@@ -503,7 +503,7 @@ thread_local! {
 static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &[
     EntityRuntimeHooks::new(
         RelationTargetEntity::ENTITY_TAG,
-        RelationTargetEntity::ENTITY_NAME,
+        <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
         RelationTargetEntity::PATH,
         commit_schema_fingerprint_for_entity::<RelationTargetEntity>,
         prepare_row_commit_for_entity::<RelationTargetEntity>,
@@ -511,7 +511,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
     ),
     EntityRuntimeHooks::new(
         RelationSourceEntity::ENTITY_TAG,
-        RelationSourceEntity::ENTITY_NAME,
+        <RelationSourceEntity as crate::traits::EntitySchema>::MODEL.name(),
         RelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<RelationSourceEntity>,
         prepare_row_commit_for_entity::<RelationSourceEntity>,
@@ -519,7 +519,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
     ),
     EntityRuntimeHooks::new(
         WeakSingleRelationSourceEntity::ENTITY_TAG,
-        WeakSingleRelationSourceEntity::ENTITY_NAME,
+        <WeakSingleRelationSourceEntity as crate::traits::EntitySchema>::MODEL.name(),
         WeakSingleRelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<WeakSingleRelationSourceEntity>,
         prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
@@ -527,7 +527,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
     ),
     EntityRuntimeHooks::new(
         WeakOptionalRelationSourceEntity::ENTITY_TAG,
-        WeakOptionalRelationSourceEntity::ENTITY_NAME,
+        <WeakOptionalRelationSourceEntity as crate::traits::EntitySchema>::MODEL.name(),
         WeakOptionalRelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<WeakOptionalRelationSourceEntity>,
         prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
@@ -535,7 +535,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
     ),
     EntityRuntimeHooks::new(
         WeakListRelationSourceEntity::ENTITY_TAG,
-        WeakListRelationSourceEntity::ENTITY_NAME,
+        <WeakListRelationSourceEntity as crate::traits::EntitySchema>::MODEL.name(),
         WeakListRelationSourceEntity::PATH,
         commit_schema_fingerprint_for_entity::<WeakListRelationSourceEntity>,
         prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
@@ -591,7 +591,8 @@ crate::test_entity_schema! {
             "target",
             FieldKind::Relation {
                 target_path: RelationTargetEntity::PATH,
-                target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_entity_name:
+                    <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
                 target_entity_tag: RelationTargetEntity::ENTITY_TAG,
                 target_store_path: RelationTargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
@@ -627,7 +628,8 @@ crate::test_entity_schema! {
             "target",
             FieldKind::Relation {
                 target_path: RelationTargetEntity::PATH,
-                target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_entity_name:
+                    <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
                 target_entity_tag: RelationTargetEntity::ENTITY_TAG,
                 target_store_path: RelationTargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
@@ -663,7 +665,8 @@ crate::test_entity_schema! {
             "target",
             FieldKind::Relation {
                 target_path: RelationTargetEntity::PATH,
-                target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_entity_name:
+                    <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
                 target_entity_tag: RelationTargetEntity::ENTITY_TAG,
                 target_store_path: RelationTargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
@@ -688,7 +691,7 @@ struct WeakListRelationSourceEntity {
 
 static REL_WEAK_LIST_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: RelationTargetEntity::PATH,
-    target_entity_name: RelationTargetEntity::ENTITY_NAME,
+    target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
     target_entity_tag: RelationTargetEntity::ENTITY_TAG,
     target_store_path: RelationTargetStore::PATH,
     key_kind: &FieldKind::Ulid,

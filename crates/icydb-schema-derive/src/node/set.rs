@@ -57,6 +57,8 @@ impl HasTraits for Set {
         let mut traits = self.traits.with_type_traits().build();
         traits.extend(vec![
             TraitKind::Collection,
+            TraitKind::Deref,
+            TraitKind::DerefMut,
             TraitKind::FieldValue,
             TraitKind::Inherent,
         ]);

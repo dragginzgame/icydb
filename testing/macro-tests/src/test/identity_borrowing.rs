@@ -24,8 +24,13 @@ mod tests {
     }
 
     #[test]
-    fn relation_accessor_and_identity_keep_typed_ids() {
-        let _: fn(&UserProjects) -> Id<User> = UserProjects::user_id;
+    fn identity_keeps_typed_ids_without_generated_relation_accessors() {
         let _: fn(&UserProjects) -> Id<UserProjects> = UserProjects::id;
+
+        let row = UserProjects {
+            user_id: Ulid::from_parts(7, 1),
+            ..Default::default()
+        };
+        let _: Ulid = row.user_id;
     }
 }

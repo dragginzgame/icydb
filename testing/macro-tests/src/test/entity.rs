@@ -8,7 +8,7 @@ pub use icydb_testing_fixtures::macro_test::entity::*;
 mod tests {
     use super::*;
     use icydb::{
-        traits::{EntityIdentity, EntityKey},
+        traits::{EntityKey, EntitySchema},
         types::Ulid,
     };
 
@@ -25,6 +25,6 @@ mod tests {
 
     #[test]
     fn entity_name_defaults_and_override() {
-        assert_eq!(<RenamedEntity as EntityIdentity>::ENTITY_NAME, "Potato");
+        assert_eq!(<RenamedEntity as EntitySchema>::MODEL.name(), "Potato");
     }
 }

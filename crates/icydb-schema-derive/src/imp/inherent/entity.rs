@@ -1,8 +1,7 @@
 use crate::{
-    imp::inherent::{InherentTrait, model::model_field_expr, relation::relation_accessor_tokens},
+    imp::inherent::{InherentTrait, model::model_field_expr},
     prelude::*,
 };
-use canic_utils::case::{Case, Casing};
 use syn::LitInt;
 
 ///
@@ -20,33 +19,13 @@ impl Imp<Entity> for InherentTrait {
 }
 
 fn entity_inherent_tokens(node: &Entity) -> TokenStream {
-    let field_consts = field_const_tokens(node);
     let model_storage = model_storage_tokens(node);
     let entity_model = entity_model_tokens(node);
-    let relation_accessors = relation_accessor_tokens(node.fields.iter());
 
     quote! {
-        #(#field_consts)*
         #model_storage
         #entity_model
-        #(#relation_accessors)*
     }
-}
-
-fn field_const_tokens(node: &Entity) -> Vec<TokenStream> {
-    node.fields
-        .iter()
-        .map(|field| {
-            let constant = field.ident.to_string().to_case(Case::Constant);
-            let ident = format_ident!("{constant}");
-            let name_str = field.ident.to_string();
-
-            quote! {
-                pub const #ident: ::icydb::db::query::FieldRef =
-                    ::icydb::db::query::FieldRef::new(#name_str);
-            }
-        })
-        .collect()
 }
 
 fn model_storage_tokens(node: &Entity) -> TokenStream {
@@ -79,6 +58,10 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
 }
 
 fn entity_model_tokens(node: &Entity) -> TokenStream {
+    let entity_name = node
+        .name
+        .as_ref()
+        .map_or_else(|| node.def.ident().to_string(), LitStr::value);
     let pk_index = node
         .fields
         .iter()
@@ -93,7 +76,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
         const #model_ident: ::icydb::model::entity::EntityModel =
             ::icydb::model::entity::EntityModel::new(
                 <Self as ::icydb::traits::Path>::PATH,
-                <Self as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+                #entity_name,
                 &Self::#model_fields_ident[#pk_index],
                 &Self::#model_fields_ident,
                 &Self::#indexes_ident,

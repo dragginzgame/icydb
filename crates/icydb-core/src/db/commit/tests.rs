@@ -27,7 +27,7 @@ use crate::{
     },
     serialize::serialize,
     testing::test_memory,
-    traits::{EntityIdentity, EntityKind, EntitySchema, FieldValue, Path},
+    traits::{EntityKind, EntitySchema, FieldValue, Path},
     types::Ulid,
     value::{Value, ValueEnum},
 };
@@ -365,7 +365,7 @@ crate::test_entity_schema! {
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        RecoveryTestEntity::ENTITY_NAME,
+        <RecoveryTestEntity as EntitySchema>::MODEL.name(),
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity::<RecoveryTestEntity>,
@@ -373,7 +373,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryIndexedEntity::ENTITY_TAG,
-        RecoveryIndexedEntity::ENTITY_NAME,
+        <RecoveryIndexedEntity as EntitySchema>::MODEL.name(),
         RecoveryIndexedEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
@@ -381,7 +381,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryUniqueEntity::ENTITY_TAG,
-        RecoveryUniqueEntity::ENTITY_NAME,
+        <RecoveryUniqueEntity as EntitySchema>::MODEL.name(),
         RecoveryUniqueEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>,
         prepare_row_commit_for_entity::<RecoveryUniqueEntity>,
@@ -389,7 +389,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryUniqueCasefoldEntity::ENTITY_TAG,
-        RecoveryUniqueCasefoldEntity::ENTITY_NAME,
+        <RecoveryUniqueCasefoldEntity as EntitySchema>::MODEL.name(),
         RecoveryUniqueCasefoldEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>,
         prepare_row_commit_for_entity::<RecoveryUniqueCasefoldEntity>,
@@ -397,7 +397,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryUpperExpressionEntity::ENTITY_TAG,
-        RecoveryUpperExpressionEntity::ENTITY_NAME,
+        <RecoveryUpperExpressionEntity as EntitySchema>::MODEL.name(),
         RecoveryUpperExpressionEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryUpperExpressionEntity>,
         prepare_row_commit_for_entity::<RecoveryUpperExpressionEntity>,
@@ -405,7 +405,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalEntity::ENTITY_TAG,
-        RecoveryConditionalEntity::ENTITY_NAME,
+        <RecoveryConditionalEntity as EntitySchema>::MODEL.name(),
         RecoveryConditionalEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>,
         prepare_row_commit_for_entity::<RecoveryConditionalEntity>,
@@ -413,7 +413,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueEntity::ENTITY_TAG,
-        RecoveryConditionalUniqueEntity::ENTITY_NAME,
+        <RecoveryConditionalUniqueEntity as EntitySchema>::MODEL.name(),
         RecoveryConditionalUniqueEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>,
         prepare_row_commit_for_entity::<RecoveryConditionalUniqueEntity>,
@@ -421,7 +421,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueCasefoldEntity::ENTITY_TAG,
-        RecoveryConditionalUniqueCasefoldEntity::ENTITY_NAME,
+        <RecoveryConditionalUniqueCasefoldEntity as EntitySchema>::MODEL.name(),
         RecoveryConditionalUniqueCasefoldEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueCasefoldEntity>,
         prepare_row_commit_for_entity::<RecoveryConditionalUniqueCasefoldEntity>,
@@ -429,7 +429,7 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueEnumEntity::ENTITY_TAG,
-        RecoveryConditionalUniqueEnumEntity::ENTITY_NAME,
+        <RecoveryConditionalUniqueEnumEntity as EntitySchema>::MODEL.name(),
         RecoveryConditionalUniqueEnumEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEnumEntity>,
         prepare_row_commit_for_entity::<RecoveryConditionalUniqueEnumEntity>,
@@ -454,7 +454,7 @@ static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY
 static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] =
     &[EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        RecoveryTestEntity::ENTITY_NAME,
+        <RecoveryTestEntity as EntitySchema>::MODEL.name(),
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
@@ -467,7 +467,7 @@ static MISWIRED_DB: Db<RecoveryTestCanister> =
 static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        RecoveryTestEntity::ENTITY_NAME,
+        <RecoveryTestEntity as EntitySchema>::MODEL.name(),
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity::<RecoveryTestEntity>,
@@ -475,7 +475,7 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
     ),
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        RecoveryTestEntity::ENTITY_NAME,
+        <RecoveryTestEntity as EntitySchema>::MODEL.name(),
         RecoveryIndexedEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
@@ -486,7 +486,7 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
 static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_TAG,
-        RecoveryTestEntity::ENTITY_NAME,
+        <RecoveryTestEntity as EntitySchema>::MODEL.name(),
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity::<RecoveryTestEntity>,
@@ -494,7 +494,7 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
     ),
     EntityRuntimeHooks::new(
         RecoveryIndexedEntity::ENTITY_TAG,
-        RecoveryIndexedEntity::ENTITY_NAME,
+        <RecoveryIndexedEntity as EntitySchema>::MODEL.name(),
         RecoveryTestEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,

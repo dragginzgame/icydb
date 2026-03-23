@@ -24,7 +24,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     model::field::FieldKind,
     testing::test_memory,
-    traits::{EntityIdentity, EntityKind, Path},
+    traits::{EntityKind, Path},
     types::Ulid,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -82,7 +82,7 @@ crate::test_entity_schema! {
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<MigrationTestCanister>] =
     &[EntityRuntimeHooks::new(
         MigrationEntity::ENTITY_TAG,
-        MigrationEntity::ENTITY_NAME,
+        <MigrationEntity as crate::traits::EntitySchema>::MODEL.name(),
         MigrationEntity::PATH,
         commit_schema_fingerprint_for_entity::<MigrationEntity>,
         prepare_row_commit_for_entity::<MigrationEntity>,

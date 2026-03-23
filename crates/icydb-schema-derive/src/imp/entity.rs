@@ -43,7 +43,6 @@ fn entity_kind_strategy_tokens(
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
     tokens.extend(entity_key_impl_tokens(ident, pk_key_type));
-    tokens.extend(entity_identity_impl_tokens(node));
     tokens.extend(entity_schema_impl_tokens(node, resolved_entity_name, store));
     tokens.extend(entity_placement_impl_tokens(&node.def, store));
     tokens.extend(entity_kind_impl_tokens(&node.def, resolved_entity_name));
@@ -65,16 +64,6 @@ fn entity_key_impl_tokens(ident: &Ident, pk_key_type: &TokenStream) -> TokenStre
             type Key = #pk_key_type;
         }
     }
-}
-
-fn entity_identity_impl_tokens(node: &Entity) -> TokenStream {
-    let entity_name = entity_name_tokens(node);
-
-    Implementor::new(&node.def, TraitKind::EntityIdentity)
-        .set_tokens(quote! {
-            const ENTITY_NAME: &'static str = #entity_name;
-        })
-        .to_token_stream()
 }
 
 fn entity_schema_impl_tokens(
@@ -111,15 +100,6 @@ fn entity_kind_impl_tokens(def: &Def, resolved_entity_name: &str) -> TokenStream
             };
         })
         .to_token_stream()
-}
-
-fn entity_name_tokens(node: &Entity) -> TokenStream {
-    if let Some(name) = &node.name {
-        quote!(#name)
-    } else {
-        let ident = node.def.ident();
-        quote!(stringify!(#ident))
-    }
 }
 
 fn singleton_entity_tokens(pk_entry: &Field, ident: &Ident) -> Option<TokenStream> {

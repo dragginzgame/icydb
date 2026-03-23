@@ -16,9 +16,9 @@ mod wire;
 mod tests;
 
 use crate::{
-    model::field::FieldStorageDecode,
+    model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
-    traits::{EnumValue, FieldValue, NumFromPrimitive, Repr},
+    traits::{EnumValue, FieldTypeMeta, FieldValue, NumFromPrimitive, Repr},
     types::*,
 };
 use candid::CandidType;
@@ -185,8 +185,9 @@ pub enum Value {
     Unit,
 }
 
-impl Value {
-    pub const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+impl FieldTypeMeta for Value {
+    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
 // Local helpers to expand the scalar registry into match arms.

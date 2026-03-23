@@ -12,17 +12,11 @@ use crate::{
 
 impl Imp<List> for InherentTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let item = node.item.type_expr();
         let item_kind = model_kind_from_item(&node.item);
-        let tokens = collection_inherent_tokens(
-            quote!(::icydb::model::field::FieldKind::List(&#item_kind)),
-            list_method_tokens(&item),
-        );
+        let kind = quote!(::icydb::model::field::FieldKind::List(&#item_kind));
+        let meta_impl = collection_field_type_meta_impl_tokens(node.def(), kind);
 
-        Some(TraitStrategy::from_impl(collection_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(TraitStrategy::from_impl(meta_impl))
     }
 }
 
@@ -32,17 +26,11 @@ impl Imp<List> for InherentTrait {
 
 impl Imp<Set> for InherentTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let item = node.item.type_expr();
         let item_kind = model_kind_from_item(&node.item);
-        let tokens = collection_inherent_tokens(
-            quote!(::icydb::model::field::FieldKind::Set(&#item_kind)),
-            set_method_tokens(&item),
-        );
+        let kind = quote!(::icydb::model::field::FieldKind::Set(&#item_kind));
+        let meta_impl = collection_field_type_meta_impl_tokens(node.def(), kind);
 
-        Some(TraitStrategy::from_impl(collection_impl_tokens(
-            node.def(),
-            tokens,
-        )))
+        Some(TraitStrategy::from_impl(meta_impl))
     }
 }
 
@@ -54,116 +42,26 @@ impl Imp<Map> for InherentTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let key_kind = model_kind_from_item(&node.key);
         let value_kind = model_kind_from_nested_value(&node.value);
-        let key = node.key.type_expr();
-        let value = node.value.type_expr();
-        let tokens = collection_inherent_tokens(
-            quote! {
-                ::icydb::model::field::FieldKind::Map {
-                    key: &#key_kind,
-                    value: &#value_kind,
-                }
-            },
-            map_method_tokens(&key, &value),
-        );
-
-        Some(TraitStrategy::from_impl(collection_impl_tokens(
-            node.def(),
-            tokens,
-        )))
-    }
-}
-
-// Emit the shared inherent model constants for collection wrappers and append
-// the collection-specific convenience methods afterward.
-fn collection_inherent_tokens(kind: TokenStream, methods: TokenStream) -> TokenStream {
-    quote! {
-        pub const KIND: ::icydb::model::field::FieldKind = #kind;
-        pub const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-            ::icydb::model::field::FieldStorageDecode::ByKind;
-        #methods
-    }
-}
-
-// Keep the impl wrapping shape identical across list/set/map inherent helpers.
-fn collection_impl_tokens(def: &Def, tokens: TokenStream) -> TokenStream {
-    Implementor::new(def, TraitKind::Inherent)
-        .set_tokens(tokens)
-        .to_token_stream()
-}
-
-fn list_method_tokens(item: &TokenStream) -> TokenStream {
-    quote! {
-        /// Appends an item to the list.
-        pub fn push(&mut self, value: #item) {
-            self.0.push(value);
-        }
-
-        /// Removes and returns the last item, if any.
-        pub fn pop(&mut self) -> Option<#item> {
-            self.0.pop()
-        }
-
-        /// Inserts an item at `index`, clamping out-of-bounds indices to the tail.
-        pub fn insert(&mut self, index: usize, value: #item) {
-            let idx = index.min(self.0.len());
-            self.0.insert(idx, value);
-        }
-
-        /// Removes and returns the item at `index` if it exists.
-        pub fn remove(&mut self, index: usize) -> Option<#item> {
-            if index < self.0.len() {
-                Some(self.0.remove(index))
-            } else {
-                None
+        let kind = quote! {
+            ::icydb::model::field::FieldKind::Map {
+                key: &#key_kind,
+                value: &#value_kind,
             }
-        }
+        };
+        let meta_impl = collection_field_type_meta_impl_tokens(node.def(), kind);
 
-        /// Clears all items from the list.
-        pub fn clear(&mut self) {
-            self.0.clear();
-        }
+        Some(TraitStrategy::from_impl(meta_impl))
     }
 }
 
-fn set_method_tokens(item: &TokenStream) -> TokenStream {
-    quote! {
-        /// Inserts a value into the set. Returns true if it was newly inserted.
-        pub fn insert(&mut self, value: #item) -> bool {
-            self.0.insert(value)
-        }
-
-        /// Removes a value from the set. Returns true if it was present.
-        pub fn remove(&mut self, value: &#item) -> bool {
-            self.0.remove(value)
-        }
-
-        /// Clears all values from the set.
-        pub fn clear(&mut self) {
-            self.0.clear();
-        }
-    }
-}
-
-fn map_method_tokens(key: &TokenStream, value: &TokenStream) -> TokenStream {
-    quote! {
-        /// Returns a reference to the value for `key`, if present.
-        pub fn get(&self, key: &#key) -> Option<&#value> {
-            self.0.get(key)
-        }
-
-        /// Inserts a key/value pair, returning the previous value if any.
-        pub fn insert(&mut self, key: #key, value: #value) -> Option<#value> {
-            self.0.insert(key, value)
-        }
-
-        /// Removes the value for `key`, returning it if present.
-        pub fn remove(&mut self, key: &#key) -> Option<#value> {
-            self.0.remove(key)
-        }
-
-        /// Clears all entries from the map.
-        pub fn clear(&mut self) {
-            self.0.clear();
-        }
-    }
+// Collection wrappers share one static metadata contract even though their
+// runtime behavior is now owned by the underlying collection itself.
+fn collection_field_type_meta_impl_tokens(def: &Def, kind: TokenStream) -> TokenStream {
+    Implementor::new(def, TraitKind::FieldTypeMeta)
+        .set_tokens(quote! {
+            const KIND: ::icydb::model::field::FieldKind = #kind;
+            const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                ::icydb::model::field::FieldStorageDecode::ByKind;
+        })
+        .to_token_stream()
 }

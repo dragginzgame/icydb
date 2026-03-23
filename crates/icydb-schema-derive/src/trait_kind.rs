@@ -32,6 +32,8 @@ pub enum TraitKind {
     Debug,
     Default,
     Deserialize,
+    Deref,
+    DerefMut,
     Display,
     Eq,
     Hash,
@@ -55,10 +57,10 @@ pub enum TraitKind {
     // kind
     CanisterKind,
     StoreKind,
-    EntityIdentity,
     EntitySchema,
     EntityPlacement,
     EntityKind,
+    FieldTypeMeta,
 
     // value
     EntityValue,
@@ -129,6 +131,8 @@ impl TraitKind {
             Self::Copy => Some(quote!(Copy)),
             Self::Debug => Some(quote!(Debug)),
             Self::Default => Some(quote!(Default)),
+            Self::Deref => Some(quote!(::icydb::__reexports::derive_more::Deref)),
+            Self::DerefMut => Some(quote!(::icydb::__reexports::derive_more::DerefMut)),
             Self::Deserialize => Some(quote!(::icydb::__reexports::serde::Deserialize)),
             Self::Display => Some(quote!(::icydb::__reexports::icydb_derive::Display)),
             Self::Div => Some(quote!(::icydb::__reexports::icydb_derive::Div)),

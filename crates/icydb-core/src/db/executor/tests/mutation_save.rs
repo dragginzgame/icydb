@@ -31,7 +31,7 @@ use crate::{
     },
     serialize::serialize,
     testing::test_memory,
-    traits::{EntityIdentity, EntityKind, Path},
+    traits::{EntityKind, Path},
     types::{Decimal, Ulid},
     value::Value,
 };
@@ -158,7 +158,8 @@ crate::test_entity_schema! {
             "target",
             FieldKind::Relation {
                 target_path: TargetEntity::PATH,
-                target_entity_name: TargetEntity::ENTITY_NAME,
+                target_entity_name:
+                    <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
                 target_entity_tag: TargetEntity::ENTITY_TAG,
                 target_store_path: TargetStore::PATH,
                 key_kind: &FieldKind::Ulid,
@@ -219,7 +220,7 @@ struct SourceSetEntity {
 
 static SOURCE_SET_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: TargetEntity::PATH,
-    target_entity_name: TargetEntity::ENTITY_NAME,
+    target_entity_name: <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
     target_entity_tag: TargetEntity::ENTITY_TAG,
     target_store_path: TargetStore::PATH,
     key_kind: &FieldKind::Ulid,

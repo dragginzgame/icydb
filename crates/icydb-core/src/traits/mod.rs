@@ -10,6 +10,7 @@ mod atomic;
 mod visitor;
 
 use crate::{
+    model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
     types::{EntityTag, Id},
     value::ValueEnum,
@@ -143,29 +144,15 @@ impl EntityKeyBytes for () {
 }
 
 ///
-/// EntityIdentity
-///
-/// Stable external identity metadata about an entity.
-///
-/// This trait names the externally visible entity identity only.
-/// Primary-key field authority lives on `EntitySchema::MODEL`.
-/// These constants do not imply trust, ownership, authorization, or existence.
-///
-
-pub trait EntityIdentity: EntityKey {
-    const ENTITY_NAME: &'static str;
-}
-
-///
 /// EntitySchema
 ///
 /// Declared runtime schema facts for an entity.
 ///
-/// `MODEL` is the sole runtime authority for field, primary-key, and index
-/// metadata consumed by planning and execution.
+/// `MODEL` is the sole runtime authority for entity name, field, primary-key,
+/// and index metadata consumed by planning and execution.
 ///
 
-pub trait EntitySchema: EntityIdentity {
+pub trait EntitySchema: EntityKey {
     const MODEL: &'static EntityModel;
 }
 
@@ -217,7 +204,7 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {
 /// The returned `Id<Self>` is a public identifier, not proof of authority.
 ///
 
-pub trait EntityValue: EntityIdentity + FieldProjection + Sized {
+pub trait EntityValue: EntityKey + FieldProjection + Sized {
     fn id(&self) -> Id<Self>;
 }
 
@@ -259,6 +246,22 @@ impl<T> TypeKind for T where
 {
 }
 
+///
+/// FieldTypeMeta
+///
+/// Static runtime field metadata for one schema-facing value type.
+/// This is the single authority for generated field kind and storage-decode
+/// metadata, so callers do not need per-type inherent constants.
+///
+
+pub trait FieldTypeMeta {
+    /// Semantic field kind used for runtime planning and validation.
+    const KIND: FieldKind;
+
+    /// Persisted decode contract used by row and payload decoding.
+    const STORAGE_DECODE: FieldStorageDecode;
+}
+
 /// ============================================================================
 /// QUERY VALUE BOUNDARIES
 /// ============================================================================
@@ -267,7 +270,8 @@ impl<T> TypeKind for T where
 /// Collection
 ///
 /// Explicit iteration contract for list/set wrapper types.
-/// Avoids implicit deref-based access to inner collections.
+/// Keeps generic collection code on one stable boundary even when concrete
+/// wrapper types opt into direct container ergonomics.
 ///
 
 pub trait Collection {
@@ -294,7 +298,8 @@ pub trait Collection {
 /// MapCollection
 ///
 /// Explicit iteration contract for map wrapper types.
-/// Avoids implicit deref-based access to inner collections.
+/// Keeps generic map code on one stable boundary even when concrete wrapper
+/// types opt into direct container ergonomics.
 ///
 
 pub trait MapCollection {

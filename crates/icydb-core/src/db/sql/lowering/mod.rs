@@ -275,7 +275,7 @@ pub(crate) fn compile_sql_command_from_statement<E: EntityKind>(
     statement: SqlStatement,
     consistency: MissingRowPolicy,
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
-    let prepared = prepare_sql_statement(statement, E::MODEL.entity_name())?;
+    let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
     compile_sql_command_from_prepared_statement::<E>(prepared, consistency)
 }
 
@@ -396,7 +396,7 @@ pub(crate) fn compile_sql_global_aggregate_command<E: EntityKind>(
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
     let statement = parse_sql(sql)?;
-    let prepared = prepare_sql_statement(statement, E::MODEL.entity_name())?;
+    let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
     compile_sql_global_aggregate_command_from_prepared::<E>(prepared, consistency)
 }
 

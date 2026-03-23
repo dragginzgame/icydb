@@ -851,7 +851,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let prepared = self.prepare_sql_dispatch_parsed(parsed, E::MODEL.entity_name())?;
+        let prepared = self.prepare_sql_dispatch_parsed(parsed, E::MODEL.name())?;
 
         self.execute_sql_dispatch_prepared::<E>(&prepared)
     }

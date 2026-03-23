@@ -161,10 +161,6 @@ macro_rules! impl_test_entity_runtime_surface {
             const PATH: &'static str = concat!(module_path!(), "::", stringify!($entity));
         }
 
-        impl $crate::traits::EntityIdentity for $entity {
-            const ENTITY_NAME: &'static str = $entity_name;
-        }
-
         impl $crate::traits::EntitySchema for $entity {
             const MODEL: &'static $crate::model::entity::EntityModel = &Self::$model_ident;
         }

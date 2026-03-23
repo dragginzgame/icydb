@@ -77,7 +77,7 @@ impl EntityModel {
 
     /// Return the stable external entity name.
     #[must_use]
-    pub const fn entity_name(&self) -> &'static str {
+    pub const fn name(&self) -> &'static str {
         self.entity_name
     }
 

@@ -63,7 +63,7 @@ pub fn model_kind_from_item(item: &Item) -> TokenStream {
     quote! {
         ::icydb::model::field::FieldKind::Relation {
             target_path: <#target as ::icydb::traits::Path>::PATH,
-            target_entity_name: <#target as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+            target_entity_name: <#target as ::icydb::traits::EntitySchema>::MODEL.name(),
             target_entity_tag: <#target as ::icydb::traits::EntityKind>::ENTITY_TAG,
             target_store_path:
                 <<#target as ::icydb::traits::EntityPlacement>::Store as ::icydb::traits::Path>::PATH,
@@ -84,7 +84,7 @@ fn model_storage_kind_from_item(item: &Item) -> TokenStream {
             let decimal_scale = item.scale.unwrap_or(0);
             model_kind_from_primitive(prim, decimal_scale)
         }
-        ItemTarget::Is(path) => quote!(#path::KIND),
+        ItemTarget::Is(path) => quote!(<#path as ::icydb::traits::FieldTypeMeta>::KIND),
     }
 }
 
@@ -92,7 +92,9 @@ fn model_storage_kind_from_item(item: &Item) -> TokenStream {
 fn model_storage_decode_from_item(item: &Item) -> TokenStream {
     match item.target() {
         ItemTarget::Primitive(_) => quote!(::icydb::model::field::FieldStorageDecode::ByKind),
-        ItemTarget::Is(path) => quote!(#path::STORAGE_DECODE),
+        ItemTarget::Is(path) => {
+            quote!(<#path as ::icydb::traits::FieldTypeMeta>::STORAGE_DECODE)
+        }
     }
 }
 
