@@ -3,13 +3,17 @@ use crate::{
         DbSession, EntityResponse, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace,
         PersistedRow, Query, QueryError, QueryTracePlan, TraceExecutionStrategy,
         access::AccessStrategy,
+        cursor::CursorPlanError,
         executor::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy, LoadExecutor},
         query::{
             builder::aggregate::AggregateExpr,
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             plan::QueryMode,
         },
-        session::{decode_optional_cursor_bytes, map_executor_plan_error},
+        session::{
+            continuation_cursor_serialize_error, decode_optional_cursor_bytes,
+            map_executor_plan_error, query_invariant_error,
+        },
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -17,6 +21,33 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
+    // Validate that one execution strategy is admissible for scalar paged load
+    // execution and fail closed on grouped/primary-key-only routes.
+    fn ensure_scalar_paged_execution_strategy(
+        strategy: ExecutionStrategy,
+    ) -> Result<(), QueryError> {
+        match strategy {
+            ExecutionStrategy::PrimaryKey => Err(query_invariant_error(
+                CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message(),
+            )),
+            ExecutionStrategy::Ordered => Ok(()),
+            ExecutionStrategy::Grouped => Err(query_invariant_error(
+                "grouped plans require execute_grouped(...)",
+            )),
+        }
+    }
+
+    // Validate that one execution strategy is admissible for the grouped
+    // execution surface.
+    fn ensure_grouped_execution_strategy(strategy: ExecutionStrategy) -> Result<(), QueryError> {
+        match strategy {
+            ExecutionStrategy::Grouped => Ok(()),
+            ExecutionStrategy::PrimaryKey | ExecutionStrategy::Ordered => Err(
+                query_invariant_error("execute_grouped requires grouped logical plans"),
+            ),
+        }
+    }
+
     /// Execute one scalar load/delete query and return materialized response rows.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
@@ -171,23 +202,9 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
-        match plan.execution_strategy().map_err(QueryError::execute)? {
-            ExecutionStrategy::PrimaryKey => {
-                return Err(QueryError::execute(
-                    crate::db::error::query_executor_invariant(
-                        "cursor pagination requires explicit or grouped ordering",
-                    ),
-                ));
-            }
-            ExecutionStrategy::Ordered => {}
-            ExecutionStrategy::Grouped => {
-                return Err(QueryError::execute(
-                    crate::db::error::query_executor_invariant(
-                        "grouped plans require execute_grouped(...)",
-                    ),
-                ));
-            }
-        }
+        Self::ensure_scalar_paged_execution_strategy(
+            plan.execution_strategy().map_err(QueryError::execute)?,
+        )?;
 
         // Phase 2: decode external cursor token and validate it against plan surface.
         let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
@@ -206,17 +223,15 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
-                    return Err(QueryError::execute(
-                        crate::db::error::query_executor_invariant(
-                            "scalar load pagination emitted grouped continuation token",
-                        ),
+                    return Err(query_invariant_error(
+                        "scalar load pagination emitted grouped continuation token",
                     ));
                 };
 
                 token.encode().map_err(|err| {
-                    QueryError::execute(InternalError::serialize_internal(format!(
+                    continuation_cursor_serialize_error(format!(
                         "failed to serialize continuation cursor: {err}"
-                    )))
+                    ))
                 })
             })
             .transpose()?;
@@ -242,16 +257,9 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
-        if !matches!(
+        Self::ensure_grouped_execution_strategy(
             plan.execution_strategy().map_err(QueryError::execute)?,
-            ExecutionStrategy::Grouped
-        ) {
-            return Err(QueryError::execute(
-                crate::db::error::query_executor_invariant(
-                    "execute_grouped requires grouped logical plans",
-                ),
-            ));
-        }
+        )?;
 
         // Phase 2: decode external grouped cursor token and validate against plan.
         let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
@@ -270,17 +278,15 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::execute(
-                        crate::db::error::query_executor_invariant(
-                            "grouped pagination emitted scalar continuation token",
-                        ),
+                    return Err(query_invariant_error(
+                        "grouped pagination emitted scalar continuation token",
                     ));
                 };
 
                 token.encode().map_err(|err| {
-                    QueryError::execute(InternalError::serialize_internal(format!(
+                    continuation_cursor_serialize_error(format!(
                         "failed to serialize grouped continuation cursor: {err}"
-                    )))
+                    ))
                 })
             })
             .transpose()?;

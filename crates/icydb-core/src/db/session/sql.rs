@@ -9,12 +9,14 @@ use crate::{
         },
         query::{
             builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
-            intent::{IntentError, StructuralQuery},
+            intent::StructuralQuery,
             plan::{
                 AggregateKind, FieldSlot, QueryMode,
                 expr::{Expr, ProjectionField},
+                resolve_aggregate_target_field_slot,
             },
         },
+        session::{query_invariant_error, unsupported_query_error},
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlLaneKind,
             LoweredSqlQuery, PreparedSqlStatement as CorePreparedSqlStatement, SqlCommand,
@@ -28,7 +30,6 @@ use crate::{
         },
         sql::parser::{SqlExplainMode, SqlExplainTarget, SqlStatement, parse_sql},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
     model::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue},
     value::Value,
@@ -273,16 +274,44 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
 
 // Build one unsupported execution error for wrong-lane SQL surface usage.
 fn unsupported_sql_lane_error(surface: SqlSurface, lane: SqlLaneKind) -> QueryError {
-    QueryError::execute(InternalError::classified(
-        ErrorClass::Unsupported,
-        ErrorOrigin::Query,
-        unsupported_sql_lane_message(surface, lane),
-    ))
+    unsupported_query_error(unsupported_sql_lane_message(surface, lane))
+}
+
+// Build one unsupported execution error for query-lane SQL dispatch surfaces
+// that accept only executable row-query and EXPLAIN lanes.
+fn unsupported_query_lane_dispatch_error() -> QueryError {
+    unsupported_query_error(
+        "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
+    )
 }
 
 // Compile one reduced SQL statement with default lane behavior used by SQL surfaces.
 fn compile_sql_command_ignore<E: EntityKind>(sql: &str) -> Result<SqlCommand<E>, QueryError> {
     compile_sql_command::<E>(sql, MissingRowPolicy::Ignore).map_err(map_sql_lowering_error)
+}
+
+// Lower one prepared reduced SQL statement through the shared query-facing SQL
+// lowering boundary.
+fn lower_prepared_sql_command(
+    prepared: &SqlPreparedStatement,
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, QueryError> {
+    lower_sql_command_from_prepared_statement(prepared.prepared.clone(), primary_key_field)
+        .map_err(map_sql_lowering_error)
+}
+
+// Lower and bind one prepared reduced SQL statement through the shared typed
+// SQL command boundary used by session dispatch surfaces.
+fn bind_prepared_sql_command<E>(
+    prepared: &SqlPreparedStatement,
+    primary_key_field: &str,
+) -> Result<SqlCommand<E>, QueryError>
+where
+    E: EntityKind,
+{
+    let lowered = lower_prepared_sql_command(prepared, primary_key_field)?;
+
+    bind_lowered_sql_command::<E>(lowered, MissingRowPolicy::Ignore).map_err(map_sql_lowering_error)
 }
 
 // Map SQL frontend parse/lowering failures into query-facing execution errors.
@@ -291,11 +320,9 @@ fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
         SqlLoweringError::Query(err) => err,
         SqlLoweringError::Parse(crate::db::sql::parser::SqlParseError::UnsupportedFeature {
             feature,
-        }) => QueryError::execute(InternalError::query_unsupported_sql_feature(feature)),
-        other => QueryError::execute(InternalError::classified(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Query,
-            format!("SQL query is not executable in this release: {other}"),
+        }) => QueryError::unsupported_sql_feature(feature),
+        other => unsupported_query_error(format!(
+            "SQL query is not executable in this release: {other}"
         )),
     }
 }
@@ -342,11 +369,7 @@ fn resolve_sql_aggregate_target_slot_with_model(
     model: &'static EntityModel,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {
-    FieldSlot::resolve(model, field).ok_or_else(|| {
-        QueryError::execute(crate::db::error::executor_unsupported(format!(
-            "unknown aggregate target field: {field}",
-        )))
-    })
+    resolve_aggregate_target_field_slot(model, field)
 }
 
 fn resolve_sql_aggregate_target_slot<E: EntityKind>(field: &str) -> Result<FieldSlot, QueryError> {
@@ -546,11 +569,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         match command {
             SqlCommand::Query(query) => {
-                if query.has_grouping() {
-                    return Err(QueryError::Intent(
-                        IntentError::GroupedRequiresExecuteGrouped,
-                    ));
-                }
+                Self::ensure_sql_query_grouping(&query, false)?;
 
                 match query.mode() {
                     QueryMode::Load(_) => self
@@ -565,11 +584,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlCommand::DescribeEntity
             | SqlCommand::ShowIndexesEntity
             | SqlCommand::ShowColumnsEntity
-            | SqlCommand::ShowEntities => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
-            ))),
+            | SqlCommand::ShowEntities => Err(unsupported_query_lane_dispatch_error()),
         }
     }
 
@@ -594,6 +609,21 @@ impl<C: CanisterKind> DbSession<C> {
         .into_dispatch_result())
     }
 
+    // Validate that one SQL-derived query intent matches the grouped/scalar
+    // execution surface that is about to consume it.
+    fn ensure_sql_query_grouping<E>(query: &Query<E>, grouped: bool) -> Result<(), QueryError>
+    where
+        E: EntityKind,
+    {
+        match (grouped, query.has_grouping()) {
+            (true, true) | (false, false) => Ok(()),
+            (false, true) => Err(QueryError::grouped_requires_execute_grouped()),
+            (true, false) => Err(unsupported_query_error(
+                "execute_sql_grouped requires grouped SQL query intent",
+            )),
+        }
+    }
+
     // Execute one lowered SQL SELECT command entirely through the shared
     // structural projection path.
     fn execute_lowered_sql_dispatch_select_core(
@@ -609,6 +639,29 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.execute_structural_sql_projection(structural, authority)
             .map(SqlProjectionPayload::into_dispatch_result)
+    }
+
+    // Execute one lowered query-lane SQL command after lane validation has
+    // already constrained the shape to executable query/explain routes.
+    fn execute_lowered_sql_dispatch_query_lane_for_authority(
+        &self,
+        lowered: &LoweredSqlCommand,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        match session_sql_lane(lowered) {
+            SqlLaneKind::Query => {
+                self.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
+            }
+            SqlLaneKind::Explain => self
+                .explain_lowered_sql_dispatch_for_model(lowered, authority.model())
+                .map(SqlDispatchResult::Explain),
+            SqlLaneKind::Describe
+            | SqlLaneKind::ShowIndexes
+            | SqlLaneKind::ShowColumns
+            | SqlLaneKind::ShowEntities => Err(query_invariant_error(
+                "query-lane SQL lowering admitted unsupported non-query lane",
+            )),
+        }
     }
 
     // Execute one lowered SQL explain command and reject non-explain lanes.
@@ -713,11 +766,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let query = self.query_from_sql::<E>(sql)?;
-        if query.has_grouping() {
-            return Err(QueryError::Intent(
-                IntentError::GroupedRequiresExecuteGrouped,
-            ));
-        }
+        Self::ensure_sql_query_grouping(&query, false)?;
 
         self.execute_query(&query)
     }
@@ -840,13 +889,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let query = self.query_from_sql::<E>(sql)?;
-        if !query.has_grouping() {
-            return Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "execute_sql_grouped requires grouped SQL query intent",
-            )));
-        }
+        Self::ensure_sql_query_grouping(&query, true)?;
 
         self.execute_grouped(&query, cursor_token)
     }
@@ -882,13 +925,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let lowered = lower_sql_command_from_prepared_statement(
-            prepared.prepared.clone(),
-            E::MODEL.primary_key.name,
-        )
-        .map_err(map_sql_lowering_error)?;
-        let command = bind_lowered_sql_command::<E>(lowered, MissingRowPolicy::Ignore)
-            .map_err(map_sql_lowering_error)?;
+        let command = bind_prepared_sql_command::<E>(prepared, E::MODEL.primary_key.name)?;
 
         match command {
             SqlCommand::Query(_) => self.execute_sql_dispatch_query_from_command::<E>(command),
@@ -919,25 +956,11 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let lowered =
             self.lower_sql_dispatch_query_lane_prepared(prepared, E::MODEL.primary_key.name)?;
-        let lane = session_sql_lane(&lowered);
 
-        match lane {
-            SqlLaneKind::Query => self.execute_lowered_sql_dispatch_query_for_authority(
-                &lowered,
-                EntityAuthority::for_type::<E>(),
-            ),
-            SqlLaneKind::Explain => self
-                .explain_lowered_sql_dispatch_for_model(&lowered, E::MODEL)
-                .map(SqlDispatchResult::Explain),
-            SqlLaneKind::Describe
-            | SqlLaneKind::ShowIndexes
-            | SqlLaneKind::ShowColumns
-            | SqlLaneKind::ShowEntities => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
-            ))),
-        }
+        self.execute_lowered_sql_dispatch_query_lane_for_authority(
+            &lowered,
+            EntityAuthority::for_type::<E>(),
+        )
     }
 
     /// Lower one prepared reduced SQL statement into one shared query-lane shape.
@@ -946,9 +969,7 @@ impl<C: CanisterKind> DbSession<C> {
         prepared: &SqlPreparedStatement,
         primary_key_field: &str,
     ) -> Result<LoweredSqlCommand, QueryError> {
-        let lowered =
-            lower_sql_command_from_prepared_statement(prepared.prepared.clone(), primary_key_field)
-                .map_err(map_sql_lowering_error)?;
+        let lowered = lower_prepared_sql_command(prepared, primary_key_field)?;
         let lane = lowered_sql_command_lane(&lowered);
 
         match lane {
@@ -956,13 +977,7 @@ impl<C: CanisterKind> DbSession<C> {
             LoweredSqlLaneKind::Describe
             | LoweredSqlLaneKind::ShowIndexes
             | LoweredSqlLaneKind::ShowColumns
-            | LoweredSqlLaneKind::ShowEntities => {
-                Err(QueryError::execute(InternalError::classified(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Query,
-                    "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
-                )))
-            }
+            | LoweredSqlLaneKind::ShowEntities => Err(unsupported_query_lane_dispatch_error()),
         }
     }
 
@@ -1071,11 +1086,9 @@ impl<C: CanisterKind> DbSession<C> {
             return Self::explain_sql_global_aggregate_structural(mode, command);
         }
 
-        Err(QueryError::execute(InternalError::classified(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Query,
+        Err(unsupported_query_error(
             "shared EXPLAIN dispatch could not classify the lowered SQL command shape",
-        )))
+        ))
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command.

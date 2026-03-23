@@ -40,6 +40,90 @@ pub(crate) enum PreparedIndexDeltaKind {
     ReverseIndexRemove,
 }
 
+impl PreparedIndexDeltaKind {
+    /// Resolve one reverse-index delta kind from old/new membership state.
+    #[must_use]
+    pub(crate) const fn from_reverse_index_membership(
+        old_contains: bool,
+        new_contains: bool,
+    ) -> Self {
+        match (old_contains, new_contains) {
+            (true, false) => Self::ReverseIndexRemove,
+            (false, true) => Self::ReverseIndexInsert,
+            _ => Self::None,
+        }
+    }
+
+    /// Project one delta kind into index/reverse-index counter increments.
+    #[must_use]
+    pub(crate) const fn counter_increments(self) -> (usize, usize, usize, usize) {
+        match self {
+            Self::None => (0, 0, 0, 0),
+            Self::IndexInsert => (1, 0, 0, 0),
+            Self::IndexRemove => (0, 1, 0, 0),
+            Self::ReverseIndexInsert => (0, 0, 1, 0),
+            Self::ReverseIndexRemove => (0, 0, 0, 1),
+        }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::commit::PreparedIndexDeltaKind;
+
+    #[test]
+    fn reverse_index_membership_maps_to_expected_delta_kind() {
+        assert_eq!(
+            PreparedIndexDeltaKind::from_reverse_index_membership(true, false),
+            PreparedIndexDeltaKind::ReverseIndexRemove,
+        );
+        assert_eq!(
+            PreparedIndexDeltaKind::from_reverse_index_membership(false, true),
+            PreparedIndexDeltaKind::ReverseIndexInsert,
+        );
+        assert_eq!(
+            PreparedIndexDeltaKind::from_reverse_index_membership(false, false),
+            PreparedIndexDeltaKind::None,
+        );
+        assert_eq!(
+            PreparedIndexDeltaKind::from_reverse_index_membership(true, true),
+            PreparedIndexDeltaKind::None,
+        );
+    }
+
+    #[test]
+    fn delta_kind_counter_increments_match_index_variants() {
+        assert_eq!(
+            PreparedIndexDeltaKind::IndexInsert.counter_increments(),
+            (1, 0, 0, 0),
+        );
+        assert_eq!(
+            PreparedIndexDeltaKind::IndexRemove.counter_increments(),
+            (0, 1, 0, 0),
+        );
+    }
+
+    #[test]
+    fn delta_kind_counter_increments_match_reverse_index_variants() {
+        assert_eq!(
+            PreparedIndexDeltaKind::ReverseIndexInsert.counter_increments(),
+            (0, 0, 1, 0),
+        );
+        assert_eq!(
+            PreparedIndexDeltaKind::ReverseIndexRemove.counter_increments(),
+            (0, 0, 0, 1),
+        );
+        assert_eq!(
+            PreparedIndexDeltaKind::None.counter_increments(),
+            (0, 0, 0, 0)
+        );
+    }
+}
+
 ///
 /// PreparedRowCommitOp
 ///

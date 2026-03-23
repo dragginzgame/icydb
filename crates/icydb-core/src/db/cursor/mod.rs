@@ -252,9 +252,7 @@ fn validated_cursor_order_internal<'a>(
 ) -> Result<Option<&'a OrderSpec>, CursorPlanError> {
     validate_cursor_order_plan_shape(order, require_explicit_order).map_err(|err| match err {
         CursorOrderPlanShapeError::MissingExplicitOrder => {
-            CursorPlanError::continuation_cursor_invariant(
-                crate::db::error::executor_invariant_message(missing_order_message),
-            )
+            CursorPlanError::continuation_cursor_invariant(missing_order_message)
         }
         CursorOrderPlanShapeError::EmptyOrderSpec => {
             CursorPlanError::cursor_requires_non_empty_order()

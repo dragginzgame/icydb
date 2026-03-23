@@ -69,6 +69,15 @@ fn query_executor_invariant_uses_invariant_violation_class() {
     assert_eq!(err.origin, ErrorOrigin::Query);
 }
 
+#[test]
+fn query_unsupported_uses_query_origin() {
+    let err = InternalError::query_unsupported("unsupported query shape");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_eq!(err.message, "unsupported query shape");
+}
+
 #[cfg(feature = "sql")]
 #[test]
 fn query_unsupported_sql_feature_preserves_query_detail_label() {
@@ -207,6 +216,10 @@ fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
+    assert!(
+        err.message.starts_with("executor invariant violated:"),
+        "cursor invariant mapping must add the canonical executor prefix once",
+    );
     assert!(err.message.contains("runtime cursor contract violated"));
 }
 

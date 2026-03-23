@@ -7,7 +7,10 @@ use crate::{
     db::query::{
         fluent::load::FluentLoadQuery,
         intent::{IntentError, QueryError},
-        plan::{FieldSlot, validate_fluent_non_paged_mode, validate_fluent_paged_mode},
+        plan::{
+            FieldSlot, resolve_aggregate_target_field_slot, validate_fluent_non_paged_mode,
+            validate_fluent_paged_mode,
+        },
     },
     traits::EntityKind,
 };
@@ -20,11 +23,7 @@ where
     // Unknown fields are rejected here so fluent terminal routing cannot bypass
     // planner slot resolution and drift back to runtime string lookups.
     pub(super) fn resolve_terminal_field_slot(field: &str) -> Result<FieldSlot, QueryError> {
-        FieldSlot::resolve(E::MODEL, field).ok_or_else(|| {
-            QueryError::execute(crate::db::error::executor_unsupported(format!(
-                "unknown aggregate target field: {field}",
-            )))
-        })
+        resolve_aggregate_target_field_slot(E::MODEL, field)
     }
 
     // Resolve one terminal field target, then delegate execution to the
@@ -61,7 +60,7 @@ where
 
     pub(super) fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
         if let Some(err) = self.paged_intent_error() {
-            return Err(QueryError::Intent(err));
+            return Err(QueryError::intent(err));
         }
 
         Ok(())
@@ -69,7 +68,7 @@ where
 
     pub(super) fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
         if let Some(err) = self.non_paged_intent_error() {
-            return Err(QueryError::Intent(err));
+            return Err(QueryError::intent(err));
         }
 
         Ok(())

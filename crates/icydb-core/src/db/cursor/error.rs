@@ -86,6 +86,12 @@ impl CursorPlanError {
         "cursor pagination requires an explicit ordering"
     }
 
+    /// Canonical invariant text for cursor surfaces that require either
+    /// explicit scalar ordering or canonical grouped ordering.
+    pub(crate) const fn cursor_requires_explicit_or_grouped_ordering_message() -> &'static str {
+        "cursor pagination requires explicit or grouped ordering"
+    }
+
     /// Canonical policy text for missing cursor LIMIT requirements.
     pub(crate) const fn cursor_requires_limit_message() -> &'static str {
         "cursor pagination requires a limit"
@@ -117,16 +123,20 @@ impl CursorPlanError {
 
     /// Construct one invariant error for missing explicit cursor ordering.
     pub(in crate::db) fn cursor_requires_order() -> Self {
-        Self::continuation_cursor_invariant(crate::db::error::executor_invariant_message(
-            Self::cursor_requires_order_message(),
-        ))
+        Self::continuation_cursor_invariant(Self::cursor_requires_order_message())
+    }
+
+    /// Construct one invariant error for cursor surfaces that require either
+    /// explicit scalar ordering or canonical grouped ordering.
+    pub(in crate::db) fn cursor_requires_explicit_or_grouped_ordering() -> Self {
+        Self::continuation_cursor_invariant(
+            Self::cursor_requires_explicit_or_grouped_ordering_message(),
+        )
     }
 
     /// Construct one invariant error for empty cursor ORDER BY specifications.
     pub(in crate::db) fn cursor_requires_non_empty_order() -> Self {
-        Self::continuation_cursor_invariant(crate::db::error::executor_invariant_message(
-            Self::cursor_requires_non_empty_order_message(),
-        ))
+        Self::continuation_cursor_invariant(Self::cursor_requires_non_empty_order_message())
     }
 
     /// Construct one cursor version mismatch error.

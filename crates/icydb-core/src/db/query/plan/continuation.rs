@@ -418,7 +418,7 @@ impl ContinuationContract {
     fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
         if let Some(violation) = self.grouped_cursor_policy_violation() {
             return Err(CursorPlanError::continuation_cursor_invariant(
-                crate::db::error::executor_invariant_message(violation.invariant_message()),
+                violation.invariant_message(),
             ));
         }
 
@@ -493,9 +493,7 @@ impl AccessPlannedQuery {
 }
 
 fn cursor_invariant_error(message: impl Into<String>) -> CursorPlanError {
-    CursorPlanError::continuation_cursor_invariant(crate::db::error::executor_invariant_message(
-        message,
-    ))
+    CursorPlanError::continuation_cursor_invariant(message)
 }
 
 ///

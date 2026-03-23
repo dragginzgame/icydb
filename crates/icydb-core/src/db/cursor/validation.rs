@@ -45,9 +45,7 @@ pub(in crate::db) fn validate_cursor_compatibility<K: FieldValue>(
     match contract.ordering() {
         ExecutionOrdering::PrimaryKey => {
             if cursor.is_some() || contract.supports_cursor() {
-                return Err(CursorPlanError::continuation_cursor_invariant(
-                    "cursor compatibility requires explicit or grouped ordering contract",
-                ));
+                return Err(CursorPlanError::cursor_requires_explicit_or_grouped_ordering());
             }
 
             Ok(CursorValidationOutcome::Scalar(Box::new(

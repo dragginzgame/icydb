@@ -236,6 +236,11 @@ impl InternalError {
         Self::new(ErrorClass::Internal, ErrorOrigin::Query, message.into())
     }
 
+    /// Construct a query-origin unsupported error.
+    pub(crate) fn query_unsupported(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, message.into())
+    }
+
     /// Construct a serialize-origin internal error.
     pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Serialize, message.into())

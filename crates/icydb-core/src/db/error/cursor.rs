@@ -26,7 +26,7 @@ pub(crate) fn cursor_invariant(message: impl Into<String>) -> InternalError {
 pub(crate) fn from_cursor_plan_error(err: CursorPlanError) -> InternalError {
     match err {
         CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
-            cursor_invariant(reason)
+            cursor_invariant(crate::db::error::executor_invariant_message(reason))
         }
         CursorPlanError::InvalidContinuationCursor { .. }
         | CursorPlanError::InvalidContinuationCursorPayload { .. }

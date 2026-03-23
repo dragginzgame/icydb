@@ -7,7 +7,7 @@ use crate::db::{
     contracts::first_violated_rule,
     query::plan::{
         AggregateKind, GroupAggregateSpec, grouped_having_compare_op_supported,
-        validate::GroupPlanError,
+        validate::{GroupPlanError, resolve_group_aggregate_target_field_type},
     },
     schema::SchemaInfo,
 };
@@ -175,12 +175,7 @@ pub(super) fn first_global_distinct_aggregate_policy_violation(
 fn global_distinct_target_field_known_rule(
     ctx: GlobalDistinctAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
-    ctx.schema.field(ctx.target_field).is_none().then(|| {
-        GroupPlanError::UnknownAggregateTargetField {
-            index: 0,
-            field: ctx.target_field.to_string(),
-        }
-    })
+    resolve_group_aggregate_target_field_type(ctx.schema, ctx.target_field, 0).err()
 }
 
 fn global_distinct_numeric_target_rule(
@@ -188,8 +183,10 @@ fn global_distinct_numeric_target_rule(
 ) -> Option<GroupPlanError> {
     ctx.aggregate_kind
         .is_sum()
-        .then_some(())
-        .and_then(|()| ctx.schema.field(ctx.target_field))
+        .then(|| resolve_group_aggregate_target_field_type(ctx.schema, ctx.target_field, 0))
+        .transpose()
+        .ok()
+        .flatten()
         .filter(|field_type| !field_type.supports_numeric_coercion())
         .map(|_| GroupPlanError::GlobalDistinctSumTargetNotNumeric {
             index: 0,

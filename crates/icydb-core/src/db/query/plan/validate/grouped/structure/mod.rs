@@ -12,7 +12,7 @@ use crate::{
             GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
             expr::ProjectionSpec,
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
-            validate::{GroupPlanError, PlanError},
+            validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
         },
         schema::SchemaInfo,
     },
@@ -139,12 +139,8 @@ fn validate_group_spec_structure(
         let Some(target_field) = aggregate.target_field.as_ref() else {
             continue;
         };
-        schema.field(target_field).ok_or_else(|| {
-            PlanError::from(GroupPlanError::UnknownAggregateTargetField {
-                index,
-                field: target_field.clone(),
-            })
-        })?;
+        resolve_group_aggregate_target_field_type(schema, target_field, index)
+            .map_err(PlanError::from)?;
     }
 
     Ok(())

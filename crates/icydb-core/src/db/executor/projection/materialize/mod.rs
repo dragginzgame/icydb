@@ -19,16 +19,34 @@ use crate::{
 };
 
 use crate::db::executor::projection::{
-    eval::{ProjectionEvalError, eval_expr_grouped, eval_expr_with_slot_reader},
+    eval::{
+        ProjectionEvalError, ScalarProjectionEvalError, ScalarProjectionExpr,
+        compile_scalar_projection_expr, eval_expr_grouped, eval_expr_with_slot_reader,
+        eval_scalar_projection_expr_with_value_reader,
+    },
     grouped::GroupedRowView,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use structural::execute_sql_projection_rows_for_canister;
 
+///
+/// PreparedProjectionPlan
+///
+/// PreparedProjectionPlan is the executor-owned projection materialization plan
+/// shared by typed row projection, slot-row validation, and structural SQL
+/// row projection. It keeps the compiled-scalar versus generic evaluation
+/// split behind one materialization owner.
+///
+
+pub(super) enum PreparedProjectionPlan {
+    Generic,
+    Scalar(Vec<ScalarProjectionExpr>),
+}
+
 /// Validate projection expressions over one row-domain that can expose values
 /// by `(row_index, field_slot)` without forcing typed projection materialization.
 pub(in crate::db::executor) fn validate_projection_over_slot_rows(
-    model: &EntityModel,
+    model: &'static EntityModel,
     projection: &ProjectionSpec,
     row_count: usize,
     read_slot_for_row: &mut dyn FnMut(usize, usize) -> Option<Value>,
@@ -36,12 +54,19 @@ pub(in crate::db::executor) fn validate_projection_over_slot_rows(
     if projection_is_model_identity_for_model(model, projection) {
         return Ok(());
     }
+    let prepared = prepare_projection_plan(model, projection);
 
     // Phase 1: evaluate every projection expression against each row.
     for row_index in 0..row_count {
         let mut read_slot = |slot| read_slot_for_row(row_index, slot);
-        visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |_| {})
-            .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        visit_prepared_projection_values_with_value_reader(
+            &prepared,
+            projection,
+            model,
+            &mut read_slot,
+            &mut |_| {},
+        )
+        .map_err(map_projection_eval_error)?;
     }
 
     Ok(())
@@ -72,11 +97,13 @@ pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
 where
     E: EntityKind + EntityValue,
 {
+    let prepared = prepare_projection_plan(E::MODEL, projection);
     let mut projected_rows = Vec::with_capacity(rows.len());
     for (id, entity) in rows {
         let mut values = Vec::with_capacity(projection.len());
         let mut read_slot = |slot| entity.get_value_by_index(slot);
-        visit_projection_values_with_slot_reader(
+        visit_prepared_projection_values_with_value_reader(
+            &prepared,
             projection,
             E::MODEL,
             &mut read_slot,
@@ -86,6 +113,37 @@ where
     }
 
     Ok(projected_rows)
+}
+
+pub(super) fn prepare_projection_plan(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+) -> PreparedProjectionPlan {
+    let mut compiled_fields = Vec::with_capacity(projection.len());
+
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                let Some(compiled) = compile_scalar_projection_expr(model, expr) else {
+                    return PreparedProjectionPlan::Generic;
+                };
+                compiled_fields.push(compiled);
+            }
+        }
+    }
+
+    PreparedProjectionPlan::Scalar(compiled_fields)
+}
+
+pub(super) fn map_projection_eval_error(err: ProjectionEvalError) -> InternalError {
+    crate::db::error::query_invalid_logical_plan(err.to_string())
+}
+
+pub(super) fn map_scalar_projection_eval_error(err: ScalarProjectionEvalError) -> InternalError {
+    match err {
+        ScalarProjectionEvalError::Eval(err) => map_projection_eval_error(err),
+        ScalarProjectionEvalError::Internal(err) => err,
+    }
 }
 
 fn projection_is_model_identity_for_model(
@@ -127,4 +185,27 @@ pub(super) fn visit_projection_values_with_slot_reader(
     }
 
     Ok(())
+}
+
+fn visit_prepared_projection_values_with_value_reader(
+    prepared: &PreparedProjectionPlan,
+    projection: &ProjectionSpec,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+    on_value: &mut dyn FnMut(Value),
+) -> Result<(), ProjectionEvalError> {
+    match prepared {
+        PreparedProjectionPlan::Generic => {
+            visit_projection_values_with_slot_reader(projection, model, read_slot, on_value)
+        }
+        PreparedProjectionPlan::Scalar(compiled_fields) => {
+            for compiled in compiled_fields {
+                on_value(eval_scalar_projection_expr_with_value_reader(
+                    compiled, read_slot,
+                )?);
+            }
+
+            Ok(())
+        }
+    }
 }

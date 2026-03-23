@@ -384,25 +384,26 @@ fn prepare_reverse_relation_index_mutation_for_target(
         .map(|raw| decode_reverse_entry(source, relation, &target.reverse_key, raw))
         .transpose()?;
 
-    let delta_kind = if target.old_contains {
+    let delta_kind = PreparedIndexDeltaKind::from_reverse_index_membership(
+        target.old_contains,
+        target.new_contains,
+    );
+
+    if target.old_contains {
         if let Some(source_key) = old_source_storage_key
             && let Some(current) = entry.as_mut()
         {
             current.remove(*source_key);
         }
-        PreparedIndexDeltaKind::ReverseIndexRemove
-    } else if target.new_contains {
-        if let Some(source_key) = new_source_storage_key {
-            if let Some(current) = entry.as_mut() {
-                current.insert(*source_key);
-            } else {
-                entry = Some(IndexEntry::new(*source_key));
-            }
+    } else if target.new_contains
+        && let Some(source_key) = new_source_storage_key
+    {
+        if let Some(current) = entry.as_mut() {
+            current.insert(*source_key);
+        } else {
+            entry = Some(IndexEntry::new(*source_key));
         }
-        PreparedIndexDeltaKind::ReverseIndexInsert
-    } else {
-        PreparedIndexDeltaKind::None
-    };
+    }
 
     let next_value = if let Some(next_entry) = entry {
         if next_entry.is_empty() {

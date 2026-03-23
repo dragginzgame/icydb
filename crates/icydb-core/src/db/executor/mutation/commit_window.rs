@@ -264,45 +264,34 @@ pub(in crate::db::executor) fn summarize_prepared_row_ops(
 
     for row_op in prepared_row_ops {
         for index_op in &row_op.index_ops {
-            match index_op.delta_kind {
-                PreparedIndexDeltaKind::None => {}
-                PreparedIndexDeltaKind::IndexInsert => {
-                    summary.index_inserts = summary.index_inserts.saturating_add(1);
-                }
-                PreparedIndexDeltaKind::IndexRemove => {
-                    summary.index_removes = summary.index_removes.saturating_add(1);
-                }
-                PreparedIndexDeltaKind::ReverseIndexInsert => {
-                    summary.reverse_index_inserts = summary.reverse_index_inserts.saturating_add(1);
-                }
-                PreparedIndexDeltaKind::ReverseIndexRemove => {
-                    summary.reverse_index_removes = summary.reverse_index_removes.saturating_add(1);
-                }
-            }
+            record_prepared_index_delta(&mut summary, index_op.delta_kind);
         }
     }
 
     summary
 }
 
-/// Emit index and reverse-index delta metrics with saturated diagnostics counts.
-pub(in crate::db::executor) fn emit_index_delta_metrics<E: EntityKind>(
-    index_inserts: usize,
-    index_removes: usize,
-    reverse_index_inserts: usize,
-    reverse_index_removes: usize,
+// Fold one prepared index delta kind into saturated commit-window counters.
+const fn record_prepared_index_delta(
+    summary: &mut PreparedRowOpDelta,
+    delta_kind: PreparedIndexDeltaKind,
 ) {
-    record(MetricsEvent::IndexDelta {
-        entity_path: E::PATH,
-        inserts: u64::try_from(index_inserts).unwrap_or(u64::MAX),
-        removes: u64::try_from(index_removes).unwrap_or(u64::MAX),
-    });
+    let (index_inserts, index_removes, reverse_index_inserts, reverse_index_removes) =
+        delta_kind.counter_increments();
 
-    record(MetricsEvent::ReverseIndexDelta {
-        entity_path: E::PATH,
-        inserts: u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX),
-        removes: u64::try_from(reverse_index_removes).unwrap_or(u64::MAX),
-    });
+    summary.index_inserts = summary.index_inserts.saturating_add(index_inserts);
+    summary.index_removes = summary.index_removes.saturating_add(index_removes);
+    summary.reverse_index_inserts = summary
+        .reverse_index_inserts
+        .saturating_add(reverse_index_inserts);
+    summary.reverse_index_removes = summary
+        .reverse_index_removes
+        .saturating_add(reverse_index_removes);
+}
+
+/// Emit index and reverse-index delta metrics with saturated diagnostics counts.
+pub(in crate::db::executor) fn emit_index_delta_metrics<E: EntityKind>(delta: &PreparedRowOpDelta) {
+    emit_index_delta_metrics_for_path(E::PATH, delta);
 }
 
 /// Prepare row ops for commit-time apply by simulating sequential execution.
@@ -461,14 +450,7 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window<E: EntityKind + E
         db,
         row_ops,
         apply_phase,
-        |delta| {
-            emit_index_delta_metrics::<E>(
-                delta.index_inserts,
-                delta.index_removes,
-                delta.reverse_index_inserts,
-                delta.reverse_index_removes,
-            );
-        },
+        |delta| emit_index_delta_metrics::<E>(delta),
         on_data_applied,
     )
 }
@@ -483,14 +465,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind +
         db,
         row_ops,
         apply_phase,
-        |delta| {
-            emit_index_delta_metrics::<E>(
-                delta.index_inserts,
-                delta.index_removes,
-                delta.reverse_index_inserts,
-                delta.reverse_index_removes,
-            );
-        },
+        |delta| emit_index_delta_metrics::<E>(delta),
         || {},
     )
 }
@@ -517,10 +492,12 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         || {
             emit_index_delta_metrics_for_path(
                 entity_path,
-                0,
-                delta.index_removes,
-                0,
-                delta.reverse_index_removes,
+                &PreparedRowOpDelta {
+                    index_inserts: 0,
+                    index_removes: delta.index_removes,
+                    reverse_index_inserts: 0,
+                    reverse_index_removes: delta.reverse_index_removes,
+                },
             );
         },
         || {},
@@ -575,23 +552,17 @@ fn index_store_id(store: &'static LocalKey<RefCell<IndexStore>>) -> usize {
     std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(store) as usize
 }
 
-fn emit_index_delta_metrics_for_path(
-    entity_path: &'static str,
-    index_inserts: usize,
-    index_removes: usize,
-    reverse_index_inserts: usize,
-    reverse_index_removes: usize,
-) {
+fn emit_index_delta_metrics_for_path(entity_path: &'static str, delta: &PreparedRowOpDelta) {
     record(MetricsEvent::IndexDelta {
         entity_path,
-        inserts: u64::try_from(index_inserts).unwrap_or(u64::MAX),
-        removes: u64::try_from(index_removes).unwrap_or(u64::MAX),
+        inserts: u64::try_from(delta.index_inserts).unwrap_or(u64::MAX),
+        removes: u64::try_from(delta.index_removes).unwrap_or(u64::MAX),
     });
 
     record(MetricsEvent::ReverseIndexDelta {
         entity_path,
-        inserts: u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX),
-        removes: u64::try_from(reverse_index_removes).unwrap_or(u64::MAX),
+        inserts: u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX),
+        removes: u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX),
     });
 }
 

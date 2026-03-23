@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
+
+- `0.63.0` consolidates internal query, session, projection, cursor, mutation, and planner validation boundaries so repeated wrappers and drifted helper paths collapse onto shared owners without changing the current SQL/runtime feature surface.
+
+See detailed breakdown:
+[docs/changelog/0.63.md](docs/changelog/0.63.md)
+
+---
+
 ## [0.62.x] - 2026-03-21 - Structural Persisted-Row Decode
 
 - `0.62.11` removes most of the remaining per-entity SQL and delete runtime duplication by moving dispatch, delete execution, and index/commit preparation onto shared structural paths, drops the simple-entity wasm growth rate to about `1,669` raw bytes per added entity, and fixes runtime hook store-path wiring so live unique-index conflicts are classified the same way as replayed conflicts.

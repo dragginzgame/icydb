@@ -42,4 +42,5 @@ pub(in crate::db::query) use grouped::validate_group_projection_expr_compatibili
 pub(crate) use intent_policy::{validate_intent_key_access_policy, validate_intent_plan_shape};
 pub(crate) use order::validate_order;
 pub(crate) use plan_shape::{has_explicit_order, validate_order_shape, validate_plan_shape};
-pub(crate) use symbols::resolve_group_field_slot;
+pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
+pub(crate) use symbols::{resolve_aggregate_target_field_slot, resolve_group_field_slot};

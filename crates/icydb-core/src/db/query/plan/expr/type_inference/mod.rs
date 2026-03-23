@@ -76,13 +76,20 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
     }
 }
 
+fn resolve_expr_field_kind<'a>(
+    field_name: &str,
+    schema: &'a SchemaInfo,
+) -> Result<&'a FieldKind, PlanError> {
+    schema.field_kind(field_name).ok_or_else(|| {
+        PlanError::from(ExprPlanError::UnknownExprField {
+            field: field_name.to_string(),
+        })
+    })
+}
+
 fn infer_field_expr_type(field: &FieldId, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
     let field_name = field.as_str();
-    let Some(field_kind) = schema.field_kind(field_name) else {
-        return Err(PlanError::from(ExprPlanError::UnknownExprField {
-            field: field_name.to_string(),
-        }));
-    };
+    let field_kind = resolve_expr_field_kind(field_name, schema)?;
 
     Ok(expr_type_from_field_kind(field_kind))
 }
@@ -116,11 +123,7 @@ fn infer_sum_aggregate_type(
         }));
     };
 
-    let Some(field_kind) = schema.field_kind(field_name) else {
-        return Err(PlanError::from(ExprPlanError::UnknownExprField {
-            field: field_name.to_string(),
-        }));
-    };
+    let field_kind = resolve_expr_field_kind(field_name, schema)?;
 
     if !field_kind_supports_expr_numeric(field_kind) {
         return Err(PlanError::from(ExprPlanError::NonNumericAggregateTarget {
@@ -142,11 +145,7 @@ fn infer_target_field_aggregate_type(
         return Ok(ExprType::Unknown);
     };
 
-    let Some(field_kind) = schema.field_kind(field_name) else {
-        return Err(PlanError::from(ExprPlanError::UnknownExprField {
-            field: field_name.to_string(),
-        }));
-    };
+    let field_kind = resolve_expr_field_kind(field_name, schema)?;
 
     let _ = kind;
     Ok(expr_type_from_field_kind(field_kind))

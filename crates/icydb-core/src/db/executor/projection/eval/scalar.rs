@@ -124,18 +124,52 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr(
     expr: &ScalarProjectionExpr,
     slots: &dyn SlotReader,
 ) -> Result<Value, ScalarProjectionEvalError> {
+    eval_scalar_projection_expr_core(
+        expr,
+        &mut |field| eval_scalar_projection_field(field, slots),
+        &mut ScalarProjectionEvalError::Eval,
+    )
+}
+
+/// Evaluate one compiled scalar projection expression through one pure value
+/// reader that resolves slots directly into runtime `Value`s.
+pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_reader(
+    expr: &ScalarProjectionExpr,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> Result<Value, ProjectionEvalError> {
+    eval_scalar_projection_expr_core(
+        expr,
+        &mut |field| {
+            let Some(value) = read_slot(field.slot) else {
+                return Err(ProjectionEvalError::MissingFieldValue {
+                    field: field.field.clone(),
+                    index: field.slot,
+                });
+            };
+
+            Ok(value)
+        },
+        &mut |err| err,
+    )
+}
+
+fn eval_scalar_projection_expr_core<E>(
+    expr: &ScalarProjectionExpr,
+    eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Value, E>,
+    map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
+) -> Result<Value, E> {
     match expr {
-        ScalarProjectionExpr::Field(field) => eval_scalar_projection_field(field, slots),
+        ScalarProjectionExpr::Field(field) => eval_field(field),
         ScalarProjectionExpr::Literal(value) => Ok(scalar_expr_value_into_value(value.clone())),
         ScalarProjectionExpr::Unary { op, expr } => {
-            let operand = eval_scalar_projection_expr(expr, slots)?;
-            operators::eval_unary_expr(*op, operand).map_err(ScalarProjectionEvalError::Eval)
+            let operand = eval_scalar_projection_expr_core(expr, eval_field, map_projection_error)?;
+            operators::eval_unary_expr(*op, operand).map_err(map_projection_error)
         }
         ScalarProjectionExpr::Binary { op, left, right } => {
-            let left = eval_scalar_projection_expr(left, slots)?;
-            let right = eval_scalar_projection_expr(right, slots)?;
+            let left = eval_scalar_projection_expr_core(left, eval_field, map_projection_error)?;
+            let right = eval_scalar_projection_expr_core(right, eval_field, map_projection_error)?;
 
-            operators::eval_binary_expr(*op, left, right).map_err(ScalarProjectionEvalError::Eval)
+            operators::eval_binary_expr(*op, left, right).map_err(map_projection_error)
         }
     }
 }

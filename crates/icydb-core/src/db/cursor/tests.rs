@@ -149,6 +149,31 @@ fn validate_grouped_cursor_order_plan_accepts_missing_or_non_empty_order() {
 }
 
 #[test]
+fn cursor_order_invariant_constructors_keep_raw_reasons() {
+    let requires_order = CursorPlanError::cursor_requires_order();
+    let requires_non_empty_order = CursorPlanError::cursor_requires_non_empty_order();
+    let requires_explicit_or_grouped =
+        CursorPlanError::cursor_requires_explicit_or_grouped_ordering();
+
+    assert!(matches!(
+        requires_order,
+        CursorPlanError::ContinuationCursorInvariantViolation { reason }
+            if reason == CursorPlanError::cursor_requires_order_message()
+    ));
+    assert!(matches!(
+        requires_non_empty_order,
+        CursorPlanError::ContinuationCursorInvariantViolation { reason }
+            if reason == CursorPlanError::cursor_requires_non_empty_order_message()
+    ));
+    assert!(matches!(
+        requires_explicit_or_grouped,
+        CursorPlanError::ContinuationCursorInvariantViolation { reason }
+            if reason
+                == CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message()
+    ));
+}
+
+#[test]
 fn revalidate_grouped_cursor_round_trip_preserves_resume_boundary_when_offset_matches() {
     let token = grouped_token_fixture(Direction::Asc);
     let encoded = token

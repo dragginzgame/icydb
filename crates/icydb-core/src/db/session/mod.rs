@@ -47,6 +47,21 @@ fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec
     decode_optional_cursor_token(cursor_token).map_err(|err| QueryError::from(PlanError::from(err)))
 }
 
+// Build one query-facing invariant violation at the session boundary.
+fn query_invariant_error(reason: impl Into<String>) -> QueryError {
+    QueryError::execute(crate::db::error::query_executor_invariant(reason))
+}
+
+// Build one query-facing unsupported error at the session boundary.
+fn unsupported_query_error(reason: impl Into<String>) -> QueryError {
+    QueryError::unsupported_query(reason)
+}
+
+// Build one query-facing cursor serialization error at the session boundary.
+fn continuation_cursor_serialize_error(reason: impl Into<String>) -> QueryError {
+    QueryError::execute(InternalError::serialize_internal(reason))
+}
+
 ///
 /// DbSession
 ///

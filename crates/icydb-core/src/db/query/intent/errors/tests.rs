@@ -137,6 +137,29 @@ fn query_execute_storage_and_index_errors_stay_in_execution_boundary() {
 }
 
 #[test]
+fn query_intent_constructor_keeps_intent_boundary() {
+    let err = QueryError::intent(IntentError::GroupedRequiresExecuteGrouped);
+
+    assert!(matches!(
+        err,
+        QueryError::Intent(IntentError::GroupedRequiresExecuteGrouped)
+    ));
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
+    let query_err = QueryError::unsupported_sql_feature("JOIN");
+
+    assert!(matches!(
+        query_err,
+        QueryError::Execute(QueryExecutionError::Unsupported(inner))
+            if inner.class == ErrorClass::Unsupported
+                && inner.origin == ErrorOrigin::Query
+    ));
+}
+
+#[test]
 fn cursor_paging_policy_maps_to_invalid_paging_shape_intent_error() {
     let order = IntentError::from(CursorPagingPolicyError::CursorRequiresOrder);
     let limit = IntentError::from(CursorPagingPolicyError::CursorRequiresLimit);

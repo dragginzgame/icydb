@@ -11,11 +11,11 @@ use crate::{
         executor::{
             EntityAuthority, PreparedLoadPlan,
             projection::{
-                eval::{
-                    ScalarProjectionEvalError, ScalarProjectionExpr,
-                    compile_scalar_projection_expr, eval_scalar_projection_expr,
+                eval::{ScalarProjectionExpr, eval_scalar_projection_expr},
+                materialize::{
+                    map_projection_eval_error, map_scalar_projection_eval_error,
+                    prepare_projection_plan, visit_projection_values_with_slot_reader,
                 },
-                materialize::visit_projection_values_with_slot_reader,
             },
         },
         query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
@@ -93,34 +93,18 @@ fn project_data_rows_from_projection_structural(
     projection: &ProjectionSpec,
     rows: &[DataRow],
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    if let Some(compiled_fields) = compile_structural_projection_plan(model, projection) {
-        return project_scalar_data_rows_from_projection_structural(
-            compiled_fields.as_slice(),
-            rows,
-            model,
-        );
-    }
-
-    project_generic_data_rows_from_projection_structural(model, projection, rows)
-}
-
-#[cfg(feature = "sql")]
-fn compile_structural_projection_plan(
-    model: &'static EntityModel,
-    projection: &ProjectionSpec,
-) -> Option<Vec<ScalarProjectionExpr>> {
-    let mut compiled_fields = Vec::with_capacity(projection.len());
-
-    for field in projection.fields() {
-        match field {
-            crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } => {
-                let compiled = compile_scalar_projection_expr(model, expr)?;
-                compiled_fields.push(compiled);
-            }
+    match prepare_projection_plan(model, projection) {
+        super::PreparedProjectionPlan::Generic => {
+            project_generic_data_rows_from_projection_structural(model, projection, rows)
+        }
+        super::PreparedProjectionPlan::Scalar(compiled_fields) => {
+            project_scalar_data_rows_from_projection_structural(
+                compiled_fields.as_slice(),
+                rows,
+                model,
+            )
         }
     }
-
-    Some(compiled_fields)
 }
 
 #[cfg(feature = "sql")]
@@ -139,13 +123,8 @@ fn project_scalar_data_rows_from_projection_structural(
 
         let mut values = Vec::with_capacity(compiled_fields.len());
         for compiled in compiled_fields {
-            let value =
-                eval_scalar_projection_expr(compiled, &row_fields).map_err(|err| match err {
-                    ScalarProjectionEvalError::Eval(err) => {
-                        crate::db::error::query_invalid_logical_plan(err.to_string())
-                    }
-                    ScalarProjectionEvalError::Internal(err) => err,
-                })?;
+            let value = eval_scalar_projection_expr(compiled, &row_fields)
+                .map_err(map_scalar_projection_eval_error)?;
             values.push(value);
         }
         projected_rows.push(values);
@@ -186,7 +165,7 @@ fn project_generic_data_rows_from_projection_structural(
         visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |value| {
             values.push(value);
         })
-        .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+        .map_err(map_projection_eval_error)?;
         if let Some(err) = slot_error {
             return Err(err);
         }

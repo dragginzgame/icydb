@@ -221,7 +221,7 @@ where
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         if let Some(err) = self.cursor_intent_error() {
-            return Err(QueryError::Intent(err));
+            return Err(QueryError::intent(err));
         }
 
         self.query.planned()
@@ -230,7 +230,7 @@ where
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
         if let Some(err) = self.cursor_intent_error() {
-            return Err(QueryError::Intent(err));
+            return Err(QueryError::intent(err));
         }
 
         self.query.plan()

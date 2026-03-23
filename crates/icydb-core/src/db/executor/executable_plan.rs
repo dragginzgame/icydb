@@ -684,7 +684,5 @@ impl<E: EntityKind> ExecutablePlan<E> {
 }
 
 fn cursor_plan_error(message: impl Into<String>) -> ExecutorPlanError {
-    ExecutorPlanError::from(CursorPlanError::continuation_cursor_invariant(
-        crate::db::error::executor_invariant_message(message),
-    ))
+    ExecutorPlanError::from(CursorPlanError::continuation_cursor_invariant(message))
 }

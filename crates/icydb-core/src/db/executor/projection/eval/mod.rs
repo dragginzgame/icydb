@@ -15,7 +15,7 @@ use thiserror::Error as ThisError;
 
 pub(in crate::db::executor) use scalar::{
     ScalarProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
-    eval_scalar_projection_expr,
+    eval_scalar_projection_expr, eval_scalar_projection_expr_with_value_reader,
 };
 
 ///
