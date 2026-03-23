@@ -162,6 +162,7 @@ macro_rules! impl_test_entity_runtime_surface {
         }
 
         impl $crate::traits::EntitySchema for $entity {
+            const NAME: &'static str = $entity_name;
             const MODEL: &'static $crate::model::entity::EntityModel = &Self::$model_ident;
         }
     };

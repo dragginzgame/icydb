@@ -190,6 +190,11 @@ impl FieldTypeMeta for Value {
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
+impl Value {
+    pub const __KIND: FieldKind = FieldKind::Structured { queryable: false };
+    pub const __STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
 // Local helpers to expand the scalar registry into match arms.
 macro_rules! value_is_numeric_from_registry {
     ( @args $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {

@@ -148,11 +148,13 @@ impl EntityKeyBytes for () {
 ///
 /// Declared runtime schema facts for an entity.
 ///
-/// `MODEL` is the sole runtime authority for entity name, field, primary-key,
+/// `NAME` seeds self-referential model construction for relation metadata.
+/// `MODEL` remains the authoritative runtime authority for field, primary-key,
 /// and index metadata consumed by planning and execution.
 ///
 
 pub trait EntitySchema: EntityKey {
+    const NAME: &'static str;
     const MODEL: &'static EntityModel;
 }
 

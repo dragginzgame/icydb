@@ -63,7 +63,7 @@ pub fn model_kind_from_item(item: &Item) -> TokenStream {
     quote! {
         ::icydb::model::field::FieldKind::Relation {
             target_path: <#target as ::icydb::traits::Path>::PATH,
-            target_entity_name: <#target as ::icydb::traits::EntitySchema>::MODEL.name(),
+            target_entity_name: <#target as ::icydb::traits::EntitySchema>::NAME,
             target_entity_tag: <#target as ::icydb::traits::EntityKind>::ENTITY_TAG,
             target_store_path:
                 <<#target as ::icydb::traits::EntityPlacement>::Store as ::icydb::traits::Path>::PATH,

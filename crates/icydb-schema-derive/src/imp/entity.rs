@@ -68,13 +68,16 @@ fn entity_key_impl_tokens(ident: &Ident, pk_key_type: &TokenStream) -> TokenStre
 
 fn entity_schema_impl_tokens(
     node: &Entity,
-    _resolved_entity_name: &str,
+    resolved_entity_name: &str,
     _store: &Path,
 ) -> TokenStream {
+    let model_ident = entity_model_ident(&node.def.ident());
+
     Implementor::new(&node.def, TraitKind::EntitySchema)
         .set_tokens(quote! {
+            const NAME: &'static str = #resolved_entity_name;
             const MODEL: &'static ::icydb::model::entity::EntityModel =
-                &Self::__ENTITY_MODEL;
+                &#model_ident;
         })
         .to_token_stream()
 }
@@ -176,6 +179,11 @@ fn relation_key_type_assertions(node: &Entity) -> Vec<TokenStream> {
             })
         })
         .collect()
+}
+
+fn entity_model_ident(ident: &Ident) -> Ident {
+    let ident = ident.to_string().to_ascii_uppercase();
+    format_ident!("__{}_ENTITY_MODEL", ident)
 }
 
 ///

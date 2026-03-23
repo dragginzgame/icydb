@@ -23,19 +23,21 @@ impl Imp<Enum> for InherentTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let variants = enum_variant_model_tokens(node);
         let inherent_tokens = quote! {
-            const VARIANTS: &'static [::icydb::model::field::EnumVariantModel] = &[
+            pub(crate) const __VARIANTS: &'static [::icydb::model::field::EnumVariantModel] = &[
                 #(#variants),*
             ];
+            pub(crate) const __KIND: ::icydb::model::field::FieldKind =
+                ::icydb::model::field::FieldKind::Enum {
+                    path: Self::PATH,
+                    variants: Self::__VARIANTS,
+                };
+            pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                ::icydb::model::field::FieldStorageDecode::ByKind;
         };
         let meta_impl = field_type_meta_impl_tokens(
             node.def(),
-            quote! {
-                ::icydb::model::field::FieldKind::Enum {
-                    path: Self::PATH,
-                    variants: Self::VARIANTS,
-                }
-            },
-            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
+            quote!(Self::__KIND),
+            quote!(Self::__STORAGE_DECODE),
         );
         let inherent_impl = inherent_impl_tokens(node.def(), inherent_tokens);
 
@@ -105,13 +107,24 @@ fn enum_payload_supports_structural_descriptor(value: &Value) -> bool {
 impl Imp<Newtype> for InherentTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let kind = model_kind_from_item(&node.item);
-        let _ = node;
-
-        Some(TraitStrategy::from_impl(field_type_meta_impl_tokens(
+        let inherent_impl = inherent_impl_tokens(
             node.def(),
-            kind,
-            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
-        )))
+            quote! {
+                pub(crate) const __KIND: ::icydb::model::field::FieldKind = #kind;
+                pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                    ::icydb::model::field::FieldStorageDecode::ByKind;
+            },
+        );
+        let meta_impl = field_type_meta_impl_tokens(
+            node.def(),
+            quote!(Self::__KIND),
+            quote!(Self::__STORAGE_DECODE),
+        );
+
+        Some(TraitStrategy::from_impl(quote! {
+            #inherent_impl
+            #meta_impl
+        }))
     }
 }
 
@@ -121,11 +134,25 @@ impl Imp<Newtype> for InherentTrait {
 
 impl Imp<Record> for InherentTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_type_meta_impl_tokens(
+        let inherent_impl = inherent_impl_tokens(
             node.def(),
-            quote!(::icydb::model::field::FieldKind::Structured { queryable: false }),
-            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
-        )))
+            quote! {
+                pub(crate) const __KIND: ::icydb::model::field::FieldKind =
+                    ::icydb::model::field::FieldKind::Structured { queryable: false };
+                pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                    ::icydb::model::field::FieldStorageDecode::ByKind;
+            },
+        );
+        let meta_impl = field_type_meta_impl_tokens(
+            node.def(),
+            quote!(Self::__KIND),
+            quote!(Self::__STORAGE_DECODE),
+        );
+
+        Some(TraitStrategy::from_impl(quote! {
+            #inherent_impl
+            #meta_impl
+        }))
     }
 }
 
@@ -135,11 +162,25 @@ impl Imp<Record> for InherentTrait {
 
 impl Imp<Tuple> for InherentTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        Some(TraitStrategy::from_impl(field_type_meta_impl_tokens(
+        let inherent_impl = inherent_impl_tokens(
             node.def(),
-            quote!(::icydb::model::field::FieldKind::Structured { queryable: false }),
-            quote!(::icydb::model::field::FieldStorageDecode::ByKind),
-        )))
+            quote! {
+                pub(crate) const __KIND: ::icydb::model::field::FieldKind =
+                    ::icydb::model::field::FieldKind::Structured { queryable: false };
+                pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
+                    ::icydb::model::field::FieldStorageDecode::ByKind;
+            },
+        );
+        let meta_impl = field_type_meta_impl_tokens(
+            node.def(),
+            quote!(Self::__KIND),
+            quote!(Self::__STORAGE_DECODE),
+        );
+
+        Some(TraitStrategy::from_impl(quote! {
+            #inherent_impl
+            #meta_impl
+        }))
     }
 }
 
