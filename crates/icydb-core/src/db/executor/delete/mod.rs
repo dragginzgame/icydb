@@ -16,19 +16,20 @@ use crate::{
             ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl,
             StructuralTraversalRuntime, drive_key_stream_with_control_flow,
             mutation::{
-                commit_delete_row_ops_with_window, mutation_write_context,
-                preflight_mutation_plan_for_authority,
+                commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
+                mutation_write_context, preflight_mutation_plan_for_authority,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path, set_rows_from_len},
             preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
+            terminal::{KernelRow, RowDecoder, RowLayout},
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
         response::{EntityResponse, Row},
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{commit_schema_fingerprint_for_entity, commit_schema_fingerprint_for_model},
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -120,6 +121,44 @@ where
 }
 
 ///
+/// StructuralDeleteProjection
+///
+/// Structural SQL delete payload after row resolution, delete-only post-access
+/// filtering, and commit-window apply.
+/// Keeps SQL DELETE result rendering on structural kernel rows so the executor
+/// stays on the slot-based runtime boundary.
+///
+
+pub(in crate::db) struct StructuralDeleteProjection {
+    rows: Vec<KernelRow>,
+    row_count: u32,
+}
+
+impl StructuralDeleteProjection {
+    #[must_use]
+    const fn new(rows: Vec<KernelRow>, row_count: u32) -> Self {
+        Self { rows, row_count }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (Vec<KernelRow>, u32) {
+        (self.rows, self.row_count)
+    }
+}
+
+///
+/// StructuralDeletePreparation
+///
+/// Structural delete leaf output carrying structural SQL kernel rows plus the
+/// rollback rows required by structural commit preparation.
+///
+
+struct StructuralDeletePreparation {
+    response_rows: Vec<KernelRow>,
+    rollback_rows: Vec<(RawDataKey, RawRow)>,
+}
+
+///
 /// PreparedDeleteCommit
 ///
 /// Generic-free delete commit payload after structural relation validation and
@@ -129,6 +168,24 @@ where
 struct PreparedDeleteCommit {
     row_ops: Vec<CommitRowOp>,
 }
+
+///
+/// PreparedStructuralDeleteSqlProjection
+///
+/// Structural SQL delete payload paired with its already prepared delete
+/// commit operations.
+/// Keeps the heavy row-resolution and commit-preparation flow on one
+/// nongeneric helper so the typed executor wrapper only handles context,
+/// metrics, and final commit-window application.
+///
+
+struct PreparedStructuralDeleteSqlProjection {
+    projection: StructuralDeleteProjection,
+    commit: PreparedDeleteCommit,
+}
+
+type DeleteCommitApplyFn<C> =
+    fn(&Db<C>, EntityAuthority, Vec<CommitRowOp>, &'static str) -> Result<(), InternalError>;
 
 /// Decode raw access rows into typed delete rows with key/entity checks.
 pub(super) fn decode_rows<E: PersistedRow + EntityValue>(
@@ -232,7 +289,8 @@ where
     let mut rows = decode_rows::<E>(data_rows)?;
 
     // Phase 2: apply typed delete post-access filtering and ordering.
-    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate::<E, _, _>(
+    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
+        prepared.authority.entity.model(),
         &prepared.logical_plan,
         &mut rows,
         prepared.execution_preparation.compiled_predicate(),
@@ -255,6 +313,47 @@ where
     }
 
     Ok(TypedDeletePreparation {
+        response_rows,
+        rollback_rows,
+    })
+}
+
+// Decode, filter, and package structural delete rows for SQL projection payloads.
+fn prepare_structural_delete_rows(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+) -> Result<StructuralDeletePreparation, InternalError> {
+    // Phase 1: decode structural access rows directly into slot-indexed kernel rows.
+    let row_layout = RowLayout::from_model(prepared.authority.entity.model());
+    let row_decoder = RowDecoder::structural();
+    let mut rows = data_rows
+        .into_iter()
+        .map(|data_row| row_decoder.decode(&row_layout, data_row))
+        .collect::<Result<Vec<KernelRow>, InternalError>>()?;
+
+    // Phase 2: apply delete-only post-access semantics on the structural row shape.
+    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
+        prepared.authority.entity.model(),
+        &prepared.logical_plan,
+        &mut rows,
+        prepared.execution_preparation.compiled_predicate(),
+    )?;
+    let _ = stats.delete_was_limited;
+    let _ = stats.rows_after_cursor;
+
+    // Phase 3: package kernel rows and rollback rows from the same payload.
+    let mut response_rows = Vec::with_capacity(rows.len());
+    let mut rollback_rows = Vec::with_capacity(rows.len());
+    for row in rows {
+        let (data_row, slots) = row.into_parts();
+        let (key, raw) = PersistedEntityRow::from_data_row(data_row).into_parts();
+        let rollback_key = key.to_raw()?;
+
+        response_rows.push(KernelRow::new((key, raw.clone()), slots));
+        rollback_rows.push((rollback_key, raw));
+    }
+
+    Ok(StructuralDeletePreparation {
         response_rows,
         rollback_rows,
     })
@@ -295,6 +394,169 @@ where
         .collect::<Result<Vec<_>, InternalError>>()?;
 
     Ok(PreparedDeleteCommit { row_ops })
+}
+
+// Resolve, filter, and package one structural SQL delete result before the
+// outer typed wrapper applies the final commit window.
+fn prepare_structural_delete_sql_projection<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+) -> Result<PreparedStructuralDeleteSqlProjection, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: resolve structural access rows once and record the scanned
+    // count against the real authority path.
+    let data_rows = resolve_delete_candidate_rows(store, prepared)?;
+    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), data_rows.len());
+
+    // Phase 2: keep SQL delete filtering, ordering, and rollback packaging on
+    // the structural kernel-row boundary.
+    let structural = prepare_structural_delete_rows(prepared, data_rows)?;
+    if structural.response_rows.is_empty() {
+        return Ok(PreparedStructuralDeleteSqlProjection {
+            projection: StructuralDeleteProjection::new(Vec::new(), 0),
+            commit: PreparedDeleteCommit {
+                row_ops: Vec::new(),
+            },
+        });
+    }
+
+    // Phase 3: prepare the structural delete commit payload before the typed
+    // wrapper enters the mechanical commit-window apply step.
+    let commit = prepare_delete_commit(db, store, &prepared.authority, &structural.rollback_rows)?;
+    let row_count = u32::try_from(structural.response_rows.len()).unwrap_or(u32::MAX);
+
+    Ok(PreparedStructuralDeleteSqlProjection {
+        projection: StructuralDeleteProjection::new(structural.response_rows, row_count),
+        commit,
+    })
+}
+
+// Bridge the final delete commit apply through the existing typed fallback
+// only at the wrapper edge so the structural SQL delete core stays shared.
+fn apply_delete_commit_window_for_type<E>(
+    db: &Db<E::Canister>,
+    authority: EntityAuthority,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    if db.has_runtime_hooks() {
+        commit_delete_row_ops_with_window_for_path(
+            db,
+            authority.entity_path(),
+            row_ops,
+            apply_phase,
+        )
+    } else {
+        commit_delete_row_ops_with_window::<E>(db, row_ops, apply_phase)
+    }
+}
+
+// Execute one structural SQL delete projection through the shared delete core
+// while leaving only the final typed commit-window bridge to the caller.
+fn execute_sql_projection_core<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    apply_delete_commit: DeleteCommitApplyFn<C>,
+) -> Result<StructuralDeleteProjection, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: run the shared structural delete projection core.
+    let prepared_projection = prepare_structural_delete_sql_projection(db, store, prepared)?;
+    if prepared_projection.projection.row_count == 0 {
+        return Ok(StructuralDeleteProjection::new(Vec::new(), 0));
+    }
+
+    // Phase 2: apply the already prepared delete commit payload through the
+    // caller-provided commit-window bridge.
+    apply_delete_commit(
+        db,
+        prepared.authority.entity,
+        prepared_projection.commit.row_ops,
+        "delete_row_apply",
+    )?;
+
+    Ok(prepared_projection.projection)
+}
+
+// Prepare one structural delete execution state from runtime-hook authority
+// once the typed SQL dispatch shell has already resolved the concrete entity.
+fn prepare_delete_execution_state_for_runtime_hooks<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    logical_plan: AccessPlannedQuery,
+) -> Result<PreparedDeleteExecutionState, InternalError>
+where
+    C: CanisterKind,
+{
+    let hooks = db.runtime_hook_for_entity_path(authority.entity_path())?;
+    let authority = DeleteExecutionAuthority {
+        entity: authority,
+        schema_fingerprint: commit_schema_fingerprint_for_model(hooks.entity_path, hooks.model),
+    };
+    let index_prefix_specs = crate::db::access::lower_index_prefix_specs(
+        authority.entity.entity_tag(),
+        &logical_plan.access,
+    )?;
+    let index_range_specs = crate::db::access::lower_index_range_specs(
+        authority.entity.entity_tag(),
+        &logical_plan.access,
+    )?;
+
+    prepare_delete_execution_state(
+        authority,
+        logical_plan,
+        index_prefix_specs,
+        index_range_specs,
+    )
+}
+
+// Apply delete commit ops through the structural runtime-hook commit window.
+fn apply_delete_commit_window_for_path<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+) -> Result<(), InternalError>
+where
+    C: CanisterKind,
+{
+    commit_delete_row_ops_with_window_for_path(db, authority.entity_path(), row_ops, apply_phase)
+}
+
+/// Execute one structural SQL delete plan for canister SQL dispatch.
+///
+/// This keeps lowered SQL DELETE routing on structural authority once the
+/// entity path has already been resolved by the canister dispatch surface.
+pub(in crate::db) fn execute_sql_delete_projection_for_canister<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> Result<StructuralDeleteProjection, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: lower structural delete authority and reusable execution state
+    // from the runtime hook table once the route has been fixed.
+    let prepared = prepare_delete_execution_state_for_runtime_hooks(db, authority, plan)?;
+    let store =
+        db.with_store_registry(|reg| reg.try_get_store(prepared.authority.entity.store_path()))?;
+
+    // Phase 2: execute the shared structural SQL delete core and commit
+    // through the runtime-hook path-only bridge.
+    execute_sql_projection_core(
+        db,
+        store,
+        &prepared,
+        apply_delete_commit_window_for_path::<C>,
+    )
 }
 
 ///
@@ -378,12 +640,84 @@ where
             // Phase 5: keep relation validation and commit assembly on the structural path.
             let commit =
                 prepare_delete_commit(&self.db, store, &prepared.authority, &typed.rollback_rows)?;
-            commit_delete_row_ops_with_window::<E>(&self.db, commit.row_ops, "delete_row_apply")?;
+            if self.db.has_runtime_hooks() {
+                commit_delete_row_ops_with_window_for_path(
+                    &self.db,
+                    prepared.authority.entity.entity_path(),
+                    commit.row_ops,
+                    "delete_row_apply",
+                )?;
+            } else {
+                commit_delete_row_ops_with_window::<E>(
+                    &self.db,
+                    commit.row_ops,
+                    "delete_row_apply",
+                )?;
+            }
 
             // Phase 6: return the already-prepared typed delete response rows.
             set_rows_from_len(&mut span, typed.response_rows.len());
 
             Ok(EntityResponse::new(typed.response_rows))
+        })()
+    }
+
+    /// Execute one delete plan and return structural row values for SQL projection rendering.
+    pub(in crate::db) fn execute_sql_projection(
+        self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<StructuralDeleteProjection, InternalError> {
+        // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
+        if plan.is_grouped() {
+            return Err(crate::db::error::executor_unsupported(
+                "grouped query execution is not yet enabled in this release",
+            ));
+        }
+
+        if !plan.mode().is_delete() {
+            return Err(crate::db::error::query_executor_invariant(
+                "delete executor requires delete plans",
+            ));
+        }
+
+        (|| {
+            // Phase 2: prepare structural authority and delete execution inputs once.
+            let authority = DeleteExecutionAuthority::for_type::<E>();
+            let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+            let index_range_specs = plan.index_range_specs()?.to_vec();
+            let logical_plan = plan.into_plan();
+            let prepared = prepare_delete_execution_state(
+                authority,
+                logical_plan,
+                index_prefix_specs,
+                index_range_specs,
+            )?;
+            let ctx = mutation_write_context::<E>(&self.db)?;
+            let store = ctx.structural_store()?;
+
+            let mut span = Span::<E>::new(ExecKind::Delete);
+            record_plan_metrics(&prepared.logical_plan.access);
+
+            // Phase 3: run the shared structural SQL delete core and apply the
+            // final typed commit-window bridge only at the boundary.
+            let projection = execute_sql_projection_core(
+                &self.db,
+                store,
+                &prepared,
+                apply_delete_commit_window_for_type::<E>,
+            )?;
+            if projection.row_count == 0 {
+                set_rows_from_len(&mut span, 0);
+                return Ok(StructuralDeleteProjection::new(Vec::new(), 0));
+            }
+
+            // Phase 4: return the already prepared structural SQL projection.
+            set_rows_from_len(
+                &mut span,
+                usize::try_from(projection.row_count).unwrap_or(usize::MAX),
+            );
+
+            Ok(projection)
         })()
     }
 }

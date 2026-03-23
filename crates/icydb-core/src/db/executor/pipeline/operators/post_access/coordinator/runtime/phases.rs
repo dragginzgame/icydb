@@ -11,7 +11,7 @@ use crate::{
         predicate::PredicateProgram,
     },
     error::InternalError,
-    traits::EntityKind,
+    model::entity::EntityModel,
 };
 use std::cell::RefCell;
 
@@ -19,30 +19,30 @@ impl<K> PostAccessPlan<'_, K> {
     /// Apply delete post-access phases (predicate, order, delete-limit) without
     /// load-only cursor/page orchestration.
     pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_post_access_with_compiled_predicate<
-        E,
         R,
     >(
         &self,
+        model: &'static EntityModel,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind<Key = K>,
         R: OrderReadableRow,
     {
-        self.apply_delete_post_access_with_compiled_predicate_internal::<E, R>(
+        self.apply_delete_post_access_with_compiled_predicate_internal(
+            model,
             rows,
             compiled_predicate,
         )
     }
 
-    fn apply_delete_post_access_with_compiled_predicate_internal<E, R>(
+    fn apply_delete_post_access_with_compiled_predicate_internal<R>(
         &self,
+        model: &'static EntityModel,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind<Key = K>,
         R: OrderReadableRow,
     {
         let cursor = None;
@@ -58,7 +58,7 @@ impl<K> PostAccessPlan<'_, K> {
         let mut apply_order_phase = |filtered| {
             let rows = &mut **rows.borrow_mut();
             apply_post_access_order_phase(
-                E::MODEL,
+                model,
                 self.contract.plan(),
                 self.contract.order_spec(),
                 self.contract.has_predicate(),

@@ -4,34 +4,50 @@
 //! Boundary: db root delegates hook discovery and hook contract shape to commit.
 
 use crate::{
+    db::index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
     db::{
         Db,
         commit::{
-            CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
-            prepare_row_commit_for_entity,
+            CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity,
+            prepare_row_commit_for_entity_with_structural_readers,
         },
         relation::StrongRelationDeleteValidateFn,
-        schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    model::entity::EntityModel,
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
     types::EntityTag,
 };
+
+// Runtime hook callback used when commit preparation must read existing primary
+// rows and index entries through structural reader facades.
+type PrepareRowCommitWithReadersFn<C> = fn(
+    &Db<C>,
+    &CommitRowOp,
+    &dyn StructuralPrimaryRowReader,
+    &dyn StructuralIndexEntryReader,
+) -> Result<PreparedRowCommitOp, InternalError>;
+
+// Runtime hook callback used for the normal row-commit preparation path.
+type PrepareRowCommitFn<C> = fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>;
 
 ///
 /// EntityRuntimeHooks
 ///
 /// Per-entity runtime callbacks used for commit preparation and delete-side
 /// strong relation validation.
+/// Keeps entity and store routing metadata alongside callback roots so runtime
+/// recovery and structural preflight can resolve the right store without
+/// reintroducing typed entity parameters.
 ///
 
 pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(crate) entity_tag: EntityTag,
-    pub(crate) entity_name: &'static str,
+    pub(crate) model: &'static EntityModel,
     pub(crate) entity_path: &'static str,
-    pub(in crate::db) commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
-    pub(in crate::db) prepare_row_commit:
-        fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+    pub(crate) store_path: &'static str,
+    pub(in crate::db) prepare_row_commit: PrepareRowCommitFn<C>,
+    pub(in crate::db) prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
     pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
 
@@ -40,18 +56,20 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     #[must_use]
     pub(in crate::db) const fn new(
         entity_tag: EntityTag,
-        entity_name: &'static str,
+        model: &'static EntityModel,
         entity_path: &'static str,
-        commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
-        prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+        store_path: &'static str,
+        prepare_row_commit: PrepareRowCommitFn<C>,
+        prepare_row_commit_with_readers: PrepareRowCommitWithReadersFn<C>,
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
             entity_tag,
-            entity_name,
+            model,
             entity_path,
-            commit_schema_fingerprint,
+            store_path,
             prepare_row_commit,
+            prepare_row_commit_with_readers,
             validate_delete_strong_relations,
         }
     }
@@ -64,20 +82,14 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     {
         Self::new(
             E::ENTITY_TAG,
-            E::MODEL.name(),
+            E::MODEL,
             E::PATH,
-            commit_schema_fingerprint_for_runtime_entity::<E>,
+            E::Store::PATH,
             prepare_row_commit_for_entity::<E>,
+            prepare_row_commit_for_entity_with_structural_readers::<E>,
             crate::db::relation::validate_delete_strong_relations_for_source::<E>,
         )
     }
-}
-
-fn commit_schema_fingerprint_for_runtime_entity<E>() -> CommitSchemaFingerprint
-where
-    E: EntityKind,
-{
-    commit_schema_fingerprint_for_entity::<E>()
 }
 
 /// Return whether this db has any registered runtime hook callbacks.

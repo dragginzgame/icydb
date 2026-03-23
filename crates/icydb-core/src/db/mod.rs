@@ -61,6 +61,8 @@ pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals, StorageReport,
 };
+#[doc(hidden)]
+pub use executor::EntityAuthority;
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use migration::{
@@ -204,6 +206,17 @@ impl<C: CanisterKind> Db<C> {
         (hooks.prepare_row_commit)(self, op)
     }
 
+    pub(in crate::db) fn prepare_row_commit_op_with_readers(
+        &self,
+        op: &CommitRowOp,
+        row_reader: &dyn crate::db::index::StructuralPrimaryRowReader,
+        index_reader: &dyn crate::db::index::StructuralIndexEntryReader,
+    ) -> Result<PreparedRowCommitOp, InternalError> {
+        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_str())?;
+
+        (hooks.prepare_row_commit_with_readers)(self, op, row_reader, index_reader)
+    }
+
     pub(in crate::db) fn replay_commit_marker_row_ops(
         &self,
         row_ops: &[CommitRowOp],
@@ -256,7 +269,7 @@ impl<C: CanisterKind> Db<C> {
     pub(crate) fn runtime_entity_names(&self) -> Vec<String> {
         self.entity_runtime_hooks
             .iter()
-            .map(|hooks| hooks.entity_name.to_string())
+            .map(|hooks| hooks.model.name().to_string())
             .collect()
     }
 
@@ -265,7 +278,7 @@ impl<C: CanisterKind> Db<C> {
     pub(crate) fn runtime_entity_name_tag_pairs(&self) -> Vec<(&'static str, EntityTag)> {
         self.entity_runtime_hooks
             .iter()
-            .map(|hooks| (hooks.entity_name, hooks.entity_tag))
+            .map(|hooks| (hooks.model.name(), hooks.entity_tag))
             .collect()
     }
 

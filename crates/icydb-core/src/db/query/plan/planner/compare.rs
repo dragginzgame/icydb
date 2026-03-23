@@ -6,6 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
+        index::next_text_prefix,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
             key_item_match::{leading_index_key_item, starts_with_lookup_value_for_key_item},
@@ -15,7 +16,7 @@ use crate::{
                 sorted_indexes,
             },
         },
-        schema::{SchemaInfo, literal_matches_type},
+        schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     model::entity::EntityModel,
     value::Value,
@@ -29,8 +30,9 @@ pub(super) fn plan_compare(
     query_predicate: &Predicate,
 ) -> AccessPlan<Value> {
     if cmp.coercion.id == CoercionId::Strict
-        && is_primary_key_model(schema, model, &cmp.field)
-        && let Some(path) = plan_pk_compare(schema, model, cmp)
+        && cmp.field == model.primary_key.name
+        && let Some(field_type) = schema.field(model.primary_key.name)
+        && let Some(path) = plan_pk_compare(field_type, &cmp.value, cmp.op)
     {
         return path;
     }
@@ -134,27 +136,31 @@ pub(super) fn plan_compare(
 }
 
 fn plan_pk_compare(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    cmp: &ComparePredicate,
+    field_type: &FieldType,
+    value: &Value,
+    op: CompareOp,
 ) -> Option<AccessPlan<Value>> {
-    match cmp.op {
+    if !field_type.is_keyable() {
+        return None;
+    }
+
+    match op {
         CompareOp::Eq => {
-            if !value_matches_pk_model(schema, model, &cmp.value) {
+            if !literal_matches_type(value, field_type) {
                 return None;
             }
 
-            Some(AccessPlan::by_key(cmp.value.clone()))
+            Some(AccessPlan::by_key(value.clone()))
         }
         CompareOp::In => {
-            let Value::List(items) = &cmp.value else {
+            let Value::List(items) = value else {
                 return None;
             };
 
             // Keep planner semantic-only: PK IN literal-set canonicalization is
             // performed by access-plan canonicalization.
             for item in items {
-                if !value_matches_pk_model(schema, model, item) {
+                if !literal_matches_type(item, field_type) {
                     return None;
                 }
             }
@@ -166,19 +172,6 @@ fn plan_pk_compare(
             None
         }
     }
-}
-
-fn is_primary_key_model(schema: &SchemaInfo, model: &EntityModel, field: &str) -> bool {
-    field == model.primary_key.name && schema.field(field).is_some()
-}
-
-fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Value) -> bool {
-    let field = model.primary_key.name;
-    let Some(field_type) = schema.field(field) else {
-        return false;
-    };
-
-    field_type.is_keyable() && literal_matches_type(value, field_type)
 }
 
 fn plan_starts_with_compare(
@@ -228,31 +221,4 @@ fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {
     next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
         Bound::Excluded(Value::Text(next_prefix))
     })
-}
-
-fn next_text_prefix(prefix: &str) -> Option<String> {
-    let mut chars = prefix.chars().collect::<Vec<_>>();
-    for index in (0..chars.len()).rev() {
-        let Some(next_char) = next_unicode_scalar(chars[index]) else {
-            continue;
-        };
-        chars.truncate(index);
-        chars.push(next_char);
-        return Some(chars.into_iter().collect());
-    }
-
-    None
-}
-
-fn next_unicode_scalar(value: char) -> Option<char> {
-    if value == char::MAX {
-        return None;
-    }
-
-    let mut next = u32::from(value).saturating_add(1);
-    if (0xD800..=0xDFFF).contains(&next) {
-        next = 0xE000;
-    }
-
-    char::from_u32(next)
 }

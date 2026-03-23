@@ -27,9 +27,11 @@ pub(in crate::db) use key::{
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use plan::{
     IndexEntryReader, IndexMutationPlan, PrimaryRowReader, SealedIndexEntryReader,
-    SealedPrimaryRowReader, SealedStructuralIndexEntryReader, StructuralIndexEntryReader,
-    compile_index_membership_predicate, index_key_for_slot_reader_with_membership,
-    plan_index_mutation_for_slot_reader,
+    SealedPrimaryRowReader, SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+    StructuralIndexEntryReader, StructuralPrimaryRowReader,
+    compile_index_membership_predicate_structural,
+    index_key_for_slot_reader_with_membership_structural,
+    plan_index_mutation_for_slot_reader_structural,
 };
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram,
@@ -38,7 +40,8 @@ pub(in crate::db) use predicate::{
 #[cfg(test)]
 pub(in crate::db) use range::raw_keys_for_encoded_prefix_with_kind;
 pub(in crate::db) use range::{
-    IndexRangeBoundEncodeError, envelope_is_empty, raw_bounds_for_semantic_index_component_range,
-    raw_keys_for_component_prefix_with_kind, raw_keys_for_encoded_prefix,
+    IndexRangeBoundEncodeError, envelope_is_empty, next_text_prefix,
+    raw_bounds_for_semantic_index_component_range, raw_keys_for_component_prefix_with_kind,
+    raw_keys_for_encoded_prefix,
 };
 pub use store::IndexStore;

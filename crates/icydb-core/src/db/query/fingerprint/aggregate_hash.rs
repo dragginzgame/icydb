@@ -9,6 +9,22 @@ use crate::db::query::{
 };
 use sha2::Sha256;
 
+const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1: u8 = 0x01;
+
+const AGGREGATE_TARGET_ABSENT_TAG: u8 = 0x00;
+const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
+const AGGREGATE_DISTINCT_TAG: u8 = 0x02;
+const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
+
+const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
+const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
+const AGGREGATE_KIND_EXISTS_TAG: u8 = 0x03;
+const AGGREGATE_KIND_MIN_TAG: u8 = 0x04;
+const AGGREGATE_KIND_MAX_TAG: u8 = 0x05;
+const AGGREGATE_KIND_FIRST_TAG: u8 = 0x06;
+const AGGREGATE_KIND_LAST_TAG: u8 = 0x07;
+const AGGREGATE_KIND_AVG_TAG: u8 = 0x08;
+
 ///
 /// AggregateHashShape
 /// Canonical semantic aggregate hash shape for grouped aggregate hashing
@@ -42,8 +58,6 @@ pub(super) fn hash_group_aggregate_structural_fingerprint_v1(
     hasher: &mut Sha256,
     shape: &AggregateHashShape<'_>,
 ) {
-    const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1: u8 = 0x01;
-
     // v1 grouped aggregate fingerprint includes exactly:
     // - aggregate kind discriminant
     // - optional target field
@@ -54,24 +68,31 @@ pub(super) fn hash_group_aggregate_structural_fingerprint_v1(
     write_tag(hasher, aggregate_kind_tag_v1(shape.kind));
     match shape.target_field {
         Some(field) => {
-            write_tag(hasher, 0x01);
+            write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
             write_str(hasher, field);
         }
-        None => write_tag(hasher, 0x00),
+        None => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
     }
-    write_tag(hasher, if shape.distinct { 0x02 } else { 0x03 });
+    write_tag(
+        hasher,
+        if shape.distinct {
+            AGGREGATE_DISTINCT_TAG
+        } else {
+            AGGREGATE_NON_DISTINCT_TAG
+        },
+    );
 }
 
 const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
     match kind {
-        AggregateKind::Count => 0x01,
-        AggregateKind::Sum => 0x02,
-        AggregateKind::Exists => 0x03,
-        AggregateKind::Min => 0x04,
-        AggregateKind::Max => 0x05,
-        AggregateKind::First => 0x06,
-        AggregateKind::Last => 0x07,
-        AggregateKind::Avg => 0x08,
+        AggregateKind::Count => AGGREGATE_KIND_COUNT_TAG,
+        AggregateKind::Sum => AGGREGATE_KIND_SUM_TAG,
+        AggregateKind::Exists => AGGREGATE_KIND_EXISTS_TAG,
+        AggregateKind::Min => AGGREGATE_KIND_MIN_TAG,
+        AggregateKind::Max => AGGREGATE_KIND_MAX_TAG,
+        AggregateKind::First => AGGREGATE_KIND_FIRST_TAG,
+        AggregateKind::Last => AGGREGATE_KIND_LAST_TAG,
+        AggregateKind::Avg => AGGREGATE_KIND_AVG_TAG,
     }
 }
 

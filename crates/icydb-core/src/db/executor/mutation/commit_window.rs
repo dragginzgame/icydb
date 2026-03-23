@@ -12,17 +12,18 @@ use crate::{
             prepare_row_commit_for_entity_with_readers, rollback_prepared_row_ops_reverse,
             snapshot_row_rollback,
         },
-        data::{RawDataKey, RawRow, StorageKey},
+        data::{DataKey, RawDataKey, RawRow, StorageKey},
         index::{
             IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
             SealedIndexEntryReader, SealedPrimaryRowReader, SealedStructuralIndexEntryReader,
-            StructuralIndexEntryReader, key_within_envelope,
+            SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
+            StructuralPrimaryRowReader, key_within_envelope,
         },
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
 use std::{cell::RefCell, collections::BTreeMap, ops::Bound, ptr, thread::LocalKey};
 
@@ -76,18 +77,15 @@ pub(in crate::db::executor) struct IndexStoreGenerationGuard {
 /// fall back to committed stores when no staged value exists.
 ///
 
-struct PreflightStoreOverlay<'a, E: EntityKind + EntityValue> {
-    db: &'a Db<E::Canister>,
+struct PreflightStoreOverlay<'a, C: CanisterKind> {
+    db: &'a Db<C>,
     data_overrides: BTreeMap<RawDataKey, Option<RawRow>>,
     index_overrides: BTreeMap<usize, BTreeMap<RawIndexKey, Option<RawIndexEntry>>>,
 }
 
-impl<'a, E> PreflightStoreOverlay<'a, E>
-where
-    E: EntityKind + EntityValue,
-{
+impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
     /// Construct one empty preflight overlay for staged mutation simulation.
-    const fn new(db: &'a Db<E::Canister>) -> Self {
+    const fn new(db: &'a Db<C>) -> Self {
         Self {
             db,
             data_overrides: BTreeMap::new(),
@@ -109,30 +107,45 @@ where
     }
 }
 
-impl<E> PrimaryRowReader<E> for PreflightStoreOverlay<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row(
-        &self,
-        key: &crate::db::data::DataKey,
-    ) -> Result<Option<RawRow>, InternalError> {
+impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C> {
+    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         if let Some(override_row) = self.data_overrides.get(&raw_key) {
             return Ok(override_row.clone());
         }
 
-        self.db.context::<E>().read_primary_row(key)
+        let hooks = self.db.runtime_hook_for_entity_tag(key.entity_tag())?;
+        let store = self.db.recovered_store(hooks.store_path)?;
+
+        Ok(store.with_data(|data_store| data_store.get(&raw_key)))
     }
 }
 
-impl<E> SealedPrimaryRowReader<E> for PreflightStoreOverlay<'_, E> where E: EntityKind + EntityValue {}
+impl<C: CanisterKind> SealedStructuralPrimaryRowReader for PreflightStoreOverlay<'_, C> {}
 
-impl<E> IndexEntryReader<E> for PreflightStoreOverlay<'_, E>
+impl<E> PrimaryRowReader<E> for PreflightStoreOverlay<'_, E::Canister>
 where
     E: EntityKind + EntityValue,
 {
-    fn read_index_entry(
+    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        let raw_key = key.to_raw()?;
+        if let Some(override_row) = self.data_overrides.get(&raw_key) {
+            return Ok(override_row.clone());
+        }
+
+        let store = self.db.recovered_store(E::Store::PATH)?;
+
+        Ok(store.with_data(|data_store| data_store.get(&raw_key)))
+    }
+}
+
+impl<E> SealedPrimaryRowReader<E> for PreflightStoreOverlay<'_, E::Canister> where
+    E: EntityKind + EntityValue
+{
+}
+
+impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C> {
+    fn read_index_entry_structural(
         &self,
         store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
@@ -147,8 +160,10 @@ where
         Ok(store.with_borrow(|index_store| index_store.get(key)))
     }
 
-    fn read_index_keys_in_raw_range(
+    fn read_index_keys_in_raw_range_structural(
         &self,
+        entity_path: &'static str,
+        _entity_tag: crate::types::EntityTag,
         store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
@@ -180,7 +195,7 @@ where
             let entry = raw_entry.try_decode().map_err(|err| {
                 InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
-                    E::PATH,
+                    entity_path,
                     index.fields().join(", "),
                     err
                 ))
@@ -198,22 +213,39 @@ where
     }
 }
 
-impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E> where E: EntityKind + EntityValue {}
+impl<C: CanisterKind> SealedStructuralIndexEntryReader for PreflightStoreOverlay<'_, C> {}
 
-impl<E> StructuralIndexEntryReader for PreflightStoreOverlay<'_, E>
+impl<E> IndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister>
 where
     E: EntityKind + EntityValue,
 {
-    fn read_index_entry_structural(
+    fn read_index_entry(
         &self,
         store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        IndexEntryReader::<E>::read_index_entry(self, store, key)
+        self.read_index_entry_structural(store, key)
+    }
+
+    fn read_index_keys_in_raw_range(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<StorageKey>, InternalError> {
+        self.read_index_keys_in_raw_range_structural(
+            E::PATH,
+            E::ENTITY_TAG,
+            store,
+            index,
+            bounds,
+            limit,
+        )
     }
 }
 
-impl<E> SealedStructuralIndexEntryReader for PreflightStoreOverlay<'_, E> where
+impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> where
     E: EntityKind + EntityValue
 {
 }
@@ -282,10 +314,28 @@ pub(in crate::db::executor) fn preflight_prepare_row_ops<E: EntityKind + EntityV
     row_ops: &[CommitRowOp],
 ) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
     let mut prepared = Vec::with_capacity(row_ops.len());
-    let mut overlay = PreflightStoreOverlay::<E>::new(db);
+    let mut overlay = PreflightStoreOverlay::<E::Canister>::new(db);
 
     for row_op in row_ops {
-        let row = prepare_row_commit_for_entity_with_readers::<E>(db, row_op, &overlay, &overlay)?;
+        let row =
+            prepare_row_commit_for_entity_with_readers::<E, _, _>(db, row_op, &overlay, &overlay)?;
+        overlay.stage_prepared_row_op(&row);
+        prepared.push(row);
+    }
+
+    Ok(prepared)
+}
+
+/// Prepare delete row ops for commit-time apply through nongeneric runtime hooks.
+pub(in crate::db::executor) fn preflight_prepare_row_ops_structural<C: CanisterKind>(
+    db: &Db<C>,
+    row_ops: &[CommitRowOp],
+) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
+    let mut prepared = Vec::with_capacity(row_ops.len());
+    let mut overlay = PreflightStoreOverlay::<C>::new(db);
+
+    for row_op in row_ops {
+        let row = db.prepare_row_commit_op_with_readers(row_op, &overlay, &overlay)?;
         overlay.stage_prepared_row_op(&row);
         prepared.push(row);
     }
@@ -302,6 +352,25 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
     let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
+    let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
+    let delta = summarize_prepared_row_ops(&prepared_row_ops);
+    let marker = CommitMarker::new(row_ops)?;
+    let commit = begin_commit(marker)?;
+
+    Ok(OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        index_store_guards,
+        delta,
+    })
+}
+
+/// Preflight row ops, build marker, and persist the nongeneric delete commit window.
+pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
+    db: &Db<C>,
+    row_ops: Vec<CommitRowOp>,
+) -> Result<OpenCommitWindow, InternalError> {
+    let prepared_row_ops = preflight_prepare_row_ops_structural(db, &row_ops)?;
     let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
     let delta = summarize_prepared_row_ops(&prepared_row_ops);
     let marker = CommitMarker::new(row_ops)?;
@@ -404,10 +473,7 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window<E: EntityKind + E
     )
 }
 
-/// Commit delete-mode row operations through one shared commit window.
-///
-/// Delete execution emits remove-only index deltas while preserving the same
-/// commit-window sequencing and apply guarantees as other mutation paths.
+/// Commit delete-mode row operations through one typed commit window.
 pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
@@ -418,10 +484,49 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind +
         row_ops,
         apply_phase,
         |delta| {
-            emit_index_delta_metrics::<E>(0, delta.index_removes, 0, delta.reverse_index_removes);
+            emit_index_delta_metrics::<E>(
+                delta.index_inserts,
+                delta.index_removes,
+                delta.reverse_index_inserts,
+                delta.reverse_index_removes,
+            );
         },
         || {},
     )
+}
+
+/// Commit delete-mode row operations through one nongeneric commit window.
+pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: CanisterKind>(
+    db: &Db<C>,
+    entity_path: &'static str,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+) -> Result<(), InternalError> {
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        index_store_guards,
+        delta,
+    } = open_commit_window_structural(db, row_ops)?;
+
+    apply_prepared_row_ops(
+        commit,
+        apply_phase,
+        prepared_row_ops,
+        index_store_guards,
+        || {
+            emit_index_delta_metrics_for_path(
+                entity_path,
+                0,
+                delta.index_removes,
+                0,
+                delta.reverse_index_removes,
+            );
+        },
+        || {},
+    )?;
+
+    Ok(())
 }
 
 // Capture unique touched index stores and their generation after preflight.
@@ -468,6 +573,26 @@ fn verify_index_store_generations(
 
 fn index_store_id(store: &'static LocalKey<RefCell<IndexStore>>) -> usize {
     std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(store) as usize
+}
+
+fn emit_index_delta_metrics_for_path(
+    entity_path: &'static str,
+    index_inserts: usize,
+    index_removes: usize,
+    reverse_index_inserts: usize,
+    reverse_index_removes: usize,
+) {
+    record(MetricsEvent::IndexDelta {
+        entity_path,
+        inserts: u64::try_from(index_inserts).unwrap_or(u64::MAX),
+        removes: u64::try_from(index_removes).unwrap_or(u64::MAX),
+    });
+
+    record(MetricsEvent::ReverseIndexDelta {
+        entity_path,
+        inserts: u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX),
+        removes: u64::try_from(reverse_index_removes).unwrap_or(u64::MAX),
+    });
 }
 
 fn key_within_bounds(

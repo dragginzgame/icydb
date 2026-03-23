@@ -8,8 +8,13 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{EntityFieldDescription, EntitySchemaDescription},
-    error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    db::{
+        DbSession, EntityAuthority, EntityFieldDescription, EntitySchemaDescription,
+        SqlStatementRoute,
+    },
+    error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind},
+    model::entity::EntityModel,
+    traits::CanisterKind,
     value::{Value, ValueEnum},
 };
 
@@ -192,6 +197,213 @@ pub fn explain_target_sql(sql: &str) -> &str {
 #[must_use]
 pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
     crate::db::identifiers_tail_match(left, right)
+}
+
+/// Build one stable list of SQL entity names from structural authority.
+#[doc(hidden)]
+#[must_use]
+pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
+    authorities
+        .iter()
+        .map(|authority| authority.model().name().to_string())
+        .collect()
+}
+
+/// Execute one generated canister SQL dispatch entrypoint from structural authority.
+#[doc(hidden)]
+pub fn execute_generated_sql_dispatch<C: CanisterKind>(
+    session: &DbSession<C>,
+    sql: &str,
+    authorities: &[EntityAuthority],
+) -> Result<SqlQueryResult, Error> {
+    // Phase 1: normalize and parse the incoming SQL statement once.
+    let sql_trimmed = normalize_sql_input(sql)?;
+    let parsed = session.parse_sql_statement(sql_trimmed)?;
+    let statement = parsed.route();
+
+    // Phase 2: route the parsed statement through one shared structural helper.
+    match statement {
+        SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. } => {
+            query_lane_result_for_statement(session, sql_trimmed, &parsed, statement, authorities)
+        }
+        SqlStatementRoute::Describe { .. } => {
+            describe_result_for_statement(session, statement, authorities)
+        }
+        SqlStatementRoute::ShowIndexes { .. } => {
+            show_indexes_result_for_statement(session, statement, authorities)
+        }
+        SqlStatementRoute::ShowColumns { .. } => {
+            show_columns_result_for_statement(session, statement, authorities)
+        }
+        SqlStatementRoute::ShowEntities => Ok(show_entities_result_for_statement(session)),
+    }
+}
+
+// Resolve one structural authority from an entity-scoped SQL statement.
+fn authority_for_statement(
+    statement: &SqlStatementRoute,
+    authorities: &[EntityAuthority],
+) -> Result<EntityAuthority, Error> {
+    if statement.is_show_entities() {
+        return Err(unsupported_entity_route_statement_error());
+    }
+
+    let sql_entity = statement.entity();
+    authority_for_entity_name(sql_entity, authorities)
+        .ok_or_else(|| unsupported_sql_entity_error(sql_entity, authorities))
+}
+
+// Resolve one structural authority from one SQL entity identifier.
+fn authority_for_entity_name(
+    entity_name: &str,
+    authorities: &[EntityAuthority],
+) -> Option<EntityAuthority> {
+    authorities
+        .iter()
+        .copied()
+        .find(|authority| identifiers_tail_match(entity_name, authority.model().name()))
+}
+
+// Execute one shared SQL query/explain lane after routing authority structurally.
+fn query_lane_result_for_statement<C: CanisterKind>(
+    session: &DbSession<C>,
+    sql: &str,
+    parsed: &crate::db::SqlParsedStatement,
+    statement: &SqlStatementRoute,
+    authorities: &[EntityAuthority],
+) -> Result<SqlQueryResult, Error> {
+    let authority = authority_for_statement(statement, authorities)?;
+    let prepared = session.prepare_sql_dispatch_parsed(parsed, authority.model().name())?;
+    let lowered = session.lower_sql_dispatch_query_lane_prepared(
+        &prepared,
+        authority.model().primary_key().name(),
+    )?;
+    let result = if statement.is_explain() {
+        session.explain_lowered_sql_dispatch_for_model(&lowered, authority.model())
+    } else {
+        session.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+    };
+
+    if matches!(statement, SqlStatementRoute::Explain { .. }) {
+        return result.map_err(|err| explain_surface_error(sql, authority.model(), err));
+    }
+
+    result
+}
+
+// Render one DESCRIBE result through one shared structural authority path.
+fn describe_result_for_statement<C: CanisterKind>(
+    session: &DbSession<C>,
+    statement: &SqlStatementRoute,
+    authorities: &[EntityAuthority],
+) -> Result<SqlQueryResult, Error> {
+    let authority = authority_for_statement(statement, authorities)?;
+    let description = session.describe_entity_model(authority.model());
+
+    Ok(SqlQueryResult::Describe(description))
+}
+
+// Render one SHOW INDEXES result through one shared structural authority path.
+fn show_indexes_result_for_statement<C: CanisterKind>(
+    session: &DbSession<C>,
+    statement: &SqlStatementRoute,
+    authorities: &[EntityAuthority],
+) -> Result<SqlQueryResult, Error> {
+    let authority = authority_for_statement(statement, authorities)?;
+    let indexes = session.show_indexes_for_model(authority.model());
+
+    Ok(SqlQueryResult::ShowIndexes {
+        entity: authority.model().name().to_string(),
+        indexes,
+    })
+}
+
+// Render one SHOW COLUMNS result through one shared structural authority path.
+fn show_columns_result_for_statement<C: CanisterKind>(
+    session: &DbSession<C>,
+    statement: &SqlStatementRoute,
+    authorities: &[EntityAuthority],
+) -> Result<SqlQueryResult, Error> {
+    let authority = authority_for_statement(statement, authorities)?;
+    let columns = session.show_columns_for_model(authority.model());
+
+    Ok(SqlQueryResult::ShowColumns {
+        entity: authority.model().name().to_string(),
+        columns,
+    })
+}
+
+// Render one SHOW ENTITIES result without per-entity authority resolution.
+fn show_entities_result_for_statement<C: CanisterKind>(session: &DbSession<C>) -> SqlQueryResult {
+    let entities = session.show_entities();
+
+    SqlQueryResult::ShowEntities { entities }
+}
+
+// Build one stable unsupported-entity error using the generated authority table.
+fn unsupported_sql_entity_error(entity_name: &str, authorities: &[EntityAuthority]) -> Error {
+    let supported = generated_sql_entities(authorities).join(", ");
+
+    Error::new(
+        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        ErrorOrigin::Query,
+        format!("query endpoint does not support entity '{entity_name}'; supported: {supported}"),
+    )
+}
+
+// Reject route resolution for non-entity-scoped statements.
+fn unsupported_entity_route_statement_error() -> Error {
+    Error::new(
+        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        ErrorOrigin::Query,
+        "entity route resolution requires one entity-scoped SQL statement",
+    )
+}
+
+// Rewrite unordered-pagination EXPLAIN failures into one actionable canister message.
+fn explain_surface_error(sql: &str, model: &'static EntityModel, err: Error) -> Error {
+    if !matches!(
+        err.kind(),
+        ErrorKind::Query(QueryErrorKind::UnorderedPagination)
+    ) {
+        return err;
+    }
+
+    let target_sql = explain_target_sql(sql);
+    let suggestion = explain_order_hint_sql(target_sql, model.primary_key().name());
+    let message = format!(
+        "Cannot EXPLAIN this SQL statement.\n\nReason:\nThe wrapped query uses LIMIT or OFFSET without ORDER BY, so it is non-deterministic and not executable under IcyDB's ordering contract.\n\nSQL:\n{target_sql}\n\nHow to fix:\nAdd an explicit ORDER BY that produces a stable total order, for example:\n{suggestion}",
+    );
+
+    Error::new(
+        ErrorKind::Query(QueryErrorKind::UnorderedPagination),
+        err.origin(),
+        message,
+    )
+}
+
+// Suggest one stable ORDER BY rewrite for EXPLAIN pagination failures.
+fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
+    let trimmed = target_sql.trim().trim_end_matches(';').trim_end();
+    let upper = trimmed.to_ascii_uppercase();
+
+    if let Some(index) = upper.find(" LIMIT ") {
+        return format!(
+            "EXPLAIN {} ORDER BY {order_field} ASC{}",
+            &trimmed[..index],
+            &trimmed[index..]
+        );
+    }
+
+    if let Some(index) = upper.find(" OFFSET ") {
+        return format!(
+            "EXPLAIN {} ORDER BY {order_field} ASC{}",
+            &trimmed[..index],
+            &trimmed[index..]
+        );
+    }
+
+    format!("EXPLAIN {trimmed} ORDER BY {order_field} ASC")
 }
 
 /// Render one value into a shell-friendly stable text form.

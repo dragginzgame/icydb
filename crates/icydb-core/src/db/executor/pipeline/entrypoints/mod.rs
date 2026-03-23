@@ -8,7 +8,7 @@ mod scalar;
 
 use crate::{
     db::{
-        Db, PersistedRow,
+        PersistedRow,
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
             ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
@@ -18,7 +18,7 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue},
 };
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
@@ -41,20 +41,6 @@ fn resolve_entrypoint_cursor(
     execution_mode: LoadExecutionMode,
 ) -> Result<ResolvedLoadCursorContext, InternalError> {
     ContinuationEngine::resolve_load_cursor_context(plan, cursor, execution_mode.requested_shape())
-}
-
-// Execute one unpaged scalar load plan through the shared structural scalar
-// path for a whole canister, then return one structural page for the typed
-// boundary to decode.
-fn execute_scalar_rows_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    plan: PreparedLoadPlan,
-) -> Result<crate::db::executor::pipeline::contracts::StructuralCursorPage, InternalError>
-where
-    C: CanisterKind,
-{
-    execute_prepared_scalar_rows_for_canister(db, debug, plan)
 }
 
 impl<E> LoadExecutor<E>
@@ -82,8 +68,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
-        let page =
-            execute_scalar_rows_for_canister(&self.db, self.debug, plan.into_prepared_load_plan())?;
+        let page = execute_prepared_scalar_rows_for_canister(
+            &self.db,
+            self.debug,
+            plan.into_prepared_load_plan(),
+        )?;
 
         page.into_entity_response::<E>()
     }

@@ -256,40 +256,38 @@ impl<C: CanisterKind> DbSession<C> {
             .lower_sql_dispatch_query_lane_prepared(&prepared.inner, primary_key_field)?)
     }
 
-    /// Execute one already-lowered shared SQL query shape for entity `E`.
+    /// Execute one already-lowered shared SQL query shape for resolved authority.
     #[cfg(feature = "sql")]
     #[doc(hidden)]
-    pub fn execute_lowered_sql_dispatch_query<E>(
+    pub fn execute_lowered_sql_dispatch_query_for_authority(
         &self,
         lowered: &core::db::LoweredSqlCommand,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
+        authority: core::db::EntityAuthority,
+    ) -> Result<SqlQueryResult, Error> {
         let result = self
             .inner
-            .execute_lowered_sql_dispatch_query::<E>(lowered)?;
+            .execute_lowered_sql_dispatch_query_for_authority(lowered, authority)?;
 
         Ok(Self::map_sql_dispatch_result(
             result,
-            E::MODEL.name().to_string(),
+            authority.model().name().to_string(),
         ))
     }
 
-    /// Execute one already-lowered shared SQL explain shape for entity `E`.
+    /// Execute one already-lowered shared SQL explain shape for one model.
     #[cfg(feature = "sql")]
     #[doc(hidden)]
-    pub fn explain_lowered_sql_dispatch<E>(
+    pub fn explain_lowered_sql_dispatch_for_model(
         &self,
         lowered: &core::db::LoweredSqlCommand,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let explain = self.inner.explain_lowered_sql_dispatch::<E>(lowered)?;
+        model: &'static EntityModel,
+    ) -> Result<SqlQueryResult, Error> {
+        let explain = self
+            .inner
+            .explain_lowered_sql_dispatch_for_model(lowered, model)?;
 
         Ok(SqlQueryResult::Explain {
-            entity: E::MODEL.name().to_string(),
+            entity: model.name().to_string(),
             explain,
         })
     }

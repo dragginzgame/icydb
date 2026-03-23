@@ -26,6 +26,15 @@ const SCALAR_SLOT_PREFIX: u8 = 0xFF;
 const SCALAR_SLOT_TAG_NULL: u8 = 0;
 const SCALAR_SLOT_TAG_VALUE: u8 = 1;
 
+const SCALAR_BOOL_PAYLOAD_LEN: usize = 1;
+const SCALAR_WORD32_PAYLOAD_LEN: usize = 4;
+const SCALAR_WORD64_PAYLOAD_LEN: usize = 8;
+const SCALAR_ULID_PAYLOAD_LEN: usize = 16;
+const SCALAR_SUBACCOUNT_PAYLOAD_LEN: usize = 32;
+
+const SCALAR_BOOL_FALSE_TAG: u8 = 0;
+const SCALAR_BOOL_TRUE_TAG: u8 = 1;
+
 ///
 /// SlotReader
 ///
@@ -699,12 +708,12 @@ fn decode_scalar_slot_value<'a>(
         ScalarCodec::Bool => {
             let [value] = payload else {
                 return Err(InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': bool payload must be exactly 1 byte",
+                    "row decode failed for field '{field_name}': bool payload must be exactly {SCALAR_BOOL_PAYLOAD_LEN} byte",
                 )));
             };
-            match value {
-                0 => ScalarValueRef::Bool(false),
-                1 => ScalarValueRef::Bool(true),
+            match *value {
+                SCALAR_BOOL_FALSE_TAG => ScalarValueRef::Bool(false),
+                SCALAR_BOOL_TRUE_TAG => ScalarValueRef::Bool(true),
                 _ => {
                     return Err(InternalError::serialize_corruption(format!(
                         "row decode failed for field '{field_name}': invalid bool payload byte {value}",
@@ -713,25 +722,25 @@ fn decode_scalar_slot_value<'a>(
             }
         }
         ScalarCodec::Date => {
-            let bytes: [u8; 4] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD32_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': date payload must be exactly 4 bytes",
+                    "row decode failed for field '{field_name}': date payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Date(Date::from_days_since_epoch(i32::from_le_bytes(bytes)))
         }
         ScalarCodec::Duration => {
-            let bytes: [u8; 8] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': duration payload must be exactly 8 bytes",
+                    "row decode failed for field '{field_name}': duration payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Duration(Duration::from_millis(u64::from_le_bytes(bytes)))
         }
         ScalarCodec::Float32 => {
-            let bytes: [u8; 4] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD32_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': float32 payload must be exactly 4 bytes",
+                    "row decode failed for field '{field_name}': float32 payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
                 ))
             })?;
             let value = f32::from_bits(u32::from_le_bytes(bytes));
@@ -743,9 +752,9 @@ fn decode_scalar_slot_value<'a>(
             ScalarValueRef::Float32(value)
         }
         ScalarCodec::Float64 => {
-            let bytes: [u8; 8] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': float64 payload must be exactly 8 bytes",
+                    "row decode failed for field '{field_name}': float64 payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                 ))
             })?;
             let value = f64::from_bits(u64::from_le_bytes(bytes));
@@ -757,9 +766,9 @@ fn decode_scalar_slot_value<'a>(
             ScalarValueRef::Float64(value)
         }
         ScalarCodec::Int64 => {
-            let bytes: [u8; 8] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': int payload must be exactly 8 bytes",
+                    "row decode failed for field '{field_name}': int payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Int(i64::from_le_bytes(bytes))
@@ -772,9 +781,9 @@ fn decode_scalar_slot_value<'a>(
             })?)
         }
         ScalarCodec::Subaccount => {
-            let bytes: [u8; 32] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_SUBACCOUNT_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': subaccount payload must be exactly 32 bytes",
+                    "row decode failed for field '{field_name}': subaccount payload must be exactly {SCALAR_SUBACCOUNT_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Subaccount(Subaccount::from_array(bytes))
@@ -788,25 +797,25 @@ fn decode_scalar_slot_value<'a>(
             ScalarValueRef::Text(value)
         }
         ScalarCodec::Timestamp => {
-            let bytes: [u8; 8] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': timestamp payload must be exactly 8 bytes",
+                    "row decode failed for field '{field_name}': timestamp payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(i64::from_le_bytes(bytes)))
         }
         ScalarCodec::Uint64 => {
-            let bytes: [u8; 8] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': uint payload must be exactly 8 bytes",
+                    "row decode failed for field '{field_name}': uint payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Uint(u64::from_le_bytes(bytes))
         }
         ScalarCodec::Ulid => {
-            let bytes: [u8; 16] = payload.try_into().map_err(|_| {
+            let bytes: [u8; SCALAR_ULID_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
                 InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': ulid payload must be exactly 16 bytes",
+                    "row decode failed for field '{field_name}': ulid payload must be exactly {SCALAR_ULID_PAYLOAD_LEN} bytes",
                 ))
             })?;
             ScalarValueRef::Ulid(Ulid::from_bytes(bytes))
@@ -838,9 +847,9 @@ macro_rules! impl_persisted_scalar_signed {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    let raw: [u8; 8] = bytes.try_into().map_err(|_| {
+                    let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
                         InternalError::serialize_corruption(format!(
-                            "row decode failed for field '{field_name}': int payload must be exactly 8 bytes",
+                            "row decode failed for field '{field_name}': int payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                         ))
                     })?;
                     <$ty>::try_from(i64::from_le_bytes(raw)).map_err(|_| {
@@ -868,9 +877,9 @@ macro_rules! impl_persisted_scalar_unsigned {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    let raw: [u8; 8] = bytes.try_into().map_err(|_| {
+                    let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
                         InternalError::serialize_corruption(format!(
-                            "row decode failed for field '{field_name}': uint payload must be exactly 8 bytes",
+                            "row decode failed for field '{field_name}': uint payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
                         ))
                     })?;
                     <$ty>::try_from(u64::from_le_bytes(raw)).map_err(|_| {
@@ -900,13 +909,13 @@ impl PersistedScalar for bool {
     ) -> Result<Self, InternalError> {
         let [value] = bytes else {
             return Err(InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': bool payload must be exactly 1 byte",
+                "row decode failed for field '{field_name}': bool payload must be exactly {SCALAR_BOOL_PAYLOAD_LEN} byte",
             )));
         };
 
-        match value {
-            0 => Ok(false),
-            1 => Ok(true),
+        match *value {
+            SCALAR_BOOL_FALSE_TAG => Ok(false),
+            SCALAR_BOOL_TRUE_TAG => Ok(true),
             _ => Err(InternalError::serialize_corruption(format!(
                 "row decode failed for field '{field_name}': invalid bool payload byte {value}",
             ))),
@@ -993,9 +1002,9 @@ impl PersistedScalar for Timestamp {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let raw: [u8; 8] = bytes.try_into().map_err(|_| {
+        let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': timestamp payload must be exactly 8 bytes",
+                "row decode failed for field '{field_name}': timestamp payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
             ))
         })?;
 
@@ -1014,9 +1023,9 @@ impl PersistedScalar for Date {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let raw: [u8; 4] = bytes.try_into().map_err(|_| {
+        let raw: [u8; SCALAR_WORD32_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': date payload must be exactly 4 bytes",
+                "row decode failed for field '{field_name}': date payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
             ))
         })?;
 
@@ -1035,9 +1044,9 @@ impl PersistedScalar for Duration {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let raw: [u8; 8] = bytes.try_into().map_err(|_| {
+        let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': duration payload must be exactly 8 bytes",
+                "row decode failed for field '{field_name}': duration payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
             ))
         })?;
 
@@ -1056,9 +1065,9 @@ impl PersistedScalar for Float32 {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let raw: [u8; 4] = bytes.try_into().map_err(|_| {
+        let raw: [u8; SCALAR_WORD32_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': float32 payload must be exactly 4 bytes",
+                "row decode failed for field '{field_name}': float32 payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
             ))
         })?;
         let value = f32::from_bits(u32::from_le_bytes(raw));
@@ -1082,9 +1091,9 @@ impl PersistedScalar for Float64 {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let raw: [u8; 8] = bytes.try_into().map_err(|_| {
+        let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': float64 payload must be exactly 8 bytes",
+                "row decode failed for field '{field_name}': float64 payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
             ))
         })?;
         let value = f64::from_bits(u64::from_le_bytes(raw));
@@ -1131,9 +1140,9 @@ impl PersistedScalar for Subaccount {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        let raw: [u8; 32] = bytes.try_into().map_err(|_| {
+        let raw: [u8; SCALAR_SUBACCOUNT_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
             InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': subaccount payload must be exactly 32 bytes",
+                "row decode failed for field '{field_name}': subaccount payload must be exactly {SCALAR_SUBACCOUNT_PAYLOAD_LEN} bytes",
             ))
         })?;
 

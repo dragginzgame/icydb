@@ -913,17 +913,6 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
 }
 
-pub(in crate::db) fn bind_lowered_sql_delete_query<E: EntityKind>(
-    lowered: LoweredBaseQueryShape,
-    consistency: MissingRowPolicy,
-) -> Query<E> {
-    Query::from_inner(bind_lowered_sql_delete_query_structural(
-        E::MODEL,
-        lowered,
-        consistency,
-    ))
-}
-
 pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(
     lowered: LoweredSqlQuery,
     consistency: MissingRowPolicy,

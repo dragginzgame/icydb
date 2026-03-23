@@ -19,7 +19,6 @@ use crate::{
         entity::{EntityModel, resolve_field_slot},
         field::LeafCodec,
     },
-    traits::EntityKind,
     value::{TextMode, Value},
 };
 use std::cmp::Ordering;
@@ -155,12 +154,6 @@ enum ScalarLiteral {
 }
 
 impl PredicateProgram {
-    /// Compile a predicate into a slot-based executable form.
-    #[must_use]
-    pub(in crate::db) fn compile<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
-        Self::compile_with_model(E::MODEL, predicate)
-    }
-
     /// Compile a predicate into a slot-based executable form using structural model data only.
     #[must_use]
     pub(in crate::db) fn compile_with_model(

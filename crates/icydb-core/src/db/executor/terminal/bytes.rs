@@ -41,6 +41,14 @@ use crate::db::executor::terminal::{
     bytes_page_window_state, saturating_add_payload_len, serialized_value_len,
 };
 
+const COVERING_BOOL_PAYLOAD_LEN: usize = 1;
+const COVERING_U64_PAYLOAD_LEN: usize = 8;
+const COVERING_ULID_PAYLOAD_LEN: usize = 16;
+const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
+const COVERING_TEXT_TERMINATOR: u8 = 0x00;
+const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
+const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
+
 // Typed boundary request for one scalar bytes terminal family call.
 enum BytesTerminalBoundaryRequest {
     Total,
@@ -536,7 +544,7 @@ fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> 
             "bool covering component payload is truncated",
         ));
     };
-    if payload.len() != 1 {
+    if payload.len() != COVERING_BOOL_PAYLOAD_LEN {
         return Err(InternalError::index_corruption(
             "bool covering component payload has invalid length",
         ));
@@ -552,27 +560,27 @@ fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 }
 
 fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    if payload.len() != 8 {
+    if payload.len() != COVERING_U64_PAYLOAD_LEN {
         return Err(InternalError::index_corruption(
             "int covering component payload has invalid length",
         ));
     }
-    let mut bytes = [0u8; 8];
+    let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
     let biased = u64::from_be_bytes(bytes);
-    let unsigned = biased ^ (1u64 << 63);
+    let unsigned = biased ^ COVERING_I64_SIGN_BIT_BIAS;
     let value = i64::from_be_bytes(unsigned.to_be_bytes());
 
     Ok(Some(Value::Int(value)))
 }
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    if payload.len() != 8 {
+    if payload.len() != COVERING_U64_PAYLOAD_LEN {
         return Err(InternalError::index_corruption(
             "uint covering component payload has invalid length",
         ));
     }
-    let mut bytes = [0u8; 8];
+    let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
 
     Ok(Some(Value::Uint(u64::from_be_bytes(bytes))))
@@ -583,7 +591,7 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
     let mut i = 0usize;
     while i < payload.len() {
         let byte = payload[i];
-        if byte != 0 {
+        if byte != COVERING_TEXT_ESCAPE_PREFIX {
             bytes.push(byte);
             i = i.saturating_add(1);
             continue;
@@ -595,7 +603,7 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
             ));
         };
         match next {
-            0 => {
+            COVERING_TEXT_TERMINATOR => {
                 i = i.saturating_add(2);
                 if i != payload.len() {
                     return Err(InternalError::index_corruption(
@@ -611,7 +619,7 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 
                 return Ok(Some(Value::Text(text)));
             }
-            0xff => {
+            COVERING_TEXT_ESCAPED_ZERO => {
                 bytes.push(0);
                 i = i.saturating_add(2);
             }
@@ -629,12 +637,12 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 }
 
 fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    if payload.len() != 16 {
+    if payload.len() != COVERING_ULID_PAYLOAD_LEN {
         return Err(InternalError::index_corruption(
             "ulid covering component payload has invalid length",
         ));
     }
-    let mut bytes = [0u8; 16];
+    let mut bytes = [0u8; COVERING_ULID_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
 
     Ok(Some(Value::Ulid(Ulid::from_bytes(bytes))))

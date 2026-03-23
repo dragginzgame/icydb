@@ -130,6 +130,22 @@ pub(in crate::db) fn raw_bounds_for_semantic_index_component_range(
     ))
 }
 
+/// Return the smallest strict lexical successor prefix, or `None` when the
+/// input is already at the terminal Unicode scalar boundary.
+pub(in crate::db) fn next_text_prefix(prefix: &str) -> Option<String> {
+    let mut chars = prefix.chars().collect::<Vec<_>>();
+    for index in (0..chars.len()).rev() {
+        let Some(next_char) = next_unicode_scalar(chars[index]) else {
+            continue;
+        };
+        chars.truncate(index);
+        chars.push(next_char);
+        return Some(chars.into_iter().collect());
+    }
+
+    None
+}
+
 ///
 /// envelope_is_empty
 ///
@@ -192,6 +208,19 @@ fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexKey> {
         Bound::Included(key) => Bound::Included(key.to_raw()),
         Bound::Excluded(key) => Bound::Excluded(key.to_raw()),
     }
+}
+
+fn next_unicode_scalar(value: char) -> Option<char> {
+    if value == char::MAX {
+        return None;
+    }
+
+    let mut next = u32::from(value).saturating_add(1);
+    if (0xD800..=0xDFFF).contains(&next) {
+        next = 0xE000;
+    }
+
+    char::from_u32(next)
 }
 
 ///

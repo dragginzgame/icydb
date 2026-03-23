@@ -103,10 +103,6 @@ mod tests {
             "generated sql_dispatch must not include removed from_statement_sql resolver"
         );
         assert!(
-            actor.contains("from_entity_name"),
-            "generated sql_dispatch must include from_entity_name resolver"
-        );
-        assert!(
             !actor.contains("pub fn query_rows ("),
             "generated sql_dispatch must not include removed query_rows convenience entrypoint"
         );

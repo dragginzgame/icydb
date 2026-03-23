@@ -22,7 +22,8 @@ use crate::{
 };
 
 pub(super) use commit_window::{
-    commit_delete_row_ops_with_window, commit_save_row_ops_with_window,
+    commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
+    commit_save_row_ops_with_window,
 };
 
 /// Run mutation write-entry recovery checks and return a write-ready context.

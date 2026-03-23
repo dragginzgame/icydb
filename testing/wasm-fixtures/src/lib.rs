@@ -12,32 +12,28 @@ pub fn assert_generated_sql_dispatch_surface_is_stable(actor: &str) {
         "generated actor surface must include sql_dispatch module"
     );
     assert!(
-        actor.contains("from_statement_route"),
-        "generated sql_dispatch must include from_statement_route resolver"
+        actor.contains("SQL_ENTITY_AUTHORITIES"),
+        "generated sql_dispatch must include one static structural authority table"
     );
     assert!(
-        actor.contains("pub struct SqlEntityDescriptor"),
-        "generated sql_dispatch must include one SqlEntityDescriptor runtime descriptor"
+        !actor.contains("pub query : fn (") && !actor.contains("pub query: fn("),
+        "generated sql_dispatch must not retain direct query function pointers"
     );
     assert!(
-        actor.contains("pub query : fn (") || actor.contains("pub query: fn("),
-        "generated sql_dispatch must include direct query function pointers on SqlEntityDescriptor"
-    );
-    assert!(
-        actor.contains("pub explain : fn (") || actor.contains("pub explain: fn("),
-        "generated sql_dispatch must include direct explain function pointers on SqlEntityDescriptor"
+        !actor.contains("pub explain : fn (") && !actor.contains("pub explain: fn("),
+        "generated sql_dispatch must not retain direct explain function pointers"
     );
     assert!(
         !actor.contains("pub struct SqlLaneTable"),
         "generated sql_dispatch must not reintroduce the removed SqlLaneTable layer"
     );
     assert!(
-        actor.contains("SQL_ENTITY_DESCRIPTORS"),
-        "generated sql_dispatch must include one static descriptor table"
+        !actor.contains("pub struct SqlEntityDescriptor"),
+        "generated sql_dispatch must not retain the removed descriptor wrapper"
     );
     assert!(
-        !actor.contains("enum SqlEntityRoute"),
-        "generated sql_dispatch must not regress to enum-based per-entity routing"
+        !actor.contains("from_statement_route"),
+        "generated sql_dispatch must not rebuild per-canister route resolvers"
     );
     assert!(
         actor.contains("pub fn query ("),

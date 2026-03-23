@@ -57,6 +57,7 @@ pub(in crate::db) use marker::{
 };
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_readers,
+    prepare_row_commit_for_entity_with_structural_readers,
 };
 pub(in crate::db) use prepared_op::{
     PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,

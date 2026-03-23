@@ -6,6 +6,34 @@
 use crate::db::data::structural_field::StructuralFieldDecodeError;
 use std::str;
 
+const CBOR_MAJOR_TYPE_SHIFT: u8 = 5;
+const CBOR_ADDITIONAL_INFO_MASK: u8 = 0x1f;
+
+const CBOR_MAJOR_UNSIGNED_INT: u8 = 0;
+const CBOR_MAJOR_NEGATIVE_INT: u8 = 1;
+const CBOR_MAJOR_BYTE_STRING: u8 = 2;
+const CBOR_MAJOR_TEXT_STRING: u8 = 3;
+const CBOR_MAJOR_ARRAY: u8 = 4;
+const CBOR_MAJOR_MAP: u8 = 5;
+const CBOR_MAJOR_TAG: u8 = 6;
+const CBOR_MAJOR_SIMPLE_OR_FLOAT: u8 = 7;
+
+const CBOR_ADDITIONAL_INFO_INLINE_MAX: u8 = 23;
+const CBOR_ADDITIONAL_INFO_U8: u8 = 24;
+const CBOR_ADDITIONAL_INFO_U16: u8 = 25;
+const CBOR_ADDITIONAL_INFO_U32: u8 = 26;
+const CBOR_ADDITIONAL_INFO_U64: u8 = 27;
+const CBOR_ADDITIONAL_INFO_INDEFINITE: u8 = 31;
+
+const CBOR_U16_WIDTH: usize = 2;
+const CBOR_U32_WIDTH: usize = 4;
+const CBOR_U64_WIDTH: usize = 8;
+
+const CBOR_FLOAT32_ARGUMENT: u64 = 26;
+const CBOR_FLOAT64_ARGUMENT: u64 = 27;
+
+const TAGGED_VARIANT_ENTRY_COUNT: u64 = 1;
+
 // Alias the callback shape for raw CBOR array walkers.
 type ArrayItemDecodeFn = unsafe fn(&[u8], *mut ()) -> Result<(), StructuralFieldDecodeError>;
 
@@ -29,7 +57,7 @@ pub(super) fn walk_cbor_array_items(
             "typed CBOR decode failed: truncated CBOR value",
         ));
     };
-    if major != 4 {
+    if major != CBOR_MAJOR_ARRAY {
         return Err(StructuralFieldDecodeError::new(shape_label));
     }
 
@@ -65,7 +93,7 @@ pub(super) fn walk_cbor_map_entries(
             "typed CBOR decode failed: truncated CBOR value",
         ));
     };
-    if major != 5 {
+    if major != CBOR_MAJOR_MAP {
         return Err(StructuralFieldDecodeError::new(shape_label));
     }
 
@@ -109,7 +137,7 @@ pub(super) fn parse_tagged_cbor_head(
         return Ok(None);
     };
 
-    while major == 6 {
+    while major == CBOR_MAJOR_TAG {
         cursor = next_cursor;
         let Some((inner_major, inner_argument, inner_next_cursor)) =
             parse_cbor_head(bytes, cursor)?
@@ -134,13 +162,13 @@ fn parse_cbor_head(
     let Some(&first) = bytes.get(cursor) else {
         return Ok(None);
     };
-    let major = first >> 5;
-    let additional = first & 0x1f;
+    let major = first >> CBOR_MAJOR_TYPE_SHIFT;
+    let additional = first & CBOR_ADDITIONAL_INFO_MASK;
     let mut next_cursor = cursor + 1;
 
     let argument = match additional {
-        value @ 0..=23 => u64::from(value),
-        24 => {
+        value @ 0..=CBOR_ADDITIONAL_INFO_INLINE_MAX => u64::from(value),
+        CBOR_ADDITIONAL_INFO_U8 => {
             let value = *bytes.get(next_cursor).ok_or_else(|| {
                 StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
             })?;
@@ -148,36 +176,42 @@ fn parse_cbor_head(
 
             u64::from(value)
         }
-        25 => {
-            let payload = bytes.get(next_cursor..next_cursor + 2).ok_or_else(|| {
-                StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
-            })?;
-            next_cursor += 2;
+        CBOR_ADDITIONAL_INFO_U16 => {
+            let payload = bytes
+                .get(next_cursor..next_cursor + CBOR_U16_WIDTH)
+                .ok_or_else(|| {
+                    StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
+                })?;
+            next_cursor += CBOR_U16_WIDTH;
 
             u64::from(u16::from_be_bytes([payload[0], payload[1]]))
         }
-        26 => {
-            let payload = bytes.get(next_cursor..next_cursor + 4).ok_or_else(|| {
-                StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
-            })?;
-            next_cursor += 4;
+        CBOR_ADDITIONAL_INFO_U32 => {
+            let payload = bytes
+                .get(next_cursor..next_cursor + CBOR_U32_WIDTH)
+                .ok_or_else(|| {
+                    StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
+                })?;
+            next_cursor += CBOR_U32_WIDTH;
 
             u64::from(u32::from_be_bytes([
                 payload[0], payload[1], payload[2], payload[3],
             ]))
         }
-        27 => {
-            let payload = bytes.get(next_cursor..next_cursor + 8).ok_or_else(|| {
-                StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
-            })?;
-            next_cursor += 8;
+        CBOR_ADDITIONAL_INFO_U64 => {
+            let payload = bytes
+                .get(next_cursor..next_cursor + CBOR_U64_WIDTH)
+                .ok_or_else(|| {
+                    StructuralFieldDecodeError::new("typed CBOR decode failed: truncated CBOR head")
+                })?;
+            next_cursor += CBOR_U64_WIDTH;
 
             u64::from_be_bytes([
                 payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
                 payload[7],
             ])
         }
-        31 => {
+        CBOR_ADDITIONAL_INFO_INDEFINITE => {
             return Err(StructuralFieldDecodeError::new(
                 "typed CBOR decode failed: indefinite-length CBOR is unsupported",
             ));
@@ -204,8 +238,10 @@ pub(super) fn skip_cbor_value(
     };
 
     match major {
-        0 | 1 | 7 => Ok(cursor),
-        2 | 3 => {
+        CBOR_MAJOR_UNSIGNED_INT | CBOR_MAJOR_NEGATIVE_INT | CBOR_MAJOR_SIMPLE_OR_FLOAT => {
+            Ok(cursor)
+        }
+        CBOR_MAJOR_BYTE_STRING | CBOR_MAJOR_TEXT_STRING => {
             let len = usize::try_from(argument).map_err(|_| {
                 StructuralFieldDecodeError::new("typed CBOR decode failed: CBOR scalar too large")
             })?;
@@ -222,7 +258,7 @@ pub(super) fn skip_cbor_value(
 
             Ok(cursor)
         }
-        4 => {
+        CBOR_MAJOR_ARRAY => {
             let len = usize::try_from(argument).map_err(|_| {
                 StructuralFieldDecodeError::new("typed CBOR decode failed: CBOR array too large")
             })?;
@@ -232,7 +268,7 @@ pub(super) fn skip_cbor_value(
 
             Ok(cursor)
         }
-        5 => {
+        CBOR_MAJOR_MAP => {
             let len = usize::try_from(argument).map_err(|_| {
                 StructuralFieldDecodeError::new("typed CBOR decode failed: CBOR map too large")
             })?;
@@ -259,7 +295,7 @@ pub(super) fn parse_text_scalar_at(
             "typed CBOR decode failed: missing text scalar",
         ));
     };
-    if major != 3 {
+    if major != CBOR_MAJOR_TEXT_STRING {
         return Err(StructuralFieldDecodeError::new(
             "typed CBOR decode failed: expected a text string",
         ));
@@ -292,7 +328,7 @@ pub(super) fn cbor_text_literal_eq(
             "typed CBOR decode failed: trailing bytes after text scalar",
         ));
     }
-    if major != 3 {
+    if major != CBOR_MAJOR_TEXT_STRING {
         return Ok(false);
     }
 
@@ -327,7 +363,7 @@ pub(super) fn parse_tagged_variant_payload_bytes<'a>(
     };
 
     match major {
-        3 => {
+        CBOR_MAJOR_TEXT_STRING => {
             let variant = decode_text_scalar_bytes(raw_bytes, argument, cursor)?;
             let text_len = usize::try_from(argument).map_err(|_| {
                 StructuralFieldDecodeError::new("typed CBOR decode failed: text too large")
@@ -341,8 +377,8 @@ pub(super) fn parse_tagged_variant_payload_bytes<'a>(
 
             Ok((variant, None))
         }
-        5 => {
-            if argument != 1 {
+        CBOR_MAJOR_MAP => {
+            if argument != TAGGED_VARIANT_ENTRY_COUNT {
                 return Err(StructuralFieldDecodeError::new(one_entry_map_label));
             }
 
@@ -409,8 +445,8 @@ pub(super) fn decode_cbor_integer(
     argument: u64,
 ) -> Result<i128, StructuralFieldDecodeError> {
     match major {
-        0 => Ok(i128::from(argument)),
-        1 => Ok(-1 - i128::from(argument)),
+        CBOR_MAJOR_UNSIGNED_INT => Ok(i128::from(argument)),
+        CBOR_MAJOR_NEGATIVE_INT => Ok(-1 - i128::from(argument)),
         _ => Err(StructuralFieldDecodeError::new(
             "typed CBOR decode failed: invalid type, expected an integer",
         )),
@@ -424,24 +460,26 @@ pub(super) fn decode_cbor_float(
     payload_start: usize,
 ) -> Result<f64, StructuralFieldDecodeError> {
     match argument {
-        26 => {
-            let payload: [u8; 4] = payload_bytes(raw_bytes, 4, payload_start, "float")?
-                .try_into()
-                .map_err(|_| {
-                    StructuralFieldDecodeError::new(
-                        "typed CBOR decode failed: expected four-byte float payload",
-                    )
-                })?;
+        CBOR_FLOAT32_ARGUMENT => {
+            let payload: [u8; CBOR_U32_WIDTH] =
+                payload_bytes(raw_bytes, CBOR_U32_WIDTH as u64, payload_start, "float")?
+                    .try_into()
+                    .map_err(|_| {
+                        StructuralFieldDecodeError::new(
+                            "typed CBOR decode failed: expected four-byte float payload",
+                        )
+                    })?;
             Ok(f64::from(f32::from_be_bytes(payload)))
         }
-        27 => {
-            let payload: [u8; 8] = payload_bytes(raw_bytes, 8, payload_start, "float")?
-                .try_into()
-                .map_err(|_| {
-                    StructuralFieldDecodeError::new(
-                        "typed CBOR decode failed: expected eight-byte float payload",
-                    )
-                })?;
+        CBOR_FLOAT64_ARGUMENT => {
+            let payload: [u8; CBOR_U64_WIDTH] =
+                payload_bytes(raw_bytes, CBOR_U64_WIDTH as u64, payload_start, "float")?
+                    .try_into()
+                    .map_err(|_| {
+                        StructuralFieldDecodeError::new(
+                            "typed CBOR decode failed: expected eight-byte float payload",
+                        )
+                    })?;
             Ok(f64::from_be_bytes(payload))
         }
         _ => Err(StructuralFieldDecodeError::new(

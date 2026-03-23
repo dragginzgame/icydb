@@ -15,51 +15,60 @@ use crate::{
 /// EntityAuthority is the canonical structural entity-identity bundle used by
 /// executor runtime preparation once typed API boundaries have resolved the
 /// concrete entity type.
-/// It keeps model, entity-tag, entity path, and store path authority aligned
-/// so execution-core code does not pass those pieces independently.
+/// It keeps model, entity-tag, and store path authority aligned while deriving
+/// the entity path from the model itself so execution-core code does not pass
+/// duplicated metadata independently.
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::db) struct EntityAuthority {
+pub struct EntityAuthority {
     model: &'static EntityModel,
     entity_tag: EntityTag,
-    entity_path: &'static str,
     store_path: &'static str,
 }
 
 impl EntityAuthority {
+    /// Build structural authority from explicit runtime metadata.
+    #[must_use]
+    pub const fn new(
+        model: &'static EntityModel,
+        entity_tag: EntityTag,
+        store_path: &'static str,
+    ) -> Self {
+        Self {
+            model,
+            entity_tag,
+            store_path,
+        }
+    }
+
     /// Build structural authority from one resolved entity type.
     #[must_use]
-    pub(in crate::db) const fn for_type<E: EntityKind>() -> Self {
-        Self {
-            model: E::MODEL,
-            entity_tag: E::ENTITY_TAG,
-            entity_path: E::PATH,
-            store_path: E::Store::PATH,
-        }
+    pub const fn for_type<E: EntityKind>() -> Self {
+        Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
     /// Borrow structural entity model authority.
     #[must_use]
-    pub(in crate::db) const fn model(&self) -> &'static EntityModel {
+    pub const fn model(&self) -> &'static EntityModel {
         self.model
     }
 
     /// Borrow structural entity-tag authority.
     #[must_use]
-    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
+    pub const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
 
     /// Borrow structural entity-path authority.
     #[must_use]
-    pub(in crate::db) const fn entity_path(&self) -> &'static str {
-        self.entity_path
+    pub const fn entity_path(&self) -> &'static str {
+        self.model.path()
     }
 
     /// Borrow structural store-path authority.
     #[must_use]
-    pub(in crate::db) const fn store_path(&self) -> &'static str {
+    pub const fn store_path(&self) -> &'static str {
         self.store_path
     }
 }

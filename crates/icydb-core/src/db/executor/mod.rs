@@ -40,7 +40,7 @@ pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
     ScalarTerminalBoundaryRequest,
 };
-pub(in crate::db) use authority::EntityAuthority;
+pub use authority::EntityAuthority;
 pub(in crate::db::executor) use continuation::{
     AccessWindow, ContinuationCapabilities, ContinuationEngine, ContinuationMode,
     GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
@@ -49,6 +49,8 @@ pub(in crate::db::executor) use continuation::{
     ScalarRouteContinuationInvariantProjection,
 };
 pub(super) use delete::DeleteExecutor;
+#[cfg(feature = "sql")]
+pub(in crate::db) use delete::execute_sql_delete_projection_for_canister;
 pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, PreparedLoadPlan};
@@ -74,6 +76,7 @@ pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
     OrderedKeyStreamBox, VecOrderedKeyStream, drive_key_stream_with_control_flow,
 };
+pub(in crate::db) use terminal::KernelRow;
 pub(in crate::db::executor) use util::saturating_row_len;
 pub(in crate::db) use window::compute_page_keep_count;
 

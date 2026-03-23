@@ -10,6 +10,7 @@ use crate::{
         data::{DataKey, RawDataKey, RawRow},
         index::{IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreHandle,
+        schema::commit_schema_fingerprint_for_model,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -104,7 +105,7 @@ fn rebuild_secondary_indexes_in_place(
                 raw_key.as_bytes().to_vec(),
                 None,
                 Some(raw_row.as_bytes().to_vec()),
-                (hooks.commit_schema_fingerprint)(),
+                commit_schema_fingerprint_for_model(hooks.entity_path, hooks.model),
             );
             let prepared = (hooks.prepare_row_commit)(db, &row_op).map_err(|err| {
                 let message = format!(

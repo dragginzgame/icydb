@@ -17,6 +17,7 @@ use crate::{
     value::Value,
 };
 
+pub(in crate::db) use page::KernelRow;
 pub(in crate::db::executor) use row_decode::{RowDecoder, RowLayout};
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and

@@ -10,20 +10,27 @@ use crate::{
             CommitRowOp, PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
             decode_data_key, decode_index_entry, decode_index_key,
         },
-        data::{DataKey, DataStore, RawDataKey, RawRow, SlotReader, StructuralSlotReader},
-        index::{
-            IndexEntryReader, IndexMutationPlan, PrimaryRowReader, RawIndexKey,
-            StructuralIndexEntryReader, compile_index_membership_predicate,
-            index_key_for_slot_reader_with_membership, plan_index_mutation_for_slot_reader,
+        data::{
+            DataKey, DataStore, RawDataKey, RawRow, SlotReader, StorageKey, StructuralSlotReader,
         },
-        relation::ReverseRelationSourceInfo,
-        relation::prepare_reverse_relation_index_mutations_for_source_rows,
+        index::{
+            IndexEntryReader, IndexMutationPlan, IndexStore, PrimaryRowReader, RawIndexEntry,
+            RawIndexKey, StructuralIndexEntryReader, StructuralPrimaryRowReader,
+            compile_index_membership_predicate_structural,
+            index_key_for_slot_reader_with_membership_structural,
+            plan_index_mutation_for_slot_reader_structural,
+        },
+        relation::{
+            ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_rows,
+        },
         schema::commit_schema_fingerprint_for_entity,
     },
     error::{ErrorClass, InternalError},
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue, Path},
+    types::EntityTag,
 };
-use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
+use std::{cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey};
 
 ///
 /// CommitPrepareAuthority
@@ -33,10 +40,11 @@ use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
 struct CommitPrepareAuthority {
     entity_path: &'static str,
+    entity_tag: EntityTag,
     schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     data_store_path: &'static str,
     relation_source: ReverseRelationSourceInfo,
-    model: &'static crate::model::entity::EntityModel,
+    model: &'static EntityModel,
 }
 
 impl CommitPrepareAuthority {
@@ -47,6 +55,7 @@ impl CommitPrepareAuthority {
     {
         Self {
             entity_path: E::PATH,
+            entity_tag: E::ENTITY_TAG,
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
             data_store_path: E::Store::PATH,
             relation_source: ReverseRelationSourceInfo::for_type::<E>(),
@@ -98,37 +107,202 @@ struct PreparedRowCommitMaterialization {
 }
 
 ///
-/// CommitPrepareIndexReader
+/// StructuralPrimaryRowReaderAdapter
 ///
-/// Object-safe combined reader boundary for commit preparation.
-/// This keeps the outer commit-prep shell from monomorphizing separately for
-/// each concrete reader implementation while preserving the existing typed and
-/// structural index-read contracts underneath.
+/// Typed primary-row reader adapter over the nongeneric structural reader
+/// boundary used by runtime hook dispatch.
 ///
 
-trait CommitPrepareIndexReader<E: EntityKind + EntityValue>:
-    IndexEntryReader<E> + StructuralIndexEntryReader
-{
-}
-
-impl<E, T> CommitPrepareIndexReader<E> for T
+struct StructuralPrimaryRowReaderAdapter<'a, E>
 where
     E: EntityKind + EntityValue,
-    T: IndexEntryReader<E> + StructuralIndexEntryReader + ?Sized,
+{
+    reader: &'a dyn StructuralPrimaryRowReader,
+    _marker: PhantomData<E>,
+}
+
+impl<'a, E> StructuralPrimaryRowReaderAdapter<'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    const fn new(reader: &'a dyn StructuralPrimaryRowReader) -> Self {
+        Self {
+            reader,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<E> PrimaryRowReader<E> for StructuralPrimaryRowReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        self.reader.read_primary_row_structural(key)
+    }
+}
+
+impl<E> crate::db::index::SealedPrimaryRowReader<E> for StructuralPrimaryRowReaderAdapter<'_, E> where
+    E: EntityKind + EntityValue
 {
 }
 
-/// Prepare a typed row-level commit op for one entity type.
+impl<E> StructuralPrimaryRowReader for StructuralPrimaryRowReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        self.reader.read_primary_row_structural(key)
+    }
+}
+
+impl<E> crate::db::index::SealedStructuralPrimaryRowReader
+    for StructuralPrimaryRowReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+}
+
 ///
-/// This resolves store handles and index/data mutations so commit/recovery
-/// apply can remain mechanical.
-pub(in crate::db) fn prepare_row_commit_for_entity_with_readers<E: EntityKind + EntityValue>(
+/// StructuralCommitPrepareIndexReaderAdapter
+///
+/// Typed index-reader adapter over the nongeneric structural reader boundary
+/// used by runtime hook dispatch.
+///
+
+struct StructuralCommitPrepareIndexReaderAdapter<'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    entity_path: &'static str,
+    reader: &'a dyn StructuralIndexEntryReader,
+    _marker: PhantomData<E>,
+}
+
+impl<'a, E> StructuralCommitPrepareIndexReaderAdapter<'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    const fn new(entity_path: &'static str, reader: &'a dyn StructuralIndexEntryReader) -> Self {
+        Self {
+            entity_path,
+            reader,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<E> IndexEntryReader<E> for StructuralCommitPrepareIndexReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        self.reader.read_index_entry_structural(store, key)
+    }
+
+    fn read_index_keys_in_raw_range(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        index: &crate::model::index::IndexModel,
+        bounds: (&std::ops::Bound<RawIndexKey>, &std::ops::Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<StorageKey>, InternalError> {
+        self.reader.read_index_keys_in_raw_range_structural(
+            self.entity_path,
+            E::ENTITY_TAG,
+            store,
+            index,
+            bounds,
+            limit,
+        )
+    }
+}
+
+impl<E> StructuralIndexEntryReader for StructuralCommitPrepareIndexReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry_structural(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        self.reader.read_index_entry_structural(store, key)
+    }
+
+    fn read_index_keys_in_raw_range_structural(
+        &self,
+        entity_path: &'static str,
+        entity_tag: crate::types::EntityTag,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        index: &crate::model::index::IndexModel,
+        bounds: (&std::ops::Bound<RawIndexKey>, &std::ops::Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<StorageKey>, InternalError> {
+        self.reader.read_index_keys_in_raw_range_structural(
+            entity_path,
+            entity_tag,
+            store,
+            index,
+            bounds,
+            limit,
+        )
+    }
+}
+
+impl<E> crate::db::index::SealedIndexEntryReader<E>
+    for StructuralCommitPrepareIndexReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+}
+
+impl<E> crate::db::index::SealedStructuralIndexEntryReader
+    for StructuralCommitPrepareIndexReaderAdapter<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+}
+
+/// Prepare a typed row-level commit op against nongeneric structural readers.
+pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
+    E: EntityKind + EntityValue,
+>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
-    row_reader: &impl PrimaryRowReader<E>,
-    index_reader: &(impl IndexEntryReader<E> + StructuralIndexEntryReader),
+    row_reader: &dyn StructuralPrimaryRowReader,
+    index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    prepare_row_commit_for_entity_impl(db, op, row_reader, index_reader)
+    let authority = CommitPrepareAuthority::for_type::<E>();
+    let row_reader = StructuralPrimaryRowReaderAdapter::<E>::new(row_reader);
+    let index_reader = StructuralCommitPrepareIndexReaderAdapter::<E>::new(E::PATH, index_reader);
+
+    prepare_row_commit_for_entity_impl(db, op, authority, &row_reader, &index_reader)
+}
+
+/// Prepare a typed row-level commit op against typed preflight readers.
+pub(in crate::db) fn prepare_row_commit_for_entity_with_readers<E, R, I>(
+    db: &Db<E::Canister>,
+    op: &CommitRowOp,
+    row_reader: &R,
+    index_reader: &I,
+) -> Result<PreparedRowCommitOp, InternalError>
+where
+    E: EntityKind + EntityValue,
+    R: PrimaryRowReader<E> + StructuralPrimaryRowReader,
+    I: IndexEntryReader<E> + StructuralIndexEntryReader,
+{
+    prepare_row_commit_for_entity_impl(
+        db,
+        op,
+        CommitPrepareAuthority::for_type::<E>(),
+        row_reader,
+        index_reader,
+    )
 }
 
 /// Prepare a typed row-level commit op against committed-store readers.
@@ -137,67 +311,84 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
     let context = db.context::<E>();
-    prepare_row_commit_for_entity_impl(db, op, &context, &context)
+    prepare_row_commit_for_entity_impl(
+        db,
+        op,
+        CommitPrepareAuthority::for_type::<E>(),
+        &context,
+        &context,
+    )
 }
 
 // Keep the full commit-preparation body out of the thin wrapper entrypoints so
 // codegen does not clone the same logic into both prepare surfaces per entity.
 #[inline(never)]
-fn prepare_row_commit_for_entity_impl<E>(
-    db: &Db<E::Canister>,
+fn prepare_row_commit_for_entity_impl<C>(
+    db: &Db<C>,
     op: &CommitRowOp,
-    row_reader: &dyn PrimaryRowReader<E>,
-    index_reader: &dyn CommitPrepareIndexReader<E>,
+    authority: CommitPrepareAuthority,
+    row_reader: &dyn StructuralPrimaryRowReader,
+    index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where
-    E: EntityKind + EntityValue,
+    C: crate::traits::CanisterKind,
 {
-    let authority = CommitPrepareAuthority::for_type::<E>();
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
-    let forward_index = prepare_forward_index_commit_leaf::<E>(
-        db,
-        row_reader,
-        index_reader,
-        &structural.data_key,
-        structural.old_row.as_ref(),
-        structural.new_row.as_ref(),
-    )?;
+    let forward_index = if authority.model.indexes().is_empty() {
+        empty_forward_index_commit_preparation()
+    } else {
+        prepare_forward_index_commit_leaf(
+            db,
+            &authority,
+            row_reader,
+            index_reader,
+            &structural.data_key,
+            structural.old_row.as_ref(),
+            structural.new_row.as_ref(),
+        )?
+    };
 
     finalize_row_commit_structural(db, index_reader, authority, structural, forward_index)
 }
 
+// Return one empty forward-index preparation when the entity has no secondary indexes.
+const fn empty_forward_index_commit_preparation() -> ForwardIndexCommitPreparation {
+    ForwardIndexCommitPreparation {
+        index_plan: IndexMutationPlan {
+            apply: Vec::new(),
+            commit_ops: Vec::new(),
+        },
+        index_delta_kind_by_key: BTreeMap::new(),
+    }
+}
+
 // Decode only the structural row views required for forward-index planning and
 // produce structural-ready forward-index outputs.
-fn prepare_forward_index_commit_leaf<E: EntityKind + EntityValue>(
-    db: &Db<E::Canister>,
-    row_reader: &dyn PrimaryRowReader<E>,
-    index_reader: &dyn CommitPrepareIndexReader<E>,
+fn prepare_forward_index_commit_leaf<C>(
+    db: &Db<C>,
+    authority: &CommitPrepareAuthority,
+    row_reader: &dyn StructuralPrimaryRowReader,
+    index_reader: &dyn StructuralIndexEntryReader,
     data_key: &DataKey,
     old_row: Option<&RawRow>,
     new_row: Option<&RawRow>,
-) -> Result<ForwardIndexCommitPreparation, InternalError> {
-    // Skip typed row reconstruction entirely when the entity has no secondary
-    // indexes. In that case this leaf has no forward-index work to perform.
-    if E::MODEL.indexes().is_empty() {
-        return Ok(ForwardIndexCommitPreparation {
-            index_plan: IndexMutationPlan {
-                apply: Vec::new(),
-                commit_ops: Vec::new(),
-            },
-            index_delta_kind_by_key: BTreeMap::new(),
-        });
-    }
-
+) -> Result<ForwardIndexCommitPreparation, InternalError>
+where
+    C: crate::traits::CanisterKind,
+{
     let storage_key = data_key.storage_key();
     let mut old_slots = old_row
-        .map(|row| decode_commit_marker_row_slots::<E>(data_key, row, "before"))
+        .map(|row| decode_commit_marker_row_slots(data_key, row, "before", authority.model))
         .transpose()?;
     let mut new_slots = new_row
-        .map(|row| decode_commit_marker_row_slots::<E>(data_key, row, "after"))
+        .map(|row| decode_commit_marker_row_slots(data_key, row, "after", authority.model))
         .transpose()?;
 
-    let index_plan = plan_index_mutation_for_slot_reader::<E>(
+    let index_plan = plan_index_mutation_for_slot_reader_structural(
         db,
+        authority.entity_path,
+        authority.entity_tag,
+        authority.model,
         row_reader,
         index_reader,
         old_row.map(|_| storage_key),
@@ -205,7 +396,10 @@ fn prepare_forward_index_commit_leaf<E: EntityKind + EntityValue>(
         new_row.map(|_| storage_key),
         new_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
     )?;
-    let index_delta_kind_by_key = annotate_forward_index_delta_kinds_from_slots::<E>(
+    let index_delta_kind_by_key = annotate_forward_index_delta_kinds_from_slots(
+        authority.entity_tag,
+        authority.entity_path,
+        authority.model,
         old_row.map(|_| storage_key),
         old_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
         new_row.map(|_| storage_key),
@@ -220,12 +414,13 @@ fn prepare_forward_index_commit_leaf<E: EntityKind + EntityValue>(
 
 // Decode one commit-marker row into one validated slot reader so forward-index
 // planning can stay entirely on structural persisted-row access.
-fn decode_commit_marker_row_slots<'a, E: EntityKind>(
+fn decode_commit_marker_row_slots<'a>(
     data_key: &DataKey,
     row: &'a RawRow,
     label: &str,
+    model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let slots = StructuralSlotReader::from_raw_row(row, E::MODEL).map_err(|err| {
+    let slots = StructuralSlotReader::from_raw_row(row, model).map_err(|err| {
         let message = format!("commit marker {label} row decode failed: {err}");
         if err.class() == ErrorClass::IncompatiblePersistedFormat {
             InternalError::serialize_incompatible_persisted_format(message)
@@ -320,19 +515,24 @@ where
 
 // Derive the forward-index delta-kind annotations needed by commit-window
 // observability from slot-reader projections only.
-fn annotate_forward_index_delta_kinds_from_slots<E: EntityKind>(
+fn annotate_forward_index_delta_kinds_from_slots(
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    model: &'static EntityModel,
     old_storage_key: Option<crate::value::StorageKey>,
     mut old_slots: Option<&mut dyn SlotReader>,
     new_storage_key: Option<crate::value::StorageKey>,
     mut new_slots: Option<&mut dyn SlotReader>,
 ) -> Result<BTreeMap<RawIndexKey, PreparedIndexDeltaKind>, InternalError> {
     let mut index_delta_kind_by_key = BTreeMap::new();
-    for index in E::MODEL.indexes() {
-        let membership_program = compile_index_membership_predicate::<E>(index)?;
+    for index in model.indexes() {
+        let membership_program =
+            compile_index_membership_predicate_structural(entity_path, model, index)?;
         let old_key = match old_slots.as_deref_mut() {
             Some(slots) => old_storage_key
                 .map(|storage_key| {
-                    index_key_for_slot_reader_with_membership::<E>(
+                    index_key_for_slot_reader_with_membership_structural(
+                        entity_tag,
                         index,
                         membership_program.as_ref(),
                         storage_key,
@@ -347,7 +547,8 @@ fn annotate_forward_index_delta_kinds_from_slots<E: EntityKind>(
         let new_key = match new_slots.as_deref_mut() {
             Some(slots) => new_storage_key
                 .map(|storage_key| {
-                    index_key_for_slot_reader_with_membership::<E>(
+                    index_key_for_slot_reader_with_membership_structural(
+                        entity_tag,
                         index,
                         membership_program.as_ref(),
                         storage_key,

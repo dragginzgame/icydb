@@ -14,6 +14,14 @@ use crate::traits::{EntityKind, EntityValue};
 pub(in crate::db) trait SealedPrimaryRowReader<E: EntityKind + EntityValue> {}
 
 ///
+/// SealedStructuralPrimaryRowReader
+///
+/// Internal marker used to seal nongeneric structural primary-row readers.
+///
+
+pub(in crate::db) trait SealedStructuralPrimaryRowReader {}
+
+///
 /// SealedIndexEntryReader
 ///
 /// Internal marker used to seal `IndexEntryReader` implementations.

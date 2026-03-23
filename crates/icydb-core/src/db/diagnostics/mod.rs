@@ -641,9 +641,9 @@ pub(crate) fn storage_report<C: CanisterKind>(
                                 .ok()
                                 .map(|hooks| {
                                     name_map
-                                        .get(hooks.entity_name)
+                                        .get(hooks.model.name())
                                         .copied()
-                                        .unwrap_or(hooks.entity_name)
+                                        .unwrap_or_else(|| hooks.model.name())
                                         .to_string()
                                 })
                         })
@@ -810,7 +810,10 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                 raw_key.as_bytes().to_vec(),
                 None,
                 Some(entry.value().as_bytes().to_vec()),
-                (hooks.commit_schema_fingerprint)(),
+                crate::db::schema::commit_schema_fingerprint_for_model(
+                    hooks.entity_path,
+                    hooks.model,
+                ),
             );
 
             // Validate envelope compatibility before typed preparation so

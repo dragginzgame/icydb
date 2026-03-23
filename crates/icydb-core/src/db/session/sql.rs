@@ -3,7 +3,8 @@ use crate::{
         DbSession, EntityFieldDescription, EntityResponse, EntitySchemaDescription,
         MissingRowPolicy, PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
         executor::{
-            EntityAuthority, ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
+            EntityAuthority, KernelRow, ScalarNumericFieldBoundaryRequest,
+            ScalarProjectionBoundaryRequest, execute_sql_delete_projection_for_canister,
             execute_sql_projection_rows_for_canister,
         },
         query::{
@@ -15,11 +16,11 @@ use crate::{
             },
         },
         sql::lowering::{
-            LoweredSqlCommand, LoweredSqlLaneKind, LoweredSqlQuery,
-            PreparedSqlStatement as CorePreparedSqlStatement, SqlCommand,
+            LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlLaneKind,
+            LoweredSqlQuery, PreparedSqlStatement as CorePreparedSqlStatement, SqlCommand,
             SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
             StructuralSqlGlobalAggregateCommand, apply_lowered_select_shape,
-            bind_lowered_sql_command, bind_lowered_sql_delete_query,
+            bind_lowered_sql_command, bind_lowered_sql_delete_query_structural,
             bind_lowered_sql_explain_global_aggregate_structural, compile_sql_command,
             compile_sql_global_aggregate_command, lower_sql_command_from_prepared_statement,
             lowered_sql_command_lane, prepare_sql_statement,
@@ -470,36 +471,25 @@ fn projection_labels_from_projection_spec(
 }
 
 // Derive canonical full-entity projection labels in declared model order.
-fn projection_labels_from_entity_model<E: EntityKind>() -> Vec<String> {
-    E::MODEL
+fn projection_labels_from_entity_model(model: &'static EntityModel) -> Vec<String> {
+    model
         .fields
         .iter()
         .map(|field| field.name.to_string())
         .collect()
 }
 
-// Rebind one materialized entity response to structural SQL projection rows in
-// declared model field order so DELETE shares the same row contract as SELECT.
-fn projection_payload_from_entity_response<E>(
-    response: crate::db::EntityResponse<E>,
-) -> SqlProjectionPayload
-where
-    E: EntityKind + EntityValue,
-{
-    let row_count = response.count();
-    let rows = response
-        .rows()
-        .into_iter()
+// Materialize structural kernel rows into canonical SQL projection rows at the
+// session boundary instead of inside executor delete paths.
+fn sql_projection_rows_from_kernel_rows(rows: Vec<KernelRow>) -> Vec<Vec<Value>> {
+    rows.into_iter()
         .map(|row| {
-            let (_, entity) = row.into_parts();
-
-            (0..E::MODEL.fields.len())
-                .map(|index| entity.get_value_by_index(index).unwrap_or(Value::Null))
-                .collect::<Vec<_>>()
+            row.into_slots()
+                .into_iter()
+                .map(|value| value.unwrap_or(Value::Null))
+                .collect()
         })
-        .collect::<Vec<_>>();
-
-    SqlProjectionPayload::new(projection_labels_from_entity_model::<E>(), rows, row_count)
+        .collect()
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -583,14 +573,42 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    // Execute one typed SQL delete query and project deleted rows at the outer edge.
+    // Execute one typed SQL delete query while keeping the row payload on the
+    // structural slot-based path for SQL rendering.
     fn execute_typed_sql_delete<E>(&self, query: &Query<E>) -> Result<SqlDispatchResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let deleted = self.execute_query(query)?;
+        let plan = query.plan()?.into_executable();
+        let deleted = self
+            .with_metrics(|| self.delete_executor::<E>().execute_sql_projection(plan))
+            .map_err(QueryError::execute)?;
+        let (rows, row_count) = deleted.into_parts();
+        let rows = sql_projection_rows_from_kernel_rows(rows);
 
-        Ok(projection_payload_from_entity_response(deleted).into_dispatch_result())
+        Ok(SqlProjectionPayload::new(
+            projection_labels_from_entity_model(E::MODEL),
+            rows,
+            row_count,
+        )
+        .into_dispatch_result())
+    }
+
+    // Execute one lowered SQL SELECT command entirely through the shared
+    // structural projection path.
+    fn execute_lowered_sql_dispatch_select_core(
+        &self,
+        select: &LoweredSelectShape,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        let structural = apply_lowered_select_shape(
+            StructuralQuery::new(authority.model(), MissingRowPolicy::Ignore),
+            select.clone(),
+        )
+        .map_err(map_sql_lowering_error)?;
+
+        self.execute_structural_sql_projection(structural, authority)
+            .map(SqlProjectionPayload::into_dispatch_result)
     }
 
     // Execute one lowered SQL explain command and reject non-explain lanes.
@@ -904,9 +922,12 @@ impl<C: CanisterKind> DbSession<C> {
         let lane = session_sql_lane(&lowered);
 
         match lane {
-            SqlLaneKind::Query => self.execute_lowered_sql_dispatch_query::<E>(&lowered),
+            SqlLaneKind::Query => self.execute_lowered_sql_dispatch_query_for_authority(
+                &lowered,
+                EntityAuthority::for_type::<E>(),
+            ),
             SqlLaneKind::Explain => self
-                .explain_lowered_sql_dispatch::<E>(&lowered)
+                .explain_lowered_sql_dispatch_for_model(&lowered, E::MODEL)
                 .map(SqlDispatchResult::Explain),
             SqlLaneKind::Describe
             | SqlLaneKind::ShowIndexes
@@ -945,57 +966,52 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Execute one already-lowered shared SQL query shape for entity `E`.
-    pub fn execute_lowered_sql_dispatch_query<E>(
+    // Execute one lowered SQL DELETE command through the shared structural
+    // delete projection path.
+    fn execute_lowered_sql_dispatch_delete_core(
         &self,
-        lowered: &LoweredSqlCommand,
-    ) -> Result<SqlDispatchResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        self.execute_lowered_sql_dispatch_query_core::<E>(lowered)
+        delete: &LoweredBaseQueryShape,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        let structural = bind_lowered_sql_delete_query_structural(
+            authority.model(),
+            delete.clone(),
+            MissingRowPolicy::Ignore,
+        );
+        let deleted = execute_sql_delete_projection_for_canister(
+            &self.db,
+            authority,
+            structural.build_plan()?,
+        )
+        .map_err(QueryError::execute)?;
+        let (rows, row_count) = deleted.into_parts();
+        let rows = sql_projection_rows_from_kernel_rows(rows);
+
+        Ok(SqlProjectionPayload::new(
+            projection_labels_from_entity_model(authority.model()),
+            rows,
+            row_count,
+        )
+        .into_dispatch_result())
     }
 
-    // Execute one lowered SQL DELETE command through the minimal typed fallback.
-    fn execute_lowered_sql_dispatch_delete<E>(
+    /// Execute one already-lowered shared SQL query shape for resolved authority.
+    #[doc(hidden)]
+    pub fn execute_lowered_sql_dispatch_query_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
-    ) -> Result<SqlDispatchResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let Some(query) = lowered.query() else {
-            return Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "lowered SQL delete dispatch requires one lowered delete query command",
-            )));
-        };
-        let LoweredSqlQuery::Delete(_) = query else {
-            return Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "lowered SQL delete dispatch requires one lowered DELETE command",
-            )));
-        };
-
-        let LoweredSqlQuery::Delete(delete) = query else {
-            unreachable!("validated delete lane should remain delete-shaped");
-        };
-        let query = bind_lowered_sql_delete_query::<E>(delete.clone(), MissingRowPolicy::Ignore);
-
-        self.execute_typed_sql_delete(&query)
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        self.execute_lowered_sql_dispatch_query_core(lowered, authority)
     }
 
     // Execute one lowered SQL query command through the shared structural core
     // and delegate only true typed DELETE fallback to the caller.
-    fn execute_lowered_sql_dispatch_query_core<E>(
+    fn execute_lowered_sql_dispatch_query_core(
         &self,
         lowered: &LoweredSqlCommand,
-    ) -> Result<SqlDispatchResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
         let Some(query) = lowered.query() else {
             return Err(unsupported_sql_lane_error(
                 SqlSurface::QueryFrom,
@@ -1005,28 +1021,22 @@ impl<C: CanisterKind> DbSession<C> {
 
         match query {
             LoweredSqlQuery::Select(select) => {
-                let structural = apply_lowered_select_shape(
-                    StructuralQuery::new(E::MODEL, MissingRowPolicy::Ignore),
-                    select.clone(),
-                )
-                .map_err(map_sql_lowering_error)?;
-
-                self.execute_structural_sql_projection(structural, EntityAuthority::for_type::<E>())
-                    .map(SqlProjectionPayload::into_dispatch_result)
+                self.execute_lowered_sql_dispatch_select_core(select, authority)
             }
-            LoweredSqlQuery::Delete(_) => self.execute_lowered_sql_dispatch_delete::<E>(lowered),
+            LoweredSqlQuery::Delete(delete) => {
+                self.execute_lowered_sql_dispatch_delete_core(delete, authority)
+            }
         }
     }
 
-    /// Execute one already-lowered shared SQL explain shape for entity `E`.
-    pub fn explain_lowered_sql_dispatch<E>(
+    /// Execute one already-lowered shared SQL explain shape for one model.
+    #[doc(hidden)]
+    pub fn explain_lowered_sql_dispatch_for_model(
         &self,
         lowered: &LoweredSqlCommand,
-    ) -> Result<String, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        Self::explain_lowered_sql_dispatch_core(lowered, E::MODEL)
+        model: &'static EntityModel,
+    ) -> Result<String, QueryError> {
+        Self::explain_lowered_sql_dispatch_core(lowered, model)
     }
 
     // Share the full EXPLAIN lane work across entities so only the thin public

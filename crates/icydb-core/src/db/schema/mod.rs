@@ -18,7 +18,9 @@ pub use describe::{
 pub use errors::ValidateError;
 
 pub(in crate::db) use describe::describe_entity_model;
-pub(in crate::db) use fingerprint::commit_schema_fingerprint_for_entity;
+pub(crate) use fingerprint::{
+    commit_schema_fingerprint_for_entity, commit_schema_fingerprint_for_model,
+};
 pub(in crate::db) use format::show_indexes_for_model;
 pub(crate) use info::SchemaInfo;
 pub(crate) use types::{FieldType, field_type_from_model_kind, literal_matches_type};

@@ -19,16 +19,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 // Resolve one index field reference and enforce baseline queryability invariants.
 fn index_field_type<'a>(
-    fields: &'a BTreeMap<String, FieldType>,
+    fields: &'a BTreeMap<String, SchemaFieldInfo>,
     index: &IndexModel,
     field: &'static str,
 ) -> Result<&'a FieldType, ValidateError> {
-    let Some(field_type) = fields.get(field) else {
+    let Some(field_info) = fields.get(field) else {
         return Err(ValidateError::IndexFieldUnknown {
             index: *index,
             field: field.to_string(),
         });
     };
+    let field_type = &field_info.ty;
 
     // Guardrail: map fields are deterministic stored values but remain
     // non-queryable and non-indexable in 0.7.
@@ -50,27 +51,26 @@ fn index_field_type<'a>(
 
 // Validate one field key item, including duplicate-field rejection for one index.
 fn validate_index_field_reference(
-    fields: &BTreeMap<String, FieldType>,
+    fields: &BTreeMap<String, SchemaFieldInfo>,
     index: &IndexModel,
     field: &'static str,
     seen: &mut BTreeSet<&'static str>,
 ) -> Result<(), ValidateError> {
     index_field_type(fields, index, field)?;
 
-    if seen.contains(field) {
+    if !seen.insert(field) {
         return Err(ValidateError::IndexFieldDuplicate {
             index: *index,
             field: field.to_string(),
         });
     }
-    seen.insert(field);
 
     Ok(())
 }
 
 // Validate one expression key item against declared schema field types.
 fn validate_index_expression_reference(
-    fields: &BTreeMap<String, FieldType>,
+    fields: &BTreeMap<String, SchemaFieldInfo>,
     index: &IndexModel,
     expression: IndexExpression,
 ) -> Result<(), ValidateError> {
@@ -108,7 +108,7 @@ fn validate_index_expression_reference(
 }
 
 fn validate_index_fields(
-    fields: &BTreeMap<String, FieldType>,
+    fields: &BTreeMap<String, SchemaFieldInfo>,
     indexes: &[&IndexModel],
 ) -> Result<(), ValidateError> {
     let mut seen_names = BTreeSet::new();
@@ -171,21 +171,34 @@ fn validate_index_predicates(
 /// This is the *only* schema surface the predicate validator depends on.
 ///
 
+///
+/// SchemaFieldInfo
+///
+/// Compact per-field schema entry used by `SchemaInfo`.
+/// Keeps reduced predicate type metadata and the full field-kind authority in
+/// one table so schema construction does not duplicate field-name maps.
+///
+
+#[derive(Clone, Debug)]
+struct SchemaFieldInfo {
+    ty: FieldType,
+    kind: FieldKind,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SchemaInfo {
-    fields: BTreeMap<String, FieldType>,
-    field_kinds: BTreeMap<String, FieldKind>,
+    fields: BTreeMap<String, SchemaFieldInfo>,
 }
 
 impl SchemaInfo {
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
-        self.fields.get(name)
+        self.fields.get(name).map(|field| &field.ty)
     }
 
     #[must_use]
     pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
-        self.field_kinds.get(name)
+        self.fields.get(name).map(|field| &field.kind)
     }
 
     /// Builds runtime predicate schema information from an entity model.
@@ -209,21 +222,28 @@ impl SchemaInfo {
         }
 
         let mut fields = BTreeMap::new();
-        let mut field_kinds = BTreeMap::new();
         for field in model.fields {
-            if fields.contains_key(field.name) {
+            let ty = field_type_from_model_kind(&field.kind);
+            if fields
+                .insert(
+                    field.name.to_string(),
+                    SchemaFieldInfo {
+                        ty,
+                        kind: field.kind,
+                    },
+                )
+                .is_some()
+            {
                 return Err(ValidateError::DuplicateField {
                     field: field.name.to_string(),
                 });
             }
-            let ty = field_type_from_model_kind(&field.kind);
-            fields.insert(field.name.to_string(), ty);
-            field_kinds.insert(field.name.to_string(), field.kind);
         }
 
-        let pk_field_type = fields
+        let pk_field_type = &fields
             .get(model.primary_key.name)
-            .expect("primary key verified above");
+            .expect("primary key verified above")
+            .ty;
         if !pk_field_type.is_keyable() {
             return Err(ValidateError::InvalidPrimaryKeyType {
                 field: model.primary_key.name.to_string(),
@@ -240,10 +260,7 @@ impl SchemaInfo {
             })?;
         }
 
-        let schema = Self {
-            fields,
-            field_kinds,
-        };
+        let schema = Self { fields };
         validate_index_predicates(&schema, model.indexes)?;
 
         Ok(schema)

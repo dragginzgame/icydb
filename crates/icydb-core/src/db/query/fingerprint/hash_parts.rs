@@ -33,6 +33,74 @@ use crate::{
 use sha2::{Digest, Sha256};
 use std::ops::Bound;
 
+const ACCESS_TAG_BY_KEY: u8 = 0x10;
+const ACCESS_TAG_BY_KEYS: u8 = 0x11;
+const ACCESS_TAG_KEY_RANGE: u8 = 0x12;
+const ACCESS_TAG_INDEX_PREFIX: u8 = 0x13;
+const ACCESS_TAG_FULL_SCAN: u8 = 0x14;
+const ACCESS_TAG_UNION: u8 = 0x15;
+const ACCESS_TAG_INTERSECTION: u8 = 0x16;
+const ACCESS_TAG_INDEX_RANGE: u8 = 0x17;
+const ACCESS_TAG_INDEX_MULTI_LOOKUP: u8 = 0x18;
+
+const PREDICATE_ABSENT_TAG: u8 = 0x20;
+
+const ORDER_NONE_TAG: u8 = 0x30;
+const ORDER_FIELDS_TAG: u8 = 0x31;
+
+const PAGE_NONE_TAG: u8 = 0x40;
+const PAGE_PRESENT_TAG: u8 = 0x41;
+const DELETE_LIMIT_NONE_TAG: u8 = 0x42;
+const DELETE_LIMIT_PRESENT_TAG: u8 = 0x43;
+const DISTINCT_ENABLED_TAG: u8 = 0x44;
+const DISTINCT_DISABLED_TAG: u8 = 0x45;
+
+const CONSISTENCY_IGNORE_TAG: u8 = 0x50;
+const CONSISTENCY_ERROR_TAG: u8 = 0x51;
+
+const QUERY_MODE_LOAD_TAG: u8 = 0x60;
+const QUERY_MODE_DELETE_TAG: u8 = 0x61;
+
+const GROUPING_NONE_TAG: u8 = 0x70;
+const GROUPING_PRESENT_TAG: u8 = 0x71;
+const GROUPING_STRATEGY_HASH_TAG: u8 = 0x72;
+const GROUPING_STRATEGY_ORDERED_TAG: u8 = 0x73;
+const GROUP_HAVING_ABSENT_TAG: u8 = 0x74;
+const GROUP_HAVING_PRESENT_TAG: u8 = 0x75;
+const GROUP_HAVING_GROUP_FIELD_TAG: u8 = 0x76;
+const GROUP_HAVING_AGGREGATE_INDEX_TAG: u8 = 0x77;
+
+const HASH_VALUE_ERROR_TAG: u8 = 0xEE;
+
+const VALUE_BOUND_UNBOUNDED_TAG: u8 = 0x00;
+const VALUE_BOUND_INCLUDED_TAG: u8 = 0x01;
+const VALUE_BOUND_EXCLUDED_TAG: u8 = 0x02;
+
+const OPTIONAL_VALUE_ABSENT_TAG: u8 = 0x00;
+const OPTIONAL_VALUE_PRESENT_TAG: u8 = 0x01;
+
+const ORDER_DIRECTION_ASC_TAG: u8 = 0x01;
+const ORDER_DIRECTION_DESC_TAG: u8 = 0x02;
+
+const FINGERPRINT_V2_SECTION_ACCESS_TAG: u8 = 0x01;
+const FINGERPRINT_V2_SECTION_PREDICATE_TAG: u8 = 0x02;
+const FINGERPRINT_V2_SECTION_ORDER_TAG: u8 = 0x03;
+const FINGERPRINT_V2_SECTION_DISTINCT_TAG: u8 = 0x04;
+const FINGERPRINT_V2_SECTION_PAGE_TAG: u8 = 0x05;
+const FINGERPRINT_V2_SECTION_DELETE_LIMIT_TAG: u8 = 0x06;
+const FINGERPRINT_V2_SECTION_CONSISTENCY_TAG: u8 = 0x07;
+const FINGERPRINT_V2_SECTION_MODE_TAG: u8 = 0x08;
+const FINGERPRINT_V2_SECTION_PROJECTION_SPEC_TAG: u8 = 0x09;
+
+const CONTINUATION_V1_SECTION_ENTITY_PATH_TAG: u8 = 0x01;
+const CONTINUATION_V1_SECTION_MODE_TAG: u8 = 0x02;
+const CONTINUATION_V1_SECTION_ACCESS_TAG: u8 = 0x03;
+const CONTINUATION_V1_SECTION_PREDICATE_TAG: u8 = 0x04;
+const CONTINUATION_V1_SECTION_ORDER_TAG: u8 = 0x05;
+const CONTINUATION_V1_SECTION_DISTINCT_TAG: u8 = 0x06;
+const CONTINUATION_V1_SECTION_GROUPING_SHAPE_TAG: u8 = 0x07;
+const CONTINUATION_V1_SECTION_PROJECTION_SPEC_TAG: u8 = 0x08;
+
 ///
 /// Hash explain access paths into the plan hash stream.
 ///
@@ -57,12 +125,12 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
     type Output = ();
 
     fn by_key(&mut self, key: &Value) -> Self::Output {
-        write_tag(self.hasher, 0x10);
+        write_tag(self.hasher, ACCESS_TAG_BY_KEY);
         write_value(self.hasher, key);
     }
 
     fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
-        write_tag(self.hasher, 0x11);
+        write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
         write_u32(self.hasher, keys.len() as u32);
         for key in keys {
             write_value(self.hasher, key);
@@ -70,7 +138,7 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
     }
 
     fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
-        write_tag(self.hasher, 0x12);
+        write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
         write_value(self.hasher, start);
         write_value(self.hasher, end);
     }
@@ -82,7 +150,7 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, 0x13);
+        write_tag(self.hasher, ACCESS_TAG_INDEX_PREFIX);
         write_str(self.hasher, name);
         write_u32(self.hasher, fields.len() as u32);
         for field in fields {
@@ -101,7 +169,7 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
         fields: &[&'static str],
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, 0x18);
+        write_tag(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP);
         write_str(self.hasher, name);
         write_u32(self.hasher, fields.len() as u32);
         for field in fields {
@@ -122,7 +190,7 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output {
-        write_tag(self.hasher, 0x17);
+        write_tag(self.hasher, ACCESS_TAG_INDEX_RANGE);
         write_str(self.hasher, name);
         write_u32(self.hasher, fields.len() as u32);
         for field in fields {
@@ -138,16 +206,16 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
     }
 
     fn full_scan(&mut self) -> Self::Output {
-        write_tag(self.hasher, 0x14);
+        write_tag(self.hasher, ACCESS_TAG_FULL_SCAN);
     }
 
     fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        write_tag(self.hasher, 0x15);
+        write_tag(self.hasher, ACCESS_TAG_UNION);
         write_u32(self.hasher, children.len() as u32);
     }
 
     fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        write_tag(self.hasher, 0x16);
+        write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
         write_u32(self.hasher, children.len() as u32);
     }
 }
@@ -170,12 +238,12 @@ where
     type Output = ();
 
     fn by_key(&mut self, key: &K) -> Self::Output {
-        write_tag(self.hasher, 0x10);
+        write_tag(self.hasher, ACCESS_TAG_BY_KEY);
         write_value(self.hasher, &key.to_value());
     }
 
     fn by_keys(&mut self, keys: &[K]) -> Self::Output {
-        write_tag(self.hasher, 0x11);
+        write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
         write_u32(self.hasher, keys.len() as u32);
         for key in keys {
             write_value(self.hasher, &key.to_value());
@@ -183,7 +251,7 @@ where
     }
 
     fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
-        write_tag(self.hasher, 0x12);
+        write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
         write_value(self.hasher, &start.to_value());
         write_value(self.hasher, &end.to_value());
     }
@@ -195,7 +263,7 @@ where
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, 0x13);
+        write_tag(self.hasher, ACCESS_TAG_INDEX_PREFIX);
         write_str(self.hasher, name);
         write_u32(self.hasher, fields.len() as u32);
         for field in fields {
@@ -214,7 +282,7 @@ where
         fields: &[&'static str],
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, 0x18);
+        write_tag(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP);
         write_str(self.hasher, name);
         write_u32(self.hasher, fields.len() as u32);
         for field in fields {
@@ -235,7 +303,7 @@ where
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output {
-        write_tag(self.hasher, 0x17);
+        write_tag(self.hasher, ACCESS_TAG_INDEX_RANGE);
         write_str(self.hasher, name);
         write_u32(self.hasher, fields.len() as u32);
         for field in fields {
@@ -251,16 +319,16 @@ where
     }
 
     fn full_scan(&mut self) -> Self::Output {
-        write_tag(self.hasher, 0x14);
+        write_tag(self.hasher, ACCESS_TAG_FULL_SCAN);
     }
 
     fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        write_tag(self.hasher, 0x15);
+        write_tag(self.hasher, ACCESS_TAG_UNION);
         write_u32(self.hasher, children.len() as u32);
     }
 
     fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        write_tag(self.hasher, 0x16);
+        write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
         write_u32(self.hasher, children.len() as u32);
     }
 }
@@ -282,7 +350,7 @@ where
 ///
 pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>) {
     let Some(predicate) = predicate else {
-        write_tag(hasher, 0x20);
+        write_tag(hasher, PREDICATE_ABSENT_TAG);
         return;
     };
 
@@ -295,9 +363,9 @@ pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>)
 
 pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
     match order {
-        ExplainOrderBy::None => write_tag(hasher, 0x30),
+        ExplainOrderBy::None => write_tag(hasher, ORDER_NONE_TAG),
         ExplainOrderBy::Fields(fields) => {
-            write_tag(hasher, 0x31);
+            write_tag(hasher, ORDER_FIELDS_TAG);
             write_u32(hasher, fields.len() as u32);
             for field in fields {
                 write_str(hasher, field.field());
@@ -309,15 +377,15 @@ pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
 
 fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
     let Some(order) = order else {
-        write_tag(hasher, 0x30);
+        write_tag(hasher, ORDER_NONE_TAG);
         return;
     };
     if order.fields.is_empty() {
-        write_tag(hasher, 0x30);
+        write_tag(hasher, ORDER_NONE_TAG);
         return;
     }
 
-    write_tag(hasher, 0x31);
+    write_tag(hasher, ORDER_FIELDS_TAG);
     write_u32(hasher, order.fields.len() as u32);
     for (field, direction) in &order.fields {
         write_str(hasher, field);
@@ -331,8 +399,8 @@ fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
 
 pub(super) fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
     match mode {
-        QueryMode::Load(_) => write_tag(hasher, 0x60),
-        QueryMode::Delete(_) => write_tag(hasher, 0x61),
+        QueryMode::Load(_) => write_tag(hasher, QUERY_MODE_LOAD_TAG),
+        QueryMode::Delete(_) => write_tag(hasher, QUERY_MODE_DELETE_TAG),
     }
 }
 
@@ -344,7 +412,7 @@ pub(in crate::db::query::fingerprint) fn write_value(hasher: &mut Sha256, value:
     match hash_value(value) {
         Ok(digest) => hasher.update(digest),
         Err(err) => {
-            write_tag(hasher, 0xEE);
+            write_tag(hasher, HASH_VALUE_ERROR_TAG);
             write_str(hasher, &err.display_with_class());
         }
     }
@@ -355,13 +423,13 @@ pub(in crate::db::query::fingerprint) fn write_value(hasher: &mut Sha256, value:
 ///
 pub(super) fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
     match bound {
-        Bound::Unbounded => write_tag(hasher, 0x00),
+        Bound::Unbounded => write_tag(hasher, VALUE_BOUND_UNBOUNDED_TAG),
         Bound::Included(value) => {
-            write_tag(hasher, 0x01);
+            write_tag(hasher, VALUE_BOUND_INCLUDED_TAG);
             write_value(hasher, value);
         }
         Bound::Excluded(value) => {
-            write_tag(hasher, 0x02);
+            write_tag(hasher, VALUE_BOUND_EXCLUDED_TAG);
             write_value(hasher, value);
         }
     }
@@ -393,8 +461,8 @@ pub(in crate::db::query::fingerprint) fn write_tag(hasher: &mut Sha256, tag: u8)
 
 const fn order_direction_tag(direction: OrderDirection) -> u8 {
     match direction {
-        OrderDirection::Asc => 0x01,
-        OrderDirection::Desc => 0x02,
+        OrderDirection::Asc => ORDER_DIRECTION_ASC_TAG,
+        OrderDirection::Desc => ORDER_DIRECTION_DESC_TAG,
     }
 }
 
@@ -437,74 +505,74 @@ struct ExplainHashProfileSpec<'a> {
 
 const FINGERPRINT_V2_STEPS: [ExplainHashStep; 9] = [
     ExplainHashStep {
-        section_tag: 0x01,
+        section_tag: FINGERPRINT_V2_SECTION_ACCESS_TAG,
         field: ExplainHashField::Access,
     },
     ExplainHashStep {
-        section_tag: 0x02,
+        section_tag: FINGERPRINT_V2_SECTION_PREDICATE_TAG,
         field: ExplainHashField::Predicate,
     },
     ExplainHashStep {
-        section_tag: 0x03,
+        section_tag: FINGERPRINT_V2_SECTION_ORDER_TAG,
         field: ExplainHashField::Order,
     },
     ExplainHashStep {
-        section_tag: 0x04,
+        section_tag: FINGERPRINT_V2_SECTION_DISTINCT_TAG,
         field: ExplainHashField::Distinct,
     },
     ExplainHashStep {
-        section_tag: 0x05,
+        section_tag: FINGERPRINT_V2_SECTION_PAGE_TAG,
         field: ExplainHashField::Page,
     },
     ExplainHashStep {
-        section_tag: 0x06,
+        section_tag: FINGERPRINT_V2_SECTION_DELETE_LIMIT_TAG,
         field: ExplainHashField::DeleteLimit,
     },
     ExplainHashStep {
-        section_tag: 0x07,
+        section_tag: FINGERPRINT_V2_SECTION_CONSISTENCY_TAG,
         field: ExplainHashField::Consistency,
     },
     ExplainHashStep {
-        section_tag: 0x08,
+        section_tag: FINGERPRINT_V2_SECTION_MODE_TAG,
         field: ExplainHashField::Mode,
     },
     ExplainHashStep {
-        section_tag: 0x09,
+        section_tag: FINGERPRINT_V2_SECTION_PROJECTION_SPEC_TAG,
         field: ExplainHashField::ProjectionSpecV1,
     },
 ];
 
 const CONTINUATION_V1_STEPS: [ExplainHashStep; 8] = [
     ExplainHashStep {
-        section_tag: 0x01,
+        section_tag: CONTINUATION_V1_SECTION_ENTITY_PATH_TAG,
         field: ExplainHashField::EntityPath,
     },
     ExplainHashStep {
-        section_tag: 0x02,
+        section_tag: CONTINUATION_V1_SECTION_MODE_TAG,
         field: ExplainHashField::Mode,
     },
     ExplainHashStep {
-        section_tag: 0x03,
+        section_tag: CONTINUATION_V1_SECTION_ACCESS_TAG,
         field: ExplainHashField::Access,
     },
     ExplainHashStep {
-        section_tag: 0x04,
+        section_tag: CONTINUATION_V1_SECTION_PREDICATE_TAG,
         field: ExplainHashField::Predicate,
     },
     ExplainHashStep {
-        section_tag: 0x05,
+        section_tag: CONTINUATION_V1_SECTION_ORDER_TAG,
         field: ExplainHashField::Order,
     },
     ExplainHashStep {
-        section_tag: 0x06,
+        section_tag: CONTINUATION_V1_SECTION_DISTINCT_TAG,
         field: ExplainHashField::Distinct,
     },
     ExplainHashStep {
-        section_tag: 0x07,
+        section_tag: CONTINUATION_V1_SECTION_GROUPING_SHAPE_TAG,
         field: ExplainHashField::GroupingShapeV1,
     },
     ExplainHashStep {
-        section_tag: 0x08,
+        section_tag: CONTINUATION_V1_SECTION_PROJECTION_SPEC_TAG,
         field: ExplainHashField::ProjectionSpecV1,
     },
 ];
@@ -652,15 +720,15 @@ pub(in crate::db::query::fingerprint) fn hash_explain_plan_profile_internal(
 
 fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
     match page {
-        ExplainPagination::None => write_tag(hasher, 0x40),
+        ExplainPagination::None => write_tag(hasher, PAGE_NONE_TAG),
         ExplainPagination::Page { limit, offset } => {
-            write_tag(hasher, 0x41);
+            write_tag(hasher, PAGE_PRESENT_TAG);
             match limit {
                 Some(limit) => {
-                    write_tag(hasher, 0x01);
+                    write_tag(hasher, OPTIONAL_VALUE_PRESENT_TAG);
                     write_u32(hasher, *limit);
                 }
-                None => write_tag(hasher, 0x00),
+                None => write_tag(hasher, OPTIONAL_VALUE_ABSENT_TAG),
             }
             write_u32(hasher, *offset);
         }
@@ -669,34 +737,34 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
 
 fn hash_page_spec(hasher: &mut Sha256, page: Option<&PageSpec>) {
     let Some(page) = page else {
-        write_tag(hasher, 0x40);
+        write_tag(hasher, PAGE_NONE_TAG);
         return;
     };
 
-    write_tag(hasher, 0x41);
+    write_tag(hasher, PAGE_PRESENT_TAG);
     match page.limit {
         Some(limit) => {
-            write_tag(hasher, 0x01);
+            write_tag(hasher, OPTIONAL_VALUE_PRESENT_TAG);
             write_u32(hasher, limit);
         }
-        None => write_tag(hasher, 0x00),
+        None => write_tag(hasher, OPTIONAL_VALUE_ABSENT_TAG),
     }
     write_u32(hasher, page.offset);
 }
 
 fn hash_distinct(hasher: &mut Sha256, distinct: bool) {
     if distinct {
-        write_tag(hasher, 0x44);
+        write_tag(hasher, DISTINCT_ENABLED_TAG);
     } else {
-        write_tag(hasher, 0x45);
+        write_tag(hasher, DISTINCT_DISABLED_TAG);
     }
 }
 
 fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
     match limit {
-        ExplainDeleteLimit::None => write_tag(hasher, 0x42),
+        ExplainDeleteLimit::None => write_tag(hasher, DELETE_LIMIT_NONE_TAG),
         ExplainDeleteLimit::Limit { max_rows } => {
-            write_tag(hasher, 0x43);
+            write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
             write_u32(hasher, *max_rows);
         }
     }
@@ -704,18 +772,18 @@ fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
 
 fn hash_delete_limit_spec(hasher: &mut Sha256, limit: Option<&DeleteLimitSpec>) {
     let Some(limit) = limit else {
-        write_tag(hasher, 0x42);
+        write_tag(hasher, DELETE_LIMIT_NONE_TAG);
         return;
     };
 
-    write_tag(hasher, 0x43);
+    write_tag(hasher, DELETE_LIMIT_PRESENT_TAG);
     write_u32(hasher, limit.max_rows);
 }
 
 fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
     match consistency {
-        MissingRowPolicy::Ignore => write_tag(hasher, 0x50),
-        MissingRowPolicy::Error => write_tag(hasher, 0x51),
+        MissingRowPolicy::Ignore => write_tag(hasher, CONSISTENCY_IGNORE_TAG),
+        MissingRowPolicy::Error => write_tag(hasher, CONSISTENCY_ERROR_TAG),
     }
 }
 
@@ -727,7 +795,7 @@ fn hash_grouping_shape_v1(
     include_group_strategy: bool,
 ) {
     match grouping {
-        ExplainGrouping::None => write_tag(hasher, 0x70),
+        ExplainGrouping::None => write_tag(hasher, GROUPING_NONE_TAG),
         ExplainGrouping::Grouped {
             strategy,
             group_fields,
@@ -738,7 +806,7 @@ fn hash_grouping_shape_v1(
         } => {
             // Grouped identity includes grouped key/aggregate ordering, grouped
             // HAVING semantics, and grouped budget policy.
-            write_tag(hasher, 0x71);
+            write_tag(hasher, GROUPING_PRESENT_TAG);
             if include_group_strategy {
                 hash_grouped_strategy(hasher, *strategy);
             }
@@ -775,11 +843,11 @@ fn hash_grouping_shape_v1_from_plan(
     include_group_strategy: bool,
 ) {
     let Some(grouped) = plan.grouped_plan() else {
-        write_tag(hasher, 0x70);
+        write_tag(hasher, GROUPING_NONE_TAG);
         return;
     };
 
-    write_tag(hasher, 0x71);
+    write_tag(hasher, GROUPING_PRESENT_TAG);
     if include_group_strategy {
         hash_grouped_strategy_hint(
             hasher,
@@ -841,18 +909,18 @@ fn hash_projection_spec_v1_for_plan(
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {
     match strategy {
-        ExplainGroupedStrategy::HashGroup => write_tag(hasher, 0x72),
-        ExplainGroupedStrategy::OrderedGroup => write_tag(hasher, 0x73),
+        ExplainGroupedStrategy::HashGroup => write_tag(hasher, GROUPING_STRATEGY_HASH_TAG),
+        ExplainGroupedStrategy::OrderedGroup => write_tag(hasher, GROUPING_STRATEGY_ORDERED_TAG),
     }
 }
 
 fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
     let Some(having) = having else {
-        write_tag(hasher, 0x74);
+        write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
         return;
     };
 
-    write_tag(hasher, 0x75);
+    write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
     write_u32(hasher, having.clauses().len() as u32);
     for clause in having.clauses() {
         hash_group_having_clause(hasher, clause);
@@ -861,11 +929,11 @@ fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
 
 fn hash_group_having_spec(hasher: &mut Sha256, having: Option<&GroupHavingSpec>) {
     let Some(having) = having else {
-        write_tag(hasher, 0x74);
+        write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
         return;
     };
 
-    write_tag(hasher, 0x75);
+    write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
     write_u32(hasher, having.clauses.len() as u32);
     for clause in &having.clauses {
         hash_group_having_clause_spec(hasher, clause);
@@ -875,12 +943,12 @@ fn hash_group_having_spec(hasher: &mut Sha256, having: Option<&GroupHavingSpec>)
 fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
     match clause.symbol() {
         ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
-            write_tag(hasher, 0x76);
+            write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
             write_u32(hasher, *slot_index as u32);
             write_str(hasher, field);
         }
         ExplainGroupHavingSymbol::AggregateIndex { index } => {
-            write_tag(hasher, 0x77);
+            write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
             write_u32(hasher, *index as u32);
         }
     }
@@ -891,12 +959,12 @@ fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClau
 fn hash_group_having_clause_spec(hasher: &mut Sha256, clause: &GroupHavingClause) {
     match &clause.symbol {
         GroupHavingSymbol::GroupField(field_slot) => {
-            write_tag(hasher, 0x76);
+            write_tag(hasher, GROUP_HAVING_GROUP_FIELD_TAG);
             write_u32(hasher, field_slot.index as u32);
             write_str(hasher, &field_slot.field);
         }
         GroupHavingSymbol::AggregateIndex(index) => {
-            write_tag(hasher, 0x77);
+            write_tag(hasher, GROUP_HAVING_AGGREGATE_INDEX_TAG);
             write_u32(hasher, *index as u32);
         }
     }
@@ -906,8 +974,8 @@ fn hash_group_having_clause_spec(hasher: &mut Sha256, clause: &GroupHavingClause
 
 fn hash_grouped_strategy_hint(hasher: &mut Sha256, strategy: GroupedPlanStrategyHint) {
     match strategy {
-        GroupedPlanStrategyHint::HashGroup => write_tag(hasher, 0x72),
-        GroupedPlanStrategyHint::OrderedGroup => write_tag(hasher, 0x73),
+        GroupedPlanStrategyHint::HashGroup => write_tag(hasher, GROUPING_STRATEGY_HASH_TAG),
+        GroupedPlanStrategyHint::OrderedGroup => write_tag(hasher, GROUPING_STRATEGY_ORDERED_TAG),
     }
 }
 

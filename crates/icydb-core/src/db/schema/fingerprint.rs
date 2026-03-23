@@ -19,18 +19,33 @@ use sha2::{Digest, Sha256};
 
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 2;
 
+const INDEX_KEY_ITEM_FIELD_TAG: u8 = 0x00;
+const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
+
+const INDEX_PREDICATE_NONE_TAG: u8 = 0x00;
+const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
+const INDEX_PREDICATE_RAW_SQL_FALLBACK_TAG: u8 = 0x02;
+
 /// Compute one deterministic schema/index fingerprint for an entity commit planner.
 #[must_use]
-pub(in crate::db) fn commit_schema_fingerprint_for_entity<E: EntityKind>() -> CommitSchemaFingerprint
-{
+pub(crate) fn commit_schema_fingerprint_for_entity<E: EntityKind>() -> CommitSchemaFingerprint {
+    commit_schema_fingerprint_for_model(E::PATH, E::MODEL)
+}
+
+/// Compute one deterministic schema/index fingerprint from structural authority.
+#[must_use]
+pub(crate) fn commit_schema_fingerprint_for_model(
+    entity_path: &'static str,
+    model: &'static EntityModel,
+) -> CommitSchemaFingerprint {
     // Phase 1: version the fingerprint contract and hash top-level identity.
     let mut hasher = Xxh3::with_seed(0);
     hasher.update(&[COMMIT_SCHEMA_FINGERPRINT_VERSION]);
-    hash_labeled_str(&mut hasher, "entity_path", E::PATH);
+    hash_labeled_str(&mut hasher, "entity_path", entity_path);
 
     // Phase 2: hash the macro-generated entity schema contract consumed by
     // prepare/replay planning (field slot order + index definitions).
-    hash_entity_model_for_commit(&mut hasher, E::MODEL);
+    hash_entity_model_for_commit(&mut hasher, model);
 
     hasher.digest128().to_be_bytes()
 }
@@ -62,7 +77,7 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
         IndexKeyItemsRef::Fields(fields) => {
             hash_labeled_len(hasher, "index_field_count", fields.len());
             for field in fields {
-                hash_labeled_tag(hasher, "index_key_item_kind", 0x00);
+                hash_labeled_tag(hasher, "index_key_item_kind", INDEX_KEY_ITEM_FIELD_TAG);
                 hash_labeled_str(hasher, "index_field_name", field);
             }
         }
@@ -71,11 +86,15 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
             for item in items {
                 match item {
                     IndexKeyItem::Field(field) => {
-                        hash_labeled_tag(hasher, "index_key_item_kind", 0x00);
+                        hash_labeled_tag(hasher, "index_key_item_kind", INDEX_KEY_ITEM_FIELD_TAG);
                         hash_labeled_str(hasher, "index_field_name", field);
                     }
                     IndexKeyItem::Expression(expression) => {
-                        hash_labeled_tag(hasher, "index_key_item_kind", 0x01);
+                        hash_labeled_tag(
+                            hasher,
+                            "index_key_item_kind",
+                            INDEX_KEY_ITEM_EXPRESSION_TAG,
+                        );
                         hash_labeled_tag(hasher, "index_expression_kind", expression.kind_tag());
                         hash_labeled_str(hasher, "index_expression_field", expression.field());
                     }
@@ -87,9 +106,9 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
 
 fn hash_index_predicate_contract(hasher: &mut Xxh3, index: &IndexModel) {
     match canonical_index_predicate(index) {
-        Ok(None) => hash_labeled_tag(hasher, "index_predicate_kind", 0x00),
+        Ok(None) => hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_NONE_TAG),
         Ok(Some(predicate)) => {
-            hash_labeled_tag(hasher, "index_predicate_kind", 0x01);
+            hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_SEMANTIC_TAG);
             let mut predicate_hasher = Sha256::new();
             hash_predicate(&mut predicate_hasher, predicate);
             let digest = predicate_hasher.finalize();
@@ -100,7 +119,11 @@ fn hash_index_predicate_contract(hasher: &mut Xxh3, index: &IndexModel) {
             // Defensive fallback for malformed static schema metadata.
             // This keeps commit fingerprinting deterministic even when predicate
             // parsing fails unexpectedly before schema validation catches it.
-            hash_labeled_tag(hasher, "index_predicate_kind", 0x02);
+            hash_labeled_tag(
+                hasher,
+                "index_predicate_kind",
+                INDEX_PREDICATE_RAW_SQL_FALLBACK_TAG,
+            );
             if let Some(predicate_sql) = index.predicate() {
                 hash_labeled_str(hasher, "index_predicate_raw_sql", predicate_sql);
             }

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         index::{
-            IndexCompareOp, IndexLiteral, IndexPredicateProgram,
+            IndexCompareOp, IndexLiteral, IndexPredicateProgram, next_text_prefix,
             predicate::literal_index_component_bytes,
         },
         predicate::{CoercionId, CompareOp, ResolvedComparePredicate, ResolvedPredicate},
@@ -233,31 +233,4 @@ fn compile_starts_with_index_node(
     };
 
     Some(IndexPredicateProgram::And(vec![lower, upper]))
-}
-
-fn next_text_prefix(prefix: &str) -> Option<String> {
-    let mut chars = prefix.chars().collect::<Vec<_>>();
-    for index in (0..chars.len()).rev() {
-        let Some(next_char) = next_unicode_scalar(chars[index]) else {
-            continue;
-        };
-        chars.truncate(index);
-        chars.push(next_char);
-        return Some(chars.into_iter().collect());
-    }
-
-    None
-}
-
-fn next_unicode_scalar(value: char) -> Option<char> {
-    if value == char::MAX {
-        return None;
-    }
-
-    let mut next = u32::from(value).saturating_add(1);
-    if (0xD800..=0xDFFF).contains(&next) {
-        next = 0xE000;
-    }
-
-    char::from_u32(next)
 }

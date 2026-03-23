@@ -33,7 +33,7 @@ use std::marker::PhantomData;
 /// control flow before conversion back to typed `(Id<E>, E)` rows.
 ///
 
-pub(in crate::db::executor) struct KernelRow {
+pub(in crate::db) struct KernelRow {
     data_row: DataRow,
     slots: Vec<Option<Value>>,
 }
@@ -42,20 +42,24 @@ impl KernelRow {
     /// Build one structural kernel row from canonical data-row storage plus
     /// slot-indexed runtime values.
     #[must_use]
-    pub(in crate::db::executor) const fn new(data_row: DataRow, slots: Vec<Option<Value>>) -> Self {
+    pub(in crate::db) const fn new(data_row: DataRow, slots: Vec<Option<Value>>) -> Self {
         Self { data_row, slots }
     }
 
-    pub(in crate::db::executor) fn slot(&self, slot: usize) -> Option<Value> {
+    pub(in crate::db) fn slot(&self, slot: usize) -> Option<Value> {
         self.slots.get(slot).cloned().flatten()
     }
 
-    pub(in crate::db::executor) fn into_data_row(self) -> DataRow {
+    pub(in crate::db) fn into_data_row(self) -> DataRow {
         self.data_row
     }
 
-    pub(in crate::db::executor) fn into_slots(self) -> Vec<Option<Value>> {
+    pub(in crate::db) fn into_slots(self) -> Vec<Option<Value>> {
         self.slots
+    }
+
+    pub(in crate::db) fn into_parts(self) -> (DataRow, Vec<Option<Value>>) {
+        (self.data_row, self.slots)
     }
 }
 
