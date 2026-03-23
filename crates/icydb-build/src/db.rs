@@ -287,14 +287,11 @@ fn sql_dispatch_route_impl_tokens() -> TokenStream {
         /// Resolve one descriptor from one SQL entity identifier.
         #[must_use]
         fn from_entity_name(entity_name: &str) -> Option<&'static SqlEntityDescriptor> {
-            for descriptor in SQL_ENTITY_DESCRIPTORS {
-                if ::icydb::db::identifiers_tail_match(entity_name, descriptor.schema.name())
-                {
-                    return Some(descriptor);
-                }
-            }
-
-            None
+            SQL_ENTITY_DESCRIPTORS
+                .iter()
+                .find(|descriptor| {
+                    ::icydb::db::identifiers_tail_match(entity_name, descriptor.schema.name())
+                })
         }
     }
 }
