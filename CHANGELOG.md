@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.62.x] - 2026-03-21 - Structural Persisted-Row Decode
 
+- `0.62.11` removes most of the remaining per-entity SQL and delete runtime duplication by moving dispatch, delete execution, and index/commit preparation onto shared structural paths, drops the simple-entity wasm growth rate to about `1,669` raw bytes per added entity, and fixes runtime hook store-path wiring so live unique-index conflicts are classified the same way as replayed conflicts.
 - `0.62.10` removes more generated per-entity API clutter by moving field-kind metadata onto one shared trait, dropping extra generated type constants, and keeping list/set/map wrappers ergonomic with `Deref` and `DerefMut` while the simple-entity wasm baseline stays flat.
 - `0.62.9` cleans up the remaining per-entity metadata surface by making the generated runtime model the only source of primary-key and index metadata, simplifying generated SQL dispatch descriptors, and trimming redundant test-fixture macro inputs so future per-entity work builds on one consistent authority model.
 - `0.62.8` continues the per-entity cleanup line by reorganizing the derive and build generators into smaller, clearer owner-local helpers, keeping generated behavior stable while leaving the macro/codegen layer in a cleaner state for future compression work.
