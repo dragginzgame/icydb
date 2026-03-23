@@ -52,6 +52,11 @@ impl QueryError {
         Self::Execute(QueryExecutionError::from(err))
     }
 
+    /// Construct one query-origin invariant-violation execution error.
+    pub(crate) fn invariant(message: impl Into<String>) -> Self {
+        Self::execute(crate::db::error::query_executor_invariant(message))
+    }
+
     /// Construct one intent-domain query error.
     pub(crate) const fn intent(err: IntentError) -> Self {
         Self::Intent(err)
@@ -67,10 +72,25 @@ impl QueryError {
         Self::execute(InternalError::query_unsupported(message))
     }
 
+    /// Construct one serialize-origin internal execution error.
+    pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
+        Self::execute(InternalError::serialize_internal(message))
+    }
+
     /// Construct one query-origin unsupported SQL-feature execution error.
     #[cfg(feature = "sql")]
     pub(crate) fn unsupported_sql_feature(feature: &'static str) -> Self {
         Self::execute(InternalError::query_unsupported_sql_feature(feature))
+    }
+
+    /// Construct one invariant violation for scalar pagination emitting the wrong cursor kind.
+    pub(crate) fn scalar_paged_emitted_grouped_continuation() -> Self {
+        Self::invariant("scalar load pagination emitted grouped continuation token")
+    }
+
+    /// Construct one invariant violation for grouped pagination emitting the wrong cursor kind.
+    pub(crate) fn grouped_paged_emitted_scalar_continuation() -> Self {
+        Self::invariant("grouped pagination emitted scalar continuation token")
     }
 }
 
