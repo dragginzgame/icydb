@@ -14,7 +14,7 @@ impl Imp<List> for InherentTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let item_kind = model_kind_from_item(&node.item);
         let kind = quote!(::icydb::model::field::FieldKind::List(&#item_kind));
-        let inherent_impl = collection_internal_metadata_impl_tokens(node.def(), kind.clone());
+        let inherent_impl = collection_internal_metadata_impl_tokens(node.def(), kind);
         let meta_impl = collection_field_type_meta_impl_tokens(node.def());
 
         Some(TraitStrategy::from_impl(quote! {
@@ -32,7 +32,7 @@ impl Imp<Set> for InherentTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item_kind = model_kind_from_item(&node.item);
         let kind = quote!(::icydb::model::field::FieldKind::Set(&#item_kind));
-        let inherent_impl = collection_internal_metadata_impl_tokens(node.def(), kind.clone());
+        let inherent_impl = collection_internal_metadata_impl_tokens(node.def(), kind);
         let meta_impl = collection_field_type_meta_impl_tokens(node.def());
 
         Some(TraitStrategy::from_impl(quote! {
@@ -56,7 +56,7 @@ impl Imp<Map> for InherentTrait {
                 value: &#value_kind,
             }
         };
-        let inherent_impl = collection_internal_metadata_impl_tokens(node.def(), kind.clone());
+        let inherent_impl = collection_internal_metadata_impl_tokens(node.def(), kind);
         let meta_impl = collection_field_type_meta_impl_tokens(node.def());
 
         Some(TraitStrategy::from_impl(quote! {
