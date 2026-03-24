@@ -92,13 +92,37 @@ pub(in crate::db) enum ScalarTerminalBoundaryOutput {
 }
 
 impl ScalarTerminalBoundaryOutput {
+    // Build the canonical boundary mismatch for COUNT terminal requests.
+    fn count_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar terminal boundary COUNT output kind mismatch",
+        )
+    }
+
+    // Build the canonical boundary mismatch for EXISTS terminal requests.
+    fn exists_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar terminal boundary EXISTS output kind mismatch",
+        )
+    }
+
+    // Build the canonical boundary mismatch for id-returning terminal requests.
+    fn id_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant("scalar terminal boundary id output kind mismatch")
+    }
+
+    // Build the canonical boundary mismatch for paired-id terminal requests.
+    fn id_pair_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar terminal boundary id-pair output kind mismatch",
+        )
+    }
+
     // Decode COUNT boundary output while preserving request/output mismatch context.
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar terminal boundary COUNT output kind mismatch",
-            )),
+            _ => Err(Self::count_output_kind_mismatch()),
         }
     }
 
@@ -106,9 +130,7 @@ impl ScalarTerminalBoundaryOutput {
     pub(in crate::db) fn into_exists(self) -> Result<bool, InternalError> {
         match self {
             Self::Exists(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar terminal boundary EXISTS output kind mismatch",
-            )),
+            _ => Err(Self::exists_output_kind_mismatch()),
         }
     }
 
@@ -119,9 +141,7 @@ impl ScalarTerminalBoundaryOutput {
     {
         match self {
             Self::Id(value) => value.map(decode_storage_key_to_id::<E>).transpose(),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar terminal boundary id output kind mismatch",
-            )),
+            _ => Err(Self::id_output_kind_mismatch()),
         }
     }
 
@@ -139,9 +159,7 @@ impl ScalarTerminalBoundaryOutput {
                     ))
                 })
                 .transpose(),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar terminal boundary id-pair output kind mismatch",
-            )),
+            _ => Err(Self::id_pair_output_kind_mismatch()),
         }
     }
 }
@@ -199,36 +217,15 @@ fn execute_kernel_terminal_request<E>(
 where
     E: EntityKind + EntityValue,
 {
+    op.validate_kernel_request_kind()?;
     let aggregate_expr = match op {
         PreparedScalarTerminalOp::Count => terminal_expr_for_kind(AggregateKind::Count),
         PreparedScalarTerminalOp::Exists => terminal_expr_for_kind(AggregateKind::Exists),
-        PreparedScalarTerminalOp::IdTerminal { kind } => {
-            if !matches!(
-                kind,
-                AggregateKind::Min
-                    | AggregateKind::Max
-                    | AggregateKind::First
-                    | AggregateKind::Last
-            ) {
-                return Err(InternalError::query_executor_invariant(
-                    "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
-                ));
-            }
-
-            terminal_expr_for_kind(kind)
-        }
+        PreparedScalarTerminalOp::IdTerminal { kind } => terminal_expr_for_kind(kind),
         PreparedScalarTerminalOp::IdBySlot {
             kind,
             target_field_name,
-        } => {
-            if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-                return Err(InternalError::query_executor_invariant(
-                    "id-by-slot aggregate request requires MIN/MAX kind",
-                ));
-            }
-
-            field_target_extrema_expr_for_kind(kind, &target_field_name)
-        }
+        } => field_target_extrema_expr_for_kind(kind, &target_field_name),
     };
     let state =
         ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate_expr);
@@ -257,25 +254,23 @@ fn execute_count_existing_rows_terminal_request(
     direction: Direction,
     _covering: bool,
 ) -> Result<ScalarAggregateOutput, InternalError> {
-    let count = expect_count_output(
-        aggregate_existing_rows_terminal_output_with_runtime(
-            ExistingRowsTerminalRuntime {
-                model: prepared.authority.model(),
-                entity_tag: prepared.authority.entity_tag(),
-                store: prepared.store,
-                logical_plan: &prepared.logical_plan,
-                index_prefix_specs: prepared.index_prefix_specs.as_slice(),
-                index_range_specs: prepared.index_range_specs.as_slice(),
-            },
-            AggregateKind::Count,
-            direction,
-        )
-        .map(|(output, rows_scanned)| {
-            record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
-            output
-        })?,
-        "existing-row COUNT reducer result kind mismatch",
-    )?;
+    let count = aggregate_existing_rows_terminal_output_with_runtime(
+        ExistingRowsTerminalRuntime {
+            model: prepared.authority.model(),
+            entity_tag: prepared.authority.entity_tag(),
+            store: prepared.store,
+            logical_plan: &prepared.logical_plan,
+            index_prefix_specs: prepared.index_prefix_specs.as_slice(),
+            index_range_specs: prepared.index_range_specs.as_slice(),
+        },
+        AggregateKind::Count,
+        direction,
+    )
+    .map(|(output, rows_scanned)| {
+        record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
+        output
+    })?
+    .into_count("existing-row COUNT reducer result kind mismatch")?;
 
     Ok(ScalarAggregateOutput::Count(count))
 }
@@ -286,25 +281,23 @@ fn execute_exists_existing_rows_terminal_request(
     prepared: PreparedAggregateStreamingInputsCore,
     direction: Direction,
 ) -> Result<ScalarAggregateOutput, InternalError> {
-    let exists = expect_exists_output(
-        aggregate_existing_rows_terminal_output_with_runtime(
-            ExistingRowsTerminalRuntime {
-                model: prepared.authority.model(),
-                entity_tag: prepared.authority.entity_tag(),
-                store: prepared.store,
-                logical_plan: &prepared.logical_plan,
-                index_prefix_specs: prepared.index_prefix_specs.as_slice(),
-                index_range_specs: prepared.index_range_specs.as_slice(),
-            },
-            AggregateKind::Exists,
-            direction,
-        )
-        .map(|(output, rows_scanned)| {
-            record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
-            output
-        })?,
-        "covering EXISTS reducer result kind mismatch",
-    )?;
+    let exists = aggregate_existing_rows_terminal_output_with_runtime(
+        ExistingRowsTerminalRuntime {
+            model: prepared.authority.model(),
+            entity_tag: prepared.authority.entity_tag(),
+            store: prepared.store,
+            logical_plan: &prepared.logical_plan,
+            index_prefix_specs: prepared.index_prefix_specs.as_slice(),
+            index_range_specs: prepared.index_range_specs.as_slice(),
+        },
+        AggregateKind::Exists,
+        direction,
+    )
+    .map(|(output, rows_scanned)| {
+        record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
+        output
+    })?
+    .into_exists("covering EXISTS reducer result kind mismatch")?;
 
     Ok(ScalarAggregateOutput::Exists(exists))
 }
@@ -411,28 +404,6 @@ fn aggregate_count_from_pk_cardinality_with_store(
     let (count, rows_scanned) = count_window_result_from_page(page, available_rows);
 
     Ok((count, rows_scanned))
-}
-
-// Decode COUNT outputs while preserving call-site mismatch context.
-fn expect_count_output(
-    aggregate_output: ScalarAggregateOutput,
-    mismatch_context: &'static str,
-) -> Result<u32, InternalError> {
-    match aggregate_output {
-        ScalarAggregateOutput::Count(value) => Ok(value),
-        _ => Err(InternalError::query_executor_invariant(mismatch_context)),
-    }
-}
-
-// Decode EXISTS outputs while preserving call-site mismatch context.
-fn expect_exists_output(
-    aggregate_output: ScalarAggregateOutput,
-    mismatch_context: &'static str,
-) -> Result<bool, InternalError> {
-    match aggregate_output {
-        ScalarAggregateOutput::Exists(value) => Ok(value),
-        _ => Err(InternalError::query_executor_invariant(mismatch_context)),
-    }
 }
 
 impl<E> LoadExecutor<E>
@@ -572,23 +543,16 @@ where
         let aggregate_output = run_prepared_scalar_terminal_boundary(self, prepared)?;
 
         match boundary.op {
-            PreparedScalarTerminalOp::Count => {
-                expect_count_output(aggregate_output, "aggregate COUNT result kind mismatch")
-                    .map(ScalarTerminalBoundaryOutput::Count)
-            }
-            PreparedScalarTerminalOp::Exists => {
-                expect_exists_output(aggregate_output, "aggregate EXISTS result kind mismatch")
-                    .map(ScalarTerminalBoundaryOutput::Exists)
-            }
+            PreparedScalarTerminalOp::Count => aggregate_output
+                .into_count("aggregate COUNT result kind mismatch")
+                .map(ScalarTerminalBoundaryOutput::Count),
+            PreparedScalarTerminalOp::Exists => aggregate_output
+                .into_exists("aggregate EXISTS result kind mismatch")
+                .map(ScalarTerminalBoundaryOutput::Exists),
             PreparedScalarTerminalOp::IdTerminal { kind }
-            | PreparedScalarTerminalOp::IdBySlot { kind, .. } => {
-                Self::expect_optional_id_terminal_output(
-                    aggregate_output,
-                    kind,
-                    "aggregate id-terminal result kind mismatch",
-                )
-                .map(ScalarTerminalBoundaryOutput::Id)
-            }
+            | PreparedScalarTerminalOp::IdBySlot { kind, .. } => aggregate_output
+                .into_optional_id_terminal(kind, "aggregate id-terminal result kind mismatch")
+                .map(ScalarTerminalBoundaryOutput::Id),
         }
     }
 
@@ -641,21 +605,6 @@ where
                 }
             },
         )
-    }
-
-    // Decode id-returning aggregate outputs for MIN/MAX/FIRST/LAST terminals.
-    fn expect_optional_id_terminal_output(
-        aggregate_output: ScalarAggregateOutput,
-        kind: AggregateKind,
-        mismatch_context: &'static str,
-    ) -> Result<Option<StorageKey>, InternalError> {
-        match (kind, aggregate_output) {
-            (AggregateKind::Min, ScalarAggregateOutput::Min(value))
-            | (AggregateKind::Max, ScalarAggregateOutput::Max(value))
-            | (AggregateKind::First, ScalarAggregateOutput::First(value))
-            | (AggregateKind::Last, ScalarAggregateOutput::Last(value)) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
-        }
     }
 }
 

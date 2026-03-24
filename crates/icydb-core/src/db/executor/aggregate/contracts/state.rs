@@ -72,6 +72,11 @@ pub(in crate::db::executor) enum ScalarAggregateReducerState {
 }
 
 impl ScalarAggregateReducerState {
+    // Build the canonical scalar reducer-state mismatch for one aggregate kind.
+    fn state_mismatch(kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(format!("aggregate reducer {kind} state mismatch"))
+    }
+
     /// Build the initial scalar reducer state for one aggregate terminal.
     #[must_use]
     pub(in crate::db::executor) const fn for_kind(kind: AggregateKind) -> Self {
@@ -93,9 +98,7 @@ impl ScalarAggregateReducerState {
                 *count = count.saturating_add(1);
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer COUNT state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("COUNT")),
         }
     }
 
@@ -106,9 +109,7 @@ impl ScalarAggregateReducerState {
                 *exists = true;
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer EXISTS state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("EXISTS")),
         }
     }
 
@@ -126,9 +127,7 @@ impl ScalarAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer MIN state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("MIN")),
         }
     }
 
@@ -146,9 +145,7 @@ impl ScalarAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer MAX state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("MAX")),
         }
     }
 
@@ -159,9 +156,7 @@ impl ScalarAggregateReducerState {
                 *first_key = Some(key);
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer FIRST state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("FIRST")),
         }
     }
 
@@ -172,9 +167,7 @@ impl ScalarAggregateReducerState {
                 *last_key = Some(key);
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer LAST state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("LAST")),
         }
     }
 
@@ -212,6 +205,13 @@ enum GroupedAggregateReducerState {
 }
 
 impl GroupedAggregateReducerState {
+    // Build the canonical grouped reducer-state mismatch for one aggregate kind.
+    fn state_mismatch(kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped aggregate reducer {kind} state mismatch"
+        ))
+    }
+
     /// Build the initial grouped reducer state for one aggregate terminal.
     #[must_use]
     const fn for_kind(kind: AggregateKind) -> Self {
@@ -233,9 +233,7 @@ impl GroupedAggregateReducerState {
                 *count = count.saturating_add(1);
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer COUNT state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("COUNT")),
         }
     }
 
@@ -246,9 +244,7 @@ impl GroupedAggregateReducerState {
                 *exists = true;
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer EXISTS state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("EXISTS")),
         }
     }
 
@@ -266,9 +262,7 @@ impl GroupedAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer MIN state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("MIN")),
         }
     }
 
@@ -286,9 +280,7 @@ impl GroupedAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer MAX state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("MAX")),
         }
     }
 
@@ -299,9 +291,7 @@ impl GroupedAggregateReducerState {
                 *first_key = Some(key);
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer FIRST state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("FIRST")),
         }
     }
 
@@ -312,9 +302,7 @@ impl GroupedAggregateReducerState {
                 *last_key = Some(key);
                 Ok(())
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer LAST state mismatch",
-            )),
+            _ => Err(Self::state_mismatch("LAST")),
         }
     }
 
@@ -398,6 +386,20 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
 }
 
 impl GroupedTerminalAggregateState {
+    // Build the canonical grouped terminal invariant for field-target-only kinds.
+    fn field_target_execution_required(kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped aggregate reducer {kind} requires field-target execution path"
+        ))
+    }
+
+    // Build the canonical grouped terminal invariant for storage-key-required updates.
+    fn storage_key_required(kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped aggregate reducer {kind} update requires storage key"
+        ))
+    }
+
     /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.
     pub(in crate::db::executor) fn apply(
         &mut self,
@@ -466,17 +468,13 @@ impl GroupedTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(InternalError::query_executor_invariant(
-            "grouped aggregate reducer SUM requires field-target execution path",
-        ))
+        Err(Self::field_target_execution_required("SUM"))
     }
 
     // Apply one MIN grouped terminal update.
     fn apply_min(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer MIN update requires storage key",
-            ));
+            return Err(Self::storage_key_required("MIN"));
         };
         self.reducer.update_min_value(key)?;
 
@@ -490,9 +488,7 @@ impl GroupedTerminalAggregateState {
     // Apply one MAX grouped terminal update.
     fn apply_max(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer MAX update requires storage key",
-            ));
+            return Err(Self::storage_key_required("MAX"));
         };
         self.reducer.update_max_value(key)?;
 
@@ -506,9 +502,7 @@ impl GroupedTerminalAggregateState {
     // Apply one FIRST grouped terminal update.
     fn apply_first(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer FIRST update requires storage key",
-            ));
+            return Err(Self::storage_key_required("FIRST"));
         };
         self.reducer.set_first(key)?;
 
@@ -518,9 +512,7 @@ impl GroupedTerminalAggregateState {
     // Apply one LAST grouped terminal update.
     fn apply_last(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped aggregate reducer LAST update requires storage key",
-            ));
+            return Err(Self::storage_key_required("LAST"));
         };
         self.reducer.set_last(key)?;
 
@@ -532,9 +524,7 @@ impl GroupedTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(InternalError::query_executor_invariant(
-            "grouped aggregate reducer AVG requires field-target execution path",
-        ))
+        Err(Self::field_target_execution_required("AVG"))
     }
 }
 
@@ -597,6 +587,20 @@ impl AggregateStateFactory {
 }
 
 impl ScalarTerminalAggregateState {
+    // Build the canonical scalar terminal invariant for field-target-only kinds.
+    fn field_target_execution_required(kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "aggregate reducer {kind} requires field-target execution path"
+        ))
+    }
+
+    // Build the canonical scalar terminal invariant for storage-key-required updates.
+    fn storage_key_required(kind: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "aggregate reducer {kind} update requires storage key"
+        ))
+    }
+
     // Resolve one scalar terminal update dispatch function from one aggregate kind.
     const fn terminal_update_dispatch_for_kind(
         kind: AggregateKind,
@@ -643,17 +647,13 @@ impl ScalarTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(InternalError::query_executor_invariant(
-            "aggregate reducer SUM requires field-target execution path",
-        ))
+        Err(Self::field_target_execution_required("SUM"))
     }
 
     // Apply one MIN scalar terminal update.
     fn apply_min(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "aggregate reducer MIN update requires storage key",
-            ));
+            return Err(Self::storage_key_required("MIN"));
         };
         self.reducer.update_min_value(key)?;
 
@@ -667,9 +667,7 @@ impl ScalarTerminalAggregateState {
     // Apply one MAX scalar terminal update.
     fn apply_max(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "aggregate reducer MAX update requires storage key",
-            ));
+            return Err(Self::storage_key_required("MAX"));
         };
         self.reducer.update_max_value(key)?;
 
@@ -683,9 +681,7 @@ impl ScalarTerminalAggregateState {
     // Apply one FIRST scalar terminal update.
     fn apply_first(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "aggregate reducer FIRST update requires storage key",
-            ));
+            return Err(Self::storage_key_required("FIRST"));
         };
         self.reducer.set_first(key)?;
 
@@ -695,9 +691,7 @@ impl ScalarTerminalAggregateState {
     // Apply one LAST scalar terminal update.
     fn apply_last(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(InternalError::query_executor_invariant(
-                "aggregate reducer LAST update requires storage key",
-            ));
+            return Err(Self::storage_key_required("LAST"));
         };
         self.reducer.set_last(key)?;
 
@@ -709,9 +703,7 @@ impl ScalarTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(InternalError::query_executor_invariant(
-            "aggregate reducer AVG requires field-target execution path",
-        ))
+        Err(Self::field_target_execution_required("AVG"))
     }
 }
 

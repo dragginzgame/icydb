@@ -24,6 +24,26 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
     Upper,
 }
 
+impl IndexRangeBoundEncodeError {
+    #[must_use]
+    pub(in crate::db) const fn validated_spec_not_indexable_reason(self) -> &'static str {
+        match self {
+            Self::Prefix => "validated index-range prefix is not indexable",
+            Self::Lower => "validated index-range lower bound is not indexable",
+            Self::Upper => "validated index-range upper bound is not indexable",
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn cursor_anchor_not_indexable_reason(self) -> &'static str {
+        match self {
+            Self::Prefix => "index-range continuation anchor prefix is not indexable",
+            Self::Lower => "index-range cursor lower continuation bound is not indexable",
+            Self::Upper => "index-range cursor upper continuation bound is not indexable",
+        }
+    }
+}
+
 ///
 /// raw_keys_for_encoded_prefix
 ///
@@ -188,4 +208,45 @@ fn next_unicode_scalar(value: char) -> Option<char> {
     }
 
     char::from_u32(next)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::IndexRangeBoundEncodeError;
+
+    #[test]
+    fn index_range_bound_encode_error_owns_validated_spec_reason_text() {
+        assert_eq!(
+            IndexRangeBoundEncodeError::Prefix.validated_spec_not_indexable_reason(),
+            "validated index-range prefix is not indexable",
+        );
+        assert_eq!(
+            IndexRangeBoundEncodeError::Lower.validated_spec_not_indexable_reason(),
+            "validated index-range lower bound is not indexable",
+        );
+        assert_eq!(
+            IndexRangeBoundEncodeError::Upper.validated_spec_not_indexable_reason(),
+            "validated index-range upper bound is not indexable",
+        );
+    }
+
+    #[test]
+    fn index_range_bound_encode_error_owns_cursor_anchor_reason_text() {
+        assert_eq!(
+            IndexRangeBoundEncodeError::Prefix.cursor_anchor_not_indexable_reason(),
+            "index-range continuation anchor prefix is not indexable",
+        );
+        assert_eq!(
+            IndexRangeBoundEncodeError::Lower.cursor_anchor_not_indexable_reason(),
+            "index-range cursor lower continuation bound is not indexable",
+        );
+        assert_eq!(
+            IndexRangeBoundEncodeError::Upper.cursor_anchor_not_indexable_reason(),
+            "index-range cursor upper continuation bound is not indexable",
+        );
+    }
 }

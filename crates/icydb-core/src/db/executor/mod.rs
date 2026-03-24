@@ -139,6 +139,54 @@ impl ExecutorPlanError {
             "grouped cursor preparation requires grouped logical plans",
         )
     }
+
+    /// Construct one executor plan error for grouped cursor revalidation
+    /// attempted against non-grouped logical plans.
+    pub(in crate::db) fn grouped_cursor_revalidation_requires_grouped_plan() -> Self {
+        Self::continuation_cursor_invariant(
+            "grouped cursor revalidation requires grouped logical plans",
+        )
+    }
+
+    /// Construct one executor plan error for grouped boundary-arity access
+    /// attempted against non-grouped logical plans.
+    pub(in crate::db) fn grouped_cursor_boundary_arity_requires_grouped_plan() -> Self {
+        Self::continuation_cursor_invariant(
+            "grouped cursor boundary arity requires grouped logical plans",
+        )
+    }
+
+    /// Construct one executor plan error for load-only continuation contracts.
+    pub(in crate::db) fn continuation_contract_requires_load_plan() -> Self {
+        Self::continuation_cursor_invariant(
+            "continuation contracts are only supported for load plans",
+        )
+    }
+
+    /// Construct one executor plan error for load execution descriptor access
+    /// attempted against non-load executable plans.
+    pub(in crate::db) fn load_execution_descriptor_requires_load_plan() -> Self {
+        Self::continuation_cursor_invariant(
+            "load execution descriptor requires load-mode executable plans",
+        )
+    }
+
+    /// Construct one executor plan error for invalid lowered index-prefix specs.
+    pub(in crate::db) fn lowered_index_prefix_spec_invalid() -> Self {
+        Self::continuation_cursor_invariant(LOWERED_INDEX_PREFIX_SPEC_INVALID)
+    }
+
+    /// Construct one executor plan error for invalid lowered index-range specs.
+    pub(in crate::db) fn lowered_index_range_spec_invalid() -> Self {
+        Self::continuation_cursor_invariant(LOWERED_INDEX_RANGE_SPEC_INVALID)
+    }
+
+    /// Lift one executor plan error into the runtime internal taxonomy.
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::Cursor(err) => err.into_internal_error(),
+        }
+    }
 }
 
 impl From<CursorPlanError> for ExecutorPlanError {

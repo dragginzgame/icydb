@@ -219,56 +219,48 @@ impl CursorPlanError {
     /// internal invariant taxonomy used by storage-key boundary adapters.
     pub(in crate::db) fn into_pk_cursor_decode_internal_error(self) -> InternalError {
         match self {
-            Self::InvalidContinuationCursor { reason } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                    "pk cursor decode rejected invalid continuation cursor: {reason}"
-                )))
-            }
+            Self::InvalidContinuationCursor { reason } => InternalError::cursor_executor_invariant(
+                format!("pk cursor decode rejected invalid continuation cursor: {reason}"),
+            ),
             Self::InvalidContinuationCursorPayload { reason } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
+                InternalError::cursor_executor_invariant(format!(
                     "pk cursor decode rejected invalid continuation payload: {reason}"
-                )))
-            }
-            Self::ContinuationCursorVersionMismatch { version } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                    "pk cursor decode rejected unsupported continuation version: {version}"
-                )))
-            }
-            Self::ContinuationCursorSignatureMismatch { .. } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(
-                    "pk cursor decode encountered continuation signature mismatch",
                 ))
             }
+            Self::ContinuationCursorVersionMismatch { version } => {
+                InternalError::cursor_executor_invariant(format!(
+                    "pk cursor decode rejected unsupported continuation version: {version}"
+                ))
+            }
+            Self::ContinuationCursorSignatureMismatch { .. } => {
+                InternalError::cursor_executor_invariant(
+                    "pk cursor decode encountered continuation signature mismatch",
+                )
+            }
             Self::ContinuationCursorBoundaryArityMismatch { expected, found } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
+                InternalError::cursor_executor_invariant(format!(
                     "pk cursor boundary arity mismatch: expected {expected}, found {found}"
-                )))
+                ))
             }
             Self::ContinuationCursorWindowMismatch {
                 expected_offset,
                 actual_offset,
-            } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                    "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
-                )))
-            }
+            } => InternalError::cursor_executor_invariant(format!(
+                "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
+            )),
             Self::ContinuationCursorBoundaryTypeMismatch { field, .. } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
+                InternalError::cursor_executor_invariant(format!(
                     "pk cursor boundary type mismatch on field '{field}'"
-                )))
+                ))
             }
             Self::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(
-                    "pk cursor slot must be present",
-                ))
+                InternalError::cursor_executor_invariant("pk cursor slot must be present")
             }
             Self::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(
-                    "pk cursor slot type mismatch",
-                ))
+                InternalError::cursor_executor_invariant("pk cursor slot type mismatch")
             }
             Self::ContinuationCursorInvariantViolation { reason } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(reason))
+                InternalError::cursor_executor_invariant(reason)
             }
         }
     }
@@ -281,7 +273,7 @@ impl CursorPlanError {
     pub(crate) fn into_internal_error(self) -> InternalError {
         match self {
             Self::ContinuationCursorInvariantViolation { reason } => {
-                InternalError::cursor_invariant(InternalError::executor_invariant_message(reason))
+                InternalError::cursor_executor_invariant(reason)
             }
             Self::InvalidContinuationCursor { .. }
             | Self::InvalidContinuationCursorPayload { .. }

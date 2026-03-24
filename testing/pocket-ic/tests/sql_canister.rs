@@ -3,7 +3,7 @@ use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
 use icydb_testing_integration::build_quickstart_canister;
 use pocket_ic::{PocketIc, PocketIcBuilder};
 use std::{
-    fs,
+    env, fs,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
@@ -12,10 +12,26 @@ const INIT_CYCLES: u128 = 2_000_000_000_000;
 const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
 static POCKET_IC_TEST_LOCK: Mutex<()> = Mutex::new(());
 static QUICKSTART_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
+static POCKET_IC_REUSE_PORT_FILE_CLEARED: OnceLock<()> = OnceLock::new();
+
+// PocketIC reuses one per-process port file under the system temp dir.
+// If a previous Cargo test process with the same PID crashed, the stale file can
+// make the first test in this process connect to a dead server port before the
+// newly spawned server rewrites the file.
+fn clear_stale_pocket_ic_port_file_once() {
+    POCKET_IC_REUSE_PORT_FILE_CLEARED.get_or_init(|| {
+        let port_file = env::temp_dir().join(format!("pocket_ic_{}.port", std::process::id()));
+        if port_file.exists() {
+            let _ = fs::remove_file(&port_file);
+        }
+    });
+}
 
 // Build Pocket-IC with an explicit server binary to avoid implicit network
 // downloads during local test execution.
 fn new_pocket_ic() -> Option<PocketIc> {
+    clear_stale_pocket_ic_port_file_once();
+
     let Some(server_binary_raw) = std::env::var_os(POCKET_IC_BIN_ENV) else {
         eprintln!(
             "skipping PocketIC SQL canister integration test: set {POCKET_IC_BIN_ENV} \

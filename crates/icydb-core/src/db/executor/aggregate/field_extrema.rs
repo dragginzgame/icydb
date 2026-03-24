@@ -50,6 +50,70 @@ struct FieldExtremaFoldSpec<'a> {
     direction: Direction,
 }
 
+impl FieldExtremaFoldSpec<'_> {
+    // Build the canonical materialized reducer invariant for non-extrema kinds.
+    fn materialized_reduction_requires_extrema() -> InternalError {
+        InternalError::query_executor_invariant(
+            "materialized field-extrema reduction requires MIN/MAX terminal",
+        )
+    }
+
+    // Build the canonical materialized reducer invariant for unexpected non-extrema output.
+    fn materialized_reduction_reached_non_extrema() -> InternalError {
+        InternalError::query_executor_invariant(
+            "materialized field-extrema reduction reached non-extrema terminal",
+        )
+    }
+
+    // Build the canonical route-execution invariant for non-extrema field-target requests.
+    fn execution_requires_extrema() -> InternalError {
+        InternalError::query_executor_invariant(
+            "field-target aggregate execution requires MIN/MAX terminal",
+        )
+    }
+
+    // Build the canonical route-execution invariant for missing field-extrema fast-path routing.
+    fn route_fast_path_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "field-target aggregate streaming requires route-eligible field-extrema fast path",
+        )
+    }
+
+    // Build the canonical streaming invariant for non-extrema direction lookup.
+    fn direction_requires_extrema() -> InternalError {
+        InternalError::query_executor_invariant(
+            "field-target aggregate direction requires MIN/MAX terminal",
+        )
+    }
+
+    // Build the canonical fold invariant for unexpected non-extrema output.
+    fn fold_reached_non_extrema() -> InternalError {
+        InternalError::query_executor_invariant("field-extrema fold reached non-extrema terminal")
+    }
+
+    // Build the canonical fold invariant for route/order drift against extrema semantics.
+    fn fold_direction_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "field-extrema fold direction must match aggregate terminal semantics",
+        )
+    }
+
+    // Resolve the aggregate-owned extrema traversal direction for this fold.
+    fn extrema_direction(&self) -> Result<Direction, InternalError> {
+        aggregate_extrema_direction(self.kind).ok_or_else(Self::direction_requires_extrema)
+    }
+
+    // Build the final extrema output payload for the selected winning key.
+    fn finalize_output(
+        &self,
+        selected_key: Option<StorageKey>,
+    ) -> Result<ScalarAggregateOutput, InternalError> {
+        self.kind
+            .extrema_output(selected_key)
+            .ok_or_else(Self::fold_reached_non_extrema)
+    }
+}
+
 impl ExecutionKernel {
     // Reduce one materialized response into a field-target extrema id with the
     // deterministic tie-break contract `(field_value, primary_key_asc)`.
@@ -61,15 +125,10 @@ impl ExecutionKernel {
         field_slot: FieldSlot,
     ) -> Result<ScalarAggregateOutput, InternalError> {
         if !kind.is_extrema() {
-            return Err(InternalError::query_executor_invariant(
-                "materialized field-extrema reduction requires MIN/MAX terminal",
-            ));
+            return Err(FieldExtremaFoldSpec::materialized_reduction_requires_extrema());
         }
-        let compare_direction = aggregate_extrema_direction(kind).ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "materialized field-extrema reduction reached non-extrema terminal",
-            )
-        })?;
+        let compare_direction = aggregate_extrema_direction(kind)
+            .ok_or_else(FieldExtremaFoldSpec::materialized_reduction_reached_non_extrema)?;
 
         let row_decoder = RowDecoder::structural();
         let mut selected: Option<(StorageKey, Value)> = None;
@@ -106,11 +165,8 @@ impl ExecutionKernel {
 
         let selected_key = selected.map(|(key, _)| key);
 
-        kind.extrema_output(selected_key).ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "materialized field-extrema reduction reached non-extrema terminal",
-            )
-        })
+        kind.extrema_output(selected_key)
+            .ok_or_else(FieldExtremaFoldSpec::materialized_reduction_reached_non_extrema)
     }
 
     // Execute one route-eligible field-target extrema aggregate through kernel-
@@ -127,14 +183,10 @@ impl ExecutionKernel {
         } else if kind == AggregateKind::Max {
             route_plan.field_max_fast_path_eligible()
         } else {
-            return Err(InternalError::query_executor_invariant(
-                "field-target aggregate execution requires MIN/MAX terminal",
-            ));
+            return Err(FieldExtremaFoldSpec::execution_requires_extrema());
         };
         if !field_fast_path_eligible {
-            return Err(InternalError::query_executor_invariant(
-                "field-target aggregate streaming requires route-eligible field-extrema fast path",
-            ));
+            return Err(FieldExtremaFoldSpec::route_fast_path_required());
         }
 
         // Validate the field target before any stream execution work so
@@ -247,16 +299,8 @@ impl ExecutionKernel {
         key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
         spec: &FieldExtremaFoldSpec<'_>,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
-        if spec.direction
-            != aggregate_extrema_direction(spec.kind).ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "field-target aggregate direction requires MIN/MAX terminal",
-                )
-            })?
-        {
-            return Err(InternalError::query_executor_invariant(
-                "field-extrema fold direction must match aggregate terminal semantics",
-            ));
+        if spec.direction != spec.extrema_direction()? {
+            return Err(FieldExtremaFoldSpec::fold_direction_mismatch());
         }
 
         let row_decoder = RowDecoder::structural();
@@ -323,11 +367,7 @@ impl ExecutionKernel {
         drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut on_key)?;
 
         let selected_key = selected.map(|(key, _)| key);
-        let output = spec.kind.extrema_output(selected_key).ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "field-extrema fold reached non-extrema terminal",
-            )
-        })?;
+        let output = spec.finalize_output(selected_key)?;
 
         Ok((output, keys_scanned))
     }

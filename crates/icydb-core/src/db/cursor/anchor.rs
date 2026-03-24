@@ -189,21 +189,7 @@ fn lower_cursor_anchor_index_range_bounds(
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
     raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
-        .map_err(map_cursor_anchor_bound_encode_error)
-}
-
-const fn map_cursor_anchor_bound_encode_error(err: IndexRangeBoundEncodeError) -> &'static str {
-    match err {
-        IndexRangeBoundEncodeError::Prefix => {
-            "index-range continuation anchor prefix is not indexable"
-        }
-        IndexRangeBoundEncodeError::Lower => {
-            "index-range cursor lower continuation bound is not indexable"
-        }
-        IndexRangeBoundEncodeError::Upper => {
-            "index-range cursor upper continuation bound is not indexable"
-        }
-    }
+        .map_err(IndexRangeBoundEncodeError::cursor_anchor_not_indexable_reason)
 }
 
 // Validate optional index-range cursor anchor against the planned access envelope.

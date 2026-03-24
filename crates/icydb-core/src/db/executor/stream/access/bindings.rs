@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
-            traversal::validate_index_range_specs_consumed,
+            traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -33,6 +33,18 @@ pub(in crate::db::executor) struct AccessSpecCursor<'a> {
 }
 
 impl<'a> AccessSpecCursor<'a> {
+    // Build the canonical invariant for missing lowered prefix specs during traversal.
+    fn index_prefix_specs_required() -> InternalError {
+        InternalError::query_executor_invariant("index-prefix execution requires pre-lowered specs")
+    }
+
+    // Build the canonical invariant for unused lowered prefix specs after traversal.
+    fn unused_index_prefix_specs() -> InternalError {
+        InternalError::query_executor_invariant(
+            "unused index-prefix executable specs after access-plan traversal",
+        )
+    }
+
     /// Build one spec cursor over explicit lowered prefix/range slices.
     #[must_use]
     pub(in crate::db::executor) const fn new(
@@ -60,6 +72,17 @@ impl<'a> AccessSpecCursor<'a> {
         Some(slice)
     }
 
+    /// Consume the next `count` lowered index-prefix specs in traversal order,
+    /// failing closed when the executable access path requires more specs than
+    /// remain available.
+    pub(in crate::db::executor) fn require_next_index_prefix_specs(
+        &mut self,
+        count: usize,
+    ) -> Result<&'a [LoweredIndexPrefixSpec], InternalError> {
+        self.next_index_prefix_specs(count)
+            .ok_or_else(Self::index_prefix_specs_required)
+    }
+
     /// Consume the next lowered index-range spec in traversal order.
     pub(in crate::db::executor) fn next_index_range_spec(
         &mut self,
@@ -72,17 +95,32 @@ impl<'a> AccessSpecCursor<'a> {
         spec
     }
 
+    /// Consume the next lowered index-range spec in traversal order, failing
+    /// closed when traversal requires an index-range spec that was not lowered.
+    pub(in crate::db::executor) fn require_next_index_range_spec(
+        &mut self,
+    ) -> Result<&'a LoweredIndexRangeSpec, InternalError> {
+        IndexRangeTraversalContract::require_spec(self.next_index_range_spec())
+    }
+
     /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&self) -> Result<(), InternalError> {
         if self.index_prefix_offset < self.index_prefix_specs.len() {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-prefix executable specs after access-plan traversal",
-            ));
+            return Err(Self::unused_index_prefix_specs());
         }
         validate_index_range_specs_consumed(self.index_range_offset, self.index_range_specs.len())?;
 
         Ok(())
     }
+}
+
+// Keep the historical bindings-layer invariant name stable for CI checks while
+// routing the actual contract enforcement through the traversal owner.
+fn validate_index_range_specs_consumed(
+    consumed: usize,
+    available: usize,
+) -> Result<(), InternalError> {
+    IndexRangeTraversalContract::validate_specs_consumed(consumed, available)
 }
 
 ///

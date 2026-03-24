@@ -13,7 +13,7 @@ use crate::{
         executor::{
             ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
-            traversal::require_index_range_spec,
+            traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,
         registry::StoreHandle,
@@ -120,6 +120,14 @@ trait PhysicalAccessRuntime<K> {
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>;
 }
 
+// Keep the historical physical-path invariant name stable for CI checks while
+// routing the actual contract enforcement through the traversal owner.
+fn require_index_range_spec(
+    index_range_spec: Option<&LoweredIndexRangeSpec>,
+) -> Result<&LoweredIndexRangeSpec, InternalError> {
+    IndexRangeTraversalContract::require_spec(index_range_spec)
+}
+
 ///
 /// StructuralKeyAccessRuntime
 ///
@@ -134,6 +142,20 @@ struct StructuralKeyAccessRuntime {
 }
 
 impl StructuralKeyAccessRuntime {
+    // Build the canonical invariant for missing lowered prefix specs in prefix execution.
+    fn index_prefix_spec_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "index-prefix execution requires pre-lowered index-prefix spec",
+        )
+    }
+
+    // Build the canonical invariant for mismatched multi-lookup prefix-spec counts.
+    fn index_multi_lookup_spec_count_invalid() -> InternalError {
+        InternalError::query_executor_invariant(
+            "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
+        )
+    }
+
     const fn new(store: StoreHandle, entity_tag: EntityTag) -> Self {
         Self { store, entity_tag }
     }
@@ -220,9 +242,7 @@ impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let [spec] = index_prefix_specs else {
-            return Err(InternalError::query_executor_invariant(
-                "index-prefix execution requires pre-lowered index-prefix spec",
-            ));
+            return Err(Self::index_prefix_spec_required());
         };
 
         let keys = IndexScan::prefix_structural(
@@ -250,9 +270,7 @@ impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         if index_prefix_specs.len() != value_count {
-            return Err(InternalError::query_executor_invariant(
-                "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
-            ));
+            return Err(Self::index_multi_lookup_spec_count_invalid());
         }
 
         let mut keys = Vec::new();

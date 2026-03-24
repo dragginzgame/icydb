@@ -8,7 +8,6 @@ use crate::{
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
-            LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             explain::{
                 assemble_aggregate_terminal_execution_descriptor,
@@ -149,9 +148,9 @@ impl ExecutablePlanCore {
 
     fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
         if self.index_prefix_spec_invalid {
-            return Err(InternalError::query_executor_invariant(
-                LOWERED_INDEX_PREFIX_SPEC_INVALID,
-            ));
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
         }
 
         Ok(self.index_prefix_specs.as_slice())
@@ -159,9 +158,7 @@ impl ExecutablePlanCore {
 
     fn index_range_specs(&self) -> Result<&[LoweredIndexRangeSpec], InternalError> {
         if self.index_range_spec_invalid {
-            return Err(InternalError::query_executor_invariant(
-                LOWERED_INDEX_RANGE_SPEC_INVALID,
-            ));
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok(self.index_range_specs.as_slice())
@@ -197,9 +194,9 @@ impl ExecutablePlanCore {
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError> {
         let Some(contract) = self.continuation.as_ref() else {
-            return Err(InternalError::query_executor_invariant(
-                "continuation cursors are only supported for load plans",
-            ));
+            return Err(
+                ExecutorPlanError::continuation_cursor_requires_load_plan().into_internal_error()
+            );
         };
 
         contract
@@ -212,9 +209,10 @@ impl ExecutablePlanCore {
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, InternalError> {
         let Some(contract) = self.continuation.as_ref() else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped cursor revalidation requires grouped logical plans",
-            ));
+            return Err(
+                ExecutorPlanError::grouped_cursor_revalidation_requires_grouped_plan()
+                    .into_internal_error(),
+            );
         };
 
         contract
@@ -230,9 +228,10 @@ impl ExecutablePlanCore {
     fn grouped_cursor_boundary_arity(&self) -> Result<usize, InternalError> {
         let contract = self.continuation_contract()?;
         if !contract.is_grouped() {
-            return Err(InternalError::query_executor_invariant(
-                "grouped cursor boundary arity requires grouped logical plans",
-            ));
+            return Err(
+                ExecutorPlanError::grouped_cursor_boundary_arity_requires_grouped_plan()
+                    .into_internal_error(),
+            );
         }
 
         Ok(contract.boundary_arity())
@@ -266,9 +265,7 @@ impl ExecutablePlanCore {
     // Borrow immutable continuation contract for load-mode plans.
     fn continuation_contract(&self) -> Result<&ContinuationContract, InternalError> {
         self.continuation.as_ref().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "continuation contracts are only supported for load plans",
-            )
+            ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })
     }
 }
@@ -513,9 +510,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E: EntityValue,
     {
         if !self.mode().is_load() {
-            return Err(InternalError::query_executor_invariant(
-                "load execution descriptor requires load-mode executable plans",
-            ));
+            return Err(
+                ExecutorPlanError::load_execution_descriptor_requires_load_plan()
+                    .into_internal_error(),
+            );
         }
 
         assemble_load_execution_node_descriptor::<E>(self.core.plan())

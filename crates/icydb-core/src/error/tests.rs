@@ -112,6 +112,13 @@ fn query_executor_invariant_uses_invariant_violation_class() {
 }
 
 #[test]
+fn cursor_executor_invariant_uses_cursor_origin() {
+    let err = InternalError::cursor_executor_invariant("cursor contract mismatch");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Cursor);
+}
+
+#[test]
 fn query_unsupported_uses_query_origin() {
     let err = InternalError::query_unsupported("unsupported query shape");
 

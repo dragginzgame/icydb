@@ -29,6 +29,76 @@ use crate::{
 const GLOBAL_DISTINCT_GROUPED_MAX_GROUPS: u64 = 1;
 const GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 
+///
+/// GlobalDistinctGroupedOutputContract
+///
+/// GlobalDistinctGroupedOutputContract owns the zero-key grouped-output shape
+/// required by global DISTINCT aggregate lowering before that grouped page is
+/// decoded back into one scalar terminal value.
+///
+
+struct GlobalDistinctGroupedOutputContract;
+
+impl GlobalDistinctGroupedOutputContract {
+    // Build the canonical invariant for unexpected continuation output.
+    fn continuation_cursor_forbidden() -> InternalError {
+        InternalError::query_executor_invariant(
+            "global DISTINCT grouped aggregate must not emit continuation cursor",
+        )
+    }
+
+    // Build the canonical invariant for grouped pages that exceed the zero-key singleton shape.
+    fn grouped_row_count_invalid(found: usize) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "global DISTINCT grouped aggregate must emit at most one grouped row, found {found}"
+        ))
+    }
+
+    // Build the canonical invariant for grouped rows that retain grouping keys.
+    fn grouped_key_must_be_empty() -> InternalError {
+        InternalError::query_executor_invariant(
+            "global DISTINCT grouped aggregate row must have empty grouped key",
+        )
+    }
+
+    // Build the canonical invariant for grouped rows with unexpected aggregate width.
+    fn aggregate_value_count_invalid(found: usize) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "global DISTINCT grouped aggregate row must have one aggregate value, found {found}"
+        ))
+    }
+
+    // Decode one grouped zero-key DISTINCT aggregate page back into one scalar
+    // aggregate value while preserving grouped-output invariants explicitly.
+    fn decode_page(page: GroupedCursorPage) -> Result<Option<Value>, InternalError> {
+        if page.next_cursor.is_some() {
+            return Err(Self::continuation_cursor_forbidden());
+        }
+        if page.rows.len() > 1 {
+            return Err(Self::grouped_row_count_invalid(page.rows.len()));
+        }
+        let Some(row) = page.rows.first() else {
+            return Ok(None);
+        };
+
+        Self::decode_row(row)
+    }
+
+    // Decode one grouped zero-key DISTINCT aggregate row into one scalar value.
+    fn decode_row(row: &GroupedRow) -> Result<Option<Value>, InternalError> {
+        if !row.group_key().is_empty() {
+            return Err(Self::grouped_key_must_be_empty());
+        }
+        if row.aggregate_values().len() != 1 {
+            return Err(Self::aggregate_value_count_invalid(
+                row.aggregate_values().len(),
+            ));
+        }
+
+        Ok(row.aggregate_values().first().cloned())
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -58,47 +128,6 @@ where
         )
     }
 
-    // Decode one grouped zero-key DISTINCT aggregate page back into one scalar
-    // aggregate value while preserving grouped-output invariants explicitly.
-    fn decode_global_distinct_grouped_output(
-        page: GroupedCursorPage,
-    ) -> Result<Option<Value>, InternalError> {
-        if page.next_cursor.is_some() {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate must not emit continuation cursor",
-            ));
-        }
-        if page.rows.len() > 1 {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate must emit at most one grouped row",
-            ));
-        }
-        let Some(row) = page.rows.first() else {
-            return Ok(None);
-        };
-
-        Self::decode_global_distinct_grouped_row(row)
-    }
-
-    // Decode one grouped zero-key DISTINCT aggregate row into one scalar value.
-    fn decode_global_distinct_grouped_row(
-        row: &GroupedRow,
-    ) -> Result<Option<Value>, InternalError> {
-        if !row.group_key().is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate row must have empty grouped key",
-            ));
-        }
-        if row.aggregate_values().len() != 1 {
-            return Err(InternalError::query_executor_invariant(format!(
-                "global DISTINCT grouped aggregate row must have one aggregate value, found {}",
-                row.aggregate_values().len()
-            )));
-        }
-
-        Ok(row.aggregate_values().first().cloned())
-    }
-
     // Execute one global DISTINCT field-target grouped aggregate by lowering
     // into grouped logical shape with zero group keys.
     pub(in crate::db::executor::aggregate) fn execute_prepared_global_distinct_grouped_aggregate(
@@ -108,6 +137,6 @@ where
         let (page, _) =
             execute_prepared_grouped_route_runtime(self.prepare_grouped_route_runtime(route)?)?;
 
-        Self::decode_global_distinct_grouped_output(page)
+        GlobalDistinctGroupedOutputContract::decode_page(page)
     }
 }

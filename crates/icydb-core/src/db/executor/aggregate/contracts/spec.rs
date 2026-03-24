@@ -9,7 +9,7 @@
 // This module must remain execution-agnostic.
 // No imports from executor load/kernel/route are allowed.
 
-use crate::{types::Decimal, value::StorageKey};
+use crate::{error::InternalError, types::Decimal, value::StorageKey};
 
 pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
@@ -34,6 +34,46 @@ pub(in crate::db::executor) enum ScalarAggregateOutput {
     Max(Option<StorageKey>),
     First(Option<StorageKey>),
     Last(Option<StorageKey>),
+}
+
+impl ScalarAggregateOutput {
+    // Decode COUNT reducer output while preserving the caller's contract label.
+    pub(in crate::db::executor) fn into_count(
+        self,
+        mismatch_context: &'static str,
+    ) -> Result<u32, InternalError> {
+        match self {
+            Self::Count(value) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
+        }
+    }
+
+    // Decode EXISTS reducer output while preserving the caller's contract label.
+    pub(in crate::db::executor) fn into_exists(
+        self,
+        mismatch_context: &'static str,
+    ) -> Result<bool, InternalError> {
+        match self {
+            Self::Exists(value) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
+        }
+    }
+
+    // Decode one structural id-returning aggregate output for MIN/MAX/FIRST/LAST
+    // terminals while keeping the aggregate-shape mismatch on the owner type.
+    pub(in crate::db::executor) fn into_optional_id_terminal(
+        self,
+        kind: AggregateKind,
+        mismatch_context: &'static str,
+    ) -> Result<Option<StorageKey>, InternalError> {
+        match (kind, self) {
+            (AggregateKind::Min, Self::Min(value))
+            | (AggregateKind::Max, Self::Max(value))
+            | (AggregateKind::First, Self::First(value))
+            | (AggregateKind::Last, Self::Last(value)) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
+        }
+    }
 }
 
 impl AggregateKind {

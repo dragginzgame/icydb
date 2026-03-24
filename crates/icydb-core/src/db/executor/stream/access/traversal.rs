@@ -22,7 +22,7 @@ use crate::{
                     OrderedKeyStreamBox, VecOrderedKeyStream,
                 },
             },
-            traversal::validate_index_range_spec_alignment,
+            traversal::IndexRangeTraversalContract,
         },
     },
     error::InternalError,
@@ -79,6 +79,15 @@ trait AccessTraversalRuntime<K> {
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<OrderedKeyStreamBox, InternalError>;
+}
+
+// Keep the historical traversal-layer invariant name stable for CI checks while
+// routing the actual contract enforcement through the traversal owner.
+fn validate_index_range_spec_alignment<K>(
+    path: &ExecutableAccessPath<'_, K>,
+    index_range_spec: Option<&LoweredIndexRangeSpec>,
+) -> Result<(), InternalError> {
+    IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)
 }
 
 ///
@@ -266,18 +275,14 @@ impl AccessPlanStreamResolver {
             ExecutableAccessNode::Path(path) => {
                 let path_capabilities = path.capabilities();
                 let index_prefix_specs = if path_capabilities.index_prefix_spec_count() > 0 {
-                    spec_cursor
-                        .next_index_prefix_specs(path_capabilities.index_prefix_spec_count())
-                        .ok_or_else(|| {
-                            InternalError::query_executor_invariant(
-                                "index-prefix execution requires pre-lowered specs",
-                            )
-                        })?
+                    spec_cursor.require_next_index_prefix_specs(
+                        path_capabilities.index_prefix_spec_count(),
+                    )?
                 } else {
                     &[]
                 };
                 let index_range_spec = if path_capabilities.consumes_index_range_spec() {
-                    spec_cursor.next_index_range_spec()
+                    Some(spec_cursor.require_next_index_range_spec()?)
                 } else {
                     None
                 };

@@ -25,6 +25,7 @@ use crate::{
         },
         registry::StoreHandle,
     },
+    error::InternalError,
     value::Value,
 };
 
@@ -326,6 +327,79 @@ pub(in crate::db::executor) enum PreparedScalarProjectionOp {
     TerminalValue { terminal_kind: AggregateKind },
 }
 
+impl PreparedScalarProjectionOp {
+    // Build the canonical prepared-op invariant for invalid terminal-value kinds.
+    fn terminal_value_kind_invalid() -> InternalError {
+        InternalError::query_executor_invariant(
+            "terminal value projection requires FIRST/LAST aggregate kind",
+        )
+    }
+
+    // Build the canonical prepared-op invariant for missing covering DISTINCT strategy.
+    pub(in crate::db::executor) fn covering_distinct_strategy_required(self) -> InternalError {
+        let message = match self {
+            Self::DistinctValues => {
+                "covering DISTINCT projection requires prepared distinct strategy"
+            }
+            Self::CountDistinct => {
+                "covering COUNT DISTINCT projection requires prepared distinct strategy"
+            }
+            Self::Values | Self::ValuesWithIds | Self::TerminalValue { .. } => {
+                "covering DISTINCT strategy requirement is only valid for DISTINCT projection ops"
+            }
+        };
+
+        InternalError::query_executor_invariant(message)
+    }
+
+    // Build the canonical prepared-op invariant for unsupported constant covering values-with-ids.
+    pub(in crate::db::executor) fn constant_covering_strategy_unsupported(self) -> InternalError {
+        let message = match self {
+            Self::ValuesWithIds => {
+                "values-with-ids projection cannot execute constant covering strategy"
+            }
+            Self::Values
+            | Self::DistinctValues
+            | Self::CountDistinct
+            | Self::TerminalValue { .. } => {
+                "constant covering projection rejection is only valid for values-with-ids"
+            }
+        };
+
+        InternalError::query_executor_invariant(message)
+    }
+
+    // Build the canonical prepared-op invariant for terminal-value late materialization.
+    pub(in crate::db::executor) fn materialized_branch_unreachable(self) -> InternalError {
+        let message = match self {
+            Self::TerminalValue { .. } => {
+                "terminal value projection materialized branch must execute before row materialization"
+            }
+            Self::Values | Self::DistinctValues | Self::CountDistinct | Self::ValuesWithIds => {
+                "materialized branch terminal-value invariant is only valid for terminal-value projection ops"
+            }
+        };
+
+        InternalError::query_executor_invariant(message)
+    }
+
+    // Validate that one terminal-value projection op only carries FIRST/LAST kinds.
+    pub(in crate::db::executor) fn validate_terminal_value_kind(self) -> Result<(), InternalError> {
+        match self {
+            Self::TerminalValue { terminal_kind }
+                if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) =>
+            {
+                Err(Self::terminal_value_kind_invalid())
+            }
+            Self::Values
+            | Self::DistinctValues
+            | Self::CountDistinct
+            | Self::ValuesWithIds
+            | Self::TerminalValue { .. } => Ok(()),
+        }
+    }
+}
+
 ///
 /// ScalarProjectionWindow
 ///
@@ -423,6 +497,41 @@ impl PreparedScalarTerminalOp {
             Self::Count => AggregateKind::Count,
             Self::Exists => AggregateKind::Exists,
             Self::IdTerminal { kind } | Self::IdBySlot { kind, .. } => *kind,
+        }
+    }
+
+    // Build the canonical prepared-op invariant for invalid id-terminal kinds.
+    fn id_terminal_kind_invalid() -> InternalError {
+        InternalError::query_executor_invariant(
+            "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
+        )
+    }
+
+    // Build the canonical prepared-op invariant for invalid field-target extrema kinds.
+    fn id_by_slot_kind_invalid() -> InternalError {
+        InternalError::query_executor_invariant(
+            "id-by-slot aggregate request requires MIN/MAX kind",
+        )
+    }
+
+    // Validate that the prepared terminal op can execute through the shared
+    // kernel aggregate request surface.
+    pub(in crate::db::executor) fn validate_kernel_request_kind(
+        &self,
+    ) -> Result<(), InternalError> {
+        match self {
+            Self::Count
+            | Self::Exists
+            | Self::IdTerminal {
+                kind:
+                    AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last,
+            }
+            | Self::IdBySlot {
+                kind: AggregateKind::Min | AggregateKind::Max,
+                ..
+            } => Ok(()),
+            Self::IdTerminal { .. } => Err(Self::id_terminal_kind_invalid()),
+            Self::IdBySlot { .. } => Err(Self::id_by_slot_kind_invalid()),
         }
     }
 }

@@ -232,6 +232,16 @@ impl InternalError {
         )
     }
 
+    /// Construct a cursor-origin invariant violation with the canonical
+    /// executor-boundary invariant prefix preserved in the message payload.
+    pub(crate) fn cursor_executor_invariant(reason: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Cursor,
+            Self::executor_invariant_message(reason),
+        )
+    }
+
     /// Construct an executor-origin invariant violation.
     pub(crate) fn executor_invariant(message: impl Into<String>) -> Self {
         Self::new(
@@ -286,15 +296,6 @@ impl InternalError {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Query,
-            message.into(),
-        )
-    }
-
-    /// Construct a cursor-origin invariant violation.
-    pub(crate) fn cursor_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Cursor,
             message.into(),
         )
     }

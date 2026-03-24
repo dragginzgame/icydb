@@ -132,17 +132,6 @@ const fn lower_executable_path_dispatch<K>(
 }
 
 ///
-/// LoweredIndexNotIndexableReasonScope
-///
-/// Access-lowering scope for stable "not indexable" reason wording.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LoweredIndexNotIndexableReasonScope {
-    ValidatedSpec,
-}
-
-///
 /// LoweredIndexPrefixSpec
 ///
 /// Lowered index-prefix contract with fully materialized byte bounds.
@@ -260,12 +249,11 @@ fn lower_index_range_bounds_for_scope(
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
-    scope: LoweredIndexNotIndexableReasonScope,
 ) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), &'static str> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
     raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
-        .map_err(|err| map_index_range_not_indexable_reason(scope, err))
+        .map_err(IndexRangeBoundEncodeError::validated_spec_not_indexable_reason)
 }
 
 // Collect index-prefix specs in deterministic depth-first traversal order.
@@ -350,7 +338,6 @@ fn collect_index_range_specs<K>(
                     spec.prefix_values(),
                     spec.lower(),
                     spec.upper(),
-                    LoweredIndexNotIndexableReasonScope::ValidatedSpec,
                 )
                 .map_err(InternalError::query_executor_invariant)?;
                 specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
@@ -365,32 +352,5 @@ fn collect_index_range_specs<K>(
 
             Ok(())
         }
-    }
-}
-
-const fn map_bound_encode_error(
-    err: IndexRangeBoundEncodeError,
-    prefix_reason: &'static str,
-    lower_reason: &'static str,
-    upper_reason: &'static str,
-) -> &'static str {
-    match err {
-        IndexRangeBoundEncodeError::Prefix => prefix_reason,
-        IndexRangeBoundEncodeError::Lower => lower_reason,
-        IndexRangeBoundEncodeError::Upper => upper_reason,
-    }
-}
-
-const fn map_index_range_not_indexable_reason(
-    scope: LoweredIndexNotIndexableReasonScope,
-    err: IndexRangeBoundEncodeError,
-) -> &'static str {
-    match scope {
-        LoweredIndexNotIndexableReasonScope::ValidatedSpec => map_bound_encode_error(
-            err,
-            "validated index-range prefix is not indexable",
-            "validated index-range lower bound is not indexable",
-            "validated index-range upper bound is not indexable",
-        ),
     }
 }

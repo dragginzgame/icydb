@@ -6,7 +6,7 @@
 use crate::{
     db::{
         index::{
-            IndexCompareOp, IndexLiteral, IndexPredicateProgram,
+            IndexCompareOp, IndexId, IndexKey, IndexKeyKind, IndexLiteral, IndexPredicateProgram,
             predicate::literal_index_component_bytes,
         },
         predicate::{
@@ -14,14 +14,17 @@ use crate::{
             compare_eq, compare_order,
         },
     },
+    error::{ErrorClass, ErrorOrigin},
     model::index::IndexModel,
     types::Decimal,
+    types::EntityTag,
     value::Value,
 };
 use std::cmp::Ordering;
 
 use super::{
     IndexCompilePolicy, canonical_index_predicate, compile_index_program, eval_index_compare,
+    eval_index_program_on_decoded_key,
 };
 
 // Match index compare operations to strict predicate semantics for expected results.
@@ -582,4 +585,25 @@ fn eval_index_compare_in_and_not_in_match_strict_membership_semantics() {
         eval_index_compare(component.as_slice(), IndexCompareOp::NotIn, &literal),
         expected_not_in,
     );
+}
+
+#[test]
+fn eval_index_program_missing_component_is_index_invariant() {
+    let (key, _) = IndexKey::bounds_for_prefix_with_kind(
+        &IndexId::new(EntityTag::new(7), 0),
+        IndexKeyKind::User,
+        0,
+        &[] as &[Vec<u8>],
+    );
+    let program = IndexPredicateProgram::Compare {
+        component_index: 0,
+        op: IndexCompareOp::Eq,
+        literal: IndexLiteral::One(vec![0x01]),
+    };
+
+    let err = eval_index_program_on_decoded_key(&key, &program)
+        .expect_err("missing component must fail closed");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Index);
 }

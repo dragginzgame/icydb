@@ -20,7 +20,7 @@ use crate::{
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
-                PreparedScalarProjectionStrategy, ScalarAggregateOutput, ScalarProjectionWindow,
+                PreparedScalarProjectionStrategy, ScalarProjectionWindow,
                 field::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_with_slot_reader,
@@ -61,6 +61,39 @@ type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
 type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
 
+///
+/// CoveringProjectionComponentScanContract
+///
+/// CoveringProjectionComponentScanContract owns the path-shape contract for
+/// index-backed covering projection component scans before projection
+/// execution falls back to materialized rows.
+///
+
+struct CoveringProjectionComponentScanContract;
+
+impl CoveringProjectionComponentScanContract {
+    // Build the canonical invariant for over-wide lowered prefix-spec inputs.
+    fn prefix_spec_count_invalid() -> InternalError {
+        InternalError::query_executor_invariant(
+            "covering projection index-prefix path requires one lowered prefix spec",
+        )
+    }
+
+    // Build the canonical invariant for over-wide lowered range-spec inputs.
+    fn range_spec_count_invalid() -> InternalError {
+        InternalError::query_executor_invariant(
+            "covering projection index-range path requires one lowered range spec",
+        )
+    }
+
+    // Build the canonical invariant for non-index-backed access paths.
+    fn index_backed_access_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "covering projection component scans require index-backed access paths",
+        )
+    }
+}
+
 // Typed boundary request for one scalar field-projection terminal family call.
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
     Values,
@@ -79,13 +112,39 @@ pub(in crate::db) enum ScalarProjectionBoundaryOutput {
 }
 
 impl ScalarProjectionBoundaryOutput {
+    // Build the canonical boundary mismatch for plain-value projection requests.
+    fn values_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar projection boundary values output kind mismatch",
+        )
+    }
+
+    // Build the canonical boundary mismatch for count-distinct projection requests.
+    fn count_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar projection boundary count output kind mismatch",
+        )
+    }
+
+    // Build the canonical boundary mismatch for `(id, value)` projection requests.
+    fn values_with_ids_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar projection boundary values-with-ids output kind mismatch",
+        )
+    }
+
+    // Build the canonical boundary mismatch for terminal-value projection requests.
+    fn terminal_value_output_kind_mismatch() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar projection boundary terminal-value output kind mismatch",
+        )
+    }
+
     // Decode one plain-value projection boundary output.
     pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar projection boundary values output kind mismatch",
-            )),
+            _ => Err(Self::values_output_kind_mismatch()),
         }
     }
 
@@ -93,9 +152,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar projection boundary count output kind mismatch",
-            )),
+            _ => Err(Self::count_output_kind_mismatch()),
         }
     }
 
@@ -109,9 +166,7 @@ impl ScalarProjectionBoundaryOutput {
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar projection boundary values-with-ids output kind mismatch",
-            )),
+            _ => Err(Self::values_with_ids_output_kind_mismatch()),
         }
     }
 
@@ -119,9 +174,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_terminal_value(self) -> Result<Option<Value>, InternalError> {
         match self {
             Self::TerminalValue(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "scalar projection boundary terminal-value output kind mismatch",
-            )),
+            _ => Err(Self::terminal_value_output_kind_mismatch()),
         }
     }
 }
@@ -166,13 +219,7 @@ where
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
         let op = PreparedScalarProjectionOp::from_request(request);
-        if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = op
-            && !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last)
-        {
-            return Err(InternalError::query_executor_invariant(
-                "terminal value projection requires FIRST/LAST aggregate kind",
-            ));
-        }
+        op.validate_terminal_value_kind()?;
 
         let strategy = Self::prepare_scalar_projection_strategy(&prepared, &target_field_name, op);
 
@@ -304,9 +351,7 @@ where
                             dedup_values_preserving_first(covering_projection.values)?
                         }
                         None => {
-                            return Err(InternalError::query_executor_invariant(
-                                "covering DISTINCT projection requires prepared distinct strategy",
-                            ));
+                            return Err(boundary.op.covering_distinct_strategy_required());
                         }
                     };
 
@@ -327,9 +372,7 @@ where
                             dedup_values_preserving_first(covering_projection.values)?
                         }
                         None => {
-                            return Err(InternalError::query_executor_invariant(
-                                "covering COUNT DISTINCT projection requires prepared distinct strategy",
-                            ));
+                            return Err(boundary.op.covering_distinct_strategy_required());
                         }
                     };
 
@@ -353,14 +396,12 @@ where
                         &prepared, context, window,
                     )?
                 {
+                    PreparedScalarProjectionOp::TerminalValue { terminal_kind }
+                        .validate_terminal_value_kind()?;
                     let value = match terminal_kind {
                         AggregateKind::First => covering_projection.values.first().cloned(),
                         AggregateKind::Last => covering_projection.values.last().cloned(),
-                        _ => {
-                            return Err(InternalError::query_executor_invariant(
-                                "covering terminal value projection requires FIRST/LAST aggregate kind",
-                            ));
-                        }
+                        _ => unreachable!(),
                     };
 
                     return Ok(ScalarProjectionBoundaryOutput::TerminalValue(value));
@@ -410,9 +451,7 @@ where
                 ))
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
-                Err(InternalError::query_executor_invariant(
-                    "values-with-ids projection cannot execute constant covering strategy",
-                ))
+                Err(boundary.op.constant_covering_strategy_unsupported())
             }
         }
     }
@@ -485,9 +524,7 @@ where
                 .map(ScalarProjectionBoundaryOutput::ValuesWithDataKeys)
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
-                Err(InternalError::query_executor_invariant(
-                    "terminal value projection materialized branch must execute before row materialization",
-                ))
+                Err(boundary.op.materialized_branch_unreachable())
             }
         }
     }
@@ -510,14 +547,11 @@ where
             prepared,
             terminal_expr_for_kind(terminal_kind),
         );
-        let (ScalarAggregateOutput::First(selected_key)
-        | ScalarAggregateOutput::Last(selected_key)) =
-            ExecutionKernel::execute_prepared_aggregate_state(self, state)?
-        else {
-            return Err(InternalError::query_executor_invariant(
+        let selected_key = ExecutionKernel::execute_prepared_aggregate_state(self, state)?
+            .into_optional_id_terminal(
+                terminal_kind,
                 "terminal value projection result kind mismatch",
-            ));
-        };
+            )?;
         let Some(selected_key) = selected_key else {
             return Ok(None);
         };
@@ -710,9 +744,7 @@ where
             );
         }
         if !prefix_specs.is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "covering projection index-prefix path requires one lowered prefix spec",
-            ));
+            return Err(CoveringProjectionComponentScanContract::prefix_spec_count_invalid());
         }
 
         let range_specs = prepared.index_range_specs.as_slice();
@@ -727,14 +759,10 @@ where
             );
         }
         if !range_specs.is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "covering projection index-range path requires one lowered range spec",
-            ));
+            return Err(CoveringProjectionComponentScanContract::range_spec_count_invalid());
         }
 
-        Err(InternalError::query_executor_invariant(
-            "covering projection component scans require index-backed access paths",
-        ))
+        Err(CoveringProjectionComponentScanContract::index_backed_access_required())
     }
 
     // Execute COUNT from one prepared aggregate stage so constant projection
@@ -747,12 +775,8 @@ where
             prepared,
             terminal_expr_for_kind(AggregateKind::Count),
         );
-        match ExecutionKernel::execute_prepared_aggregate_state(self, state)? {
-            ScalarAggregateOutput::Count(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "projection COUNT helper result kind mismatch",
-            )),
-        }
+        ExecutionKernel::execute_prepared_aggregate_state(self, state)?
+            .into_count("projection COUNT helper result kind mismatch")
     }
 
     // Execute EXISTS from one prepared aggregate stage so constant projection
@@ -765,12 +789,8 @@ where
             prepared,
             terminal_expr_for_kind(AggregateKind::Exists),
         );
-        match ExecutionKernel::execute_prepared_aggregate_state(self, state)? {
-            ScalarAggregateOutput::Exists(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "projection EXISTS helper result kind mismatch",
-            )),
-        }
+        ExecutionKernel::execute_prepared_aggregate_state(self, state)?
+            .into_exists("projection EXISTS helper result kind mismatch")
     }
 
     // Resolve one covering projection component stream for one lowered
