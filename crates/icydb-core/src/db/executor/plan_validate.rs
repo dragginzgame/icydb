@@ -5,8 +5,10 @@
 
 use crate::{
     db::{
-        access::validate_access_structure_model, executor::EntityAuthority,
-        query::plan::AccessPlannedQuery, schema::SchemaInfo,
+        access::{AccessPlanError, validate_access_structure_model},
+        executor::EntityAuthority,
+        query::plan::AccessPlannedQuery,
+        schema::SchemaInfo,
     },
     error::InternalError,
 };
@@ -22,7 +24,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
     })?;
 
     validate_access_structure_model(&schema, authority.model(), &plan.access)
-        .map_err(crate::db::error::from_executor_access_plan_error)?;
+        .map_err(AccessPlanError::into_internal_error)?;
 
     Ok(())
 }

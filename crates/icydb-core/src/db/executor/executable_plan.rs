@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        cursor::{ContinuationSignature, GroupedPlannedCursor, PlannedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
@@ -204,7 +204,7 @@ impl ExecutablePlanCore {
 
         contract
             .revalidate_scalar_cursor(authority.entity_tag(), authority.model(), cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)
+            .map_err(CursorPlanError::into_internal_error)
     }
 
     fn revalidate_grouped_cursor(
@@ -219,7 +219,7 @@ impl ExecutablePlanCore {
 
         contract
             .revalidate_grouped_cursor(cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)
+            .map_err(CursorPlanError::into_internal_error)
     }
 
     fn continuation_signature_for_runtime(&self) -> Result<ContinuationSignature, InternalError> {
@@ -245,7 +245,7 @@ impl ExecutablePlanCore {
         let contract = self.continuation_contract()?;
         let window = contract
             .grouped_paging_window(cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)?;
+            .map_err(CursorPlanError::into_internal_error)?;
         let (
             limit,
             initial_offset_for_page,

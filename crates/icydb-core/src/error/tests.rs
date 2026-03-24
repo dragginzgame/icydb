@@ -97,7 +97,7 @@ fn query_unsupported_sql_feature_preserves_query_detail_label() {
 
 #[test]
 fn executor_access_plan_error_mapping_stays_invariant_violation() {
-    let err = crate::db::error::from_executor_access_plan_error(AccessPlanError::IndexPrefixEmpty);
+    let err = AccessPlanError::IndexPrefixEmpty.into_internal_error();
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
 }
@@ -181,11 +181,10 @@ fn group_plan_error_mapping_rejects_cursor_variant() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
-    let err = crate::db::error::from_cursor_plan_error(
-        CursorPlanError::InvalidContinuationCursorPayload {
-            reason: "bad payload".to_string(),
-        },
-    );
+    let err = CursorPlanError::InvalidContinuationCursorPayload {
+        reason: "bad payload".to_string(),
+    }
+    .into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -194,13 +193,12 @@ fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
-    let err = crate::db::error::from_cursor_plan_error(
-        CursorPlanError::ContinuationCursorSignatureMismatch {
-            entity_path: "tests::Entity",
-            expected: "aa".to_string(),
-            actual: "bb".to_string(),
-        },
-    );
+    let err = CursorPlanError::ContinuationCursorSignatureMismatch {
+        entity_path: "tests::Entity",
+        expected: "aa".to_string(),
+        actual: "bb".to_string(),
+    }
+    .into_internal_error();
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -208,11 +206,10 @@ fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
-    let err = crate::db::error::from_cursor_plan_error(
-        CursorPlanError::ContinuationCursorInvariantViolation {
-            reason: "runtime cursor contract violated".to_string(),
-        },
-    );
+    let err = CursorPlanError::ContinuationCursorInvariantViolation {
+        reason: "runtime cursor contract violated".to_string(),
+    }
+    .into_internal_error();
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -301,7 +298,7 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
 
     for cursor_err in cases {
         let expected_class = expected_class_from_cursor_variant(&cursor_err);
-        let err = crate::db::error::from_cursor_plan_error(cursor_err);
+        let err = cursor_err.into_internal_error();
         assert_eq!(err.origin, ErrorOrigin::Cursor);
         assert_eq!(
             err.class, expected_class,
@@ -312,7 +309,7 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
 
 #[test]
 fn classification_integrity_access_plan_conversion_stays_invariant() {
-    let err = crate::db::error::from_executor_access_plan_error(AccessPlanError::InvalidKeyRange);
+    let err = AccessPlanError::InvalidKeyRange.into_internal_error();
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
