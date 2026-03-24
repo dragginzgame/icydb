@@ -25,9 +25,7 @@ where
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadAccessState, InternalError> {
         if !plan.mode().is_load() {
-            return Err(InternalError::query_executor_invariant(
-                "load executor requires load plans",
-            ));
+            return Err(InternalError::load_executor_load_plan_required());
         }
 
         let resolved_cursor = Self::resolve_entrypoint_cursor(&plan, cursor, execution_mode)?;

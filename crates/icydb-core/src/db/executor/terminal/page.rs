@@ -189,9 +189,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
 
     let predicate_preapplied = plan.scalar_plan().predicate.is_some();
     if predicate_preapplied && predicate_slots.is_none() {
-        return Err(InternalError::query_executor_invariant(
-            "post-access filtering requires precompiled predicate slots",
-        ));
+        return Err(InternalError::scalar_page_predicate_slots_required());
     }
 
     // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
@@ -297,9 +295,7 @@ fn apply_post_access_to_kernel_rows_dyn(
     let filtered = if logical.predicate.is_some() {
         if !predicate_preapplied {
             let Some(predicate_program) = predicate_slots else {
-                return Err(InternalError::query_executor_invariant(
-                    "post-access filtering requires precompiled predicate slots",
-                ));
+                return Err(InternalError::scalar_page_predicate_slots_required());
             };
 
             rows.retain(|row| {
@@ -320,9 +316,7 @@ fn apply_post_access_to_kernel_rows_dyn(
         && !order.fields.is_empty()
     {
         if logical.predicate.is_some() && !filtered {
-            return Err(InternalError::query_executor_invariant(
-                "ordering must run after filtering",
-            ));
+            return Err(InternalError::scalar_page_ordering_after_filtering_required());
         }
 
         ordered = true;
@@ -345,14 +339,10 @@ fn apply_post_access_to_kernel_rows_dyn(
     let rows_after_cursor = if logical.mode.is_load() {
         if let Some(boundary) = cursor {
             let Some(order) = logical.order.as_ref() else {
-                return Err(InternalError::query_executor_invariant(
-                    "cursor boundary requires ordering",
-                ));
+                return Err(InternalError::scalar_page_cursor_boundary_order_required());
             };
             if !ordered {
-                return Err(InternalError::query_executor_invariant(
-                    "cursor boundary must run after ordering",
-                ));
+                return Err(InternalError::scalar_page_cursor_boundary_after_ordering_required());
             }
             let resolved_order = resolve_structural_order(model, order);
             rows.retain(|row| {
@@ -371,9 +361,7 @@ fn apply_post_access_to_kernel_rows_dyn(
         && let Some(page) = logical.page.as_ref()
     {
         if logical.order.is_some() && !ordered {
-            return Err(InternalError::query_executor_invariant(
-                "pagination must run after ordering",
-            ));
+            return Err(InternalError::scalar_page_pagination_after_ordering_required());
         }
         apply_pagination_window(
             rows,
@@ -387,9 +375,7 @@ fn apply_post_access_to_kernel_rows_dyn(
         && let Some(delete_limit) = logical.delete_limit.as_ref()
     {
         if logical.order.is_some() && !ordered {
-            return Err(InternalError::query_executor_invariant(
-                "delete limit must run after ordering",
-            ));
+            return Err(InternalError::scalar_page_delete_limit_after_ordering_required());
         }
         apply_delete_limit_window(rows, delete_limit.max_rows);
     }

@@ -40,6 +40,23 @@ struct BlockedDeleteProof {
     target_key: StorageKey,
 }
 
+impl BlockedDeleteProof {
+    // Rebuild the blocked-delete proof into the operator-facing unsupported
+    // delete diagnostic at the final typed boundary.
+    fn into_internal_error<S>(self) -> Result<InternalError, InternalError>
+    where
+        S: EntityKind + EntityValue,
+    {
+        Ok(InternalError::executor_unsupported(
+            blocked_delete_diagnostic::<S>(
+                self.relation,
+                self.source_data_key.try_key::<S>()?,
+                self.target_key,
+            ),
+        ))
+    }
+}
+
 /// Validate that source rows do not strongly reference target keys selected for delete.
 pub(in crate::db) fn validate_delete_strong_relations_for_source<S>(
     db: &Db<S::Canister>,
@@ -77,13 +94,7 @@ where
     };
 
     // Phase 3: keep typed key reconstruction at the final diagnostic edge only.
-    Err(InternalError::executor_unsupported(
-        blocked_delete_diagnostic::<S>(
-            blocked.relation,
-            blocked.source_data_key.try_key::<S>()?,
-            blocked.target_key,
-        ),
-    ))
+    Err(blocked.into_internal_error::<S>()?)
 }
 
 /// Prove whether one delete would violate a strong source relation without `S`.

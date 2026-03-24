@@ -52,6 +52,13 @@ impl<S> DistinctOrderedKeyStream<S> {
             deduped_keys_counter: Some(deduped_keys_counter),
         }
     }
+
+    // Build the canonical invariant for non-monotonic upstream keys.
+    fn monotonic_key_order_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "distinct ordered stream received non-monotonic key order",
+        )
+    }
 }
 
 impl<S> OrderedKeyStream for DistinctOrderedKeyStream<S>
@@ -69,9 +76,7 @@ where
                 // - ordering comparator enforces monotonic stream contract
                 // - exact key equality controls DISTINCT suppression
                 if self.comparator.compare_data_keys(last, &next).is_gt() {
-                    return Err(InternalError::query_executor_invariant(
-                        "distinct ordered stream received non-monotonic key order",
-                    ));
+                    return Err(Self::monotonic_key_order_required());
                 }
                 if last == &next {
                     if let Some(counter) = self.deduped_keys_counter.as_ref() {

@@ -183,9 +183,7 @@ fn validate_primary_key_slot(
     slots: &[Option<Value>],
 ) -> Result<(), InternalError> {
     let Some(primary_key_slot) = layout.primary_key_slot else {
-        return Err(InternalError::query_executor_invariant(
-            "row layout missing primary-key slot",
-        ));
+        return Err(InternalError::row_layout_primary_key_slot_required());
     };
     let Some(Some(primary_key_value)) = slots.get(primary_key_slot) else {
         return Err(InternalError::serialize_corruption(

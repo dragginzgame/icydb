@@ -181,16 +181,14 @@ where
                         )
                     }
                     PreparedScalarNumericStrategy::GlobalDistinctGrouped => {
-                        Err(InternalError::query_executor_invariant(
-                            "numeric aggregate direct execution reached global DISTINCT strategy",
-                        ))
+                        Err(boundary.direct_execution_global_distinct_required())
                     }
                 }
             }
             PreparedScalarNumericExecutionState::GlobalDistinct { boundary, route } => {
                 let value = self.execute_prepared_global_distinct_grouped_aggregate(*route)?;
 
-                decode_global_distinct_numeric_output(value, boundary.op.aggregate_name())
+                decode_global_distinct_numeric_output(value, boundary.op)
             }
         }
     }
@@ -424,9 +422,7 @@ fn finalize_numeric_field_output(
         PreparedScalarNumericOp::Sum => accumulator.sum,
         PreparedScalarNumericOp::Avg => {
             let Some(avg) = average_decimal_terms(accumulator.sum, accumulator.row_count) else {
-                return Err(InternalError::query_executor_invariant(
-                    "numeric field AVG divisor conversion overflowed decimal bounds",
-                ));
+                return Err(kind.avg_divisor_conversion_invariant());
             };
 
             avg
@@ -441,14 +437,12 @@ fn finalize_numeric_field_output(
 // terminal callsite.
 fn decode_global_distinct_numeric_output(
     value: Option<Value>,
-    aggregate_name: &str,
+    op: PreparedScalarNumericOp,
 ) -> Result<Option<Decimal>, InternalError> {
     match value {
         Some(Value::Decimal(value)) => Ok(Some(value)),
         Some(Value::Null) | None => Ok(None),
-        Some(value) => Err(InternalError::query_executor_invariant(format!(
-            "global {aggregate_name}(DISTINCT field) grouped output type mismatch: {value:?}",
-        ))),
+        Some(value) => Err(op.grouped_distinct_output_type_mismatch(&value)),
     }
 }
 

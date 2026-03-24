@@ -247,6 +247,13 @@ impl GlobalDistinctFieldAccumulator {
             .map_or(Value::Null, Value::Decimal)
     }
 
+    // Build the canonical grouped DISTINCT AVG finalization invariant.
+    fn avg_divisor_conversion_invariant() -> InternalError {
+        InternalError::query_executor_invariant(
+            "global grouped AVG(DISTINCT field) divisor conversion overflowed decimal bounds",
+        )
+    }
+
     fn finalize_avg(state: Self) -> Result<Value, InternalError> {
         if !state.saw_numeric_value || state.distinct_count == 0 {
             return Ok(Value::Null);
@@ -254,9 +261,7 @@ impl GlobalDistinctFieldAccumulator {
         let Some(avg) =
             crate::db::numeric::average_decimal_terms(state.numeric_sum, state.distinct_count)
         else {
-            return Err(InternalError::query_executor_invariant(
-                "global grouped AVG(DISTINCT field) divisor conversion overflowed decimal bounds",
-            ));
+            return Err(Self::avg_divisor_conversion_invariant());
         };
 
         Ok(Value::Decimal(avg))

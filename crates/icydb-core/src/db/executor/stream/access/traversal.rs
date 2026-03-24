@@ -181,6 +181,13 @@ impl AccessTraversalRuntime<StructuralKey> for StructuralTraversalRuntime {
 struct AccessPlanStreamResolver;
 
 impl AccessPlanStreamResolver {
+    // Build the canonical prefix-spec/path alignment invariant.
+    fn index_prefix_spec_alignment_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "index-prefix spec does not match access path index",
+        )
+    }
+
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment<K>(
         path: &ExecutableAccessPath<'_, K>,
@@ -190,9 +197,7 @@ impl AccessPlanStreamResolver {
         if let Some(index) = path_capabilities.index_prefix_model() {
             for spec in index_prefix_specs {
                 if spec.index() != &index {
-                    return Err(InternalError::query_executor_invariant(
-                        "index-prefix spec does not match access path index",
-                    ));
+                    return Err(Self::index_prefix_spec_alignment_required());
                 }
             }
         }

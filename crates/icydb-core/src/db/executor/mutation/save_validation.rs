@@ -61,10 +61,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             SchemaInfo::from_entity_model(E::MODEL)
                 .map(|schema| Box::leak(Box::new(schema)) as &'static SchemaInfo)
                 .map_err(|err| {
-                    CachedInvariant::from_error(InternalError::executor_invariant(format!(
-                        "entity schema invalid for {}: {err}",
-                        E::PATH
-                    )))
+                    CachedInvariant::from_error(InternalError::mutation_entity_schema_invalid(
+                        E::PATH,
+                        err,
+                    ))
                 })
         });
 
@@ -80,49 +80,45 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
         // Phase 1: validate primary key field presence and *shape*.
         let Some(pk_field_index) = resolve_primary_key_slot(E::MODEL) else {
-            return Err(InternalError::executor_invariant(format!(
-                "entity primary key field missing: {} field={}",
+            return Err(InternalError::mutation_entity_primary_key_missing(
                 E::PATH,
-                primary_key_name
-            )));
+                primary_key_name,
+            ));
         };
         let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
-            InternalError::executor_invariant(format!(
-                "entity primary key field missing: {} field={}",
-                E::PATH,
-                primary_key_name
-            ))
+            InternalError::mutation_entity_primary_key_missing(E::PATH, primary_key_name)
         })?;
 
         // Primary key must not be Null.
         // Unit is valid for singleton entities and is enforced by schema shape checks below.
         if matches!(pk_value, Value::Null) {
-            return Err(InternalError::executor_invariant(format!(
-                "entity primary key field has invalid value: {} field={} value={pk_value:?}",
+            return Err(InternalError::mutation_entity_primary_key_invalid_value(
                 E::PATH,
-                primary_key_name
-            )));
+                primary_key_name,
+                &pk_value,
+            ));
         }
 
         // If schema knows the PK type, enforce literal shape compatibility.
         if let Some(pk_type) = schema.field(primary_key_name)
             && !literal_matches_type(&pk_value, pk_type)
         {
-            return Err(InternalError::executor_invariant(format!(
-                "entity primary key field type mismatch: {} field={} value={pk_value:?}",
+            return Err(InternalError::mutation_entity_primary_key_type_mismatch(
                 E::PATH,
-                primary_key_name
-            )));
+                primary_key_name,
+                &pk_value,
+            ));
         }
 
         // The declared PK field value must exactly match the runtime identity key.
         let identity_pk = crate::traits::FieldValue::to_value(&entity.id().key());
         if pk_value != identity_pk {
-            return Err(InternalError::executor_invariant(format!(
-                "entity primary key mismatch: {} field={} field_value={pk_value:?} id_key={identity_pk:?}",
+            return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,
-                primary_key_name
-            )));
+                primary_key_name,
+                &pk_value,
+                &identity_pk,
+            ));
         }
 
         // Phase 2: validate field presence and runtime value shapes.
@@ -133,20 +129,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         };
         for (field_index, field) in E::MODEL.fields.iter().enumerate() {
             let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-                let note = if indexed_fields
-                    .as_ref()
-                    .is_some_and(|fields| fields.contains(field.name))
-                {
-                    " (indexed)"
-                } else {
-                    ""
-                };
-                InternalError::executor_invariant(format!(
-                    "entity field missing: {} field={}{}",
+                InternalError::mutation_entity_field_missing(
                     E::PATH,
                     field.name,
-                    note
-                ))
+                    indexed_fields
+                        .as_ref()
+                        .is_some_and(|fields| fields.contains(field.name)),
+                )
             })?;
 
             if matches!(value, Value::Null | Value::Unit) {
@@ -165,11 +154,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             };
 
             if !literal_matches_type(&value, field_type) {
-                return Err(InternalError::executor_invariant(format!(
-                    "entity field type mismatch: {} field={} value={value:?}",
+                return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
-                    field.name
-                )));
+                    field.name,
+                    &value,
+                ));
             }
 
             // Phase 3: enforce schema-declared decimal scales at write boundaries.
@@ -194,13 +183,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         match (kind, value) {
             (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
                 if decimal.scale() != *scale {
-                    return Err(InternalError::executor_unsupported(format!(
-                        "decimal field scale mismatch: {} field={} expected_scale={} actual_scale={}",
+                    return Err(InternalError::mutation_decimal_scale_mismatch(
                         E::PATH,
                         field_name,
                         scale,
-                        decimal.scale()
-                    )));
+                        decimal.scale(),
+                    ));
                 }
 
                 Ok(())
@@ -253,10 +241,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         let Value::List(items) = value else {
-            return Err(InternalError::executor_invariant(format!(
-                "set field must encode as Value::List: {} field={field_name}",
-                E::PATH
-            )));
+            return Err(InternalError::mutation_set_field_list_required(
+                E::PATH,
+                field_name,
+            ));
         };
 
         for pair in items.windows(2) {
@@ -265,10 +253,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             };
             let ordering = canonical_cmp(left, right);
             if ordering != Ordering::Less {
-                return Err(InternalError::executor_invariant(format!(
-                    "set field must be strictly ordered and deduplicated: {} field={field_name}",
-                    E::PATH
-                )));
+                return Err(InternalError::mutation_set_field_not_canonical(
+                    E::PATH,
+                    field_name,
+                ));
             }
         }
 
@@ -285,17 +273,14 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         let Value::Map(entries) = value else {
-            return Err(InternalError::executor_invariant(format!(
-                "map field must encode as Value::Map: {} field={field_name}",
-                E::PATH
-            )));
+            return Err(InternalError::mutation_map_field_map_required(
+                E::PATH,
+                field_name,
+            ));
         };
 
         Value::validate_map_entries(entries.as_slice()).map_err(|err| {
-            InternalError::executor_invariant(format!(
-                "map field entries violate map invariants: {} field={field_name} ({err})",
-                E::PATH
-            ))
+            InternalError::mutation_map_field_entries_invalid(E::PATH, field_name, err)
         })?;
 
         // Save preflight only needs to prove the incoming map is already
@@ -303,10 +288,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // sort path into every save-capable entity even though write-boundary
         // validation never consumes the reordered output.
         if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
-            return Err(InternalError::executor_invariant(format!(
-                "map field entries are not in canonical deterministic order: {} field={field_name}",
-                E::PATH
-            )));
+            return Err(InternalError::mutation_map_field_entries_not_canonical(
+                E::PATH,
+                field_name,
+            ));
         }
 
         Ok(())

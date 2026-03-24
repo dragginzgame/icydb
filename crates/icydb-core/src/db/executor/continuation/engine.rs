@@ -30,6 +30,32 @@ use crate::{
 pub(in crate::db::executor) struct ContinuationEngine;
 
 impl ContinuationEngine {
+    // Build the continuation invariant for scalar execution requested on grouped plans.
+    fn scalar_execution_shape_required() -> InternalError {
+        InternalError::query_executor_invariant("grouped plans require grouped load execution mode")
+    }
+
+    // Build the continuation invariant for grouped execution requested on scalar plans.
+    fn grouped_execution_shape_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "grouped load execution mode requires grouped logical plans",
+        )
+    }
+
+    // Build the continuation invariant for grouped cursor input on scalar execution.
+    fn scalar_cursor_input_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "scalar load execution mode requires scalar cursor input",
+        )
+    }
+
+    // Build the continuation invariant for scalar cursor input on grouped execution.
+    fn grouped_cursor_input_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "grouped load execution mode requires grouped cursor input",
+        )
+    }
+
     /// Resolve load mode/order compatibility and cursor revalidation contracts.
     pub(in crate::db::executor) fn resolve_load_cursor_context(
         plan: &PreparedLoadPlan,
@@ -44,17 +70,13 @@ impl ContinuationEngine {
             )
             | (RequestedLoadExecutionShape::Grouped, ExecutionOrdering::Grouped(_)) => {}
             (RequestedLoadExecutionShape::Scalar, ExecutionOrdering::Grouped(_)) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped plans require grouped load execution mode",
-                ));
+                return Err(Self::scalar_execution_shape_required());
             }
             (
                 RequestedLoadExecutionShape::Grouped,
                 ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
             ) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped load execution mode requires grouped logical plans",
-                ));
+                return Err(Self::grouped_execution_shape_required());
             }
         }
 
@@ -69,14 +91,10 @@ impl ContinuationEngine {
                 PreparedLoadCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
             }
             (RequestedLoadExecutionShape::Scalar, LoadCursorInput::Grouped(_)) => {
-                return Err(InternalError::query_executor_invariant(
-                    "scalar load execution mode requires scalar cursor input",
-                ));
+                return Err(Self::scalar_cursor_input_required());
             }
             (RequestedLoadExecutionShape::Grouped, LoadCursorInput::Scalar(_)) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped load execution mode requires grouped cursor input",
-                ));
+                return Err(Self::grouped_cursor_input_required());
             }
         };
 

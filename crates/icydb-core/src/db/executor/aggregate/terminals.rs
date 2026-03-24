@@ -92,30 +92,29 @@ pub(in crate::db) enum ScalarTerminalBoundaryOutput {
 }
 
 impl ScalarTerminalBoundaryOutput {
+    // Build one canonical scalar terminal boundary mismatch on the owner type.
+    fn output_kind_mismatch(message: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(message)
+    }
+
     // Build the canonical boundary mismatch for COUNT terminal requests.
     fn count_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar terminal boundary COUNT output kind mismatch",
-        )
+        Self::output_kind_mismatch("scalar terminal boundary COUNT output kind mismatch")
     }
 
     // Build the canonical boundary mismatch for EXISTS terminal requests.
     fn exists_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar terminal boundary EXISTS output kind mismatch",
-        )
+        Self::output_kind_mismatch("scalar terminal boundary EXISTS output kind mismatch")
     }
 
     // Build the canonical boundary mismatch for id-returning terminal requests.
     fn id_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant("scalar terminal boundary id output kind mismatch")
+        Self::output_kind_mismatch("scalar terminal boundary id output kind mismatch")
     }
 
     // Build the canonical boundary mismatch for paired-id terminal requests.
     fn id_pair_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar terminal boundary id-pair output kind mismatch",
-        )
+        Self::output_kind_mismatch("scalar terminal boundary id-pair output kind mismatch")
     }
 
     // Decode COUNT boundary output while preserving request/output mismatch context.
@@ -161,6 +160,40 @@ impl ScalarTerminalBoundaryOutput {
                 .transpose(),
             _ => Err(Self::id_pair_output_kind_mismatch()),
         }
+    }
+}
+
+///
+/// CountPkCardinalityFastPathContract
+///
+/// CountPkCardinalityFastPathContract owns the PK-cardinality COUNT fast-path
+/// shape invariants at the aggregate terminal boundary.
+///
+
+struct CountPkCardinalityFastPathContract;
+
+impl CountPkCardinalityFastPathContract {
+    // Build the invariant for non-path COUNT fast-path access.
+    fn single_path_access_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "pk cardinality COUNT fast path requires single-path access strategy",
+        )
+    }
+
+    // Build the invariant for unsupported path payloads at the PK COUNT fast path.
+    fn full_scan_or_key_range_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "pk cardinality COUNT fast path requires full-scan or key-range access",
+        )
+    }
+}
+
+impl ScalarTerminalBoundaryRequest {
+    // Build the canonical prepared-boundary request-family invariant.
+    fn prepared_boundary_terminal_family_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "prepared scalar terminal boundary only supports COUNT/EXISTS/id terminals",
+        )
     }
 }
 
@@ -372,9 +405,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
     let page = logical_plan.scalar_plan().page.as_ref();
     let access_strategy = logical_plan.access.resolve_strategy();
     let Some(path) = access_strategy.as_path() else {
-        return Err(InternalError::query_executor_invariant(
-            "pk cardinality COUNT fast path requires single-path access strategy",
-        ));
+        return Err(CountPkCardinalityFastPathContract::single_path_access_required());
     };
 
     // Phase 2: read candidate-row cardinality directly from primary storage.
@@ -394,9 +425,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
             })
         }
         _ => {
-            return Err(InternalError::query_executor_invariant(
-                "pk cardinality COUNT fast path requires full-scan or key-range access",
-            ));
+            return Err(CountPkCardinalityFastPathContract::full_scan_or_key_range_required());
         }
     };
 
@@ -523,9 +552,9 @@ where
             ScalarTerminalBoundaryRequest::NthBySlot { .. }
             | ScalarTerminalBoundaryRequest::MedianBySlot { .. }
             | ScalarTerminalBoundaryRequest::MinMaxBySlot { .. } => {
-                return Err(InternalError::query_executor_invariant(
-                    "prepared scalar terminal boundary only supports COUNT/EXISTS/id terminals",
-                ));
+                return Err(
+                    ScalarTerminalBoundaryRequest::prepared_boundary_terminal_family_required(),
+                );
             }
         };
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;

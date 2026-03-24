@@ -86,6 +86,42 @@ impl StreamSideState {
         Ok(())
     }
 
+    // Build the canonical invariant for entity drift within one ordered child stream.
+    fn entity_monotonicity_required(
+        &self,
+        stream_kind: &'static str,
+        direction_context: &'static str,
+        previous_entity: EntityTag,
+        current_entity: EntityTag,
+    ) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "{stream_kind} stream {} changed entity while enforcing {} {direction_context} monotonicity (previous entity: {:?}, current entity: {:?})",
+            self.name,
+            self.comparator.order_label(),
+            previous_entity,
+            current_entity,
+        ))
+    }
+
+    // Build the canonical invariant for out-of-order keys within one ordered child stream.
+    fn key_monotonicity_required(
+        &self,
+        stream_kind: &'static str,
+        direction_context: &'static str,
+        current_entity: EntityTag,
+        previous_key: &StorageKey,
+        current_key: &StorageKey,
+    ) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "{stream_kind} stream {} emitted out-of-order key for {} {direction_context} (entity: {:?}, previous key: {:?}, current key: {:?})",
+            self.name,
+            self.comparator.order_label(),
+            current_entity,
+            previous_key,
+            current_key,
+        ))
+    }
+
     // Validate this stream-side monotonicity according to configured direction.
     fn validate_monotonicity(
         &self,
@@ -102,13 +138,12 @@ impl StreamSideState {
         let (current_entity, current_key) = data_key_witness(current);
 
         if *previous_entity != current_entity {
-            return Err(InternalError::query_invariant(format!(
-                "executor invariant violated: {stream_kind} stream {} changed entity while enforcing {} {direction_context} monotonicity (previous entity: {:?}, current entity: {:?})",
-                self.name,
-                self.comparator.order_label(),
-                previous_entity,
+            return Err(self.entity_monotonicity_required(
+                stream_kind,
+                direction_context,
+                *previous_entity,
                 current_entity,
-            )));
+            ));
         }
 
         if !self
@@ -118,14 +153,13 @@ impl StreamSideState {
             return Ok(());
         }
 
-        Err(InternalError::query_invariant(format!(
-            "executor invariant violated: {stream_kind} stream {} emitted out-of-order key for {} {direction_context} (entity: {:?}, previous key: {:?}, current key: {:?})",
-            self.name,
-            self.comparator.order_label(),
+        Err(self.key_monotonicity_required(
+            stream_kind,
+            direction_context,
             current_entity,
             previous_key,
-            current_key,
-        )))
+            &current_key,
+        ))
     }
 
     fn take_item(&mut self) -> Option<DataKey> {

@@ -106,6 +106,15 @@ struct PreparedRowCommitMaterialization {
     data_value: Option<RawRow>,
 }
 
+impl PreparedRowCommitMaterialization {
+    // Build the canonical materialization invariant for missing index-store resolution.
+    fn missing_index_store_mapping(entity_path: &str, store_path: &str) -> InternalError {
+        InternalError::executor_invariant(format!(
+            "commit prepare missing index store mapping: store='{store_path}' entity='{entity_path}'",
+        ))
+    }
+}
+
 ///
 /// StructuralPrimaryRowReaderAdapter
 ///
@@ -611,10 +620,10 @@ fn materialize_prepared_row_commit(
             .get(index_op.store.as_str())
             .copied()
             .ok_or_else(|| {
-                InternalError::executor_invariant(format!(
-                    "commit prepare missing index store mapping: store='{}' entity='{}'",
-                    index_op.store, entity_path
-                ))
+                PreparedRowCommitMaterialization::missing_index_store_mapping(
+                    entity_path,
+                    index_op.store.as_str(),
+                )
             })?;
         let key = decode_index_key(&index_op.key)?;
         let value = index_op

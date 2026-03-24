@@ -235,10 +235,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
             let (marker_row_op, data_key) = Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
             if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                return Err(InternalError::executor_unsupported(format!(
-                    "atomic save batch rejected duplicate key: entity={} key={data_key}",
+                return Err(InternalError::mutation_atomic_save_duplicate_key(
                     E::PATH,
-                )));
+                    data_key,
+                ));
             }
             marker_row_ops.push(marker_row_op);
             out.push(entity);

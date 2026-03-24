@@ -37,6 +37,11 @@ pub(in crate::db::executor) enum ScalarAggregateOutput {
 }
 
 impl ScalarAggregateOutput {
+    // Build the canonical aggregate output-kind mismatch on the owner type.
+    fn output_kind_mismatch(mismatch_context: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(mismatch_context)
+    }
+
     // Decode COUNT reducer output while preserving the caller's contract label.
     pub(in crate::db::executor) fn into_count(
         self,
@@ -44,7 +49,7 @@ impl ScalarAggregateOutput {
     ) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
+            _ => Err(Self::output_kind_mismatch(mismatch_context)),
         }
     }
 
@@ -55,7 +60,7 @@ impl ScalarAggregateOutput {
     ) -> Result<bool, InternalError> {
         match self {
             Self::Exists(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
+            _ => Err(Self::output_kind_mismatch(mismatch_context)),
         }
     }
 
@@ -71,7 +76,7 @@ impl ScalarAggregateOutput {
             | (AggregateKind::Max, Self::Max(value))
             | (AggregateKind::First, Self::First(value))
             | (AggregateKind::Last, Self::Last(value)) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
+            _ => Err(Self::output_kind_mismatch(mismatch_context)),
         }
     }
 }

@@ -38,9 +38,7 @@ where
         && !order.fields.is_empty()
     {
         if has_predicate && !filtered {
-            return Err(InternalError::query_executor_invariant(
-                "ordering must run after filtering",
-            ));
+            return Err(InternalError::scalar_page_ordering_after_filtering_required());
         }
 
         // If access traversal already satisfies requested ORDER BY

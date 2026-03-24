@@ -29,9 +29,7 @@ fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState,
                 state::LoadExecutionPayload::Scalar(payload)
             }
             state::LoadExecutionPayload::Grouped(_) => {
-                return Err(InternalError::query_executor_invariant(
-                    "scalar load mode must carry scalar runtime payload",
-                ));
+                return Err(InternalError::load_runtime_scalar_payload_required());
             }
         }
     } else {
@@ -44,9 +42,7 @@ fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState,
                 state::LoadExecutionPayload::Grouped(page)
             }
             state::LoadExecutionPayload::Scalar(_) => {
-                return Err(InternalError::query_executor_invariant(
-                    "grouped load mode must carry grouped runtime payload",
-                ));
+                return Err(InternalError::load_runtime_grouped_payload_required());
             }
         }
     };
@@ -71,9 +67,7 @@ fn materialize_runtime_surface(
     let execution_mode = state.context.mode;
     if execution_mode.scalar_page_mode() {
         let state::LoadExecutionPayload::Scalar(page) = state.payload else {
-            return Err(InternalError::query_executor_invariant(
-                "scalar page load mode must carry scalar runtime payload",
-            ));
+            return Err(InternalError::load_runtime_scalar_surface_payload_required());
         };
 
         Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
@@ -83,9 +77,7 @@ fn materialize_runtime_surface(
             "runtime surface materialization expects grouped mode for non-scalar load surfaces",
         );
         let state::LoadExecutionPayload::Grouped(page) = state.payload else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped page load mode must carry grouped runtime payload",
-            ));
+            return Err(InternalError::load_runtime_grouped_surface_payload_required());
         };
 
         Ok(LoadExecutionSurface::GroupedPageWithTrace(

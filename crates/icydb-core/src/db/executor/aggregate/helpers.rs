@@ -31,6 +31,13 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Build the canonical materialized min/max invariant for missing max output.
+    fn materialized_min_max_pair_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "min_max(field) reduction produced a min id without a max id",
+        )
+    }
+
     // Canonical precedence predicate for field projections under deterministic
     // field ordering with primary-key ascending tie-break.
     fn field_projection_candidate_precedes(
@@ -205,9 +212,7 @@ where
             return Ok(None);
         };
         let Some((max_key, _)) = max_candidate else {
-            return Err(InternalError::query_executor_invariant(
-                "min_max(field) reduction produced a min id without a max id",
-            ));
+            return Err(Self::materialized_min_max_pair_required());
         };
 
         Ok(Some((min_key, max_key)))

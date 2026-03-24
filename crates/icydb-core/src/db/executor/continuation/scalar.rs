@@ -342,6 +342,20 @@ impl<'a> ScalarContinuationBindings<'a> {
         self.continuation_signature
     }
 
+    // Build the continuation invariant for bounded scan hints on resumed executions.
+    fn non_continuation_scan_budget_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "load page scan budget hint requires non-continuation execution",
+        )
+    }
+
+    // Build the continuation invariant for bounded scan hints on unsafe stream shapes.
+    fn streaming_safe_scan_budget_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "load page scan budget hint requires streaming-safe access shape",
+        )
+    }
+
     /// Validate load scan-budget hint preconditions under this continuation context.
     ///
     /// Bounded load scan hints are only valid for non-continuation executions on
@@ -353,14 +367,10 @@ impl<'a> ScalarContinuationBindings<'a> {
     ) -> Result<(), InternalError> {
         if scan_budget_hint.is_some() {
             if self.continuation_applied() {
-                return Err(InternalError::query_executor_invariant(
-                    "load page scan budget hint requires non-continuation execution",
-                ));
+                return Err(Self::non_continuation_scan_budget_required());
             }
             if !stream_order_contract_safe {
-                return Err(InternalError::query_executor_invariant(
-                    "load page scan budget hint requires streaming-safe access shape",
-                ));
+                return Err(Self::streaming_safe_scan_budget_required());
             }
         }
 

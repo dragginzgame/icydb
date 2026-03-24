@@ -40,9 +40,7 @@ impl<K> PostAccessPlan<'_, K> {
             }
 
             let Some(compiled_predicate) = compiled_predicate else {
-                return Err(InternalError::query_executor_invariant(
-                    "post-access filtering requires precompiled predicate slots",
-                ));
+                return Err(InternalError::scalar_page_predicate_slots_required());
             };
 
             rows.retain(|row| {

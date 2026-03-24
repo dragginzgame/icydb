@@ -49,9 +49,7 @@ impl ExecutionKernel {
         key_stream: &mut dyn OrderedKeyStream,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         if !Self::aggregate_fold_mode_matches_terminal(kind, mode) {
-            return Err(InternalError::query_executor_invariant(
-                "aggregate fold mode must match route fold-mode contract for aggregate terminal",
-            ));
+            return Err(InternalError::aggregate_fold_mode_terminal_contract_required());
         }
 
         // Build one scalar aggregate reducer engine and fold all eligible keys

@@ -16,26 +16,43 @@ const SECONDARY_LOAD_PREFIX_ARITY_MESSAGE: &str =
 const INDEX_RANGE_LOAD_RANGE_ARITY_MESSAGE: &str =
     "index-range fast-path resolution expects at most one index-range spec";
 
-// Shared arity guard: enforce at most one lowered spec when a fast path is enabled.
-fn ensure_spec_at_most_one_if_enabled(
-    fast_path_enabled: bool,
-    spec_count: usize,
-    message: &'static str,
-) -> Result<(), InternalError> {
-    (!(fast_path_enabled && spec_count > 1))
-        .then_some(())
-        .ok_or_else(|| InternalError::query_executor_invariant(message))
-}
+///
+/// RouteFastPathSpecContract
+///
+/// Route-owned invariant contract for lowered spec arity at fast-path seams.
+/// This keeps route/runtime handoff failures under one owner instead of
+/// rebuilding internal invariant construction in each guard helper.
+///
 
-// Shared arity guard: enforce exactly one lowered spec when a fast path is enabled.
-fn ensure_spec_exactly_one_if_enabled(
-    fast_path_enabled: bool,
-    spec_count: usize,
-    message: &'static str,
-) -> Result<(), InternalError> {
-    (!(fast_path_enabled && spec_count != 1))
-        .then_some(())
-        .ok_or_else(|| InternalError::query_executor_invariant(message))
+struct RouteFastPathSpecContract;
+
+impl RouteFastPathSpecContract {
+    // Build one route invariant for invalid lowered-spec arity.
+    fn invariant(message: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(message)
+    }
+
+    // Enforce that a fast path consumes at most one lowered spec when enabled.
+    fn ensure_spec_at_most_one_if_enabled(
+        fast_path_enabled: bool,
+        spec_count: usize,
+        message: &'static str,
+    ) -> Result<(), InternalError> {
+        (!(fast_path_enabled && spec_count > 1))
+            .then_some(())
+            .ok_or_else(|| Self::invariant(message))
+    }
+
+    // Enforce that a fast path consumes exactly one lowered spec when enabled.
+    fn ensure_spec_exactly_one_if_enabled(
+        fast_path_enabled: bool,
+        spec_count: usize,
+        message: &'static str,
+    ) -> Result<(), InternalError> {
+        (!(fast_path_enabled && spec_count != 1))
+            .then_some(())
+            .ok_or_else(|| Self::invariant(message))
+    }
 }
 
 // Guard secondary aggregate fast-path assumptions so index-prefix
@@ -44,7 +61,7 @@ pub(in crate::db::executor) fn ensure_secondary_aggregate_fast_path_arity(
     secondary_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
 ) -> Result<(), InternalError> {
-    ensure_spec_at_most_one_if_enabled(
+    RouteFastPathSpecContract::ensure_spec_at_most_one_if_enabled(
         secondary_pushdown_eligible,
         index_prefix_spec_count,
         SECONDARY_AGGREGATE_PREFIX_ARITY_MESSAGE,
@@ -64,9 +81,9 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
             (index_prefix_spec_count == 0)
                 .then_some(())
                 .ok_or_else(|| {
-                    InternalError::query_executor_invariant(INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE)
+                    RouteFastPathSpecContract::invariant(INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE)
                 })?;
-            ensure_spec_exactly_one_if_enabled(
+            RouteFastPathSpecContract::ensure_spec_exactly_one_if_enabled(
                 true,
                 index_range_spec_count,
                 INDEX_RANGE_AGGREGATE_EXACT_RANGE_MESSAGE,
@@ -85,12 +102,12 @@ pub(in crate::db::executor) fn ensure_load_fast_path_spec_arity(
     index_range_pushdown_eligible: bool,
     index_range_spec_count: usize,
 ) -> Result<(), InternalError> {
-    ensure_spec_at_most_one_if_enabled(
+    RouteFastPathSpecContract::ensure_spec_at_most_one_if_enabled(
         secondary_pushdown_eligible,
         index_prefix_spec_count,
         SECONDARY_LOAD_PREFIX_ARITY_MESSAGE,
     )?;
-    ensure_spec_at_most_one_if_enabled(
+    RouteFastPathSpecContract::ensure_spec_at_most_one_if_enabled(
         index_range_pushdown_eligible,
         index_range_spec_count,
         INDEX_RANGE_LOAD_RANGE_ARITY_MESSAGE,

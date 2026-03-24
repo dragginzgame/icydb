@@ -83,25 +83,24 @@ impl<E> RankingTerminalBoundaryOutput<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Construct one canonical ranking boundary mismatch on the owner type.
+    fn output_kind_mismatch(message: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(message)
+    }
+
     // Construct one rows-output mismatch for ranking boundary projection.
     fn rows_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "ranking terminal boundary rows output kind mismatch",
-        )
+        Self::output_kind_mismatch("ranking terminal boundary rows output kind mismatch")
     }
 
     // Construct one values-output mismatch for ranking boundary projection.
     fn values_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "ranking terminal boundary values output kind mismatch",
-        )
+        Self::output_kind_mismatch("ranking terminal boundary values output kind mismatch")
     }
 
     // Construct one `(id, value)` output mismatch for ranking boundary projection.
     fn values_with_ids_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "ranking terminal boundary values-with-ids output kind mismatch",
-        )
+        Self::output_kind_mismatch("ranking terminal boundary values-with-ids output kind mismatch")
     }
 
     // Decode row-returning ranking boundary output.

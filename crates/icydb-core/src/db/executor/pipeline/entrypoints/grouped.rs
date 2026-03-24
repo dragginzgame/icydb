@@ -56,6 +56,15 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
     runtime: GroupedPathRuntimeCore,
 }
 
+impl PreparedGroupedRouteRuntime {
+    // Build the canonical grouped traced-surface mismatch invariant.
+    fn grouped_traced_surface_required() -> InternalError {
+        InternalError::query_executor_invariant(
+            "grouped traced entrypoint must produce grouped traced page surface",
+        )
+    }
+}
+
 impl GroupedPathRuntimeCore {
     /// Build one grouped execution stream for an already resolved route.
     fn build_grouped_stream<'a>(
@@ -174,9 +183,7 @@ where
         match surface {
             LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
             LoadExecutionSurface::ScalarPageWithTrace(..) => {
-                Err(InternalError::query_executor_invariant(
-                    "grouped traced entrypoint must produce grouped traced page surface",
-                ))
+                Err(PreparedGroupedRouteRuntime::grouped_traced_surface_required())
             }
         }
     }

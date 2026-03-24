@@ -265,6 +265,254 @@ impl InternalError {
         )
     }
 
+    /// Construct an executor-origin save-preflight schema invariant.
+    pub(crate) fn mutation_entity_schema_invalid(
+        entity_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::executor_invariant(format!("entity schema invalid for {entity_path}: {detail}"))
+    }
+
+    /// Construct an executor-origin save-preflight primary-key missing invariant.
+    pub(crate) fn mutation_entity_primary_key_missing(entity_path: &str, field_name: &str) -> Self {
+        Self::executor_invariant(format!(
+            "entity primary key field missing: {entity_path} field={field_name}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight primary-key invalid-value invariant.
+    pub(crate) fn mutation_entity_primary_key_invalid_value(
+        entity_path: &str,
+        field_name: &str,
+        value: &crate::value::Value,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "entity primary key field has invalid value: {entity_path} field={field_name} value={value:?}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight primary-key type mismatch invariant.
+    pub(crate) fn mutation_entity_primary_key_type_mismatch(
+        entity_path: &str,
+        field_name: &str,
+        value: &crate::value::Value,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "entity primary key field type mismatch: {entity_path} field={field_name} value={value:?}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight primary-key identity mismatch invariant.
+    pub(crate) fn mutation_entity_primary_key_mismatch(
+        entity_path: &str,
+        field_name: &str,
+        field_value: &crate::value::Value,
+        identity_key: &crate::value::Value,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "entity primary key mismatch: {entity_path} field={field_name} field_value={field_value:?} id_key={identity_key:?}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight field-missing invariant.
+    pub(crate) fn mutation_entity_field_missing(
+        entity_path: &str,
+        field_name: &str,
+        indexed: bool,
+    ) -> Self {
+        let indexed_note = if indexed { " (indexed)" } else { "" };
+
+        Self::executor_invariant(format!(
+            "entity field missing: {entity_path} field={field_name}{indexed_note}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight field-type mismatch invariant.
+    pub(crate) fn mutation_entity_field_type_mismatch(
+        entity_path: &str,
+        field_name: &str,
+        value: &crate::value::Value,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "entity field type mismatch: {entity_path} field={field_name} value={value:?}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight decimal-scale unsupported error.
+    pub(crate) fn mutation_decimal_scale_mismatch(
+        entity_path: &str,
+        field_name: &str,
+        expected_scale: impl fmt::Display,
+        actual_scale: impl fmt::Display,
+    ) -> Self {
+        Self::executor_unsupported(format!(
+            "decimal field scale mismatch: {entity_path} field={field_name} expected_scale={expected_scale} actual_scale={actual_scale}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight set-encoding invariant.
+    pub(crate) fn mutation_set_field_list_required(entity_path: &str, field_name: &str) -> Self {
+        Self::executor_invariant(format!(
+            "set field must encode as Value::List: {entity_path} field={field_name}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight set-canonicality invariant.
+    pub(crate) fn mutation_set_field_not_canonical(entity_path: &str, field_name: &str) -> Self {
+        Self::executor_invariant(format!(
+            "set field must be strictly ordered and deduplicated: {entity_path} field={field_name}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight map-encoding invariant.
+    pub(crate) fn mutation_map_field_map_required(entity_path: &str, field_name: &str) -> Self {
+        Self::executor_invariant(format!(
+            "map field must encode as Value::Map: {entity_path} field={field_name}",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight map-entry invariant.
+    pub(crate) fn mutation_map_field_entries_invalid(
+        entity_path: &str,
+        field_name: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "map field entries violate map invariants: {entity_path} field={field_name} ({detail})",
+        ))
+    }
+
+    /// Construct an executor-origin save-preflight map-canonicality invariant.
+    pub(crate) fn mutation_map_field_entries_not_canonical(
+        entity_path: &str,
+        field_name: &str,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "map field entries are not in canonical deterministic order: {entity_path} field={field_name}",
+        ))
+    }
+
+    /// Construct a query-origin scalar page invariant for missing predicate slots.
+    pub(crate) fn scalar_page_predicate_slots_required() -> Self {
+        Self::query_executor_invariant("post-access filtering requires precompiled predicate slots")
+    }
+
+    /// Construct a query-origin scalar page invariant for ordering before filtering.
+    pub(crate) fn scalar_page_ordering_after_filtering_required() -> Self {
+        Self::query_executor_invariant("ordering must run after filtering")
+    }
+
+    /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
+    pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
+        Self::query_executor_invariant("cursor boundary requires ordering")
+    }
+
+    /// Construct a query-origin scalar page invariant for cursor-before-ordering drift.
+    pub(crate) fn scalar_page_cursor_boundary_after_ordering_required() -> Self {
+        Self::query_executor_invariant("cursor boundary must run after ordering")
+    }
+
+    /// Construct a query-origin scalar page invariant for pagination-before-ordering drift.
+    pub(crate) fn scalar_page_pagination_after_ordering_required() -> Self {
+        Self::query_executor_invariant("pagination must run after ordering")
+    }
+
+    /// Construct a query-origin scalar page invariant for delete-limit-before-ordering drift.
+    pub(crate) fn scalar_page_delete_limit_after_ordering_required() -> Self {
+        Self::query_executor_invariant("delete limit must run after ordering")
+    }
+
+    /// Construct a query-origin load-runtime invariant for scalar-mode payload mismatch.
+    pub(crate) fn load_runtime_scalar_payload_required() -> Self {
+        Self::query_executor_invariant("scalar load mode must carry scalar runtime payload")
+    }
+
+    /// Construct a query-origin load-runtime invariant for grouped-mode payload mismatch.
+    pub(crate) fn load_runtime_grouped_payload_required() -> Self {
+        Self::query_executor_invariant("grouped load mode must carry grouped runtime payload")
+    }
+
+    /// Construct a query-origin load-surface invariant for scalar-page payload mismatch.
+    pub(crate) fn load_runtime_scalar_surface_payload_required() -> Self {
+        Self::query_executor_invariant("scalar page load mode must carry scalar runtime payload")
+    }
+
+    /// Construct a query-origin load-surface invariant for grouped-page payload mismatch.
+    pub(crate) fn load_runtime_grouped_surface_payload_required() -> Self {
+        Self::query_executor_invariant("grouped page load mode must carry grouped runtime payload")
+    }
+
+    /// Construct a query-origin load-entrypoint invariant for non-load plans.
+    pub(crate) fn load_executor_load_plan_required() -> Self {
+        Self::query_executor_invariant("load executor requires load plans")
+    }
+
+    /// Construct an executor-origin delete-entrypoint unsupported grouped-mode error.
+    pub(crate) fn delete_executor_grouped_unsupported() -> Self {
+        Self::executor_unsupported("grouped query execution is not yet enabled in this release")
+    }
+
+    /// Construct a query-origin delete-entrypoint invariant for non-delete plans.
+    pub(crate) fn delete_executor_delete_plan_required() -> Self {
+        Self::query_executor_invariant("delete executor requires delete plans")
+    }
+
+    /// Construct a query-origin aggregate kernel invariant for fold-mode contract drift.
+    pub(crate) fn aggregate_fold_mode_terminal_contract_required() -> Self {
+        Self::query_executor_invariant(
+            "aggregate fold mode must match route fold-mode contract for aggregate terminal",
+        )
+    }
+
+    /// Construct a query-origin fast-stream invariant for missing exact key-count observability.
+    pub(crate) fn fast_stream_exact_key_count_required() -> Self {
+        Self::query_executor_invariant("fast-path stream must expose an exact key-count hint")
+    }
+
+    /// Construct a query-origin fast-stream invariant for route kind/request mismatch.
+    pub(crate) fn fast_stream_route_kind_request_match_required() -> Self {
+        Self::query_executor_invariant("fast-stream route kind/request mismatch")
+    }
+
+    /// Construct a query-origin scan invariant for missing index-prefix executable specs.
+    pub(crate) fn secondary_index_prefix_spec_required() -> Self {
+        Self::query_executor_invariant(
+            "index-prefix executable spec must be materialized for index-prefix plans",
+        )
+    }
+
+    /// Construct a query-origin scan invariant for missing index-range executable specs.
+    pub(crate) fn index_range_limit_spec_required() -> Self {
+        Self::query_executor_invariant(
+            "index-range executable spec must be materialized for index-range plans",
+        )
+    }
+
+    /// Construct a query-origin row-decode invariant for missing primary-key layout slots.
+    pub(crate) fn row_layout_primary_key_slot_required() -> Self {
+        Self::query_executor_invariant("row layout missing primary-key slot")
+    }
+
+    /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.
+    pub(crate) fn mutation_atomic_save_duplicate_key(
+        entity_path: &str,
+        key: impl fmt::Display,
+    ) -> Self {
+        Self::executor_unsupported(format!(
+            "atomic save batch rejected duplicate key: entity={entity_path} key={key}",
+        ))
+    }
+
+    /// Construct an executor-origin mutation invariant for index-store generation drift.
+    pub(crate) fn mutation_index_store_generation_changed(
+        expected_generation: u64,
+        observed_generation: u64,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "index store generation changed between preflight and apply: expected {expected_generation}, found {observed_generation}",
+        ))
+    }
+
     /// Build the canonical executor-invariant message prefix.
     #[must_use]
     pub(crate) fn executor_invariant_message(reason: impl Into<String>) -> String {

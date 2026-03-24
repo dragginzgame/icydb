@@ -245,6 +245,27 @@ impl PreparedScalarNumericOp {
             Self::Avg => "AVG",
         }
     }
+
+    // Build the canonical numeric AVG finalization invariant.
+    pub(in crate::db::executor) fn avg_divisor_conversion_invariant(self) -> InternalError {
+        let message = match self {
+            Self::Avg => "numeric field AVG divisor conversion overflowed decimal bounds",
+            Self::Sum => "AVG divisor conversion invariant is only valid for AVG numeric ops",
+        };
+
+        InternalError::query_executor_invariant(message)
+    }
+
+    // Build the canonical grouped DISTINCT numeric output mismatch invariant.
+    pub(in crate::db::executor) fn grouped_distinct_output_type_mismatch(
+        self,
+        value: &Value,
+    ) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "global {}(DISTINCT field) grouped output type mismatch: {value:?}",
+            self.aggregate_name(),
+        ))
+    }
 }
 
 ///
@@ -279,6 +300,18 @@ pub(in crate::db::executor) struct PreparedScalarNumericBoundary {
     pub(in crate::db::executor) strategy: PreparedScalarNumericStrategy,
 }
 
+impl PreparedScalarNumericBoundary {
+    // Build the canonical direct-execution strategy mismatch invariant.
+    pub(in crate::db::executor) fn direct_execution_global_distinct_required(
+        &self,
+    ) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "numeric aggregate direct execution reached {} strategy",
+            self.strategy.kind_label(),
+        ))
+    }
+}
+
 ///
 /// PreparedScalarNumericExecutionState
 ///
@@ -296,6 +329,17 @@ pub(in crate::db::executor) enum PreparedScalarNumericExecutionState<'ctx> {
         boundary: PreparedScalarNumericBoundary,
         route: Box<GroupedRouteStage>,
     },
+}
+
+impl PreparedScalarNumericStrategy {
+    // Return the stable strategy label used in numeric execution invariants.
+    const fn kind_label(self) -> &'static str {
+        match self {
+            Self::Streaming => "streaming",
+            Self::Materialized => "materialized",
+            Self::GlobalDistinctGrouped => "global DISTINCT grouped",
+        }
+    }
 }
 
 ///

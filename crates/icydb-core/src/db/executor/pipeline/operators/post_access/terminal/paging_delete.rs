@@ -18,9 +18,7 @@ pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_li
         && let Some(limit) = delete_limit_spec
     {
         if order_spec.is_some() && !ordered {
-            return Err(InternalError::query_executor_invariant(
-                "delete limit must run after ordering",
-            ));
+            return Err(InternalError::scalar_page_delete_limit_after_ordering_required());
         }
         window::apply_delete_limit(rows, limit.max_rows);
         true
