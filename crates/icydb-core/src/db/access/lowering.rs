@@ -175,11 +175,6 @@ impl LoweredIndexPrefixSpec {
     pub(in crate::db) const fn invalid_reason() -> &'static str {
         Self::INVALID_REASON
     }
-
-    // Build the canonical lowering-time invariant for non-indexable prefix values.
-    fn prefix_value_not_indexable() -> InternalError {
-        InternalError::query_executor_invariant("validated index-prefix value is not indexable")
-    }
 }
 
 ///
@@ -325,8 +320,9 @@ fn lower_index_prefix_values_for_specs(
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let prefix_components = EncodedValue::try_encode_all(values)
-        .map_err(|_| LoweredIndexPrefixSpec::prefix_value_not_indexable())?;
+    let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
+        InternalError::query_executor_invariant("validated index-prefix value is not indexable")
+    })?;
     let index_id = IndexId::new(entity_tag, index.ordinal());
     let (lower, upper) =
         raw_keys_for_encoded_prefix(&index_id, &index, prefix_components.as_slice());

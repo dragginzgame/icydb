@@ -40,31 +40,6 @@ use crate::{
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
 
 ///
-/// ScalarRowsEntrypointContract
-///
-/// ScalarRowsEntrypointContract owns the fixed scalar-rows continuation
-/// resolution contract at the scalar entrypoint boundary.
-///
-
-struct ScalarRowsEntrypointContract;
-
-impl ScalarRowsEntrypointContract {
-    // Build the canonical scalar-rows continuation resolution invariant.
-    fn scalar_continuation_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar rows execution requires scalar continuation resolution",
-        )
-    }
-
-    // Build the canonical scalar materialized-rows continuation invariant.
-    fn materialized_rows_continuation_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar materialized rows path requires load-mode continuation contract",
-        )
-    }
-}
-
-///
 /// ScalarExecutionStage
 ///
 /// ScalarExecutionStage is the structural scalar-load runtime contract built
@@ -399,7 +374,9 @@ where
         RequestedLoadExecutionShape::Scalar,
     )?;
     let PreparedLoadCursor::Scalar(resolved_continuation) = resolved_cursor.into_cursor() else {
-        return Err(ScalarRowsEntrypointContract::scalar_continuation_required());
+        return Err(InternalError::query_executor_invariant(
+            "scalar rows execution requires scalar continuation resolution",
+        ));
     };
 
     // Phase 2: build one shared scalar runtime bundle for this canister.
@@ -427,7 +404,11 @@ where
 {
     let continuation_contract = logical_plan
         .continuation_contract(authority.entity_path())
-        .ok_or_else(ScalarRowsEntrypointContract::materialized_rows_continuation_required)?;
+        .ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "scalar materialized rows path requires load-mode continuation contract",
+            )
+        })?;
     let resolved_continuation = ContinuationEngine::resolve_scalar_context(
         PlannedCursor::none(),
         continuation_contract.continuation_signature(),

@@ -17,26 +17,6 @@ use crate::db::executor::route::FastPathOrder;
 /// Route-owned invariant contract for PK stream fast-path access verification.
 /// This keeps path-shape guard construction local to the route fast-path
 /// boundary instead of rebuilding internal errors inline in the verifier.
-///
-
-struct PkStreamFastPathAccessContract;
-
-impl PkStreamFastPathAccessContract {
-    // Build the invariant for non-direct access-path execution.
-    fn direct_access_path_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "pk stream fast-path requires direct access-path execution",
-        )
-    }
-
-    // Build the invariant for unsupported access-path shapes.
-    fn pk_stream_access_path_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "pk stream fast-path requires full-scan/key-range access path",
-        )
-    }
-}
-
 /// Iterate route-owned fast-path precedence through a shared verify+execute gate.
 ///
 /// Verification runs first for each route; execution is attempted only when
@@ -70,18 +50,25 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
 ) -> Result<(), InternalError> {
     let access_strategy = plan.access_strategy();
     let access_class = access_strategy.class();
-    access_class
-        .single_path()
-        .then_some(())
-        .ok_or_else(PkStreamFastPathAccessContract::direct_access_path_required)?;
+    access_class.single_path().then_some(()).ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "pk stream fast-path requires direct access-path execution",
+        )
+    })?;
     access_class
         .single_path_supports_pk_stream_access()
         .then_some(())
-        .ok_or_else(PkStreamFastPathAccessContract::pk_stream_access_path_required)?;
+        .ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "pk stream fast-path requires full-scan/key-range access path",
+            )
+        })?;
 
-    let access = access_strategy
-        .as_path()
-        .ok_or_else(PkStreamFastPathAccessContract::direct_access_path_required)?;
+    let access = access_strategy.as_path().ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "pk stream fast-path requires direct access-path execution",
+        )
+    })?;
     debug_assert_eq!(
         access.capabilities().supports_pk_stream_access(),
         access_class.single_path_supports_pk_stream_access(),

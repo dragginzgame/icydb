@@ -61,21 +61,17 @@ impl GroupedContinuationContext {
         &self.grouped_pagination_window
     }
 
-    // Build the continuation invariant for grouped boundary-arity drift.
-    fn boundary_arity_match_required(&self, actual_arity: usize) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped continuation boundary arity mismatch: expected {}, found {}",
-            self.continuation_boundary_arity, actual_arity
-        ))
-    }
-
     /// Build one grouped next cursor after validating grouped boundary arity.
     pub(in crate::db::executor) fn grouped_next_cursor(
         &self,
         last_group_key: Vec<Value>,
     ) -> Result<PageCursor, InternalError> {
         if last_group_key.len() != self.continuation_boundary_arity {
-            return Err(self.boundary_arity_match_required(last_group_key.len()));
+            return Err(InternalError::query_executor_invariant(format!(
+                "grouped continuation boundary arity mismatch: expected {}, found {}",
+                self.continuation_boundary_arity,
+                last_group_key.len()
+            )));
         }
 
         Ok(PageCursor::Grouped(

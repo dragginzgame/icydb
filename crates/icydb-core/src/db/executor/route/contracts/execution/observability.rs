@@ -6,7 +6,6 @@
 use crate::db::executor::route::contracts::execution::{
     GroupedExecutionStrategy, RouteExecutionMode,
 };
-use crate::error::InternalError;
 
 ///
 /// GroupedRouteDecisionOutcome
@@ -52,15 +51,6 @@ pub(in crate::db::executor) struct GroupedRouteObservability {
 }
 
 impl GroupedRouteObservability {
-    /// Construct one grouped route invariant for grouped route plans that
-    /// failed to emit the grouped observability payload expected by runtime
-    /// projection.
-    pub(in crate::db::executor) fn missing_for_grouped_route_plan() -> InternalError {
-        InternalError::query_executor_invariant(
-            "grouped route planning must emit grouped observability payload",
-        )
-    }
-
     #[must_use]
     pub(in crate::db::executor) const fn outcome(self) -> GroupedRouteDecisionOutcome {
         self.outcome

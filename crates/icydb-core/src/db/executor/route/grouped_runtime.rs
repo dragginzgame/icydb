@@ -15,9 +15,12 @@ use crate::{
 pub(in crate::db::executor) fn grouped_route_observability_for_runtime(
     grouped_route_plan: &ExecutionPlan,
 ) -> Result<GroupedRouteObservability, InternalError> {
-    let grouped_route_observability = grouped_route_plan
-        .grouped_observability()
-        .ok_or_else(GroupedRouteObservability::missing_for_grouped_route_plan)?;
+    let grouped_route_observability =
+        grouped_route_plan.grouped_observability().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "grouped route planning must emit grouped observability payload",
+            )
+        })?;
     let grouped_route_outcome = grouped_route_observability.outcome();
     let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();
     let grouped_route_eligible = grouped_route_observability.eligible();

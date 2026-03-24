@@ -148,97 +148,22 @@ fn build_canister_package(
 }
 
 ///
-/// build_quickstart_canister
+/// build_canister
 ///
-/// Build the quickstart SQL canister WASM and return the built wasm path.
+/// Build one supported SQL canister WASM and return the built wasm path.
 ///
 /// Build profile selection:
 /// - `wasm-release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
 /// - `debug` otherwise
 /// - overridden by `QUICKSTART_WASM_PROFILE=debug|release|wasm-release`
 ///
-
-pub fn build_quickstart_canister() -> Result<PathBuf, String> {
+pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
+    let package_name = package_for_canister_name(canister_name)?;
     let profile = selected_canister_wasm_profile()?;
     build_canister_package(
-        QUICKSTART_CANISTER_PACKAGE,
+        package_name,
         profile,
-        &format!("quickstart canister build ({profile})"),
-    )
-}
-
-///
-/// build_minimal_canister
-///
-/// Build the minimal SQL canister WASM and return the built wasm path.
-///
-
-pub fn build_minimal_canister() -> Result<PathBuf, String> {
-    let profile = selected_canister_wasm_profile()?;
-    build_canister_package(
-        MINIMAL_CANISTER_PACKAGE,
-        profile,
-        &format!("minimal canister build ({profile})"),
-    )
-}
-
-///
-/// build_one_simple_canister
-///
-/// Build the one-simple SQL canister WASM and return the built wasm path.
-///
-
-pub fn build_one_simple_canister() -> Result<PathBuf, String> {
-    let profile = selected_canister_wasm_profile()?;
-    build_canister_package(
-        ONE_SIMPLE_CANISTER_PACKAGE,
-        profile,
-        &format!("one_simple canister build ({profile})"),
-    )
-}
-
-///
-/// build_one_complex_canister
-///
-/// Build the one-complex SQL canister WASM and return the built wasm path.
-///
-
-pub fn build_one_complex_canister() -> Result<PathBuf, String> {
-    let profile = selected_canister_wasm_profile()?;
-    build_canister_package(
-        ONE_COMPLEX_CANISTER_PACKAGE,
-        profile,
-        &format!("one_complex canister build ({profile})"),
-    )
-}
-
-///
-/// build_ten_simple_canister
-///
-/// Build the ten-simple SQL canister WASM and return the built wasm path.
-///
-
-pub fn build_ten_simple_canister() -> Result<PathBuf, String> {
-    let profile = selected_canister_wasm_profile()?;
-    build_canister_package(
-        TEN_SIMPLE_CANISTER_PACKAGE,
-        profile,
-        &format!("ten_simple canister build ({profile})"),
-    )
-}
-
-///
-/// build_ten_complex_canister
-///
-/// Build the ten-complex SQL canister WASM and return the built wasm path.
-///
-
-pub fn build_ten_complex_canister() -> Result<PathBuf, String> {
-    let profile = selected_canister_wasm_profile()?;
-    build_canister_package(
-        TEN_COMPLEX_CANISTER_PACKAGE,
-        profile,
-        &format!("ten_complex canister build ({profile})"),
+        &format!("{canister_name} canister build ({profile})"),
     )
 }
 

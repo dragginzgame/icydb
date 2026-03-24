@@ -1,6 +1,6 @@
 use candid::{Principal, decode_one, encode_one};
 use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
-use icydb_testing_integration::build_quickstart_canister;
+use icydb_testing_integration::build_canister;
 use pocket_ic::{PocketIc, PocketIcBuilder};
 use std::{
     env, fs,
@@ -54,7 +54,7 @@ fn new_pocket_ic() -> Option<PocketIc> {
 fn build_quickstart_canister_wasm() -> Vec<u8> {
     QUICKSTART_CANISTER_WASM
         .get_or_init(|| {
-            let wasm_path = build_quickstart_canister().expect("build quickstart canister");
+            let wasm_path = build_canister("quickstart").expect("build quickstart canister");
             fs::read(&wasm_path).unwrap_or_else(|err| {
                 panic!(
                     "failed to read built canister wasm at {}: {err}",
@@ -63,6 +63,40 @@ fn build_quickstart_canister_wasm() -> Vec<u8> {
             })
         })
         .clone()
+}
+
+// Install the quickstart fixture canister into one fresh Pocket-IC canister id.
+fn install_quickstart_canister(pic: &PocketIc) -> Principal {
+    let canister_id = pic.create_canister();
+    pic.add_cycles(canister_id, INIT_CYCLES);
+
+    let wasm = build_quickstart_canister_wasm();
+    pic.install_canister(
+        canister_id,
+        wasm,
+        encode_one(()).expect("encode init args"),
+        None,
+    );
+
+    canister_id
+}
+
+// Load the default fixture dataset and assert the update call returned `Ok(())`.
+fn load_default_fixtures(pic: &PocketIc, canister_id: Principal) {
+    let load_bytes = pic
+        .update_call(
+            canister_id,
+            Principal::anonymous(),
+            "fixtures_load_default",
+            encode_one(()).expect("encode fixtures_load_default args"),
+        )
+        .expect("fixtures_load_default update call should succeed");
+    let load_result: Result<(), icydb::Error> =
+        decode_one(&load_bytes).expect("decode fixtures_load_default response");
+    assert!(
+        load_result.is_ok(),
+        "fixtures_load_default returned error: {load_result:?}"
+    );
 }
 
 // Execute one PocketIC integration test body and keep teardown panics from
@@ -134,16 +168,7 @@ fn query_projection_rows(
 #[expect(clippy::too_many_lines)]
 fn sql_canister_smoke_flow() {
     run_with_pocket_ic(|pic| {
-        let canister_id = pic.create_canister();
-        pic.add_cycles(canister_id, INIT_CYCLES);
-
-        let wasm = build_quickstart_canister_wasm();
-        pic.install_canister(
-            canister_id,
-            wasm,
-            encode_one(()).expect("encode init args"),
-            None,
-        );
+        let canister_id = install_quickstart_canister(pic);
 
         let entities_bytes = pic
             .query_call(
@@ -187,20 +212,7 @@ fn sql_canister_smoke_flow() {
             other => panic!("SHOW ENTITIES should return ShowEntities payload, got {other:?}"),
         }
 
-        let load_bytes = pic
-            .update_call(
-                canister_id,
-                Principal::anonymous(),
-                "fixtures_load_default",
-                encode_one(()).expect("encode fixtures_load_default args"),
-            )
-            .expect("fixtures_load_default update call should succeed");
-        let load_result: Result<(), icydb::Error> =
-            decode_one(&load_bytes).expect("decode fixtures_load_default response");
-        assert!(
-            load_result.is_ok(),
-            "fixtures_load_default returned error: {load_result:?}"
-        );
+        load_default_fixtures(pic, canister_id);
 
         let explain_payload = query_result(
             pic,
@@ -272,31 +284,8 @@ fn sql_canister_smoke_flow() {
 #[expect(clippy::too_many_lines)]
 fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
     run_with_pocket_ic(|pic| {
-        let canister_id = pic.create_canister();
-        pic.add_cycles(canister_id, INIT_CYCLES);
-
-        let wasm = build_quickstart_canister_wasm();
-        pic.install_canister(
-            canister_id,
-            wasm,
-            encode_one(()).expect("encode init args"),
-            None,
-        );
-
-        let load_bytes = pic
-            .update_call(
-                canister_id,
-                Principal::anonymous(),
-                "fixtures_load_default",
-                encode_one(()).expect("encode fixtures_load_default args"),
-            )
-            .expect("fixtures_load_default update call should succeed");
-        let load_result: Result<(), icydb::Error> =
-            decode_one(&load_bytes).expect("decode fixtures_load_default response");
-        assert!(
-            load_result.is_ok(),
-            "fixtures_load_default returned error: {load_result:?}"
-        );
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
 
         // Property 1: resolution is by parsed SQL entity name for Character.
         let character_rows = query_projection_rows(
@@ -423,31 +412,8 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
 #[expect(clippy::redundant_closure_for_method_calls)]
 fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
     run_with_pocket_ic(|pic| {
-        let canister_id = pic.create_canister();
-        pic.add_cycles(canister_id, INIT_CYCLES);
-
-        let wasm = build_quickstart_canister_wasm();
-        pic.install_canister(
-            canister_id,
-            wasm,
-            encode_one(()).expect("encode init args"),
-            None,
-        );
-
-        let load_bytes = pic
-            .update_call(
-                canister_id,
-                Principal::anonymous(),
-                "fixtures_load_default",
-                encode_one(()).expect("encode fixtures_load_default args"),
-            )
-            .expect("fixtures_load_default update call should succeed");
-        let load_result: Result<(), icydb::Error> =
-            decode_one(&load_bytes).expect("decode fixtures_load_default response");
-        assert!(
-            load_result.is_ok(),
-            "fixtures_load_default returned error: {load_result:?}"
-        );
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
 
         let describe_payload = query_result(pic, canister_id, "DESCRIBE Character")
             .expect("query DESCRIBE should return an Ok payload");

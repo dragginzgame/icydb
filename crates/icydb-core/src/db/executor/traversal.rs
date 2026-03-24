@@ -29,25 +29,6 @@ use crate::{
 pub(in crate::db::executor) struct IndexRangeTraversalContract;
 
 impl IndexRangeTraversalContract {
-    // Build the canonical invariant for index-range specs bound to the wrong index path.
-    fn spec_alignment_invalid() -> InternalError {
-        InternalError::query_executor_invariant("index-range spec does not match access path index")
-    }
-
-    // Build the canonical invariant for missing lowered index-range specs.
-    fn spec_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "index-range execution requires pre-lowered index-range spec",
-        )
-    }
-
-    // Build the canonical invariant for trailing unused lowered index-range specs.
-    fn unused_specs() -> InternalError {
-        InternalError::query_executor_invariant(
-            "unused index-range executable specs after access-plan traversal",
-        )
-    }
-
     /// Validate that one consumed index-range spec is aligned with one index-range path node.
     pub(in crate::db::executor) fn validate_spec_alignment<K>(
         path: &ExecutableAccessPath<'_, K>,
@@ -58,7 +39,9 @@ impl IndexRangeTraversalContract {
             && let Some(index) = path_capabilities.index_range_model()
             && spec.index() != &index
         {
-            return Err(Self::spec_alignment_invalid());
+            return Err(InternalError::query_executor_invariant(
+                "index-range spec does not match access path index",
+            ));
         }
 
         Ok(())
@@ -68,7 +51,11 @@ impl IndexRangeTraversalContract {
     pub(in crate::db::executor) fn require_spec(
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<&LoweredIndexRangeSpec, InternalError> {
-        index_range_spec.ok_or_else(Self::spec_required)
+        index_range_spec.ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "index-range execution requires pre-lowered index-range spec",
+            )
+        })
     }
 
     /// Validate that index-range lowered specs were fully consumed during traversal.
@@ -77,7 +64,9 @@ impl IndexRangeTraversalContract {
         available: usize,
     ) -> Result<(), InternalError> {
         if consumed < available {
-            return Err(Self::unused_specs());
+            return Err(InternalError::query_executor_invariant(
+                "unused index-range executable specs after access-plan traversal",
+            ));
         }
 
         Ok(())

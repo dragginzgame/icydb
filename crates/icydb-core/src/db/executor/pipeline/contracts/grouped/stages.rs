@@ -35,14 +35,6 @@ pub(in crate::db::executor) struct RowView {
 }
 
 impl RowView {
-    // Keep the fail-closed missing-slot contract on the structural row-view
-    // type so grouped runtime loops do not restate the invariant inline.
-    fn missing_required_slot_value(index: usize) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped row view missing required slot value: index={index}",
-        ))
-    }
-
     /// Build one structural row view from slot-indexed values.
     #[must_use]
     pub(in crate::db::executor) const fn new(slots: Vec<Option<Value>>) -> Self {
@@ -60,8 +52,11 @@ impl RowView {
         &self,
         index: usize,
     ) -> Result<Value, InternalError> {
-        self.read_slot(index)
-            .ok_or_else(|| Self::missing_required_slot_value(index))
+        self.read_slot(index).ok_or_else(|| {
+            InternalError::query_executor_invariant(format!(
+                "grouped row view missing required slot value: index={index}",
+            ))
+        })
     }
 
     /// Evaluate one compiled predicate program against this structural row.

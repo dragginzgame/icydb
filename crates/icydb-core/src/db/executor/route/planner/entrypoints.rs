@@ -32,23 +32,6 @@ use crate::db::executor::route::planner::{
     derive_route_intent_stage,
 };
 
-///
-/// MutationRoutePlanContract
-///
-/// Route-planner contract for mutation entrypoint preconditions.
-/// This keeps the route-owned delete-plan requirement local to planner
-/// entrypoints instead of rebuilding the same internal error inline.
-///
-
-struct MutationRoutePlanContract;
-
-impl MutationRoutePlanContract {
-    // Build the invariant for non-delete mutation route planning.
-    fn delete_plan_required() -> InternalError {
-        InternalError::query_executor_invariant("mutation route planning requires delete plans")
-    }
-}
-
 /// Build canonical execution routing for load execution from structural model authority.
 pub(in crate::db::executor) fn build_execution_route_plan_for_load_with_model(
     model: &'static EntityModel,
@@ -75,7 +58,9 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_mutation_with_mode
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, InternalError> {
     if !plan.scalar_plan().mode.is_delete() {
-        return Err(MutationRoutePlanContract::delete_plan_required());
+        return Err(InternalError::query_executor_invariant(
+            "mutation route planning requires delete plans",
+        ));
     }
 
     let capabilities = derive_execution_capabilities_for_model(model, plan, Direction::Asc, None);

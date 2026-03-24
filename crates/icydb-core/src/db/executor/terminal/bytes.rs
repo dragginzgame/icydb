@@ -55,62 +55,6 @@ enum BytesTerminalBoundaryRequest {
     BySlot { target_field: PlannedFieldSlot },
 }
 
-impl BytesTerminalBoundaryRequest {
-    // Build the canonical invariant for a missing constant value on the covering-constant path.
-    fn covering_constant_value_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "bytes_by covering-constant mode selected without constant value",
-        )
-    }
-
-    // Build the canonical invariant for PK fast paths on non-single-path access strategies.
-    fn pk_fast_path_single_path_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "bytes PK fast path requires single-path access strategy",
-        )
-    }
-
-    // Build the canonical invariant for PK fast paths on unsupported path payloads.
-    fn pk_fast_path_full_scan_or_key_range_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "bytes PK fast path requires full-scan or key-range access",
-        )
-    }
-}
-
-///
-/// BytesCoveringProjectionComponentContract
-///
-/// BytesCoveringProjectionComponentContract owns the path-shape contract for
-/// covering-index `bytes(field)` component scans before the bytes terminal
-/// falls back to materialized row execution.
-///
-
-struct BytesCoveringProjectionComponentContract;
-
-impl BytesCoveringProjectionComponentContract {
-    // Build the canonical invariant for over-wide lowered prefix-spec inputs.
-    fn prefix_spec_count_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "covering projection index-prefix path requires one lowered prefix spec",
-        )
-    }
-
-    // Build the canonical invariant for over-wide lowered range-spec inputs.
-    fn range_spec_count_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "covering projection index-range path requires one lowered range spec",
-        )
-    }
-
-    // Build the canonical invariant for non-index-backed access paths.
-    fn index_backed_access_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "covering projection component scans require index-backed access paths",
-        )
-    }
-}
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -226,9 +170,11 @@ where
                             &prepared.logical_plan.access,
                             target_field.field(),
                         )
-                        .ok_or_else(
-                            BytesTerminalBoundaryRequest::covering_constant_value_required,
-                        )?;
+                        .ok_or_else(|| {
+                            InternalError::query_executor_invariant(
+                                "bytes_by covering-constant mode selected without constant value",
+                            )
+                        })?;
                         let value_len = serialized_value_len(&constant_value)?;
                         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
                         let row_count = u64::try_from(page.data_rows().len()).unwrap_or(u64::MAX);
@@ -404,7 +350,9 @@ where
             );
         }
         if !prefix_specs.is_empty() {
-            return Err(BytesCoveringProjectionComponentContract::prefix_spec_count_invalid());
+            return Err(InternalError::query_executor_invariant(
+                "covering projection index-prefix path requires one lowered prefix spec",
+            ));
         }
 
         let range_specs = prepared.index_range_specs.as_slice();
@@ -419,10 +367,14 @@ where
             );
         }
         if !range_specs.is_empty() {
-            return Err(BytesCoveringProjectionComponentContract::range_spec_count_invalid());
+            return Err(InternalError::query_executor_invariant(
+                "covering projection index-range path requires one lowered range spec",
+            ));
         }
 
-        Err(BytesCoveringProjectionComponentContract::index_backed_access_required())
+        Err(InternalError::query_executor_invariant(
+            "covering projection component scans require index-backed access paths",
+        ))
     }
 
     // Resolve one bounded covering projection component stream from one
@@ -483,7 +435,9 @@ where
         let page = prepared.page_spec().cloned();
         let access_strategy = prepared.logical_plan.access.resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
-            return Err(BytesTerminalBoundaryRequest::pk_fast_path_single_path_required());
+            return Err(InternalError::query_executor_invariant(
+                "bytes PK fast path requires single-path access strategy",
+            ));
         };
         let (offset, limit) = bytes_page_window_state(page.as_ref());
 
@@ -511,7 +465,9 @@ where
                     limit,
                 )
             }
-            _ => Err(BytesTerminalBoundaryRequest::pk_fast_path_full_scan_or_key_range_required()),
+            _ => Err(InternalError::query_executor_invariant(
+                "bytes PK fast path requires full-scan or key-range access",
+            )),
         }
     }
 

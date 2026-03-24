@@ -54,6 +54,21 @@ pub fn assert_generated_sql_dispatch_surface_is_stable(actor: &str) {
 }
 
 ///
+/// assert_generated_sql_dispatch_surface_from_out_dir
+///
+/// Assert the generated actor surface from the current crate `OUT_DIR` and
+/// return the included actor text for any follow-on assertions.
+///
+#[macro_export]
+macro_rules! assert_generated_sql_dispatch_surface_from_out_dir {
+    () => {{
+        let actor = include_str!(concat!(env!("OUT_DIR"), "/actor.rs"));
+        $crate::assert_generated_sql_dispatch_surface_is_stable(actor);
+        actor
+    }};
+}
+
+///
 /// define_simple_audit_entities
 ///
 /// Generate one or more repeated simple audit entities for wasm-size fixtures.

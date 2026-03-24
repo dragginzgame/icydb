@@ -60,30 +60,9 @@ impl RawCommitMarker {
         )
     }
 
-    // Build the canonical control-slot magic mismatch compatibility error.
-    fn control_slot_magic_mismatch() -> InternalError {
-        InternalError::serialize_incompatible_persisted_format(
-            "commit control-slot magic mismatch".to_string(),
-        )
-    }
-
-    // Build the canonical control-slot version mismatch compatibility error.
-    fn control_slot_version_mismatch(version: u8) -> InternalError {
-        InternalError::serialize_incompatible_persisted_format(format!(
-            "commit control-slot version {version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
-        ))
-    }
-
     // Build the canonical marker-envelope canonical-envelope corruption error.
     fn marker_canonical_envelope_required() -> InternalError {
         InternalError::commit_corruption("commit marker decode failed: expected canonical envelope")
-    }
-
-    // Build the canonical marker-format version mismatch compatibility error.
-    fn marker_format_version_unsupported(version: u8) -> InternalError {
-        InternalError::serialize_incompatible_persisted_format(format!(
-            "commit marker format version {version} is unsupported by runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
-        ))
     }
 
     /// Serialize and bound-check a commit marker payload.
@@ -142,15 +121,19 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
         .try_into()
         .map_err(|_| RawCommitMarker::control_slot_canonical_envelope_required())?;
     if magic != COMMIT_CONTROL_MAGIC {
-        return Err(RawCommitMarker::control_slot_magic_mismatch());
+        return Err(InternalError::serialize_incompatible_persisted_format(
+            "commit control-slot magic mismatch".to_string(),
+        ));
     }
 
     let control_version = *bytes
         .get(COMMIT_CONTROL_MAGIC.len())
         .ok_or_else(RawCommitMarker::control_slot_canonical_envelope_required)?;
     if control_version != COMMIT_CONTROL_STATE_VERSION_CURRENT {
-        return Err(RawCommitMarker::control_slot_version_mismatch(
-            control_version,
+        return Err(InternalError::serialize_incompatible_persisted_format(
+            format!(
+                "commit control-slot version {control_version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
+            ),
         ));
     }
 
@@ -218,8 +201,10 @@ fn validate_commit_marker_format_version(format_version: u8) -> Result<(), Inter
         return Ok(());
     }
 
-    Err(RawCommitMarker::marker_format_version_unsupported(
-        format_version,
+    Err(InternalError::serialize_incompatible_persisted_format(
+        format!(
+            "commit marker format version {format_version} is unsupported by runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
+        ),
     ))
 }
 

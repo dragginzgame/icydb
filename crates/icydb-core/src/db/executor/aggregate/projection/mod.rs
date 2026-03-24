@@ -61,39 +61,6 @@ type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
 type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
 
-///
-/// CoveringProjectionComponentScanContract
-///
-/// CoveringProjectionComponentScanContract owns the path-shape contract for
-/// index-backed covering projection component scans before projection
-/// execution falls back to materialized rows.
-///
-
-struct CoveringProjectionComponentScanContract;
-
-impl CoveringProjectionComponentScanContract {
-    // Build the canonical invariant for over-wide lowered prefix-spec inputs.
-    fn prefix_spec_count_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "covering projection index-prefix path requires one lowered prefix spec",
-        )
-    }
-
-    // Build the canonical invariant for over-wide lowered range-spec inputs.
-    fn range_spec_count_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "covering projection index-range path requires one lowered range spec",
-        )
-    }
-
-    // Build the canonical invariant for non-index-backed access paths.
-    fn index_backed_access_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "covering projection component scans require index-backed access paths",
-        )
-    }
-}
-
 // Typed boundary request for one scalar field-projection terminal family call.
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
     Values,
@@ -112,39 +79,18 @@ pub(in crate::db) enum ScalarProjectionBoundaryOutput {
 }
 
 impl ScalarProjectionBoundaryOutput {
-    // Build the canonical boundary mismatch for plain-value projection requests.
-    fn values_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar projection boundary values output kind mismatch",
-        )
-    }
-
-    // Build the canonical boundary mismatch for count-distinct projection requests.
-    fn count_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar projection boundary count output kind mismatch",
-        )
-    }
-
-    // Build the canonical boundary mismatch for `(id, value)` projection requests.
-    fn values_with_ids_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar projection boundary values-with-ids output kind mismatch",
-        )
-    }
-
-    // Build the canonical boundary mismatch for terminal-value projection requests.
-    fn terminal_value_output_kind_mismatch() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar projection boundary terminal-value output kind mismatch",
-        )
+    // Build the canonical boundary mismatch for projection output decoding.
+    fn output_kind_mismatch(message: &'static str) -> InternalError {
+        InternalError::query_executor_invariant(message)
     }
 
     // Decode one plain-value projection boundary output.
     pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(Self::values_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "scalar projection boundary values output kind mismatch",
+            )),
         }
     }
 
@@ -152,7 +98,9 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(Self::count_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "scalar projection boundary count output kind mismatch",
+            )),
         }
     }
 
@@ -166,7 +114,9 @@ impl ScalarProjectionBoundaryOutput {
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(Self::values_with_ids_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "scalar projection boundary values-with-ids output kind mismatch",
+            )),
         }
     }
 
@@ -174,7 +124,9 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_terminal_value(self) -> Result<Option<Value>, InternalError> {
         match self {
             Self::TerminalValue(value) => Ok(value),
-            _ => Err(Self::terminal_value_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "scalar projection boundary terminal-value output kind mismatch",
+            )),
         }
     }
 }
@@ -744,7 +696,9 @@ where
             );
         }
         if !prefix_specs.is_empty() {
-            return Err(CoveringProjectionComponentScanContract::prefix_spec_count_invalid());
+            return Err(InternalError::query_executor_invariant(
+                "covering projection index-prefix path requires one lowered prefix spec",
+            ));
         }
 
         let range_specs = prepared.index_range_specs.as_slice();
@@ -759,10 +713,14 @@ where
             );
         }
         if !range_specs.is_empty() {
-            return Err(CoveringProjectionComponentScanContract::range_spec_count_invalid());
+            return Err(InternalError::query_executor_invariant(
+                "covering projection index-range path requires one lowered range spec",
+            ));
         }
 
-        Err(CoveringProjectionComponentScanContract::index_backed_access_required())
+        Err(InternalError::query_executor_invariant(
+            "covering projection component scans require index-backed access paths",
+        ))
     }
 
     // Execute COUNT from one prepared aggregate stage so constant projection

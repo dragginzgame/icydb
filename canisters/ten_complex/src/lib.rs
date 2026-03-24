@@ -23,13 +23,9 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
-    use icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_is_stable;
-
     #[test]
     fn generated_sql_dispatch_surface_is_stable() {
-        let actor = include_str!(concat!(env!("OUT_DIR"), "/actor.rs"));
-
-        assert_generated_sql_dispatch_surface_is_stable(actor);
+        icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_from_out_dir!();
     }
 }
 

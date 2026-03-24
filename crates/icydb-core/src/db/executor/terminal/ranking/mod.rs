@@ -88,26 +88,13 @@ where
         InternalError::query_executor_invariant(message)
     }
 
-    // Construct one rows-output mismatch for ranking boundary projection.
-    fn rows_output_kind_mismatch() -> InternalError {
-        Self::output_kind_mismatch("ranking terminal boundary rows output kind mismatch")
-    }
-
-    // Construct one values-output mismatch for ranking boundary projection.
-    fn values_output_kind_mismatch() -> InternalError {
-        Self::output_kind_mismatch("ranking terminal boundary values output kind mismatch")
-    }
-
-    // Construct one `(id, value)` output mismatch for ranking boundary projection.
-    fn values_with_ids_output_kind_mismatch() -> InternalError {
-        Self::output_kind_mismatch("ranking terminal boundary values-with-ids output kind mismatch")
-    }
-
     // Decode row-returning ranking boundary output.
     fn into_rows(self) -> Result<EntityResponse<E>, InternalError> {
         match self {
             Self::Rows(rows) => Ok(rows),
-            _ => Err(Self::rows_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "ranking terminal boundary rows output kind mismatch",
+            )),
         }
     }
 
@@ -115,7 +102,9 @@ where
     fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(Self::values_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "ranking terminal boundary values output kind mismatch",
+            )),
         }
     }
 
@@ -126,7 +115,9 @@ where
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(Self::values_with_ids_output_kind_mismatch()),
+            _ => Err(Self::output_kind_mismatch(
+                "ranking terminal boundary values-with-ids output kind mismatch",
+            )),
         }
     }
 }

@@ -372,13 +372,6 @@ pub(in crate::db::executor) enum PreparedScalarProjectionOp {
 }
 
 impl PreparedScalarProjectionOp {
-    // Build the canonical prepared-op invariant for invalid terminal-value kinds.
-    fn terminal_value_kind_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "terminal value projection requires FIRST/LAST aggregate kind",
-        )
-    }
-
     // Build the canonical prepared-op invariant for missing covering DISTINCT strategy.
     pub(in crate::db::executor) fn covering_distinct_strategy_required(self) -> InternalError {
         let message = match self {
@@ -433,7 +426,9 @@ impl PreparedScalarProjectionOp {
             Self::TerminalValue { terminal_kind }
                 if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) =>
             {
-                Err(Self::terminal_value_kind_invalid())
+                Err(InternalError::query_executor_invariant(
+                    "terminal value projection requires FIRST/LAST aggregate kind",
+                ))
             }
             Self::Values
             | Self::DistinctValues
@@ -544,20 +539,6 @@ impl PreparedScalarTerminalOp {
         }
     }
 
-    // Build the canonical prepared-op invariant for invalid id-terminal kinds.
-    fn id_terminal_kind_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
-        )
-    }
-
-    // Build the canonical prepared-op invariant for invalid field-target extrema kinds.
-    fn id_by_slot_kind_invalid() -> InternalError {
-        InternalError::query_executor_invariant(
-            "id-by-slot aggregate request requires MIN/MAX kind",
-        )
-    }
-
     // Validate that the prepared terminal op can execute through the shared
     // kernel aggregate request surface.
     pub(in crate::db::executor) fn validate_kernel_request_kind(
@@ -574,8 +555,12 @@ impl PreparedScalarTerminalOp {
                 kind: AggregateKind::Min | AggregateKind::Max,
                 ..
             } => Ok(()),
-            Self::IdTerminal { .. } => Err(Self::id_terminal_kind_invalid()),
-            Self::IdBySlot { .. } => Err(Self::id_by_slot_kind_invalid()),
+            Self::IdTerminal { .. } => Err(InternalError::query_executor_invariant(
+                "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
+            )),
+            Self::IdBySlot { .. } => Err(InternalError::query_executor_invariant(
+                "id-by-slot aggregate request requires MIN/MAX kind",
+            )),
         }
     }
 }

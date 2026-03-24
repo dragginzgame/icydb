@@ -57,7 +57,6 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 mod tests {
     use super::{SqlQueryResult, User, db, sql_dispatch};
     use candid::encode_one;
-    use icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_is_stable;
 
     fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
         sql_dispatch::query(sql).expect("sql_dispatch query should succeed")
@@ -95,9 +94,8 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_surface_is_stable() {
-        let actor = include_str!(concat!(env!("OUT_DIR"), "/actor.rs"));
-
-        assert_generated_sql_dispatch_surface_is_stable(actor);
+        let actor =
+            icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_from_out_dir!();
 
         assert!(
             !actor.contains("from_statement_sql"),

@@ -108,39 +108,6 @@ impl CommitMarker {
         Ok(Self { id, row_ops })
     }
 
-    // Build the canonical payload corruption for a truncated marker header.
-    fn payload_truncated_header() -> InternalError {
-        InternalError::commit_corruption("commit marker payload decode failed: truncated header")
-    }
-
-    // Build the canonical payload corruption for a non-UTF-8 entity path.
-    fn payload_entity_path_not_utf8() -> InternalError {
-        InternalError::commit_corruption(
-            "commit marker payload decode failed: entity_path is not utf-8",
-        )
-    }
-
-    // Build the canonical payload corruption for truncated row-op flags.
-    fn payload_row_op_flags_truncated() -> InternalError {
-        InternalError::commit_corruption(
-            "commit marker payload decode failed: truncated row-op flags",
-        )
-    }
-
-    // Build the canonical payload corruption for invalid row-op flags.
-    fn payload_row_op_flags_invalid() -> InternalError {
-        InternalError::commit_corruption(
-            "commit marker payload decode failed: invalid row-op flags",
-        )
-    }
-
-    // Build the canonical payload corruption for trailing bytes after decode.
-    fn payload_trailing_bytes() -> InternalError {
-        InternalError::commit_corruption(
-            "commit marker payload decode failed: trailing bytes after payload",
-        )
-    }
-
     // Build the canonical payload corruption for truncated variable-length fields.
     fn payload_truncated_length(label: &'static str) -> InternalError {
         InternalError::commit_corruption(format!("{label} decode failed: truncated length",))
@@ -156,16 +123,6 @@ impl CommitMarker {
         InternalError::commit_corruption(format!(
             "{label} decode failed: invalid fixed-size payload",
         ))
-    }
-
-    // Build the canonical row-op corruption for an empty entity path.
-    fn row_op_entity_path_required() -> InternalError {
-        InternalError::commit_corruption("row op has empty entity_path")
-    }
-
-    // Build the canonical row-op corruption for an empty mutation payload.
-    fn row_op_mutation_payload_required() -> InternalError {
-        InternalError::commit_corruption("row op has neither before nor after payload")
     }
 
     // Build the canonical row-op corruption for oversized row payloads.
@@ -268,7 +225,9 @@ pub(in crate::db) fn decode_commit_marker_payload(
 ) -> Result<CommitMarker, InternalError> {
     // Phase 1: parse the fixed marker header before touching any row-op bytes.
     if bytes.len() < COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES {
-        return Err(CommitMarker::payload_truncated_header());
+        return Err(InternalError::commit_corruption(
+            "commit marker payload decode failed: truncated header",
+        ));
     }
 
     let mut cursor = 0;
@@ -280,15 +239,22 @@ pub(in crate::db) fn decode_commit_marker_payload(
     for _ in 0..row_op_count {
         let entity_path_bytes =
             read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
-        let entity_path = std::str::from_utf8(entity_path_bytes)
-            .map_err(|_| CommitMarker::payload_entity_path_not_utf8())?;
+        let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
+            InternalError::commit_corruption(
+                "commit marker payload decode failed: entity_path is not utf-8",
+            )
+        })?;
         let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?.to_vec();
-        let flags = *bytes
-            .get(cursor)
-            .ok_or_else(CommitMarker::payload_row_op_flags_truncated)?;
+        let flags = *bytes.get(cursor).ok_or_else(|| {
+            InternalError::commit_corruption(
+                "commit marker payload decode failed: truncated row-op flags",
+            )
+        })?;
         cursor = cursor.saturating_add(1);
         if flags & !COMMIT_MARKER_FLAG_MASK != 0 {
-            return Err(CommitMarker::payload_row_op_flags_invalid());
+            return Err(InternalError::commit_corruption(
+                "commit marker payload decode failed: invalid row-op flags",
+            ));
         }
 
         let before = if flags & COMMIT_MARKER_FLAG_BEFORE != 0 {
@@ -324,7 +290,9 @@ pub(in crate::db) fn decode_commit_marker_payload(
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
-        return Err(CommitMarker::payload_trailing_bytes());
+        return Err(InternalError::commit_corruption(
+            "commit marker payload decode failed: trailing bytes after payload",
+        ));
     }
 
     Ok(CommitMarker { id, row_ops })
@@ -472,10 +440,14 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     // Phase 1: reject row ops that cannot encode any mutation semantics.
     for row_op in &marker.row_ops {
         if row_op.entity_path.is_empty() {
-            return Err(CommitMarker::row_op_entity_path_required());
+            return Err(InternalError::commit_corruption(
+                "row op has empty entity_path",
+            ));
         }
         if row_op.before.is_none() && row_op.after.is_none() {
-            return Err(CommitMarker::row_op_mutation_payload_required());
+            return Err(InternalError::commit_corruption(
+                "row op has neither before nor after payload",
+            ));
         }
 
         // Phase 2: guard row payload size at marker-decode boundary so recovery

@@ -48,18 +48,13 @@ impl CommitApplyGuard {
         self.rollbacks.push(Box::new(rollback));
     }
 
-    // Build the canonical apply-guard invariant for repeated finish calls.
-    fn finish_only_once(&self) -> InternalError {
-        InternalError::executor_invariant(format!(
-            "commit apply guard invariant violated: finish called twice ({})",
-            self.phase
-        ))
-    }
-
     /// Mark the guarded apply phase complete and drop rollback closures.
     pub(crate) fn finish(mut self) -> Result<(), InternalError> {
         if self.finished {
-            return Err(self.finish_only_once());
+            return Err(InternalError::executor_invariant(format!(
+                "commit apply guard invariant violated: finish called twice ({})",
+                self.phase
+            )));
         }
 
         self.finished = true;

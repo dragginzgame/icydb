@@ -17,24 +17,6 @@ use crate::{
     traits::EntityValue,
 };
 
-///
-/// ScalarTracedSurfaceContract
-///
-/// ScalarTracedSurfaceContract owns the fixed scalar traced-page surface
-/// mismatch invariant for the scalar load entrypoint boundary.
-///
-
-struct ScalarTracedSurfaceContract;
-
-impl ScalarTracedSurfaceContract {
-    // Build the canonical scalar traced-surface mismatch invariant.
-    fn scalar_traced_surface_required() -> InternalError {
-        InternalError::query_executor_invariant(
-            "scalar traced entrypoint must produce scalar traced page surface",
-        )
-    }
-}
-
 impl<E> LoadExecutor<E>
 where
     E: PersistedRow + EntityValue,
@@ -63,7 +45,9 @@ where
                 Ok((page.into_cursor_page::<E>()?, trace))
             }
             LoadExecutionSurface::GroupedPageWithTrace(..) => {
-                Err(ScalarTracedSurfaceContract::scalar_traced_surface_required())
+                Err(InternalError::query_executor_invariant(
+                    "scalar traced entrypoint must produce scalar traced page surface",
+                ))
             }
         }
     }
