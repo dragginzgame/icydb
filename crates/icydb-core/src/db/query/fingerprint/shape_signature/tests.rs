@@ -6,7 +6,6 @@
 ///
 /// TESTS
 ///
-use super::continuation_signature_with_projection;
 use crate::{
     db::{
         access::AccessPath,
@@ -20,6 +19,9 @@ use crate::{
         query::{
             builder::field::FieldRef,
             explain::{ExplainGroupedStrategy, ExplainGrouping},
+            fingerprint::{
+                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
+            },
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::OrderDirection,
             plan::{
@@ -35,6 +37,22 @@ use crate::{
     value::Value,
 };
 use std::fmt::Write;
+
+fn continuation_signature_with_projection(
+    explain: &crate::db::query::explain::ExplainPlan,
+    entity_path: &'static str,
+    projection: &ProjectionSpec,
+) -> ContinuationSignature {
+    let mut hasher = new_continuation_signature_hasher_v1();
+    hash_parts::hash_explain_plan_profile_internal(
+        &mut hasher,
+        explain,
+        hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
+        Some(projection),
+    );
+
+    ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
+}
 
 fn signature_hex(signature: ContinuationSignature) -> String {
     let mut hex = String::with_capacity(64);

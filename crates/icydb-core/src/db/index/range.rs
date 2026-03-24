@@ -146,39 +146,6 @@ pub(in crate::db) fn next_text_prefix(prefix: &str) -> Option<String> {
     None
 }
 
-///
-/// envelope_is_empty
-///
-/// Validate whether raw index-key bounds encode an empty traversal envelope.
-///
-
-#[must_use]
-pub(in crate::db) fn envelope_is_empty(
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-) -> bool {
-    // Unbounded envelopes are never empty by construction.
-    let (Some(lower_key), Some(upper_key)) = (bound_key_ref(lower), bound_key_ref(upper)) else {
-        return false;
-    };
-
-    if lower_key < upper_key {
-        return false;
-    }
-    if lower_key > upper_key {
-        return true;
-    }
-
-    !matches!(lower, Bound::Included(_)) || !matches!(upper, Bound::Included(_))
-}
-
-const fn bound_key_ref(bound: &Bound<RawIndexKey>) -> Option<&RawIndexKey> {
-    match bound {
-        Bound::Included(value) | Bound::Excluded(value) => Some(value),
-        Bound::Unbounded => None,
-    }
-}
-
 const fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<&[u8]> {
     match bound {
         Bound::Unbounded => Bound::Unbounded,
@@ -221,28 +188,4 @@ fn next_unicode_scalar(value: char) -> Option<char> {
     }
 
     char::from_u32(next)
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::{db::index::RawIndexKey, traits::Storable};
-    use std::{borrow::Cow, ops::Bound};
-
-    use super::envelope_is_empty;
-
-    fn raw_key(byte: u8) -> RawIndexKey {
-        <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
-    }
-
-    #[test]
-    fn envelope_emptiness_identifies_empty_equal_exclusive_bounds() {
-        let lower = Bound::Included(raw_key(0x10));
-        let upper = Bound::Excluded(raw_key(0x10));
-
-        assert!(envelope_is_empty(&lower, &upper));
-    }
 }

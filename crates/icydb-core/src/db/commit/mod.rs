@@ -35,7 +35,6 @@ use crate::error::InternalError;
 use crate::testing::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
 #[cfg(test)]
 use canic_memory::{registry::MemoryRegistryError, runtime::registry::MemoryRegistryRuntime};
-use std::fmt::Display;
 
 ///
 /// Re-exports
@@ -68,32 +67,6 @@ pub(in crate::db) use replay::replay_commit_marker_row_ops;
 pub(in crate::db) use rollback::{
     rollback_prepared_row_ops_reverse, snapshot_row_only_rollback, snapshot_row_rollback,
 };
-
-/// Build a standard commit-marker corruption message.
-pub(in crate::db) fn commit_corruption_message(detail: impl Display) -> String {
-    format!("commit marker corrupted: {detail}")
-}
-
-/// Build a standard commit-marker component corruption message.
-pub(in crate::db) fn commit_component_corruption_message(
-    component: &str,
-    detail: impl Display,
-) -> String {
-    format!("commit marker {component} corrupted: {detail}")
-}
-
-/// Construct a store-corruption `InternalError` for commit-marker failures.
-pub(in crate::db) fn commit_corruption(detail: impl Display) -> InternalError {
-    InternalError::store_corruption(commit_corruption_message(detail))
-}
-
-/// Construct a store-corruption `InternalError` for commit-marker component failures.
-pub(in crate::db) fn commit_component_corruption(
-    component: &str,
-    detail: impl Display,
-) -> InternalError {
-    InternalError::store_corruption(commit_component_corruption_message(component, detail))
-}
 
 /// Return true if a commit marker is currently persisted.
 #[cfg(test)]

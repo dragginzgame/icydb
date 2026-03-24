@@ -80,6 +80,17 @@ impl<'a> ProjectionHashShape<'a> {
     }
 }
 
+impl ProjectionSpec {
+    /// Compute one projection structural hash for SQL-facing tests.
+    #[must_use]
+    #[cfg(all(test, feature = "sql"))]
+    pub(in crate::db) fn structural_hash_for_test(&self) -> [u8; 32] {
+        let mut hasher = new_hash_sha256();
+        hash_projection_structural_fingerprint_v1(&mut hasher, self);
+        finalize_sha256_digest(hasher)
+    }
+}
+
 /// Hash one projection semantic shape using the v1 structural encoding.
 #[expect(clippy::cast_possible_truncation)]
 pub(super) fn hash_projection_structural_fingerprint_v1(
@@ -232,13 +243,6 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
         AggregateKind::Last => AGGREGATE_KIND_LAST_TAG,
         AggregateKind::Avg => AGGREGATE_KIND_AVG_TAG,
     }
-}
-
-#[cfg(all(test, feature = "sql"))]
-pub(in crate::db) fn projection_hash_for_test(projection: &ProjectionSpec) -> [u8; 32] {
-    let mut hasher = new_hash_sha256();
-    hash_projection_structural_fingerprint_v1(&mut hasher, projection);
-    finalize_sha256_digest(hasher)
 }
 
 ///

@@ -54,15 +54,14 @@ impl<C: CanisterKind> DbSession<C> {
         let mode = query.mode();
         let plan = query.plan()?.into_executable();
 
-        // Phase 2: delegate execution to the dynamic entry shim.
+        // Phase 2: delegate execution to the shared compiled-plan entry path.
         self.execute_query_dyn(mode, plan)
     }
 
     /// Execute one scalar query from one pre-built executable contract.
     ///
-    /// This shim is the Slice A dynamic entry boundary. It keeps the legacy
-    /// typed `execute_query(...)` surface stable while introducing one central
-    /// execution path that can later bind descriptor-driven executor forms.
+    /// This is the shared compiled-plan entry boundary used by the typed
+    /// `execute_query(...)` surface and adjacent query execution facades.
     pub(in crate::db) fn execute_query_dyn<E>(
         &self,
         mode: QueryMode,

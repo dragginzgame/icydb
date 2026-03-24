@@ -705,144 +705,122 @@ mod tests {
         )
     }
 
-    ///
-    /// FacadeSqlLegacySurfaceExt
-    ///
-    /// Test-only adapters that preserve old SQL lane helper call sites while
-    /// routing through the unified SQL dispatch surface.
-    ///
+    fn dispatch_explain_sql<E>(
+        session: &DbSession<FacadeSqlCanister>,
+        sql: &str,
+    ) -> Result<String, Error>
+    where
+        E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
+    {
+        let parsed = session.parse_sql_statement(sql)?;
+        if !parsed.route().is_explain() {
+            return Err(unsupported_sql_runtime_error(
+                "EXPLAIN dispatch requires an EXPLAIN statement",
+            ));
+        }
 
-    trait FacadeSqlLegacySurfaceExt {
-        fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
-
-        fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
-
-        fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
-
-        fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue;
-
-        fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error>;
+        match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
+            SqlQueryResult::Explain { explain, .. } => Ok(explain),
+            SqlQueryResult::Projection(_)
+            | SqlQueryResult::Describe(_)
+            | SqlQueryResult::ShowIndexes { .. }
+            | SqlQueryResult::ShowColumns { .. }
+            | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                "EXPLAIN dispatch requires an EXPLAIN statement",
+            )),
+        }
     }
 
-    impl FacadeSqlLegacySurfaceExt for DbSession<FacadeSqlCanister> {
-        fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
-        {
-            let parsed = self.parse_sql_statement(sql)?;
-            let route = parsed.route();
-            if !route.is_explain() {
-                return Err(unsupported_sql_runtime_error(
-                    "explain_sql requires an EXPLAIN statement",
-                ));
-            }
-
-            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
-            match payload {
-                SqlQueryResult::Explain { explain, .. } => Ok(explain),
-                SqlQueryResult::Projection(_)
-                | SqlQueryResult::Describe(_)
-                | SqlQueryResult::ShowIndexes { .. }
-                | SqlQueryResult::ShowColumns { .. }
-                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
-                    "explain_sql requires an EXPLAIN statement",
-                )),
-            }
+    fn dispatch_describe_sql<E>(
+        session: &DbSession<FacadeSqlCanister>,
+        sql: &str,
+    ) -> Result<EntitySchemaDescription, Error>
+    where
+        E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
+    {
+        let parsed = session.parse_sql_statement(sql)?;
+        if !parsed.route().is_describe() {
+            return Err(unsupported_sql_runtime_error(
+                "DESCRIBE dispatch requires a DESCRIBE statement",
+            ));
         }
 
-        fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
-        {
-            let parsed = self.parse_sql_statement(sql)?;
-            let route = parsed.route();
-            if !route.is_describe() {
-                return Err(unsupported_sql_runtime_error(
-                    "describe_sql requires a DESCRIBE statement",
-                ));
-            }
+        match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
+            SqlQueryResult::Describe(description) => Ok(description),
+            SqlQueryResult::Projection(_)
+            | SqlQueryResult::Explain { .. }
+            | SqlQueryResult::ShowIndexes { .. }
+            | SqlQueryResult::ShowColumns { .. }
+            | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                "DESCRIBE dispatch requires a DESCRIBE statement",
+            )),
+        }
+    }
 
-            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
-            match payload {
-                SqlQueryResult::Describe(description) => Ok(description),
-                SqlQueryResult::Projection(_)
-                | SqlQueryResult::Explain { .. }
-                | SqlQueryResult::ShowIndexes { .. }
-                | SqlQueryResult::ShowColumns { .. }
-                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
-                    "describe_sql requires a DESCRIBE statement",
-                )),
-            }
+    fn dispatch_show_indexes_sql<E>(
+        session: &DbSession<FacadeSqlCanister>,
+        sql: &str,
+    ) -> Result<Vec<String>, Error>
+    where
+        E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
+    {
+        let parsed = session.parse_sql_statement(sql)?;
+        if !parsed.route().is_show_indexes() {
+            return Err(unsupported_sql_runtime_error(
+                "SHOW INDEXES dispatch requires a SHOW INDEXES statement",
+            ));
         }
 
-        fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
-        {
-            let parsed = self.parse_sql_statement(sql)?;
-            let route = parsed.route();
-            if !route.is_show_indexes() {
-                return Err(unsupported_sql_runtime_error(
-                    "show_indexes_sql requires a SHOW INDEXES statement",
-                ));
-            }
+        match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
+            SqlQueryResult::ShowIndexes { indexes, .. } => Ok(indexes),
+            SqlQueryResult::Projection(_)
+            | SqlQueryResult::Explain { .. }
+            | SqlQueryResult::Describe(_)
+            | SqlQueryResult::ShowColumns { .. }
+            | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                "SHOW INDEXES dispatch requires a SHOW INDEXES statement",
+            )),
+        }
+    }
 
-            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
-            match payload {
-                SqlQueryResult::ShowIndexes { indexes, .. } => Ok(indexes),
-                SqlQueryResult::Projection(_)
-                | SqlQueryResult::Explain { .. }
-                | SqlQueryResult::Describe(_)
-                | SqlQueryResult::ShowColumns { .. }
-                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
-                    "show_indexes_sql requires a SHOW INDEXES statement",
-                )),
-            }
+    fn dispatch_show_columns_sql<E>(
+        session: &DbSession<FacadeSqlCanister>,
+        sql: &str,
+    ) -> Result<Vec<EntityFieldDescription>, Error>
+    where
+        E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
+    {
+        let parsed = session.parse_sql_statement(sql)?;
+        if !parsed.route().is_show_columns() {
+            return Err(unsupported_sql_runtime_error(
+                "SHOW COLUMNS dispatch requires a SHOW COLUMNS statement",
+            ));
         }
 
-        fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
-        where
-            E: crate::db::PersistedRow<Canister = FacadeSqlCanister> + EntityValue,
-        {
-            let parsed = self.parse_sql_statement(sql)?;
-            let route = parsed.route();
-            if !route.is_show_columns() {
-                return Err(unsupported_sql_runtime_error(
-                    "show_columns_sql requires a SHOW COLUMNS statement",
-                ));
-            }
+        match session.execute_sql_dispatch_parsed::<E>(&parsed)? {
+            SqlQueryResult::ShowColumns { columns, .. } => Ok(columns),
+            SqlQueryResult::Projection(_)
+            | SqlQueryResult::Explain { .. }
+            | SqlQueryResult::Describe(_)
+            | SqlQueryResult::ShowIndexes { .. }
+            | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                "SHOW COLUMNS dispatch requires a SHOW COLUMNS statement",
+            )),
+        }
+    }
 
-            let payload = self.execute_sql_dispatch_parsed::<E>(&parsed)?;
-            match payload {
-                SqlQueryResult::ShowColumns { columns, .. } => Ok(columns),
-                SqlQueryResult::Projection(_)
-                | SqlQueryResult::Explain { .. }
-                | SqlQueryResult::Describe(_)
-                | SqlQueryResult::ShowIndexes { .. }
-                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
-                    "show_columns_sql requires a SHOW COLUMNS statement",
-                )),
-            }
+    fn dispatch_show_entities_sql(
+        session: &DbSession<FacadeSqlCanister>,
+        sql: &str,
+    ) -> Result<Vec<String>, Error> {
+        let route = session.sql_statement_route(sql)?;
+        if !route.is_show_entities() {
+            return Err(unsupported_sql_runtime_error(
+                "SHOW ENTITIES dispatch requires a SHOW ENTITIES or SHOW TABLES statement",
+            ));
         }
 
-        fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error> {
-            let route = self.sql_statement_route(sql)?;
-            if !route.is_show_entities() {
-                return Err(unsupported_sql_runtime_error(
-                    "show_entities_sql requires a SHOW ENTITIES or SHOW TABLES statement",
-                ));
-            }
-
-            Ok(self.show_entities())
-        }
+        Ok(session.show_entities())
     }
 
     const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
@@ -1078,9 +1056,9 @@ mod tests {
     fn facade_describe_sql_matches_describe_entity_payload() {
         let session = fresh_facade_session();
 
-        let from_sql = session
-            .describe_sql::<FacadeSqlEntity>("DESCRIBE FacadeSqlEntity")
-            .expect("facade describe_sql should succeed");
+        let from_sql =
+            dispatch_describe_sql::<FacadeSqlEntity>(&session, "DESCRIBE FacadeSqlEntity")
+                .expect("facade describe_sql should succeed");
         let from_typed = session.describe_entity::<FacadeSqlEntity>();
 
         assert_eq!(
@@ -1093,9 +1071,9 @@ mod tests {
     fn facade_show_indexes_sql_matches_show_indexes_payload() {
         let session = fresh_facade_session();
 
-        let from_sql = session
-            .show_indexes_sql::<FacadeSqlEntity>("SHOW INDEXES FacadeSqlEntity")
-            .expect("facade show_indexes_sql should succeed");
+        let from_sql =
+            dispatch_show_indexes_sql::<FacadeSqlEntity>(&session, "SHOW INDEXES FacadeSqlEntity")
+                .expect("facade show_indexes_sql should succeed");
         let from_typed = session.show_indexes::<FacadeSqlEntity>();
 
         assert_eq!(
@@ -1108,9 +1086,9 @@ mod tests {
     fn facade_show_columns_sql_matches_show_columns_payload() {
         let session = fresh_facade_session();
 
-        let from_sql = session
-            .show_columns_sql::<FacadeSqlEntity>("SHOW COLUMNS FacadeSqlEntity")
-            .expect("facade show_columns_sql should succeed");
+        let from_sql =
+            dispatch_show_columns_sql::<FacadeSqlEntity>(&session, "SHOW COLUMNS FacadeSqlEntity")
+                .expect("facade show_columns_sql should succeed");
         let from_typed = session.show_columns::<FacadeSqlEntity>();
 
         assert_eq!(
@@ -1123,8 +1101,7 @@ mod tests {
     fn facade_show_entities_sql_matches_show_entities_payload() {
         let session = fresh_facade_session();
 
-        let from_sql = session
-            .show_entities_sql("SHOW ENTITIES")
+        let from_sql = dispatch_show_entities_sql(&session, "SHOW ENTITIES")
             .expect("facade show_entities_sql should succeed");
         let from_typed = session.show_entities();
 
@@ -1138,8 +1115,7 @@ mod tests {
     fn facade_show_entities_sql_show_tables_alias_matches_show_entities_payload() {
         let session = fresh_facade_session();
 
-        let from_sql = session
-            .show_entities_sql("SHOW TABLES")
+        let from_sql = dispatch_show_entities_sql(&session, "SHOW TABLES")
             .expect("facade show_entities_sql SHOW TABLES alias should succeed");
         let from_typed = session.show_entities();
 
@@ -1178,8 +1154,7 @@ mod tests {
 
         // Phase 2: execute each EXPLAIN plan case and assert stable tokens.
         for (sql, tokens) in cases {
-            let explain = session
-                .explain_sql::<FacadeSqlEntity>(sql)
+            let explain = dispatch_explain_sql::<FacadeSqlEntity>(&session, sql)
                 .expect("facade EXPLAIN plan matrix case should succeed");
             assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
         }
@@ -1210,8 +1185,7 @@ mod tests {
 
         // Phase 2: execute each EXPLAIN EXECUTION case and assert stable tokens.
         for (sql, tokens) in cases {
-            let explain = session
-                .explain_sql::<FacadeSqlEntity>(sql)
+            let explain = dispatch_explain_sql::<FacadeSqlEntity>(&session, sql)
                 .expect("facade EXPLAIN EXECUTION matrix case should succeed");
             assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
         }
@@ -1246,8 +1220,7 @@ mod tests {
 
         // Phase 2: execute each EXPLAIN JSON case and assert stable tokens.
         for (sql, tokens) in cases {
-            let explain = session
-                .explain_sql::<FacadeSqlEntity>(sql)
+            let explain = dispatch_explain_sql::<FacadeSqlEntity>(&session, sql)
                 .expect("facade EXPLAIN JSON matrix case should succeed");
             assert!(
                 explain.starts_with('{') && explain.ends_with('}'),
@@ -1356,7 +1329,7 @@ mod tests {
         for (sql, _feature) in unsupported_sql_feature_cases() {
             let explain_sql = format!("EXPLAIN {sql}");
             assert_unsupported_sql_runtime_result(
-                session.explain_sql::<FacadeSqlEntity>(explain_sql.as_str()),
+                dispatch_explain_sql::<FacadeSqlEntity>(&session, explain_sql.as_str()),
                 "facade explain_sql",
             );
         }
@@ -1384,7 +1357,7 @@ mod tests {
         // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
         for (sql, context) in cases {
             assert_unsupported_sql_runtime_result(
-                session.explain_sql::<FacadeSqlEntity>(sql),
+                dispatch_explain_sql::<FacadeSqlEntity>(&session, sql),
                 context,
             );
         }
@@ -1465,24 +1438,27 @@ mod tests {
         // Phase 2: assert each introspection surface stays fail-closed for wrong lanes.
         for (sql, context) in describe_cases {
             assert_unsupported_sql_runtime_result(
-                session.describe_sql::<FacadeSqlEntity>(sql),
+                dispatch_describe_sql::<FacadeSqlEntity>(&session, sql),
                 context,
             );
         }
         for (sql, context) in show_indexes_cases {
             assert_unsupported_sql_runtime_result(
-                session.show_indexes_sql::<FacadeSqlEntity>(sql),
+                dispatch_show_indexes_sql::<FacadeSqlEntity>(&session, sql),
                 context,
             );
         }
         for (sql, context) in show_columns_cases {
             assert_unsupported_sql_runtime_result(
-                session.show_columns_sql::<FacadeSqlEntity>(sql),
+                dispatch_show_columns_sql::<FacadeSqlEntity>(&session, sql),
                 context,
             );
         }
         for (sql, context) in show_entities_cases {
-            assert_unsupported_sql_runtime_result(session.show_entities_sql(sql), context);
+            assert_unsupported_sql_runtime_result(
+                dispatch_show_entities_sql(&session, sql),
+                context,
+            );
         }
     }
 }

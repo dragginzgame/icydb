@@ -58,6 +58,13 @@ impl ProjectionSpec {
         Self { fields }
     }
 
+    /// Build one projection semantic contract for tests outside planner modules.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn from_fields_for_test(fields: Vec<ProjectionField>) -> Self {
+        Self::new(fields)
+    }
+
     /// Return true when projection has no declared output fields.
     #[must_use]
     pub(crate) const fn is_empty(&self) -> bool {

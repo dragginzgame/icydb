@@ -504,6 +504,13 @@ pub enum ExplainDeleteLimit {
 }
 
 impl AccessPlannedQuery {
+    /// Produce a stable, deterministic explanation of this logical plan.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn explain(&self) -> ExplainPlan {
+        self.explain_inner(None)
+    }
+
     /// Produce a stable, deterministic explanation of this logical plan
     /// with optional model context for query-layer projections.
     ///

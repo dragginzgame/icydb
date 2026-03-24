@@ -6,7 +6,6 @@
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
-        commit::{commit_component_corruption, commit_corruption_message},
         data::{DataKey, RawDataKey},
         index::{IndexKey, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey},
     },
@@ -188,9 +187,9 @@ pub(in crate::db) fn decode_commit_marker_payload(
 ) -> Result<CommitMarker, InternalError> {
     // Phase 1: parse the fixed marker header before touching any row-op bytes.
     if bytes.len() < COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES {
-        return Err(InternalError::store_corruption(commit_corruption_message(
+        return Err(InternalError::commit_corruption(
             "commit marker payload decode failed: truncated header",
-        )));
+        ));
     }
 
     let mut cursor = 0;
@@ -203,21 +202,21 @@ pub(in crate::db) fn decode_commit_marker_payload(
         let entity_path_bytes =
             read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
         let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
-            InternalError::store_corruption(commit_corruption_message(
+            InternalError::commit_corruption(
                 "commit marker payload decode failed: entity_path is not utf-8",
-            ))
+            )
         })?;
         let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?.to_vec();
         let flags = *bytes.get(cursor).ok_or_else(|| {
-            InternalError::store_corruption(commit_corruption_message(
+            InternalError::commit_corruption(
                 "commit marker payload decode failed: truncated row-op flags",
-            ))
+            )
         })?;
         cursor = cursor.saturating_add(1);
         if flags & !COMMIT_MARKER_FLAG_MASK != 0 {
-            return Err(InternalError::store_corruption(commit_corruption_message(
+            return Err(InternalError::commit_corruption(
                 "commit marker payload decode failed: invalid row-op flags",
-            )));
+            ));
         }
 
         let before = if flags & COMMIT_MARKER_FLAG_BEFORE != 0 {
@@ -253,9 +252,9 @@ pub(in crate::db) fn decode_commit_marker_payload(
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
-        return Err(InternalError::store_corruption(commit_corruption_message(
+        return Err(InternalError::commit_corruption(
             "commit marker payload decode failed: trailing bytes after payload",
-        )));
+        ));
     }
 
     Ok(CommitMarker { id, row_ops })
@@ -292,9 +291,7 @@ fn read_len_u32(
     let payload = bytes
         .get(*cursor..cursor.saturating_add(4))
         .ok_or_else(|| {
-            InternalError::store_corruption(commit_corruption_message(format!(
-                "{label} decode failed: truncated length",
-            )))
+            InternalError::commit_corruption(format!("{label} decode failed: truncated length",))
         })?;
     *cursor = cursor.saturating_add(4);
 
@@ -312,16 +309,14 @@ fn read_fixed_array<const N: usize>(
     let payload = bytes
         .get(*cursor..cursor.saturating_add(N))
         .ok_or_else(|| {
-            InternalError::store_corruption(commit_corruption_message(format!(
-                "{label} decode failed: truncated bytes",
-            )))
+            InternalError::commit_corruption(format!("{label} decode failed: truncated bytes",))
         })?;
     *cursor = cursor.saturating_add(N);
 
     payload.try_into().map_err(|_| {
-        InternalError::store_corruption(commit_corruption_message(format!(
+        InternalError::commit_corruption(format!(
             "{label} decode failed: invalid fixed-size payload",
-        )))
+        ))
     })
 }
 
@@ -335,9 +330,7 @@ fn read_len_prefixed_bytes<'a>(
     let payload = bytes
         .get(*cursor..cursor.saturating_add(len))
         .ok_or_else(|| {
-            InternalError::store_corruption(commit_corruption_message(format!(
-                "{label} decode failed: truncated bytes",
-            )))
+            InternalError::commit_corruption(format!("{label} decode failed: truncated bytes",))
         })?;
     *cursor = cursor.saturating_add(len);
 
@@ -351,7 +344,7 @@ pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, Inter
     let min = IndexKey::MIN_STORED_SIZE_USIZE;
     let max = IndexKey::STORED_SIZE_USIZE;
     if len < min || len > max {
-        return Err(commit_component_corruption(
+        return Err(InternalError::commit_component_corruption(
             "index key",
             format!("invalid length {len}, expected {min}..={max}"),
         ));
@@ -359,7 +352,8 @@ pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, Inter
 
     // Phase 2: decode and enforce index-key semantic shape.
     let raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(bytes));
-    IndexKey::try_from_raw(&raw).map_err(|err| commit_component_corruption("index key", err))?;
+    IndexKey::try_from_raw(&raw)
+        .map_err(|err| InternalError::commit_component_corruption("index key", err))?;
 
     Ok(raw)
 }
@@ -370,7 +364,7 @@ pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, I
     let len = bytes.len();
     let max = MAX_INDEX_ENTRY_BYTES as usize;
     if len > max {
-        return Err(commit_component_corruption(
+        return Err(InternalError::commit_component_corruption(
             "index entry",
             format!("invalid length {len}, expected <= {max}"),
         ));
@@ -379,7 +373,7 @@ pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, I
     // Phase 2: decode and validate entry envelope.
     let raw = <RawIndexEntry as Storable>::from_bytes(Cow::Borrowed(bytes));
     raw.validate()
-        .map_err(|err| commit_component_corruption("index entry", err))?;
+        .map_err(|err| InternalError::commit_component_corruption("index entry", err))?;
 
     Ok(raw)
 }
@@ -390,7 +384,7 @@ pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKe
     let len = bytes.len();
     let expected = DataKey::STORED_SIZE_USIZE;
     if len != expected {
-        return Err(commit_component_corruption(
+        return Err(InternalError::commit_component_corruption(
             "data key",
             format!("invalid length {len}, expected {expected}"),
         ));
@@ -398,8 +392,8 @@ pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKe
 
     // Phase 2: decode and validate key shape.
     let raw = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(bytes));
-    let data_key =
-        DataKey::try_from_raw(&raw).map_err(|err| commit_component_corruption("data key", err))?;
+    let data_key = DataKey::try_from_raw(&raw)
+        .map_err(|err| InternalError::commit_component_corruption("data key", err))?;
 
     Ok((raw, data_key))
 }
@@ -416,14 +410,14 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     // Phase 1: reject row ops that cannot encode any mutation semantics.
     for row_op in &marker.row_ops {
         if row_op.entity_path.is_empty() {
-            return Err(InternalError::store_corruption(commit_corruption_message(
+            return Err(InternalError::commit_corruption(
                 "row op has empty entity_path",
-            )));
+            ));
         }
         if row_op.before.is_none() && row_op.after.is_none() {
-            return Err(InternalError::store_corruption(commit_corruption_message(
+            return Err(InternalError::commit_corruption(
                 "row op has neither before nor after payload",
-            )));
+            ));
         }
 
         // Phase 2: guard row payload size at marker-decode boundary so recovery
@@ -435,30 +429,24 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
             if let Some(bytes) = payload
                 && bytes.len() > MAX_ROW_BYTES as usize
             {
-                return Err(InternalError::store_corruption(commit_corruption_message(
-                    format!(
-                        "row op {label} payload exceeds max size: {} bytes (limit {MAX_ROW_BYTES})",
-                        bytes.len()
-                    ),
+                return Err(InternalError::commit_corruption(format!(
+                    "row op {label} payload exceeds max size: {} bytes (limit {MAX_ROW_BYTES})",
+                    bytes.len()
                 )));
             }
         }
 
         // Phase 3: enforce data-key byte shape and semantic decode.
         if row_op.key.len() != DataKey::STORED_SIZE_USIZE {
-            return Err(InternalError::store_corruption(commit_corruption_message(
-                format!(
-                    "row op key has invalid length: {} bytes (expected {})",
-                    row_op.key.len(),
-                    DataKey::STORED_SIZE_USIZE
-                ),
+            return Err(InternalError::commit_corruption(format!(
+                "row op key has invalid length: {} bytes (expected {})",
+                row_op.key.len(),
+                DataKey::STORED_SIZE_USIZE
             )));
         }
         let raw_key = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(row_op.key.as_slice()));
         DataKey::try_from_raw(&raw_key).map_err(|err| {
-            InternalError::store_corruption(commit_corruption_message(format!(
-                "row op key decode failed: {err}"
-            )))
+            InternalError::commit_corruption(format!("row op key decode failed: {err}"))
         })?;
     }
 

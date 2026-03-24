@@ -95,7 +95,7 @@ fn sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(SESSION_SQL_DB)
 }
 
-fn unsupported_sql_surface_query_error(message: &'static str) -> QueryError {
+fn unsupported_sql_dispatch_query_error(message: &'static str) -> QueryError {
     QueryError::execute(crate::error::InternalError::classified(
         ErrorClass::Unsupported,
         ErrorOrigin::Query,
@@ -103,160 +103,132 @@ fn unsupported_sql_surface_query_error(message: &'static str) -> QueryError {
     ))
 }
 
-///
-/// SessionSqlLegacySurfaceExt
-///
-/// Test-only compatibility adapters that map removed lane-specific SQL
-/// entrypoints to the unified SQL dispatch surface.
-///
-
-trait SessionSqlLegacySurfaceExt {
-    fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
-
-    fn execute_sql_projection<E>(&self, sql: &str) -> Result<Vec<Vec<Value>>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
-
-    fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
-
-    fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
-
-    fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
-
-    fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue;
-
-    fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError>;
+fn dispatch_projection_columns<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<String>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::Projection { columns, .. } => Ok(columns),
+        SqlDispatchResult::Explain(_)
+        | SqlDispatchResult::Describe(_)
+        | SqlDispatchResult::ShowIndexes(_)
+        | SqlDispatchResult::ShowColumns(_)
+        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
+            "projection column dispatch only supports row-producing SELECT or DELETE statements",
+        )),
+    }
 }
 
-impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
-    fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-    {
-        let payload = self.execute_sql_dispatch::<E>(sql)?;
+fn dispatch_projection_rows<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<Vec<Value>>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::Projection { rows, .. } => Ok(rows),
+        SqlDispatchResult::Explain(_)
+        | SqlDispatchResult::Describe(_)
+        | SqlDispatchResult::ShowIndexes(_)
+        | SqlDispatchResult::ShowColumns(_)
+        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
+            "projection row dispatch only supports row-producing SELECT or DELETE statements",
+        )),
+    }
+}
 
-        match payload {
-            SqlDispatchResult::Projection { columns, .. } => Ok(columns),
-            SqlDispatchResult::Explain(_)
-            | SqlDispatchResult::Describe(_)
-            | SqlDispatchResult::ShowIndexes(_)
-            | SqlDispatchResult::ShowColumns(_)
-            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "sql_projection_columns only supports row-producing SELECT or DELETE statements",
-            )),
-        }
+fn dispatch_explain_sql<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<String, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::Explain(explain) => Ok(explain),
+        SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::Describe(_)
+        | SqlDispatchResult::ShowIndexes(_)
+        | SqlDispatchResult::ShowColumns(_)
+        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
+            "EXPLAIN dispatch requires an EXPLAIN statement",
+        )),
+    }
+}
+
+fn dispatch_describe_sql<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<EntitySchemaDescription, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::Describe(description) => Ok(description),
+        SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::Explain(_)
+        | SqlDispatchResult::ShowIndexes(_)
+        | SqlDispatchResult::ShowColumns(_)
+        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
+            "DESCRIBE dispatch requires a DESCRIBE statement",
+        )),
+    }
+}
+
+fn dispatch_show_indexes_sql<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<String>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
+        SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::Explain(_)
+        | SqlDispatchResult::Describe(_)
+        | SqlDispatchResult::ShowColumns(_)
+        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
+            "SHOW INDEXES dispatch requires a SHOW INDEXES statement",
+        )),
+    }
+}
+
+fn dispatch_show_columns_sql<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<EntityFieldDescription>, QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    match session.execute_sql_dispatch::<E>(sql)? {
+        SqlDispatchResult::ShowColumns(columns) => Ok(columns),
+        SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::Explain(_)
+        | SqlDispatchResult::Describe(_)
+        | SqlDispatchResult::ShowIndexes(_)
+        | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_dispatch_query_error(
+            "SHOW COLUMNS dispatch requires a SHOW COLUMNS statement",
+        )),
+    }
+}
+
+fn dispatch_show_entities_sql(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<Vec<String>, QueryError> {
+    let route = session.sql_statement_route(sql)?;
+    if !route.is_show_entities() {
+        return Err(unsupported_sql_dispatch_query_error(
+            "SHOW ENTITIES dispatch requires a SHOW ENTITIES or SHOW TABLES statement",
+        ));
     }
 
-    fn execute_sql_projection<E>(&self, sql: &str) -> Result<Vec<Vec<Value>>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-    {
-        let payload = self.execute_sql_dispatch::<E>(sql)?;
-
-        match payload {
-            SqlDispatchResult::Projection { rows, .. } => Ok(rows),
-            SqlDispatchResult::Explain(_)
-            | SqlDispatchResult::Describe(_)
-            | SqlDispatchResult::ShowIndexes(_)
-            | SqlDispatchResult::ShowColumns(_)
-            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "execute_sql_projection only supports row-producing SELECT or DELETE statements",
-            )),
-        }
-    }
-
-    fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-    {
-        let payload = self.execute_sql_dispatch::<E>(sql)?;
-
-        match payload {
-            SqlDispatchResult::Explain(explain) => Ok(explain),
-            SqlDispatchResult::Projection { .. }
-            | SqlDispatchResult::Describe(_)
-            | SqlDispatchResult::ShowIndexes(_)
-            | SqlDispatchResult::ShowColumns(_)
-            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "explain_sql requires an EXPLAIN statement",
-            )),
-        }
-    }
-
-    fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-    {
-        let payload = self.execute_sql_dispatch::<E>(sql)?;
-
-        match payload {
-            SqlDispatchResult::Describe(description) => Ok(description),
-            SqlDispatchResult::Projection { .. }
-            | SqlDispatchResult::Explain(_)
-            | SqlDispatchResult::ShowIndexes(_)
-            | SqlDispatchResult::ShowColumns(_)
-            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "describe_sql requires a DESCRIBE statement",
-            )),
-        }
-    }
-
-    fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-    {
-        let payload = self.execute_sql_dispatch::<E>(sql)?;
-
-        match payload {
-            SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
-            SqlDispatchResult::Projection { .. }
-            | SqlDispatchResult::Explain(_)
-            | SqlDispatchResult::Describe(_)
-            | SqlDispatchResult::ShowColumns(_)
-            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "show_indexes_sql requires a SHOW INDEXES statement",
-            )),
-        }
-    }
-
-    fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
-    where
-        E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-    {
-        let payload = self.execute_sql_dispatch::<E>(sql)?;
-
-        match payload {
-            SqlDispatchResult::ShowColumns(columns) => Ok(columns),
-            SqlDispatchResult::Projection { .. }
-            | SqlDispatchResult::Explain(_)
-            | SqlDispatchResult::Describe(_)
-            | SqlDispatchResult::ShowIndexes(_)
-            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
-                "show_columns_sql requires a SHOW COLUMNS statement",
-            )),
-        }
-    }
-
-    fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError> {
-        let route = self.sql_statement_route(sql)?;
-        if !route.is_show_entities() {
-            return Err(unsupported_sql_surface_query_error(
-                "show_entities_sql requires a SHOW ENTITIES or SHOW TABLES statement",
-            ));
-        }
-
-        Ok(self.show_entities())
-    }
+    Ok(session.show_entities())
 }
 
 // Seed one deterministic SQL fixture dataset used by matrix tests.
@@ -915,8 +887,7 @@ fn describe_sql_returns_same_payload_as_describe_entity() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let from_sql = session
-        .describe_sql::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+    let from_sql = dispatch_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
         .expect("describe_sql should succeed");
     let from_typed = session.describe_entity::<SessionSqlEntity>();
 
@@ -962,7 +933,7 @@ fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
     // Phase 2: assert each non-describe lane remains fail-closed.
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
-            session.describe_sql::<SessionSqlEntity>(sql),
+            dispatch_describe_sql::<SessionSqlEntity>(&session, sql),
             context,
         );
     }
@@ -973,9 +944,9 @@ fn show_indexes_sql_returns_same_payload_as_show_indexes() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let from_sql = session
-        .show_indexes_sql::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
-        .expect("show_indexes_sql should succeed");
+    let from_sql =
+        dispatch_show_indexes_sql::<SessionSqlEntity>(&session, "SHOW INDEXES SessionSqlEntity")
+            .expect("show_indexes_sql should succeed");
     let from_typed = session.show_indexes::<SessionSqlEntity>();
 
     assert_eq!(
@@ -1020,7 +991,7 @@ fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
     // Phase 2: assert each non-show-indexes lane remains fail-closed.
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
-            session.show_indexes_sql::<SessionSqlEntity>(sql),
+            dispatch_show_indexes_sql::<SessionSqlEntity>(&session, sql),
             context,
         );
     }
@@ -1031,9 +1002,9 @@ fn show_columns_sql_returns_same_payload_as_show_columns() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let from_sql = session
-        .show_columns_sql::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
-        .expect("show_columns_sql should succeed");
+    let from_sql =
+        dispatch_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("show_columns_sql should succeed");
     let from_typed = session.show_columns::<SessionSqlEntity>();
 
     assert_eq!(
@@ -1078,7 +1049,7 @@ fn show_columns_sql_rejects_non_show_columns_statement_lanes_matrix() {
     // Phase 2: assert each non-show-columns lane remains fail-closed.
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
-            session.show_columns_sql::<SessionSqlEntity>(sql),
+            dispatch_show_columns_sql::<SessionSqlEntity>(&session, sql),
             context,
         );
     }
@@ -1089,8 +1060,7 @@ fn show_entities_sql_returns_runtime_entity_names() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let entities = session
-        .show_entities_sql("SHOW ENTITIES")
+    let entities = dispatch_show_entities_sql(&session, "SHOW ENTITIES")
         .expect("show_entities_sql should succeed");
 
     assert_eq!(
@@ -1105,8 +1075,7 @@ fn show_entities_sql_show_tables_alias_returns_runtime_entity_names() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let entities = session
-        .show_entities_sql("SHOW TABLES")
+    let entities = dispatch_show_entities_sql(&session, "SHOW TABLES")
         .expect("show_entities_sql SHOW TABLES alias should succeed");
 
     assert_eq!(
@@ -1147,7 +1116,7 @@ fn show_entities_sql_rejects_non_show_entities_statement_lanes_matrix() {
 
     // Phase 2: assert each non-show-entities lane remains fail-closed.
     for (sql, context) in cases {
-        assert_unsupported_sql_surface_result(session.show_entities_sql(sql), context);
+        assert_unsupported_sql_surface_result(dispatch_show_entities_sql(&session, sql), context);
     }
 }
 
@@ -1183,7 +1152,7 @@ fn explain_sql_rejects_non_explain_statement_lanes_matrix() {
     // Phase 2: assert each non-explain lane remains fail-closed.
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
-            session.explain_sql::<SessionSqlEntity>(sql),
+            dispatch_explain_sql::<SessionSqlEntity>(&session, sql),
             context,
         );
     }
@@ -1234,8 +1203,7 @@ fn execute_sql_projection_preserves_parser_unsupported_feature_detail_labels() {
     let session = sql_session();
 
     for (sql, feature) in unsupported_sql_feature_cases() {
-        let err = session
-            .execute_sql_projection::<SessionSqlEntity>(sql)
+        let err = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
             .expect_err("unsupported SQL feature should fail through execute_sql_projection");
         assert_sql_unsupported_feature_detail(err, feature);
     }
@@ -1274,8 +1242,7 @@ fn explain_sql_preserves_parser_unsupported_feature_detail_labels() {
 
     for (sql, feature) in unsupported_sql_feature_cases() {
         let explain_sql = format!("EXPLAIN {sql}");
-        let err = session
-            .explain_sql::<SessionSqlEntity>(explain_sql.as_str())
+        let err = dispatch_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
             .expect_err("unsupported SQL feature should fail through explain_sql");
         assert_sql_unsupported_feature_detail(err, feature);
     }
@@ -1398,9 +1365,11 @@ fn sql_projection_columns_select_field_list_returns_canonical_labels() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let columns = session
-        .sql_projection_columns::<SessionSqlEntity>("SELECT name, age FROM SessionSqlEntity")
-        .expect("field-list SQL projection columns should derive");
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age FROM SessionSqlEntity",
+    )
+    .expect("field-list SQL projection columns should derive");
 
     assert_eq!(columns, vec!["name".to_string(), "age".to_string()]);
 }
@@ -1410,9 +1379,9 @@ fn sql_projection_columns_select_star_returns_entity_model_order() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let columns = session
-        .sql_projection_columns::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
-        .expect("star SQL projection columns should derive");
+    let columns =
+        dispatch_projection_columns::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
+            .expect("star SQL projection columns should derive");
 
     assert_eq!(
         columns,
@@ -1425,9 +1394,11 @@ fn sql_projection_columns_delete_returns_entity_model_order() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let columns = session
-        .sql_projection_columns::<SessionSqlEntity>("DELETE FROM SessionSqlEntity WHERE age > 10")
-        .expect("delete SQL columns should derive from full entity row shape");
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "DELETE FROM SessionSqlEntity WHERE age > 10",
+    )
+    .expect("delete SQL columns should derive from full entity row shape");
 
     assert_eq!(
         columns,
@@ -1449,11 +1420,11 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
         })
         .expect("seed insert should succeed");
 
-    let response = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
-        )
-        .expect("projection SQL execution should succeed");
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
+    )
+    .expect("projection SQL execution should succeed");
     let row = response
         .first()
         .expect("projection SQL response should contain one row");
@@ -1479,11 +1450,11 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
         })
         .expect("seed insert should succeed");
 
-    let response = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
-        )
-        .expect("projection SQL star execution should succeed");
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
+    )
+    .expect("projection SQL star execution should succeed");
     let row = response
         .first()
         .expect("projection SQL star response should contain one row");
@@ -1534,14 +1505,14 @@ fn execute_sql_projection_select_table_qualified_fields_executes() {
         })
         .expect("seed insert should succeed");
 
-    let response = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "SELECT SessionSqlEntity.name \
-             FROM SessionSqlEntity \
-             WHERE SessionSqlEntity.age >= 40 \
-             ORDER BY SessionSqlEntity.age DESC LIMIT 1",
-        )
-        .expect("table-qualified projection SQL should execute");
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT SessionSqlEntity.name \
+         FROM SessionSqlEntity \
+         WHERE SessionSqlEntity.age >= 40 \
+         ORDER BY SessionSqlEntity.age DESC LIMIT 1",
+    )
+    .expect("table-qualified projection SQL should execute");
     let row = response
         .first()
         .expect("table-qualified projection SQL response should contain one row");
@@ -1586,13 +1557,13 @@ fn execute_sql_projection_select_field_list_honors_order_limit_offset_window() {
         .expect("seed insert should succeed");
 
     // Phase 2: execute one projection query with explicit window controls.
-    let response = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "SELECT name, age \
-             FROM SessionSqlEntity \
-             ORDER BY age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("projection SQL window execution should succeed");
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name, age \
+         FROM SessionSqlEntity \
+         ORDER BY age DESC LIMIT 2 OFFSET 1",
+    )
+    .expect("projection SQL window execution should succeed");
     let rows = response;
 
     // Phase 3: assert projected row payloads follow ordered window semantics.
@@ -1627,11 +1598,11 @@ fn execute_sql_projection_delete_returns_deleted_rows() {
         ],
     );
 
-    let projection = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
-        )
-        .expect("projection SQL execution should support delete statements");
+    let projection = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("projection SQL execution should support delete statements");
     let rows = projection;
 
     assert!(
@@ -1775,11 +1746,11 @@ fn execute_sql_projection_select_distinct_with_pk_field_list_executes() {
         })
         .expect("seed insert should succeed");
 
-    let response = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "SELECT DISTINCT id, age FROM SessionSqlEntity ORDER BY id ASC",
-        )
-        .expect("SELECT DISTINCT field-list with PK should execute");
+    let response = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT id, age FROM SessionSqlEntity ORDER BY id ASC",
+    )
+    .expect("SELECT DISTINCT field-list with PK should execute");
     assert_eq!(response.len(), 2);
     assert_eq!(response[0].len(), 2);
 }
@@ -2094,8 +2065,7 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
 
     // Phase 3: assert projected row payloads for each SQL input.
     for (sql, expected_rows) in cases {
-        let response = session
-            .execute_sql_projection::<SessionSqlEntity>(sql)
+        let response = dispatch_projection_rows::<SessionSqlEntity>(&session, sql)
             .expect("projection matrix SQL execution should succeed");
         let actual_rows = response;
 
@@ -2308,11 +2278,11 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .execute_sql_projection::<SessionSqlEntity>(
-            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-        )
-        .expect_err("projection SQL API should reject grouped aggregate SQL intent");
+    let err = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+    )
+    .expect_err("projection SQL API should reject grouped aggregate SQL intent");
 
     assert!(
         matches!(
@@ -2673,8 +2643,7 @@ fn explain_sql_plan_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN plan query and assert stable output tokens.
     for (sql, tokens) in cases {
-        let explain = session
-            .explain_sql::<SessionSqlEntity>(sql)
+        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect("EXPLAIN plan matrix query should succeed");
         assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
     }
@@ -2706,8 +2675,7 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN EXECUTION query and assert stable output tokens.
     for (sql, tokens) in cases {
-        let explain = session
-            .explain_sql::<SessionSqlEntity>(sql)
+        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect("EXPLAIN EXECUTION matrix query should succeed");
         assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
     }
@@ -2747,8 +2715,7 @@ fn explain_sql_json_matrix_queries_include_expected_tokens() {
 
     // Phase 2: execute each EXPLAIN JSON query and assert stable output tokens.
     for (sql, tokens) in cases {
-        let explain = session
-            .explain_sql::<SessionSqlEntity>(sql)
+        let explain = dispatch_explain_sql::<SessionSqlEntity>(&session, sql)
             .expect("EXPLAIN JSON matrix query should succeed");
         assert!(
             explain.starts_with('{') && explain.ends_with('}'),
@@ -2763,11 +2730,11 @@ fn explain_sql_execution_returns_descriptor_text() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-        )
-        .expect("EXPLAIN EXECUTION should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("EXPLAIN EXECUTION should succeed");
 
     assert!(
         explain.contains("node_id=0"),
@@ -2784,11 +2751,11 @@ fn explain_sql_plan_returns_logical_plan_text() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-        )
-        .expect("EXPLAIN should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("EXPLAIN should succeed");
 
     assert!(
         explain.contains("mode=Load"),
@@ -2805,24 +2772,24 @@ fn explain_sql_plan_grouped_qualified_identifiers_match_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN SELECT SessionSqlEntity.age, COUNT(*) \
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("qualified grouped EXPLAIN plan SQL should succeed");
-    let unqualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN SELECT age, COUNT(*) \
+    )
+    .expect("qualified grouped EXPLAIN plan SQL should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              GROUP BY age \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("unqualified grouped EXPLAIN plan SQL should succeed");
+    )
+    .expect("unqualified grouped EXPLAIN plan SQL should succeed");
 
     assert_eq!(
         qualified, unqualified,
@@ -2835,24 +2802,24 @@ fn explain_sql_execution_grouped_qualified_identifiers_match_unqualified_output(
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT SessionSqlEntity.age, COUNT(*) \
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("qualified grouped EXPLAIN execution SQL should succeed");
-    let unqualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT age, COUNT(*) \
+    )
+    .expect("qualified grouped EXPLAIN execution SQL should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              GROUP BY age \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("unqualified grouped EXPLAIN execution SQL should succeed");
+    )
+    .expect("unqualified grouped EXPLAIN execution SQL should succeed");
 
     assert_eq!(
         qualified, unqualified,
@@ -2865,24 +2832,24 @@ fn explain_sql_json_grouped_qualified_identifiers_match_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON SELECT SessionSqlEntity.age, COUNT(*) \
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT SessionSqlEntity.age, COUNT(*) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("qualified grouped EXPLAIN JSON SQL should succeed");
-    let unqualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON SELECT age, COUNT(*) \
+    )
+    .expect("qualified grouped EXPLAIN JSON SQL should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT age, COUNT(*) \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              GROUP BY age \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
-        )
-        .expect("unqualified grouped EXPLAIN JSON SQL should succeed");
+    )
+    .expect("unqualified grouped EXPLAIN JSON SQL should succeed");
 
     assert_eq!(
         qualified, unqualified,
@@ -2895,22 +2862,22 @@ fn explain_sql_plan_qualified_identifiers_match_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN SELECT * \
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT * \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              ORDER BY SessionSqlEntity.age DESC LIMIT 1",
-        )
-        .expect("qualified EXPLAIN plan SQL should succeed");
-    let unqualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN SELECT * \
+    )
+    .expect("qualified EXPLAIN plan SQL should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT * \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              ORDER BY age DESC LIMIT 1",
-        )
-        .expect("unqualified EXPLAIN plan SQL should succeed");
+    )
+    .expect("unqualified EXPLAIN plan SQL should succeed");
 
     assert_eq!(
         qualified, unqualified,
@@ -2923,22 +2890,22 @@ fn explain_sql_execution_qualified_identifiers_match_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT SessionSqlEntity.name \
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT SessionSqlEntity.name \
              FROM SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21 \
              ORDER BY SessionSqlEntity.age DESC LIMIT 1",
-        )
-        .expect("qualified EXPLAIN execution SQL should succeed");
-    let unqualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT name \
+    )
+    .expect("qualified EXPLAIN execution SQL should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
              FROM SessionSqlEntity \
              WHERE age >= 21 \
              ORDER BY age DESC LIMIT 1",
-        )
-        .expect("unqualified EXPLAIN execution SQL should succeed");
+    )
+    .expect("unqualified EXPLAIN execution SQL should succeed");
 
     assert_eq!(
         qualified, unqualified,
@@ -2951,18 +2918,18 @@ fn explain_sql_json_qualified_aggregate_matches_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let qualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
+    let qualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
              FROM public.SessionSqlEntity \
              WHERE SessionSqlEntity.age >= 21",
-        )
-        .expect("qualified global aggregate EXPLAIN JSON should succeed");
-    let unqualified = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
-        )
-        .expect("unqualified global aggregate EXPLAIN JSON should succeed");
+    )
+    .expect("qualified global aggregate EXPLAIN JSON should succeed");
+    let unqualified = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
+    )
+    .expect("unqualified global aggregate EXPLAIN JSON should succeed");
 
     assert_eq!(
         qualified, unqualified,
@@ -2975,11 +2942,11 @@ fn explain_sql_plan_select_distinct_star_marks_distinct_true() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
-        )
-        .expect("EXPLAIN SELECT DISTINCT * should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+    )
+    .expect("EXPLAIN SELECT DISTINCT * should succeed");
 
     assert!(
         explain.contains("distinct=true"),
@@ -2992,11 +2959,11 @@ fn explain_sql_execution_select_distinct_star_returns_execution_descriptor_text(
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
-        )
-        .expect("EXPLAIN EXECUTION SELECT DISTINCT * should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+    )
+    .expect("EXPLAIN EXECUTION SELECT DISTINCT * should succeed");
 
     assert!(
         explain.contains("node_id=0"),
@@ -3009,11 +2976,11 @@ fn explain_sql_json_returns_logical_plan_json() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
-        )
-        .expect("EXPLAIN JSON should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("EXPLAIN JSON should succeed");
 
     assert!(
         explain.starts_with('{') && explain.ends_with('}'),
@@ -3034,11 +3001,11 @@ fn explain_sql_json_select_distinct_star_marks_distinct_true() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
-        )
-        .expect("EXPLAIN JSON SELECT DISTINCT * should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+    )
+    .expect("EXPLAIN JSON SELECT DISTINCT * should succeed");
 
     assert!(
         explain.contains("\"distinct\":true"),
@@ -3051,11 +3018,11 @@ fn explain_sql_json_delete_returns_logical_delete_mode() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN JSON DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
-        )
-        .expect("EXPLAIN JSON DELETE should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    )
+    .expect("EXPLAIN JSON DELETE should succeed");
 
     assert!(
         explain.contains("\"mode\":{\"type\":\"Delete\""),
@@ -3068,9 +3035,11 @@ fn explain_sql_plan_global_aggregate_returns_logical_plan_text() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>("EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("global aggregate SQL explain plan should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
+    )
+    .expect("global aggregate SQL explain plan should succeed");
 
     assert!(
         explain.contains("mode=Load"),
@@ -3087,9 +3056,11 @@ fn explain_sql_execution_global_aggregate_returns_execution_descriptor_text() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>("EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("global aggregate SQL explain execution should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
+    )
+    .expect("global aggregate SQL explain execution should succeed");
 
     assert!(
         explain.contains("AggregateCount execution_mode="),
@@ -3106,9 +3077,11 @@ fn explain_sql_json_global_aggregate_returns_logical_plan_json() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let explain = session
-        .explain_sql::<SessionSqlEntity>("EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity")
-        .expect("global aggregate SQL explain json should succeed");
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity",
+    )
+    .expect("global aggregate SQL explain json should succeed");
 
     assert!(
         explain.starts_with('{') && explain.ends_with('}'),
@@ -3125,11 +3098,11 @@ fn explain_sql_global_aggregate_rejects_unknown_target_field() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .explain_sql::<SessionSqlEntity>(
-            "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
-        )
-        .expect_err("global aggregate SQL explain should reject unknown target fields");
+    let err = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
+    )
+    .expect_err("global aggregate SQL explain should reject unknown target fields");
 
     assert!(
         matches!(
@@ -3147,9 +3120,11 @@ fn explain_sql_rejects_distinct_without_pk_projection_in_current_slice() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .explain_sql::<SessionSqlEntity>("EXPLAIN SELECT DISTINCT age FROM SessionSqlEntity")
-        .expect_err("EXPLAIN SELECT DISTINCT without PK projection should remain fail-closed");
+    let err = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT DISTINCT age FROM SessionSqlEntity",
+    )
+    .expect_err("EXPLAIN SELECT DISTINCT without PK projection should remain fail-closed");
 
     assert!(
         matches!(
@@ -3167,8 +3142,7 @@ fn explain_sql_rejects_non_explain_statements() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .explain_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
+    let err = dispatch_explain_sql::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
         .expect_err("explain_sql must reject non-EXPLAIN statements");
 
     assert!(

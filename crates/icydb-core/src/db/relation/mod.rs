@@ -95,32 +95,32 @@ impl InternalError {
             )),
         }
     }
-}
 
-/// Build a consistent strong-relation target-key mismatch error for save validation.
-pub(crate) fn target_key_mismatch_error(
-    source_path: &'static str,
-    field_name: &str,
-    target_path: &str,
-    value: &Value,
-) -> InternalError {
-    InternalError::executor_unsupported(format!(
-        "strong relation missing: source={source_path} field={field_name} target={target_path} key={value:?}",
-    ))
-}
+    /// Construct the canonical save-time strong-relation missing-target error.
+    pub(crate) fn strong_relation_target_missing(
+        source_path: &'static str,
+        field_name: &str,
+        target_path: &str,
+        value: &Value,
+    ) -> Self {
+        Self::executor_unsupported(format!(
+            "strong relation missing: source={source_path} field={field_name} target={target_path} key={value:?}",
+        ))
+    }
 
-/// Build a consistent strong-relation target-store incompatibility error.
-pub(crate) fn incompatible_store_error(
-    source_path: &'static str,
-    field_name: &str,
-    target_path: &str,
-    target_store_path: &str,
-    value: &Value,
-    err: impl Display,
-) -> InternalError {
-    InternalError::executor_internal(format!(
-        "strong relation target store missing: source={source_path} field={field_name} target={target_path} store={target_store_path} key={value:?} ({err})",
-    ))
+    /// Construct the canonical save-time strong-relation missing-store error.
+    pub(crate) fn strong_relation_target_store_missing(
+        source_path: &'static str,
+        field_name: &str,
+        target_path: &str,
+        target_store_path: &str,
+        value: &Value,
+        err: impl Display,
+    ) -> Self {
+        Self::executor_internal(format!(
+            "strong relation target store missing: source={source_path} field={field_name} target={target_path} store={target_store_path} key={value:?} ({err})",
+        ))
+    }
 }
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.

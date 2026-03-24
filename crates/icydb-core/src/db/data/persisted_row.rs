@@ -347,14 +347,6 @@ where
     T::decode_scalar_payload(payload, field_name).map(Some)
 }
 
-/// Build the canonical missing-field error for persisted-row materialization.
-#[must_use]
-pub fn missing_persisted_slot_error(field_name: &'static str) -> InternalError {
-    InternalError::serialize_corruption(format!(
-        "row decode failed: missing required field '{field_name}'",
-    ))
-}
-
 ///
 /// SlotBufferWriter
 ///
@@ -465,10 +457,8 @@ impl<'a> StructuralSlotReader<'a> {
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
-        let field_bytes =
-            StructuralRowFieldBytes::from_raw_row(raw_row, model).map_err(|err| match err {
-                StructuralRowDecodeError::Deserialize(source) => source,
-            })?;
+        let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
+            .map_err(StructuralRowDecodeError::into_internal_error)?;
         let cached_values = std::iter::repeat_with(|| CachedSlotValue::Pending)
             .take(model.fields().len())
             .collect();

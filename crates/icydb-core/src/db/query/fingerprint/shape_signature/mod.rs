@@ -15,9 +15,6 @@ use crate::db::{
     },
 };
 
-#[cfg(test)]
-use crate::db::query::fingerprint::test_support::continuation_signature_with_projection;
-
 impl AccessPlannedQuery {
     /// Compute a continuation signature bound to the entity path.
     ///

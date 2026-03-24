@@ -4,19 +4,19 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    error::{ErrorClass, ErrorOrigin},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     serialize::{SerializeError, serialize},
 };
 
 use super::{
     MAX_ROW_BYTES, ROW_FORMAT_VERSION_CURRENT, deserialize_persisted_payload,
-    deserialize_protocol_payload, deserialize_row, map_deserialize_error, serialize_row_payload,
+    deserialize_protocol_payload, deserialize_row, serialize_row_payload,
     serialize_row_payload_with_version,
 };
 
 #[test]
 fn map_deserialize_error_classifies_size_limit_as_corruption() {
-    let err = map_deserialize_error(
+    let err = InternalError::serialize_payload_decode_failed(
         SerializeError::DeserializeSizeLimitExceeded {
             len: 32,
             max_bytes: 16,
@@ -87,7 +87,7 @@ fn deserialize_row_older_version_fails_closed() {
 
 #[test]
 fn map_deserialize_error_uses_stable_kind_labels() {
-    let deserialize_err = map_deserialize_error(
+    let deserialize_err = InternalError::serialize_payload_decode_failed(
         SerializeError::Deserialize("backend text changed".into()),
         "row",
     );
@@ -96,7 +96,7 @@ fn map_deserialize_error_uses_stable_kind_labels() {
         "deserialize mapping should not depend on backend error text: {deserialize_err:?}"
     );
 
-    let serialize_err = map_deserialize_error(
+    let serialize_err = InternalError::serialize_payload_decode_failed(
         SerializeError::Serialize("unexpected backend text".into()),
         "row",
     );

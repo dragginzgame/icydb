@@ -25,7 +25,7 @@ for pkg in "${WORKSPACE_PACKAGES[@]}"; do
 done
 
 mapfile -t REFERENCED_PACKAGES < <(
-  perl -ne 'if (/cargo\s/) { while (/(?:^|\s)(?:-p|--package(?:=|\s+))([A-Za-z0-9_.-]+)/g) { print "$1\n" } }' \
+  perl -ne 'if (/cargo\s/) { while (/(?:^|\s)(?:-p\s*|--package(?:=|\s+)|--exclude(?:=|\s+))([A-Za-z0-9_.-]+)/g) { print "$1\n" } }' \
     "$WORKFLOW_FILE" \
     | sort -u
 )

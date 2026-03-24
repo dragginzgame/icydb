@@ -1652,13 +1652,16 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
         encode_commit_marker_payload(&marker).expect("marker payload encode should succeed");
     let future_version = COMMIT_MARKER_FORMAT_VERSION_CURRENT.saturating_add(1);
     let marker_bytes =
-        store::encode_raw_commit_marker_envelope_for_tests(future_version, marker_payload)
+        store::CommitStore::encode_raw_marker_envelope_for_tests(future_version, marker_payload)
             .expect("future-version marker envelope encode should succeed");
     let control_slot_bytes =
-        store::encode_raw_commit_control_slot_for_tests(marker_bytes, Vec::<u8>::new())
+        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::<u8>::new())
             .expect("control-slot envelope encode should succeed");
-    store::set_raw_commit_marker_bytes_for_tests(control_slot_bytes)
-        .expect("test helper should persist raw marker bytes");
+    store::with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(control_slot_bytes);
+        Ok(())
+    })
+    .expect("test helper should persist raw marker bytes");
 
     let err =
         ensure_recovered(&DB).expect_err("recovery should reject incompatible marker versions");

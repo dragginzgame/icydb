@@ -7,6 +7,7 @@
 #[cfg(test)]
 mod tests;
 
+use crate::serialize::{SerializeError, SerializeErrorKind};
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -338,6 +339,16 @@ impl InternalError {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
     }
 
+    /// Construct a store-origin commit-marker corruption error.
+    pub(crate) fn commit_corruption(detail: impl fmt::Display) -> Self {
+        Self::store_corruption(format!("commit marker corrupted: {detail}"))
+    }
+
+    /// Construct a store-origin commit-marker component corruption error.
+    pub(crate) fn commit_component_corruption(component: &str, detail: impl fmt::Display) -> Self {
+        Self::store_corruption(format!("commit marker {component} corrupted: {detail}"))
+    }
+
     /// Construct an index-origin corruption error.
     pub(crate) fn index_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Index, message.into())
@@ -350,6 +361,14 @@ impl InternalError {
             ErrorOrigin::Serialize,
             message.into(),
         )
+    }
+
+    /// Construct the canonical missing persisted-field decode error.
+    #[must_use]
+    pub fn missing_persisted_slot(field_name: &'static str) -> Self {
+        Self::serialize_corruption(format!(
+            "row decode failed: missing required field '{field_name}'",
+        ))
     }
 
     /// Construct an identity-origin corruption error.
@@ -392,6 +411,31 @@ impl InternalError {
             ErrorOrigin::Serialize,
             message.into(),
         )
+    }
+
+    /// Construct the canonical persisted-payload decode failure mapping for one
+    /// DB-owned serialized payload boundary.
+    pub(crate) fn serialize_payload_decode_failed(
+        source: SerializeError,
+        payload_label: &'static str,
+    ) -> Self {
+        match source {
+            // DB codec only decodes engine-owned persisted payloads.
+            // Size-limit breaches indicate persisted bytes violate DB storage policy.
+            SerializeError::DeserializeSizeLimitExceeded { len, max_bytes } => {
+                Self::serialize_corruption(format!(
+                    "{payload_label} decode failed: payload size {len} exceeds limit {max_bytes}"
+                ))
+            }
+            SerializeError::Deserialize(_) => Self::serialize_corruption(format!(
+                "{payload_label} decode failed: {}",
+                SerializeErrorKind::Deserialize
+            )),
+            SerializeError::Serialize(_) => Self::serialize_corruption(format!(
+                "{payload_label} decode failed: {}",
+                SerializeErrorKind::Serialize
+            )),
+        }
     }
 
     /// Construct a query-origin unsupported error preserving one SQL parser

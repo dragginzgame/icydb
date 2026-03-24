@@ -12,7 +12,7 @@ use crate::{
             explain::{ExplainGroupedStrategy, ExplainGrouping},
             fingerprint::{
                 finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
-                new_plan_fingerprint_hasher_v2, test_support,
+                new_plan_fingerprint_hasher_v2,
             },
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::{
@@ -36,7 +36,7 @@ use std::ops::Bound;
 fn fingerprint_with_projection(plan: &AccessPlannedQuery, projection: &ProjectionSpec) -> [u8; 32] {
     let explain = plan.explain();
     let mut hasher = new_plan_fingerprint_hasher_v2();
-    test_support::hash_explain_plan_profile_with_projection(
+    hash_explain_plan_profile_with_projection(
         &mut hasher,
         &explain,
         hash_parts::ExplainHashProfile::FingerprintV2,
@@ -44,6 +44,15 @@ fn fingerprint_with_projection(plan: &AccessPlannedQuery, projection: &Projectio
     );
 
     finalize_sha256_digest(hasher)
+}
+
+fn hash_explain_plan_profile_with_projection(
+    hasher: &mut Sha256,
+    plan: &crate::db::query::explain::ExplainPlan,
+    profile: hash_parts::ExplainHashProfile<'_>,
+    projection: &ProjectionSpec,
+) {
+    hash_parts::hash_explain_plan_profile_internal(hasher, plan, profile, Some(projection));
 }
 
 fn full_scan_query() -> AccessPlannedQuery {

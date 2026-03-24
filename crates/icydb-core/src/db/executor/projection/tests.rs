@@ -3,6 +3,8 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+#[cfg(feature = "sql")]
+use crate::db::response::ProjectedRow;
 use crate::{
     db::data::{RawRow, StructuralSlotReader},
     db::query::{
@@ -17,8 +19,6 @@ use crate::{
     types::Ulid,
     value::Value,
 };
-#[cfg(feature = "sql")]
-use crate::{db::query::fingerprint::projection_hash_for_test, db::response::ProjectedRow};
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -256,8 +256,8 @@ fn projection_hash_alias_identity_matches_evaluated_projection_output() {
             .expect("aliased projection should evaluate");
 
     assert_eq!(
-        projection_hash_for_test(&base_projection),
-        projection_hash_for_test(&aliased_projection),
+        base_projection.structural_hash_for_test(),
+        aliased_projection.structural_hash_for_test(),
         "alias-insensitive projection hash must align with evaluator output identity",
     );
     assert_eq!(
@@ -626,8 +626,8 @@ fn expression_projection_column_identity_is_deterministic() {
             .expect("alias-variant expression projection should evaluate");
 
     assert_eq!(
-        projection_hash_for_test(&base_projection),
-        projection_hash_for_test(&alias_variant_projection),
+        base_projection.structural_hash_for_test(),
+        alias_variant_projection.structural_hash_for_test(),
         "expression projection identity must remain deterministic across alias-only renames",
     );
     assert_eq!(

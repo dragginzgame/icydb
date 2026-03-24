@@ -65,6 +65,27 @@ pub(in crate::db) enum StructuralRowDecodeError {
     Deserialize(#[from] InternalError),
 }
 
+impl StructuralRowDecodeError {
+    // Collapse the local structural decode wrapper back into the internal taxonomy.
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::Deserialize(err) => err,
+        }
+    }
+
+    // Build one structural row corruption error at the manual decode boundary.
+    fn corruption(message: impl Into<String>) -> Self {
+        Self::Deserialize(InternalError::serialize_corruption(message.into()))
+    }
+
+    // Build one structural row compatibility error at the manual decode boundary.
+    fn incompatible_persisted_format(message: impl Into<String>) -> Self {
+        Self::Deserialize(InternalError::serialize_incompatible_persisted_format(
+            message.into(),
+        ))
+    }
+}
+
 /// Decode one persisted row through the structural row-envelope validation path.
 ///
 /// The only supported persisted row shape is the slot-framed payload envelope,
@@ -73,65 +94,61 @@ pub(in crate::db) fn decode_structural_row_cbor(
     raw_row: &RawRow,
 ) -> Result<CborValue, InternalError> {
     let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())
-        .map_err(structural_row_decode_internal_error)?;
+        .map_err(StructuralRowDecodeError::into_internal_error)?;
 
     Ok(CborValue::Bytes(payload.into_owned()))
 }
 
-// Collapse the local structural decode wrapper back into the internal taxonomy.
-fn structural_row_decode_internal_error(err: StructuralRowDecodeError) -> InternalError {
-    match err {
-        StructuralRowDecodeError::Deserialize(err) => err,
-    }
-}
 // Decode one persisted row envelope into the enclosed slot payload bytes.
 fn decode_structural_row_payload_bytes(
     bytes: &[u8],
 ) -> Result<Cow<'_, [u8]>, StructuralRowDecodeError> {
     let Some((major, argument, mut cursor)) = parse_cbor_head(bytes, 0)? else {
-        return Err(structural_row_corruption(
+        return Err(StructuralRowDecodeError::corruption(
             "row decode failed: empty row envelope",
         ));
     };
     if major != 4 || argument != 2 {
-        return Err(structural_row_corruption(
+        return Err(StructuralRowDecodeError::corruption(
             "row decode failed: expected row envelope array[2]",
         ));
     }
 
     let Some((version_major, version_argument, version_end)) = parse_cbor_head(bytes, cursor)?
     else {
-        return Err(structural_row_corruption(
+        return Err(StructuralRowDecodeError::corruption(
             "row decode failed: missing row format version",
         ));
     };
     if version_major != 0 {
-        return Err(structural_row_corruption(
+        return Err(StructuralRowDecodeError::corruption(
             "row decode failed: row format version is not an unsigned integer",
         ));
     }
     let version = u8::try_from(version_argument).map_err(|_| {
-        structural_row_corruption("row decode failed: row format version out of range")
+        StructuralRowDecodeError::corruption("row decode failed: row format version out of range")
     })?;
     validate_structural_row_format_version(version)?;
     cursor = version_end;
 
     let Some((payload_major, payload_argument, payload_start)) = parse_cbor_head(bytes, cursor)?
     else {
-        return Err(structural_row_corruption(
+        return Err(StructuralRowDecodeError::corruption(
             "row decode failed: missing row payload",
         ));
     };
     let payload = match payload_major {
         2 => {
             let payload_len = usize::try_from(payload_argument).map_err(|_| {
-                structural_row_corruption("row decode failed: payload length out of range")
+                StructuralRowDecodeError::corruption(
+                    "row decode failed: payload length out of range",
+                )
             })?;
             let payload_end = payload_start.checked_add(payload_len).ok_or_else(|| {
-                structural_row_corruption("row decode failed: payload length overflow")
+                StructuralRowDecodeError::corruption("row decode failed: payload length overflow")
             })?;
             if payload_end != bytes.len() {
-                return Err(structural_row_corruption(
+                return Err(StructuralRowDecodeError::corruption(
                     "row decode failed: trailing bytes after payload",
                 ));
             }
@@ -140,7 +157,9 @@ fn decode_structural_row_payload_bytes(
         }
         4 => {
             let payload_len = usize::try_from(payload_argument).map_err(|_| {
-                structural_row_corruption("row decode failed: payload array length out of range")
+                StructuralRowDecodeError::corruption(
+                    "row decode failed: payload array length out of range",
+                )
             })?;
             let mut payload = Vec::with_capacity(payload_len);
             let mut payload_cursor = payload_start;
@@ -149,17 +168,17 @@ fn decode_structural_row_payload_bytes(
                 let Some((byte_major, byte_argument, next_cursor)) =
                     parse_cbor_head(bytes, payload_cursor)?
                 else {
-                    return Err(structural_row_corruption(
+                    return Err(StructuralRowDecodeError::corruption(
                         "row decode failed: truncated payload byte array",
                     ));
                 };
                 if byte_major != 0 {
-                    return Err(structural_row_corruption(
+                    return Err(StructuralRowDecodeError::corruption(
                         "row decode failed: payload byte array contains non-integer element",
                     ));
                 }
                 let byte = u8::try_from(byte_argument).map_err(|_| {
-                    structural_row_corruption(
+                    StructuralRowDecodeError::corruption(
                         "row decode failed: payload byte array element out of range",
                     )
                 })?;
@@ -168,7 +187,7 @@ fn decode_structural_row_payload_bytes(
             }
 
             if payload_cursor != bytes.len() {
-                return Err(structural_row_corruption(
+                return Err(StructuralRowDecodeError::corruption(
                     "row decode failed: trailing bytes after payload byte array",
                 ));
             }
@@ -176,7 +195,7 @@ fn decode_structural_row_payload_bytes(
             Cow::Owned(payload)
         }
         _ => {
-            return Err(structural_row_corruption(
+            return Err(StructuralRowDecodeError::corruption(
                 "row decode failed: payload is not a byte string",
             ));
         }
@@ -191,25 +210,25 @@ fn decode_row_field_spans<'a>(
     model: &'static EntityModel,
 ) -> Result<RowFieldSpans<'a>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
-    let field_count_bytes = bytes
-        .get(..2)
-        .ok_or_else(|| structural_row_corruption("row decode failed: truncated slot header"))?;
+    let field_count_bytes = bytes.get(..2).ok_or_else(|| {
+        StructuralRowDecodeError::corruption("row decode failed: truncated slot header")
+    })?;
     let field_count = usize::from(u16::from_be_bytes([
         field_count_bytes[0],
         field_count_bytes[1],
     ]));
-    let table_len = field_count
-        .checked_mul(8)
-        .ok_or_else(|| structural_row_corruption("row decode failed: slot table overflow"))?;
-    let data_start = 2usize.checked_add(table_len).ok_or_else(|| {
-        structural_row_corruption("row decode failed: slot payload header overflow")
+    let table_len = field_count.checked_mul(8).ok_or_else(|| {
+        StructuralRowDecodeError::corruption("row decode failed: slot table overflow")
     })?;
-    let table = bytes
-        .get(2..data_start)
-        .ok_or_else(|| structural_row_corruption("row decode failed: truncated slot table"))?;
-    let data_section = bytes
-        .get(data_start..)
-        .ok_or_else(|| structural_row_corruption("row decode failed: missing slot payloads"))?;
+    let data_start = 2usize.checked_add(table_len).ok_or_else(|| {
+        StructuralRowDecodeError::corruption("row decode failed: slot payload header overflow")
+    })?;
+    let table = bytes.get(2..data_start).ok_or_else(|| {
+        StructuralRowDecodeError::corruption("row decode failed: truncated slot table")
+    })?;
+    let data_section = bytes.get(data_start..).ok_or_else(|| {
+        StructuralRowDecodeError::corruption("row decode failed: missing slot payloads")
+    })?;
     let mut spans: SlotSpans = vec![None; model.fields().len()];
 
     for (slot, span) in spans
@@ -217,28 +236,28 @@ fn decode_row_field_spans<'a>(
         .enumerate()
         .take(field_count.min(model.fields().len()))
     {
-        let entry_start = slot
-            .checked_mul(8)
-            .ok_or_else(|| structural_row_corruption("row decode failed: slot index overflow"))?;
+        let entry_start = slot.checked_mul(8).ok_or_else(|| {
+            StructuralRowDecodeError::corruption("row decode failed: slot index overflow")
+        })?;
         let entry = table.get(entry_start..entry_start + 8).ok_or_else(|| {
-            structural_row_corruption("row decode failed: truncated slot table entry")
+            StructuralRowDecodeError::corruption("row decode failed: truncated slot table entry")
         })?;
         let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
             .map_err(|_| {
-            structural_row_corruption("row decode failed: slot start out of range")
+            StructuralRowDecodeError::corruption("row decode failed: slot start out of range")
         })?;
         let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
             .map_err(|_| {
-                structural_row_corruption("row decode failed: slot length out of range")
+                StructuralRowDecodeError::corruption("row decode failed: slot length out of range")
             })?;
         if len == 0 {
             continue;
         }
-        let end = start
-            .checked_add(len)
-            .ok_or_else(|| structural_row_corruption("row decode failed: slot span overflow"))?;
+        let end = start.checked_add(len).ok_or_else(|| {
+            StructuralRowDecodeError::corruption("row decode failed: slot span overflow")
+        })?;
         if end > data_section.len() {
-            return Err(structural_row_corruption(
+            return Err(StructuralRowDecodeError::corruption(
                 "row decode failed: slot span exceeds payload length",
             ));
         }
@@ -270,7 +289,7 @@ fn parse_cbor_head(
         value @ 0..=23 => u64::from(value),
         24 => {
             let value = *bytes.get(next_cursor).ok_or_else(|| {
-                structural_row_corruption("row decode failed: truncated CBOR head")
+                StructuralRowDecodeError::corruption("row decode failed: truncated CBOR head")
             })?;
             next_cursor += 1;
 
@@ -278,7 +297,7 @@ fn parse_cbor_head(
         }
         25 => {
             let bytes = bytes.get(next_cursor..next_cursor + 2).ok_or_else(|| {
-                structural_row_corruption("row decode failed: truncated CBOR head")
+                StructuralRowDecodeError::corruption("row decode failed: truncated CBOR head")
             })?;
             next_cursor += 2;
 
@@ -286,7 +305,7 @@ fn parse_cbor_head(
         }
         26 => {
             let bytes = bytes.get(next_cursor..next_cursor + 4).ok_or_else(|| {
-                structural_row_corruption("row decode failed: truncated CBOR head")
+                StructuralRowDecodeError::corruption("row decode failed: truncated CBOR head")
             })?;
             next_cursor += 4;
 
@@ -294,7 +313,7 @@ fn parse_cbor_head(
         }
         27 => {
             let bytes = bytes.get(next_cursor..next_cursor + 8).ok_or_else(|| {
-                structural_row_corruption("row decode failed: truncated CBOR head")
+                StructuralRowDecodeError::corruption("row decode failed: truncated CBOR head")
             })?;
             next_cursor += 8;
 
@@ -303,12 +322,12 @@ fn parse_cbor_head(
             ])
         }
         31 => {
-            return Err(structural_row_corruption(
+            return Err(StructuralRowDecodeError::corruption(
                 "row decode failed: indefinite-length CBOR is unsupported in persisted rows",
             ));
         }
         _ => {
-            return Err(structural_row_corruption(
+            return Err(StructuralRowDecodeError::corruption(
                 "row decode failed: invalid CBOR additional info",
             ));
         }
@@ -325,21 +344,9 @@ fn validate_structural_row_format_version(
         return Ok(());
     }
 
-    Err(structural_row_incompatible_persisted_format(format!(
-        "row format version {format_version} is unsupported by runtime version {ROW_FORMAT_VERSION_CURRENT}",
-    )))
-}
-
-// Build one structural row corruption error at the manual decode boundary.
-fn structural_row_corruption(message: impl Into<String>) -> StructuralRowDecodeError {
-    StructuralRowDecodeError::Deserialize(InternalError::serialize_corruption(message.into()))
-}
-
-// Build one structural row compatibility error at the manual decode boundary.
-fn structural_row_incompatible_persisted_format(
-    message: impl Into<String>,
-) -> StructuralRowDecodeError {
-    StructuralRowDecodeError::Deserialize(InternalError::serialize_incompatible_persisted_format(
-        message.into(),
+    Err(StructuralRowDecodeError::incompatible_persisted_format(
+        format!(
+            "row format version {format_version} is unsupported by runtime version {ROW_FORMAT_VERSION_CURRENT}",
+        ),
     ))
 }

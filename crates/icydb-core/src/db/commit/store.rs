@@ -5,7 +5,7 @@
 
 use crate::{
     db::commit::{
-        COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES, commit_corruption,
+        COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
         decode_commit_marker_payload, encode_commit_marker_payload, memory::commit_memory_id,
         validate_commit_marker_shape,
     },
@@ -69,7 +69,7 @@ impl RawCommitMarker {
 
         // Phase 2: enforce byte-size upper bound before decode.
         if self.0.len() > MAX_COMMIT_BYTES as usize {
-            return Err(commit_corruption(format!(
+            return Err(InternalError::commit_corruption(format!(
                 "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
                 self.0.len()
             )));
@@ -93,13 +93,13 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     }
 
     if bytes.len() > MAX_COMMIT_BYTES as usize {
-        return Err(commit_corruption(format!(
+        return Err(InternalError::commit_corruption(format!(
             "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
             bytes.len()
         )));
     }
     if bytes.len() < COMMIT_CONTROL_HEADER_BYTES {
-        return Err(commit_corruption(
+        return Err(InternalError::commit_corruption(
             "commit control-slot decode failed: expected canonical envelope",
         ));
     }
@@ -107,11 +107,15 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     let magic: [u8; 4] = bytes
         .get(..COMMIT_CONTROL_MAGIC.len())
         .ok_or_else(|| {
-            commit_corruption("commit control-slot decode failed: expected canonical envelope")
+            InternalError::commit_corruption(
+                "commit control-slot decode failed: expected canonical envelope",
+            )
         })?
         .try_into()
         .map_err(|_| {
-            commit_corruption("commit control-slot decode failed: expected canonical envelope")
+            InternalError::commit_corruption(
+                "commit control-slot decode failed: expected canonical envelope",
+            )
         })?;
     if magic != COMMIT_CONTROL_MAGIC {
         return Err(InternalError::serialize_incompatible_persisted_format(
@@ -120,7 +124,9 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     }
 
     let control_version = *bytes.get(COMMIT_CONTROL_MAGIC.len()).ok_or_else(|| {
-        commit_corruption("commit control-slot decode failed: expected canonical envelope")
+        InternalError::commit_corruption(
+            "commit control-slot decode failed: expected canonical envelope",
+        )
     })?;
     if control_version != COMMIT_CONTROL_STATE_VERSION_CURRENT {
         return Err(InternalError::serialize_incompatible_persisted_format(
@@ -136,19 +142,23 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     let remaining = bytes.len().saturating_sub(cursor);
     let expected = marker_len.saturating_add(migration_len);
     if remaining != expected {
-        return Err(commit_corruption(
+        return Err(InternalError::commit_corruption(
             "commit control-slot decode failed: expected canonical envelope",
         ));
     }
 
     let marker_end = cursor.saturating_add(marker_len);
     let marker_bytes = bytes.get(cursor..marker_end).ok_or_else(|| {
-        commit_corruption("commit control-slot decode failed: expected canonical envelope")
+        InternalError::commit_corruption(
+            "commit control-slot decode failed: expected canonical envelope",
+        )
     })?;
     cursor = marker_end;
     let migration_end = cursor.saturating_add(migration_len);
     let migration_bytes = bytes.get(cursor..migration_end).ok_or_else(|| {
-        commit_corruption("commit control-slot decode failed: expected canonical envelope")
+        InternalError::commit_corruption(
+            "commit control-slot decode failed: expected canonical envelope",
+        )
     })?;
 
     Ok((marker_bytes.to_vec(), migration_bytes.to_vec()))
@@ -181,7 +191,7 @@ fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalErr
 // Decode one commit marker with strict envelope semantics.
 fn decode_commit_marker(bytes: &[u8]) -> Result<CommitMarker, InternalError> {
     if bytes.len() > MAX_COMMIT_BYTES as usize {
-        return Err(commit_corruption(format!(
+        return Err(InternalError::commit_corruption(format!(
             "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
             bytes.len()
         )));
@@ -270,7 +280,7 @@ fn encode_commit_marker_bytes(
 // Decode the marker envelope without routing through generic tuple deserialization.
 fn decode_commit_marker_bytes(bytes: &[u8]) -> Result<(u8, Vec<u8>), InternalError> {
     if bytes.len() < COMMIT_MARKER_HEADER_BYTES {
-        return Err(commit_corruption(
+        return Err(InternalError::commit_corruption(
             "commit marker decode failed: expected canonical envelope",
         ));
     }
@@ -279,10 +289,10 @@ fn decode_commit_marker_bytes(bytes: &[u8]) -> Result<(u8, Vec<u8>), InternalErr
     let mut cursor = 1;
     let payload_len = read_u32_le(bytes, &mut cursor, "commit marker")? as usize;
     let payload = bytes.get(cursor..).ok_or_else(|| {
-        commit_corruption("commit marker decode failed: expected canonical envelope")
+        InternalError::commit_corruption("commit marker decode failed: expected canonical envelope")
     })?;
     if payload.len() != payload_len {
-        return Err(commit_corruption(
+        return Err(InternalError::commit_corruption(
             "commit marker decode failed: expected canonical envelope",
         ));
     }
@@ -298,7 +308,7 @@ fn read_u32_le(
 ) -> Result<u32, InternalError> {
     let next = cursor.saturating_add(4);
     let payload = bytes.get(*cursor..next).ok_or_else(|| {
-        commit_corruption(format!(
+        InternalError::commit_corruption(format!(
             "{label} decode failed: expected canonical envelope"
         ))
     })?;
@@ -307,22 +317,6 @@ fn read_u32_le(
     Ok(u32::from_le_bytes([
         payload[0], payload[1], payload[2], payload[3],
     ]))
-}
-
-#[cfg(test)]
-pub(in crate::db) fn encode_raw_commit_control_slot_for_tests(
-    marker_bytes: Vec<u8>,
-    migration_bytes: Vec<u8>,
-) -> Result<Vec<u8>, InternalError> {
-    encode_commit_control_slot(marker_bytes, migration_bytes)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn encode_raw_commit_marker_envelope_for_tests(
-    format_version: u8,
-    marker_payload: Vec<u8>,
-) -> Result<Vec<u8>, InternalError> {
-    encode_commit_marker_bytes(format_version, &marker_payload)
 }
 
 impl Storable for RawCommitMarker {
@@ -356,6 +350,24 @@ pub(super) struct CommitStore {
 }
 
 impl CommitStore {
+    /// Encode one raw commit-control slot payload for recovery tests.
+    #[cfg(test)]
+    pub(super) fn encode_raw_control_slot_for_tests(
+        marker_bytes: Vec<u8>,
+        migration_bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_commit_control_slot(marker_bytes, migration_bytes)
+    }
+
+    /// Encode one raw commit-marker envelope for recovery tests.
+    #[cfg(test)]
+    pub(super) fn encode_raw_marker_envelope_for_tests(
+        format_version: u8,
+        marker_payload: Vec<u8>,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_commit_marker_bytes(format_version, &marker_payload)
+    }
+
     /// Initialize one stable-cell-backed commit marker store.
     fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         let cell = StableCell::init(memory, RawCommitMarker::empty());
@@ -433,6 +445,12 @@ impl CommitStore {
             .unwrap_or_else(|_| RawCommitMarker::empty().into_bytes());
         self.cell.set(RawCommitMarker(encoded));
     }
+
+    /// Overwrite the raw marker bytes directly for recovery tests.
+    #[cfg(test)]
+    pub(super) fn set_raw_marker_bytes_for_tests(&mut self, bytes: Vec<u8>) {
+        self.cell.set(RawCommitMarker(bytes));
+    }
 }
 
 thread_local! {
@@ -442,14 +460,6 @@ thread_local! {
 #[cfg(test)]
 pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(store.load()?.is_some()))
-}
-
-#[cfg(test)]
-pub(super) fn set_raw_commit_marker_bytes_for_tests(bytes: Vec<u8>) -> Result<(), InternalError> {
-    with_commit_store(|store| {
-        store.cell.set(RawCommitMarker(bytes));
-        Ok(())
-    })
 }
 
 /// Lazily initialize and access the commit marker store.

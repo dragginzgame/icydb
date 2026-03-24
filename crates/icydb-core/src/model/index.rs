@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn index_model_without_predicate_preserves_legacy_display_shape() {
+    fn index_model_without_predicate_preserves_display_shape() {
         let model = IndexModel::new("users|email", "users::index", &["email"], true);
 
         assert_eq!(model.predicate(), None);

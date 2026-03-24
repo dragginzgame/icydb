@@ -24,7 +24,7 @@ impl Imp<Entity> for PersistedRowTrait {
                 match field.value.cardinality() {
                     Cardinality::Opt => quote!(None),
                     Cardinality::One | Cardinality::Many => quote! {
-                        return Err(::icydb::db::missing_persisted_slot_error(#field_name))
+                        return Err(::icydb::db::InternalError::missing_persisted_slot(#field_name))
                     },
                 }
             };

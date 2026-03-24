@@ -16,7 +16,7 @@ mod tests;
 
 use crate::{
     error::InternalError,
-    serialize::{SerializeError, SerializeErrorKind, deserialize_bounded, serialize},
+    serialize::{SerializeError, deserialize_bounded, serialize},
 };
 use serde::de::DeserializeOwned;
 
@@ -58,12 +58,16 @@ where
         match deserialize_bounded::<PersistedRowEnvelope>(bytes, MAX_ROW_BYTES as usize) {
             Ok(envelope) => envelope,
             Err(SerializeError::DeserializeSizeLimitExceeded { len, max_bytes }) => {
-                return Err(map_deserialize_error(
+                return Err(InternalError::serialize_payload_decode_failed(
                     SerializeError::DeserializeSizeLimitExceeded { len, max_bytes },
                     "row",
                 ));
             }
-            Err(source) => return Err(map_deserialize_error(source, "row")),
+            Err(source) => {
+                return Err(InternalError::serialize_payload_decode_failed(
+                    source, "row",
+                ));
+            }
         };
 
     validate_row_format_version(format_version)?;
@@ -90,7 +94,7 @@ where
     T: DeserializeOwned,
 {
     deserialize_bounded(bytes, max_bytes)
-        .map_err(|source| map_deserialize_error(source, payload_label))
+        .map_err(|source| InternalError::serialize_payload_decode_failed(source, payload_label))
 }
 
 /// Deserialize one non-persisted DB protocol payload under an explicit size policy.
@@ -128,25 +132,4 @@ fn serialize_row_payload_with_version(
 ) -> Result<Vec<u8>, InternalError> {
     serialize(&(format_version, payload))
         .map_err(|err| InternalError::serialize_internal(format!("row encode failed: {err}")))
-}
-
-// Convert format-level deserialize errors into DB engine classification.
-fn map_deserialize_error(source: SerializeError, payload_label: &'static str) -> InternalError {
-    match source {
-        // DB codec only decodes engine-owned persisted payloads.
-        // Size-limit breaches indicate persisted bytes violate DB storage policy.
-        SerializeError::DeserializeSizeLimitExceeded { len, max_bytes } => {
-            InternalError::serialize_corruption(format!(
-                "{payload_label} decode failed: payload size {len} exceeds limit {max_bytes}"
-            ))
-        }
-        SerializeError::Deserialize(_) => InternalError::serialize_corruption(format!(
-            "{payload_label} decode failed: {}",
-            SerializeErrorKind::Deserialize
-        )),
-        SerializeError::Serialize(_) => InternalError::serialize_corruption(format!(
-            "{payload_label} decode failed: {}",
-            SerializeErrorKind::Serialize
-        )),
-    }
 }

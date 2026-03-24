@@ -22,15 +22,12 @@ pub use persisted_row::{
     decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
     decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
-    missing_persisted_slot_error,
 };
 pub(in crate::db) use persisted_row::{
     StructuralSlotReader, decode_slot_value_by_contract, encode_persisted_row,
 };
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
-#[cfg(test)]
-pub(in crate::db) use structural_field::decode_structural_field_bytes;
 pub(in crate::db) use structural_field::{
     decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
     decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,

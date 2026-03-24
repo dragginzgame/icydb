@@ -8,7 +8,6 @@ pub(crate) mod access;
 pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
-pub(crate) mod error;
 pub(crate) mod identity;
 pub(crate) mod predicate;
 pub(crate) mod query;
@@ -55,7 +54,6 @@ pub use data::{
     SlotWriter, decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
     decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
-    missing_persisted_slot_error,
 };
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,

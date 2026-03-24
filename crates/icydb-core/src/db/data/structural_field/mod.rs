@@ -46,27 +46,6 @@ impl StructuralFieldDecodeError {
     }
 }
 
-/// Decode one encoded persisted field payload using the runtime storage-decode contract.
-///
-/// This wrapper only exists for structural-field tests. Production decode paths
-/// should dispatch directly into the by-kind or value-storage entrypoint so
-/// `ByKind` recursion does not retain the generic branch.
-#[cfg(test)]
-pub(in crate::db) fn decode_structural_field_bytes(
-    raw_bytes: &[u8],
-    kind: FieldKind,
-    storage_decode: crate::model::field::FieldStorageDecode,
-) -> Result<Value, StructuralFieldDecodeError> {
-    match storage_decode {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            decode_structural_field_by_kind_bytes(raw_bytes, kind)
-        }
-        crate::model::field::FieldStorageDecode::Value => {
-            decode_structural_value_storage_bytes(raw_bytes)
-        }
-    }
-}
-
 /// Decode one encoded persisted field payload strictly by semantic field kind.
 pub(in crate::db) fn decode_structural_field_by_kind_bytes(
     raw_bytes: &[u8],
@@ -95,7 +74,7 @@ pub(in crate::db) fn decode_structural_field_by_kind_bytes(
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_relation_target_storage_keys_bytes, decode_structural_field_bytes,
+        decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
         decode_structural_value_storage_bytes,
     };
     use crate::{
@@ -158,12 +137,9 @@ mod tests {
         let bytes = serde_cbor::to_vec(&vec!["left".to_string(), "right".to_string()])
             .expect("list bytes should encode");
 
-        let decoded = decode_structural_field_bytes(
-            &bytes,
-            FieldKind::List(&FieldKind::Text),
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("scalar list field should decode");
+        let decoded =
+            decode_structural_field_by_kind_bytes(&bytes, FieldKind::List(&FieldKind::Text))
+                .expect("scalar list field should decode");
 
         assert_eq!(
             decoded,
@@ -182,13 +158,12 @@ mod tests {
         ]))
         .expect("map bytes should encode");
 
-        let decoded = decode_structural_field_bytes(
+        let decoded = decode_structural_field_by_kind_bytes(
             &bytes,
             FieldKind::Map {
                 key: &FieldKind::Text,
                 value: &FieldKind::Uint,
             },
-            crate::model::field::FieldStorageDecode::ByKind,
         )
         .expect("scalar map field should decode");
 
@@ -225,18 +200,12 @@ mod tests {
         let account_bytes = serde_cbor::to_vec(&account).expect("account bytes should encode");
         let decimal_bytes = serde_cbor::to_vec(&decimal).expect("decimal bytes should encode");
 
-        let decoded_account = decode_structural_field_bytes(
-            &account_bytes,
-            FieldKind::Account,
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("account payload should decode");
-        let decoded_decimal = decode_structural_field_bytes(
-            &decimal_bytes,
-            FieldKind::Decimal { scale: 2 },
-            crate::model::field::FieldStorageDecode::ByKind,
-        )
-        .expect("decimal payload should decode");
+        let decoded_account =
+            decode_structural_field_by_kind_bytes(&account_bytes, FieldKind::Account)
+                .expect("account payload should decode");
+        let decoded_decimal =
+            decode_structural_field_by_kind_bytes(&decimal_bytes, FieldKind::Decimal { scale: 2 })
+                .expect("decimal payload should decode");
 
         assert_eq!(decoded_account, Value::Account(account));
         assert_eq!(decoded_decimal, Value::Decimal(decimal));

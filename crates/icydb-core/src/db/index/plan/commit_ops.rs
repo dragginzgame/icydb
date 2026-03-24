@@ -7,7 +7,7 @@ use crate::{
     db::{
         commit::CommitIndexOp,
         data::StorageKey,
-        index::{IndexEntry, IndexEntryEncodeError, IndexKey, RawIndexEntry, RawIndexKey},
+        index::{IndexEntry, IndexKey, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
     model::index::IndexModel,
@@ -133,17 +133,8 @@ fn push_commit_op_for_index_entry(
     entry: Option<IndexEntry>,
 ) -> Result<(), InternalError> {
     let value = if let Some(entry) = entry {
-        let raw = RawIndexEntry::try_from(&entry).map_err(|err| match err {
-            IndexEntryEncodeError::TooManyKeys { keys } => InternalError::index_unsupported(
-                format!("index entry exceeds max keys: {entity_path} ({fields}) -> {keys} keys"),
-            ),
-            IndexEntryEncodeError::DuplicateKey => InternalError::index_invariant(format!(
-                "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
-            )),
-            IndexEntryEncodeError::KeyEncoding(err) => InternalError::index_unsupported(format!(
-                "index entry key encoding failed: {entity_path} ({fields}) -> {err}",
-            )),
-        })?;
+        let raw = RawIndexEntry::try_from(&entry)
+            .map_err(|err| err.into_commit_internal_error(entity_path, fields))?;
         Some(raw.into_bytes())
     } else {
         None

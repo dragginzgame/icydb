@@ -45,8 +45,8 @@ jobs:
       - run: bash scripts/ci/check-memory-id-invariants.sh
       - run: bash scripts/ci/check-field-projection-invariants.sh
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --exclude canister_sql_test --exclude canister_minimal --exclude icydb-testing-integration -- -D warnings
-      - run: cargo test --workspace --all-targets --exclude canister_sql_test --exclude canister_minimal --exclude icydb-testing-integration --verbose
+      - run: cargo clippy --workspace --all-targets --exclude canister_quickstart --exclude canister_minimal --exclude icydb-testing-integration -- -D warnings
+      - run: cargo test --workspace --all-targets --exclude canister_quickstart --exclude canister_minimal --exclude icydb-testing-integration --verbose
       - run: cargo test -p icydb-testing-integration --test sql_canister --verbose
 
   wasm_size_report:
@@ -94,20 +94,20 @@ jobs:
           workspaces: |
             . -> target
           cache-targets: "false"
-      - run: cargo build -p canister_sql_test --target wasm32-unknown-unknown --profile wasm-release --locked
+      - run: cargo build -p canister_quickstart --target wasm32-unknown-unknown --profile wasm-release --locked
       - run: |
           mkdir -p artifacts
           target_dir="$(cargo metadata --format-version=1 --no-deps \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-          wasm="${target_dir}/wasm32-unknown-unknown/wasm-release/canister_sql_test.wasm"
+          wasm="${target_dir}/wasm32-unknown-unknown/wasm-release/canister_quickstart.wasm"
           if [ ! -f "$wasm" ]; then
             echo "Expected wasm artifact missing: $wasm" >&2
             exit 1
           fi
-          cp "$wasm" artifacts/sql_test.wasm
+          cp "$wasm" artifacts/quickstart.wasm
 
           cargo install candid-extractor --locked
-          did="artifacts/sql_test.did"
+          did="artifacts/quickstart.did"
           if candid-extractor "$wasm" > "$did"; then
             echo "Extracted $did"
           else

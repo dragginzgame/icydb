@@ -29,7 +29,7 @@ use crate::{
         data::DataStore,
         executor::{
             DeleteExecutor, ExecutionOptimization, ExecutionOptimizationCounter, LoadExecutor,
-            SaveExecutor, pipeline::contracts::PageCursor,
+            SaveExecutor,
         },
         index::IndexStore,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
@@ -53,39 +53,6 @@ use crate::{
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-
-/// ScalarPageCursorExt
-///
-/// Test-only compatibility helpers for scalar pagination assertions.
-/// Production code must use explicit `PageCursor::{as_scalar,as_grouped}` matching.
-trait ScalarPageCursorExt {
-    fn boundary(&self) -> &CursorBoundary;
-    fn signature(&self) -> ContinuationSignature;
-    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::TokenWireError>;
-}
-
-impl ScalarPageCursorExt for PageCursor {
-    fn boundary(&self) -> &CursorBoundary {
-        let Some(token) = self.as_scalar() else {
-            panic!("scalar pagination tests must not receive grouped continuation cursors");
-        };
-        token.boundary()
-    }
-
-    fn signature(&self) -> ContinuationSignature {
-        let Some(token) = self.as_scalar() else {
-            panic!("scalar pagination tests must not receive grouped continuation cursors");
-        };
-        token.signature()
-    }
-
-    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::TokenWireError> {
-        let Some(token) = self.as_scalar() else {
-            panic!("scalar pagination tests must not receive grouped continuation cursors");
-        };
-        token.encode()
-    }
-}
 
 // TestCanister
 

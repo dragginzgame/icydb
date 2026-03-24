@@ -40,7 +40,7 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
         let missing_expr = match classify_field(field_ty) {
             FieldCardinality::Opt => quote!(None),
             FieldCardinality::One | FieldCardinality::Many => quote! {
-                return Err(::icydb::db::missing_persisted_slot_error(#field_name))
+                return Err(::icydb::db::InternalError::missing_persisted_slot(#field_name))
             },
         };
         let decode_expr = persisted_field_decode_expr(field_ty, field_name.as_str());

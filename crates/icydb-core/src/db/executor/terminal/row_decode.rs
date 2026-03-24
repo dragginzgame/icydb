@@ -215,7 +215,7 @@ fn validate_primary_key_slot(
 mod tests {
     use super::*;
     use crate::{
-        db::data::decode_structural_field_bytes,
+        db::data::decode_structural_field_by_kind_bytes,
         error::{ErrorClass, ErrorOrigin},
         model::field::{FieldKind, FieldStorageDecode},
         traits::EntitySchema,
@@ -324,10 +324,9 @@ mod tests {
 
     #[test]
     fn structural_row_decoder_returns_null_for_structured_field_kind() {
-        let decoded = decode_structural_field_bytes(
+        let decoded = decode_structural_field_by_kind_bytes(
             &to_cbor_bytes(&vec!["x".to_string(), "y".to_string()]),
             FieldKind::Structured { queryable: false },
-            FieldStorageDecode::ByKind,
         )
         .expect("structured field decode should succeed");
 
@@ -342,7 +341,7 @@ mod tests {
             FieldStorageDecode::ByKind,
         )];
 
-        let decoded = decode_structural_field_bytes(
+        let decoded = decode_structural_field_by_kind_bytes(
             &to_cbor_bytes(&serde_cbor::Value::Map(BTreeMap::from([(
                 serde_cbor::Value::Text("Loaded".to_string()),
                 serde_cbor::Value::Integer(7),
@@ -351,7 +350,6 @@ mod tests {
                 path: "tests::State",
                 variants: ENUM_VARIANTS,
             },
-            FieldStorageDecode::ByKind,
         )
         .expect("enum payload decode should succeed");
 

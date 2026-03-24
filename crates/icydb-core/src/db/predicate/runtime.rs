@@ -53,7 +53,7 @@ enum CompiledPredicate {
 ///
 /// GenericPredicateProgram
 ///
-/// Marker for the legacy resolved-predicate executor.
+/// Marker for the resolved-predicate generic executor path.
 /// The resolved tree remains the source of truth for generic evaluation and
 /// for downstream consumers that still inspect `ResolvedPredicate`.
 ///

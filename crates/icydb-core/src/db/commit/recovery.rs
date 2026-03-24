@@ -47,13 +47,14 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
 pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID).map_err(recovery_origin)?;
+    configure_commit_memory_id(C::COMMIT_MEMORY_ID)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     if RECOVERED.get().is_none() {
         return perform_recovery(db);
     }
 
-    if commit_marker_present_fast().map_err(recovery_origin)? {
+    if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
         return perform_recovery(db);
     }
 
@@ -61,20 +62,21 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
 }
 
 fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    let marker = with_commit_store(|store| store.load()).map_err(recovery_origin)?;
+    let marker = with_commit_store(|store| store.load())
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
         // Phase 1: replay persisted row operations while marker authority is active.
         db.replay_commit_marker_row_ops(&marker.row_ops)
-            .map_err(recovery_origin)?;
+            .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
     // Phase 2: rebuild secondary indexes from authoritative data rows.
     db.rebuild_secondary_indexes_from_rows()
-        .map_err(recovery_origin)?;
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     // Phase 3: enforce post-recovery integrity before clearing marker authority.
-    validate_recovery_integrity(db).map_err(recovery_origin)?;
+    validate_recovery_integrity(db).map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     // Phase 4: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
@@ -82,19 +84,13 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
             store.clear_infallible();
             Ok(())
         })
-        .map_err(recovery_origin)?;
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
     let _ = RECOVERED.set(());
 
     Ok(())
 }
-
-// Re-originate recovery-phase failures at the recovery boundary for telemetry.
-fn recovery_origin(err: InternalError) -> InternalError {
-    err.with_origin(ErrorOrigin::Recovery)
-}
-
 // Fail closed if recovery leaves any index/data divergence findings.
 fn validate_recovery_integrity<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     if !db.has_runtime_hooks() {

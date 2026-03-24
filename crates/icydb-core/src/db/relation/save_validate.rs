@@ -8,8 +8,7 @@ use crate::{
         Db,
         relation::{
             StrongRelationTargetInfo, build_relation_target_raw_key,
-            for_each_relation_target_value, incompatible_store_error,
-            strong_relation_target_from_kind, target_key_mismatch_error,
+            for_each_relation_target_value, strong_relation_target_from_kind,
         },
     },
     error::InternalError,
@@ -91,7 +90,7 @@ where
     let store = db
         .with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
         .map_err(|err| {
-            incompatible_store_error(
+            InternalError::strong_relation_target_store_missing(
                 E::PATH,
                 field_name,
                 relation.target_path,
@@ -102,7 +101,7 @@ where
         })?;
     let exists = store.with_data(|s| s.contains_key(&raw_key));
     if !exists {
-        return Err(target_key_mismatch_error(
+        return Err(InternalError::strong_relation_target_missing(
             E::PATH,
             field_name,
             relation.target_path,

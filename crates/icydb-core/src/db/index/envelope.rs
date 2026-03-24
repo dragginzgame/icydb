@@ -3,7 +3,10 @@
 //! Does not own: planner continuation policy or token wire formats.
 //! Boundary: index-owned key-envelope semantics consumed by cursor/runtime/index layers.
 
-use crate::{db::direction::Direction, error::InternalError};
+use crate::{
+    db::{direction::Direction, index::RawIndexKey},
+    error::InternalError,
+};
 use std::ops::Bound;
 
 /// key_within_envelope
@@ -84,6 +87,31 @@ pub(in crate::db) fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
     Ok(())
 }
 
+///
+/// envelope_is_empty
+///
+/// Validate whether raw index-key bounds encode an empty traversal envelope.
+///
+#[must_use]
+pub(in crate::db) fn envelope_is_empty(
+    lower: &Bound<RawIndexKey>,
+    upper: &Bound<RawIndexKey>,
+) -> bool {
+    // Unbounded envelopes are never empty by construction.
+    let (Some(lower_key), Some(upper_key)) = (bound_key_ref(lower), bound_key_ref(upper)) else {
+        return false;
+    };
+
+    if lower_key < upper_key {
+        return false;
+    }
+    if lower_key > upper_key {
+        return true;
+    }
+
+    !matches!(lower, Bound::Included(_)) || !matches!(upper, Bound::Included(_))
+}
+
 /// Validate strict directional continuation advancement for one scan candidate.
 pub(in crate::db) fn validate_index_scan_continuation_advancement<K: Ord>(
     direction: Direction,
@@ -136,6 +164,13 @@ where
         };
 
         lower_ok && upper_ok
+    }
+}
+
+const fn bound_key_ref(bound: &Bound<RawIndexKey>) -> Option<&RawIndexKey> {
+    match bound {
+        Bound::Included(value) | Bound::Excluded(value) => Some(value),
+        Bound::Unbounded => None,
     }
 }
 
@@ -282,6 +317,14 @@ mod tests {
             envelope_is_empty(&resumed_lower, &resumed_upper),
             "anchor==upper must resume to an empty envelope so scan can short-circuit",
         );
+    }
+
+    #[test]
+    fn envelope_emptiness_identifies_empty_equal_exclusive_bounds() {
+        let lower = Bound::Included(raw_key(0x10));
+        let upper = Bound::Excluded(raw_key(0x10));
+
+        assert!(envelope_is_empty(&lower, &upper));
     }
 
     fn raw_key(byte: u8) -> RawIndexKey {

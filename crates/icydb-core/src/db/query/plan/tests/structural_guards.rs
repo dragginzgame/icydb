@@ -403,7 +403,7 @@ fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
     for forbidden in ["fn schema_literal_compatible(", "fn indexable_compare_op("] {
         assert!(
             !access_choice_runtime_source.contains(forbidden),
-            "access-choice must consume shared planner compatibility helpers ({forbidden})",
+            "access-choice must consume shared planner predicate helpers ({forbidden})",
         );
     }
 }

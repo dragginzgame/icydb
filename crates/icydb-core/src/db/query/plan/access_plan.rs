@@ -9,6 +9,13 @@ use crate::db::{
 };
 use crate::{traits::FieldValue, value::Value};
 
+#[cfg(test)]
+use crate::db::{
+    access::AccessPath,
+    predicate::MissingRowPolicy,
+    query::plan::{LoadSpec, QueryMode, ScalarPlan},
+};
+
 ///
 /// AccessPlannedQuery
 ///
@@ -24,6 +31,27 @@ pub(crate) struct AccessPlannedQuery {
 }
 
 impl AccessPlannedQuery {
+    /// Construct a minimal access-planned query with only an access path.
+    ///
+    /// Predicates, ordering, and pagination may be attached later.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
+        Self {
+            logical: LogicalPlan::Scalar(ScalarPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency,
+            }),
+            access: AccessPlan::path(access),
+            projection_selection: ProjectionSelection::All,
+        }
+    }
+
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
     pub(crate) fn from_parts<K>(logical: LogicalPlan, access: AccessPlan<K>) -> Self

@@ -14,11 +14,12 @@ mod scan;
 mod store;
 
 pub(in crate::db) use entry::{
-    IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
+    IndexEntry, IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
 pub(in crate::db) use envelope::{
-    KeyEnvelope, continuation_advanced, key_within_envelope, resume_bounds_from_refs,
-    validate_index_scan_continuation_advancement, validate_index_scan_continuation_envelope,
+    KeyEnvelope, continuation_advanced, envelope_is_empty, key_within_envelope,
+    resume_bounds_from_refs, validate_index_scan_continuation_advancement,
+    validate_index_scan_continuation_envelope,
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey, derive_index_expression_value,
@@ -40,8 +41,7 @@ pub(in crate::db) use predicate::{
 #[cfg(test)]
 pub(in crate::db) use range::raw_keys_for_encoded_prefix_with_kind;
 pub(in crate::db) use range::{
-    IndexRangeBoundEncodeError, envelope_is_empty, next_text_prefix,
-    raw_bounds_for_semantic_index_component_range, raw_keys_for_component_prefix_with_kind,
-    raw_keys_for_encoded_prefix,
+    IndexRangeBoundEncodeError, next_text_prefix, raw_bounds_for_semantic_index_component_range,
+    raw_keys_for_component_prefix_with_kind, raw_keys_for_encoded_prefix,
 };
 pub use store::IndexStore;

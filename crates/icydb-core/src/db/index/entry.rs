@@ -8,6 +8,7 @@ use crate::{
         data::{StorageKey, StorageKeyEncodeError},
         index::RawIndexKey,
     },
+    error::InternalError,
     traits::Storable,
     value::Value,
 };
@@ -93,6 +94,27 @@ pub(crate) enum IndexEntryEncodeError {
 
     #[error("index entry key encoding failed: {0}")]
     KeyEncoding(#[from] StorageKeyEncodeError),
+}
+
+impl IndexEntryEncodeError {
+    // Lift one commit-time index-entry encode failure into internal taxonomy.
+    pub(crate) fn into_commit_internal_error(
+        self,
+        entity_path: &str,
+        fields: &str,
+    ) -> InternalError {
+        match self {
+            Self::TooManyKeys { keys } => InternalError::index_unsupported(format!(
+                "index entry exceeds max keys: {entity_path} ({fields}) -> {keys} keys",
+            )),
+            Self::DuplicateKey => InternalError::index_invariant(format!(
+                "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
+            )),
+            Self::KeyEncoding(err) => InternalError::index_unsupported(format!(
+                "index entry key encoding failed: {entity_path} ({fields}) -> {err}",
+            )),
+        }
+    }
 }
 
 ///
@@ -334,7 +356,11 @@ mod tests {
         IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS,
         RawIndexEntry,
     };
-    use crate::{db::data::StorageKey, traits::Storable};
+    use crate::{
+        db::data::StorageKey,
+        error::{ErrorClass, ErrorOrigin},
+        traits::Storable,
+    };
     use std::borrow::Cow;
 
     #[test]
@@ -432,6 +458,15 @@ mod tests {
         );
 
         assert!(matches!(err, IndexEntryEncodeError::DuplicateKey));
+    }
+
+    #[test]
+    fn index_entry_encode_error_owns_commit_internal_mapping() {
+        let err = IndexEntryEncodeError::DuplicateKey
+            .into_commit_internal_error("tests::Entity", "email");
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Index);
     }
 
     #[test]

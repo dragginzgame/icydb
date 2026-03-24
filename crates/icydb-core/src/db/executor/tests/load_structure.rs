@@ -253,7 +253,7 @@ fn executor_layer_modules_do_not_import_forbidden_cross_layer_dependencies() {
 }
 
 #[test]
-fn executor_legacy_load_module_directory_is_removed() {
+fn executor_removed_load_module_directory_stays_removed() {
     let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
     assert!(
         !load_root.exists(),

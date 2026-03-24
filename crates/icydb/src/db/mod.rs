@@ -12,7 +12,7 @@ pub use icydb_core::db::{
     ScalarValueRef, SlotReader, SlotWriter, decode_persisted_option_scalar_slot_payload,
     decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
     encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
-    encode_persisted_slot_payload, missing_persisted_slot_error,
+    encode_persisted_slot_payload,
 };
 pub use icydb_core::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
