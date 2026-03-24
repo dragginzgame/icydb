@@ -9,7 +9,11 @@ use crate::{
             IndexCompareOp, IndexLiteral, IndexPredicateProgram, next_text_prefix,
             predicate::literal_index_component_bytes,
         },
-        predicate::{CoercionId, CompareOp, ResolvedComparePredicate, ResolvedPredicate},
+        predicate::{
+            CompareOp, ExecutableComparePredicate, ExecutablePredicate, IndexPredicateCapability,
+            PredicateCapabilityContext, classify_index_compare_component,
+            classify_predicate_capabilities,
+        },
     },
     value::Value,
 };
@@ -32,7 +36,7 @@ pub(crate) enum IndexCompilePolicy {
 /// This is the single compile-mode switch boundary for subset vs strict policy.
 #[must_use]
 pub(crate) fn compile_index_program(
-    predicate: &ResolvedPredicate,
+    predicate: &ExecutablePredicate,
     index_slots: &[usize],
     mode: IndexCompilePolicy,
 ) -> Option<IndexPredicateProgram> {
@@ -42,19 +46,29 @@ pub(crate) fn compile_index_program(
             compile_index_program_from_resolved(predicate, index_slots)
         }
         IndexCompilePolicy::StrictAllOrNone => {
-            compile_index_program_from_resolved_full(predicate, index_slots)
+            let capabilities = classify_predicate_capabilities(
+                predicate,
+                PredicateCapabilityContext::index_compile(index_slots),
+            );
+            match capabilities.index() {
+                IndexPredicateCapability::FullyIndexable => {
+                    compile_index_program_from_resolved_full(predicate, index_slots)
+                }
+                IndexPredicateCapability::PartiallyIndexable
+                | IndexPredicateCapability::RequiresFullScan => None,
+            }
         }
     }
 }
 
 /// Compile one resolved predicate tree into one index-only program.
 fn compile_index_program_from_resolved(
-    predicate: &ResolvedPredicate,
+    predicate: &ExecutablePredicate,
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
     // Compile a safe AND-subset: unsupported AND children are dropped so
     // index-only filtering remains conservative (no false negatives).
-    if let ResolvedPredicate::And(children) = predicate {
+    if let ExecutablePredicate::And(children) = predicate {
         return compile_index_program_and_subset(children, index_slots);
     }
 
@@ -63,15 +77,26 @@ fn compile_index_program_from_resolved(
 
 /// Compile an AND node by retaining only safely compilable children.
 fn compile_index_program_and_subset(
-    children: &[ResolvedPredicate],
+    children: &[ExecutablePredicate],
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
     let mut compiled = Vec::new();
     for child in children {
-        let child_program = match child {
+        let child_program = if let ExecutablePredicate::And(nested) = child {
             // Nested AND nodes can also be safely reduced to a conjunction subset.
-            ResolvedPredicate::And(nested) => compile_index_program_and_subset(nested, index_slots),
-            _ => compile_index_program_from_resolved_full(child, index_slots),
+            compile_index_program_and_subset(nested, index_slots)
+        } else {
+            let capabilities = classify_predicate_capabilities(
+                child,
+                PredicateCapabilityContext::index_compile(index_slots),
+            );
+            match capabilities.index() {
+                IndexPredicateCapability::FullyIndexable => {
+                    compile_index_program_from_resolved_full(child, index_slots)
+                }
+                IndexPredicateCapability::PartiallyIndexable
+                | IndexPredicateCapability::RequiresFullScan => None,
+            }
         };
 
         let Some(child_program) = child_program else {
@@ -93,49 +118,46 @@ fn compile_index_program_and_subset(
 
 /// Compile one resolved predicate tree only when every node is supported.
 fn compile_index_program_from_resolved_full(
-    predicate: &ResolvedPredicate,
+    predicate: &ExecutablePredicate,
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
     match predicate {
-        ResolvedPredicate::True => Some(IndexPredicateProgram::True),
-        ResolvedPredicate::False => Some(IndexPredicateProgram::False),
-        ResolvedPredicate::And(children) => Some(IndexPredicateProgram::And(
+        ExecutablePredicate::True => Some(IndexPredicateProgram::True),
+        ExecutablePredicate::False => Some(IndexPredicateProgram::False),
+        ExecutablePredicate::And(children) => Some(IndexPredicateProgram::And(
             children
                 .iter()
                 .map(|child| compile_index_program_from_resolved_full(child, index_slots))
                 .collect::<Option<Vec<_>>>()?,
         )),
-        ResolvedPredicate::Or(children) => Some(IndexPredicateProgram::Or(
+        ExecutablePredicate::Or(children) => Some(IndexPredicateProgram::Or(
             children
                 .iter()
                 .map(|child| compile_index_program_from_resolved_full(child, index_slots))
                 .collect::<Option<Vec<_>>>()?,
         )),
-        ResolvedPredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
+        ExecutablePredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
             compile_index_program_from_resolved_full(inner, index_slots)?,
         ))),
-        ResolvedPredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
-        ResolvedPredicate::IsNull { .. }
-        | ResolvedPredicate::IsNotNull { .. }
-        | ResolvedPredicate::IsMissing { .. }
-        | ResolvedPredicate::IsEmpty { .. }
-        | ResolvedPredicate::IsNotEmpty { .. }
-        | ResolvedPredicate::TextContains { .. }
-        | ResolvedPredicate::TextContainsCi { .. } => None,
+        ExecutablePredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
+        ExecutablePredicate::IsNull { .. }
+        | ExecutablePredicate::IsNotNull { .. }
+        | ExecutablePredicate::IsMissing { .. }
+        | ExecutablePredicate::IsEmpty { .. }
+        | ExecutablePredicate::IsNotEmpty { .. }
+        | ExecutablePredicate::TextContains { .. }
+        | ExecutablePredicate::TextContainsCi { .. } => None,
     }
 }
 
 /// Compile one resolved compare node into index-only compare bytes.
 fn compile_compare_index_node(
-    cmp: &ResolvedComparePredicate,
+    cmp: &ExecutableComparePredicate,
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
-    // Index-only compare compilation requires strict coercion and a mapped index slot.
-    if cmp.coercion.id != CoercionId::Strict {
-        return None;
-    }
-    let field_slot = cmp.field_slot?;
-    let component_index = index_slots.iter().position(|slot| *slot == field_slot)?;
+    // Capability classification owns index eligibility; translation only runs
+    // once the compare node is known to be indexable for this slot projection.
+    let component_index = classify_index_compare_component(cmp, index_slots)?;
 
     match cmp.op {
         CompareOp::Eq

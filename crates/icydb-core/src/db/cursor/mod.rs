@@ -63,6 +63,114 @@ pub(crate) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 pub(in crate::db) use validation::{CursorValidationOutcome, validate_cursor_compatibility};
 
+///
+/// ContinuationCursorContract
+///
+/// Canonical semantic contract for external continuation meaning.
+/// Owns the stable tuple that gives a cursor meaning at the boundary:
+/// validated ordering policy, directional mode, signature, and initial window offset.
+///
+pub(in crate::db) struct ContinuationCursorContract<'a> {
+    mode: ContinuationCursorMode<'a>,
+    continuation_signature: Option<ContinuationSignature>,
+    initial_offset: u32,
+}
+
+// Distinguish scalar and grouped continuation semantics under one boundary-owned contract.
+enum ContinuationCursorMode<'a> {
+    Scalar {
+        order: &'a OrderSpec,
+        direction: Direction,
+    },
+    Grouped,
+}
+
+impl<'a> ContinuationCursorContract<'a> {
+    /// Build the scalar cursor contract after validating ordering semantics once.
+    pub(in crate::db) fn scalar(
+        order: Option<&'a OrderSpec>,
+        direction: Direction,
+        continuation_signature: ContinuationSignature,
+        initial_offset: u32,
+    ) -> Result<Self, CursorPlanError> {
+        Ok(Self {
+            mode: ContinuationCursorMode::Scalar {
+                order: validated_cursor_order(order)?,
+                direction,
+            },
+            continuation_signature: Some(continuation_signature),
+            initial_offset,
+        })
+    }
+
+    /// Build the scalar revalidation contract for an already-decoded cursor.
+    pub(in crate::db) fn scalar_revalidation(
+        order: Option<&'a OrderSpec>,
+        direction: Direction,
+        initial_offset: u32,
+    ) -> Result<Self, CursorPlanError> {
+        Ok(Self {
+            mode: ContinuationCursorMode::Scalar {
+                order: validated_cursor_order(order)?,
+                direction,
+            },
+            continuation_signature: None,
+            initial_offset,
+        })
+    }
+
+    /// Build the grouped cursor contract after validating grouped ordering semantics once.
+    pub(in crate::db) fn grouped(
+        order: Option<&'a OrderSpec>,
+        continuation_signature: ContinuationSignature,
+        initial_offset: u32,
+    ) -> Result<Self, CursorPlanError> {
+        validate_grouped_cursor_order_plan(order)?;
+
+        Ok(Self {
+            mode: ContinuationCursorMode::Grouped,
+            continuation_signature: Some(continuation_signature),
+            initial_offset,
+        })
+    }
+
+    /// Build the grouped revalidation contract for an already-decoded cursor.
+    pub(in crate::db) const fn grouped_revalidation(initial_offset: u32) -> Self {
+        Self {
+            mode: ContinuationCursorMode::Grouped,
+            continuation_signature: None,
+            initial_offset,
+        }
+    }
+
+    fn scalar_order(&self) -> &OrderSpec {
+        match self.mode {
+            ContinuationCursorMode::Scalar { order, .. } => order,
+            ContinuationCursorMode::Grouped => {
+                panic!("grouped continuation contract does not carry scalar order")
+            }
+        }
+    }
+
+    fn scalar_direction(&self) -> Direction {
+        match self.mode {
+            ContinuationCursorMode::Scalar { direction, .. } => direction,
+            ContinuationCursorMode::Grouped => {
+                panic!("grouped continuation contract does not carry scalar direction")
+            }
+        }
+    }
+
+    const fn continuation_signature(&self) -> ContinuationSignature {
+        self.continuation_signature
+            .expect("continuation signature is only available on decode contracts")
+    }
+
+    const fn initial_offset(&self) -> u32 {
+        self.initial_offset
+    }
+}
+
 /// Decode one optional external continuation token through cursor-runtime authority.
 pub(in crate::db) fn decode_optional_cursor_token(
     cursor_token: Option<&str>,
@@ -85,7 +193,12 @@ pub(in crate::db) fn prepare_cursor<K: FieldValue>(
     initial_offset: u32,
     cursor: Option<&[u8]>,
 ) -> Result<PlannedCursor, CursorPlanError> {
-    let order = validated_cursor_order(order)?;
+    let contract = ContinuationCursorContract::scalar(
+        order,
+        direction,
+        continuation_signature,
+        initial_offset,
+    )?;
 
     spine::validate_planned_cursor(
         cursor,
@@ -93,10 +206,10 @@ pub(in crate::db) fn prepare_cursor<K: FieldValue>(
         entity_path,
         entity_tag,
         model,
-        order,
-        continuation_signature,
-        direction,
-        initial_offset,
+        contract.scalar_order(),
+        contract.continuation_signature(),
+        contract.scalar_direction(),
+        contract.initial_offset(),
     )
 }
 
@@ -114,16 +227,17 @@ pub(in crate::db) fn revalidate_cursor<K: FieldValue>(
         return Ok(PlannedCursor::none());
     }
 
-    let order = validated_cursor_order(order)?;
+    let contract =
+        ContinuationCursorContract::scalar_revalidation(order, direction, initial_offset)?;
 
     spine::validate_planned_cursor_state(
         cursor,
         access,
         entity_tag,
         model,
-        order,
-        direction,
-        initial_offset,
+        contract.scalar_order(),
+        contract.scalar_direction(),
+        contract.initial_offset(),
     )
 }
 
@@ -135,9 +249,15 @@ pub(in crate::db) fn prepare_grouped_cursor(
     initial_offset: u32,
     cursor: Option<&[u8]>,
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-    validate_grouped_cursor_order_plan(order)?;
+    let contract =
+        ContinuationCursorContract::grouped(order, continuation_signature, initial_offset)?;
 
-    spine::validate_grouped_cursor(cursor, entity_path, continuation_signature, initial_offset)
+    spine::validate_grouped_cursor(
+        cursor,
+        entity_path,
+        contract.continuation_signature(),
+        contract.initial_offset(),
+    )
 }
 
 /// Revalidate grouped cursor state through grouped cursor invariants.
@@ -145,7 +265,9 @@ pub(in crate::db) fn revalidate_grouped_cursor(
     initial_offset: u32,
     cursor: GroupedPlannedCursor,
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-    spine::validate_grouped_cursor_state(initial_offset, cursor)
+    let contract = ContinuationCursorContract::grouped_revalidation(initial_offset);
+
+    spine::validate_grouped_cursor_state(contract.initial_offset(), cursor)
 }
 
 /// Decode one structural primary-key cursor boundary for PK-ordered executor paths.

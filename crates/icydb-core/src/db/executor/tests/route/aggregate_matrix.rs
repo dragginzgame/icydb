@@ -9,7 +9,8 @@ use crate::db::{
         ExecutionPreparation,
         plan_metrics::GroupedPlanMetricsStrategy,
         route::{
-            AggregateSeekSpec, GroupedExecutionStrategy, build_execution_route_plan_for_grouped_plan,
+            AggregateSeekSpec, GroupedExecutionStrategy,
+            build_execution_route_plan_for_grouped_plan,
             grouped_plan_metrics_strategy_for_execution_strategy,
         },
     },
@@ -152,8 +153,8 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         execution: GroupedExecutionConfig::unbounded(),
     });
 
-    let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let grouped_handoff = grouped_executor_handoff(&grouped)
+        .expect("grouped logical plans should build grouped handoff");
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteMatrixEntity::MODEL,
         grouped_handoff.base(),
@@ -209,8 +210,8 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         execution: GroupedExecutionConfig::with_hard_limits(1, 1),
     });
 
-    let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let grouped_handoff = grouped_executor_handoff(&grouped)
+        .expect("grouped logical plans should build grouped handoff");
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteMatrixEntity::MODEL,
         grouped_handoff.base(),
@@ -268,8 +269,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         execution: GroupedExecutionConfig::unbounded(),
     });
 
-    let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let grouped_handoff = grouped_executor_handoff(&grouped)
+        .expect("grouped logical plans should build grouped handoff");
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteMatrixEntity::MODEL,
         grouped_handoff.base(),
@@ -309,8 +310,8 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
     });
     grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
 
-    let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let grouped_handoff = grouped_executor_handoff(&grouped)
+        .expect("grouped logical plans should build grouped handoff");
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteMatrixEntity::MODEL,
         grouped_handoff.base(),
@@ -354,8 +355,8 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
         }),
     );
 
-    let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let grouped_handoff = grouped_executor_handoff(&grouped)
+        .expect("grouped logical plans should build grouped handoff");
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteMatrixEntity::MODEL,
         grouped_handoff.base(),
@@ -510,8 +511,8 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
                 execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
             });
 
-    let grouped_handoff =
-        grouped_executor_handoff(&grouped).expect("grouped logical plans should build grouped handoff");
+    let grouped_handoff = grouped_executor_handoff(&grouped)
+        .expect("grouped logical plans should build grouped handoff");
     let route_plan = build_execution_route_plan_for_grouped_plan(
         RouteMatrixEntity::MODEL,
         grouped_handoff.base(),
@@ -1471,12 +1472,12 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
         .slot_map()
         .expect("index-range plan should expose one resolvable index slot");
     let subset_program = compile_index_program(
-        predicate_slots.resolved(),
+        predicate_slots.executable(),
         index_slots,
         IndexCompilePolicy::ConservativeSubset,
     );
     let strict_program = compile_index_program(
-        predicate_slots.resolved(),
+        predicate_slots.executable(),
         index_slots,
         IndexCompilePolicy::StrictAllOrNone,
     );

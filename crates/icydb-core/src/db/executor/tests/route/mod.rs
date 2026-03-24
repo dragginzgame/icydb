@@ -40,12 +40,6 @@ use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 
-const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
-const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
-const ROUTE_EXECUTION_MODE_CASE_BASELINE_0246: usize = 3;
-const ROUTE_SHAPE_KIND_BASELINE_0256: usize = 4;
-const ROUTE_GROUPED_RUNTIME_REVALIDATION_FLAG_BASELINE_0251: usize = 3;
-
 crate::test_canister! {
     ident = RouteMatrixCanister,
     commit_memory_id = crate::testing::test_commit_memory_id(),
@@ -65,7 +59,9 @@ static ROUTE_MATRIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     false,
 )];
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RouteMatrixEntity {
     id: Ulid,
     rank: u32,
@@ -167,7 +163,6 @@ where
 }
 
 mod aggregate_matrix;
-mod budget_matrix;
 mod capability_matrix;
 mod field_extrema_matrix;
 mod load_matrix;

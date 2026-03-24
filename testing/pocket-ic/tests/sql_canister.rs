@@ -81,22 +81,29 @@ fn install_quickstart_canister(pic: &PocketIc) -> Principal {
     canister_id
 }
 
-// Load the default fixture dataset and assert the update call returned `Ok(())`.
-fn load_default_fixtures(pic: &PocketIc, canister_id: Principal) {
-    let load_bytes = pic
+// Execute one unit-shaped update call and assert the canister returned `Ok(())`.
+fn expect_unit_update_ok(pic: &PocketIc, canister_id: Principal, method: &str) {
+    let response_bytes = pic
         .update_call(
             canister_id,
             Principal::anonymous(),
-            "fixtures_load_default",
-            encode_one(()).expect("encode fixtures_load_default args"),
+            method,
+            encode_one(()).expect("encode unit update args"),
         )
-        .expect("fixtures_load_default update call should succeed");
-    let load_result: Result<(), icydb::Error> =
-        decode_one(&load_bytes).expect("decode fixtures_load_default response");
-    assert!(
-        load_result.is_ok(),
-        "fixtures_load_default returned error: {load_result:?}"
-    );
+        .unwrap_or_else(|err| panic!("{method} update call should succeed: {err}"));
+    let response: Result<(), icydb::Error> =
+        decode_one(&response_bytes).unwrap_or_else(|err| panic!("decode {method} response: {err}"));
+    assert!(response.is_ok(), "{method} returned error: {response:?}");
+}
+
+// Load the default fixture dataset and assert the update call returned `Ok(())`.
+fn load_default_fixtures(pic: &PocketIc, canister_id: Principal) {
+    expect_unit_update_ok(pic, canister_id, "fixtures_load_default");
+}
+
+// Reset the default fixture dataset and assert the update call returned `Ok(())`.
+fn reset_fixtures(pic: &PocketIc, canister_id: Principal) {
+    expect_unit_update_ok(pic, canister_id, "fixtures_reset");
 }
 
 // Execute one PocketIC integration test body and keep teardown panics from
@@ -175,8 +182,23 @@ const fn metadata_entity_name(payload: &SqlQueryResult) -> Option<&str> {
     }
 }
 
+// Run one normalized metadata-lane SQL statement and assert the stable entity name.
+fn assert_metadata_entity_name(
+    pic: &PocketIc,
+    canister_id: Principal,
+    sql: &str,
+    expected_entity: &str,
+    context: &str,
+) {
+    let payload = query_result(pic, canister_id, sql).expect(context);
+    assert_eq!(
+        metadata_entity_name(&payload),
+        Some(expected_entity),
+        "{context}",
+    );
+}
+
 #[test]
-#[expect(clippy::too_many_lines)]
 fn sql_canister_smoke_flow() {
     run_with_pocket_ic(|pic| {
         let canister_id = install_quickstart_canister(pic);
@@ -274,20 +296,7 @@ fn sql_canister_smoke_flow() {
             "projection output should include projected row values",
         );
 
-        let reset_bytes = pic
-            .update_call(
-                canister_id,
-                Principal::anonymous(),
-                "fixtures_reset",
-                encode_one(()).expect("encode fixtures_reset args"),
-            )
-            .expect("fixtures_reset update call should succeed");
-        let reset_result: Result<(), icydb::Error> =
-            decode_one(&reset_bytes).expect("decode fixtures_reset response");
-        assert!(
-            reset_result.is_ok(),
-            "fixtures_reset returned error: {reset_result:?}"
-        );
+        reset_fixtures(pic, canister_id);
     });
 }
 
@@ -449,12 +458,11 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
             "DESCRIBE lines should include canonical entity name",
         );
 
-        let describe_normalized_payload =
-            query_result(pic, canister_id, " dEsCrIbE public.Character; ")
-                .expect("query normalized DESCRIBE should return an Ok payload");
-        assert_eq!(
-            metadata_entity_name(&describe_normalized_payload),
-            Some("Character"),
+        assert_metadata_entity_name(
+            pic,
+            canister_id,
+            " dEsCrIbE public.Character; ",
+            "Character",
             "query normalized DESCRIBE should return Character metadata payload",
         );
 
@@ -478,12 +486,11 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
             "SHOW INDEXES lines should include deterministic surface header",
         );
 
-        let show_indexes_normalized_payload =
-            query_result(pic, canister_id, "sHoW InDeXeS public.Character;")
-                .expect("query normalized SHOW INDEXES should return an Ok payload");
-        assert_eq!(
-            metadata_entity_name(&show_indexes_normalized_payload),
-            Some("Character"),
+        assert_metadata_entity_name(
+            pic,
+            canister_id,
+            "sHoW InDeXeS public.Character;",
+            "Character",
             "query normalized SHOW INDEXES should return Character metadata payload",
         );
 
@@ -511,12 +518,11 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
             "SHOW COLUMNS lines should include deterministic surface header",
         );
 
-        let show_columns_normalized_payload =
-            query_result(pic, canister_id, "sHoW CoLuMnS public.Character;")
-                .expect("query normalized SHOW COLUMNS should return an Ok payload");
-        assert_eq!(
-            metadata_entity_name(&show_columns_normalized_payload),
-            Some("Character"),
+        assert_metadata_entity_name(
+            pic,
+            canister_id,
+            "sHoW CoLuMnS public.Character;",
+            "Character",
             "query normalized SHOW COLUMNS should return Character metadata payload",
         );
     });

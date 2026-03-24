@@ -22,6 +22,7 @@ use crate::{
                 build_execution_route_plan_for_load_with_model,
             },
         },
+        predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
         query::{
             builder::AggregateExpr,
             explain::{
@@ -66,6 +67,8 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     let route_plan =
         build_execution_route_plan_for_load_with_model(model, plan, &continuation, None)?;
     let route_shape = route_plan.shape();
+    let predicate_index_capability =
+        execution_preparation_predicate_index_capability(&execution_preparation);
 
     // Phase 2: seed one root access node from the canonical access plan projection.
     let execution_mode = explain_execution_mode(route_shape);
@@ -73,13 +76,20 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     let mut root = access_execution_node_descriptor(access_strategy, execution_mode);
     annotate_access_root_node_properties(&mut root, &route_plan);
     annotate_access_choice_node_properties(&mut root, model, plan);
-    let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
+    let strict_predicate_compatible =
+        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
     let covering_scan = load_covering_scan_eligible(plan, strict_predicate_compatible);
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
         "covering_scan_reason".to_string(),
         Value::from(load_covering_scan_reason(plan, strict_predicate_compatible)),
     );
+    if let Some(capability) = predicate_index_capability {
+        root.node_properties.insert(
+            "predicate_index_capability".to_string(),
+            Value::from(predicate_index_capability_label(capability)),
+        );
+    }
     annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
     annotate_fast_path_reason_node_properties(&mut root, &route_plan);
 
@@ -174,7 +184,10 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     let route_plan =
         build_execution_route_plan_for_load_with_model(model, plan, &continuation, None)?;
     let route_shape = route_plan.shape();
-    let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
+    let predicate_index_capability =
+        execution_preparation_predicate_index_capability(&execution_preparation);
+    let strict_predicate_compatible =
+        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
     let projected_fields = plan
         .projection_spec(model)
         .fields()
@@ -222,6 +235,12 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     lines.push(format!(
         "diagnostic.route.predicate_stage={predicate_stage}"
     ));
+    if let Some(capability) = predicate_index_capability {
+        lines.push(format!(
+            "diagnostic.route.predicate_index_capability={}",
+            predicate_index_capability_label(capability)
+        ));
+    }
     lines.push(format!(
         "diagnostic.route.projected_fields={projected_fields:?}"
     ));
@@ -821,6 +840,22 @@ fn predicate_stage_descriptors(
     vec![node]
 }
 
+fn execution_preparation_predicate_index_capability(
+    execution_preparation: &ExecutionPreparation,
+) -> Option<IndexPredicateCapability> {
+    execution_preparation
+        .predicate_capability_profile()
+        .map(PredicateCapabilityProfile::index)
+}
+
+const fn predicate_index_capability_label(capability: IndexPredicateCapability) -> &'static str {
+    match capability {
+        IndexPredicateCapability::FullyIndexable => "fully_indexable",
+        IndexPredicateCapability::PartiallyIndexable => "partially_indexable",
+        IndexPredicateCapability::RequiresFullScan => "requires_full_scan",
+    }
+}
+
 fn pushdown_predicate_from_access_strategy(access: &ExplainAccessRoute) -> Option<String> {
     match access {
         ExplainAccessRoute::IndexPrefix {
@@ -988,7 +1023,9 @@ fn aggregate_covering_projection_for_terminal(
     aggregation: AggregateKind,
     execution_preparation: &ExecutionPreparation,
 ) -> bool {
-    let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
+    let strict_predicate_compatible =
+        execution_preparation_predicate_index_capability(execution_preparation)
+            == Some(IndexPredicateCapability::FullyIndexable);
 
     match aggregation {
         AggregateKind::Count | AggregateKind::Exists => {

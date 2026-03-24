@@ -10,7 +10,7 @@ use crate::{
             predicate::literal_index_component_bytes,
         },
         predicate::{
-            CoercionId, CoercionSpec, CompareOp, ResolvedComparePredicate, ResolvedPredicate,
+            CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate, ExecutablePredicate,
             compare_eq, compare_order,
         },
     },
@@ -105,7 +105,7 @@ fn canonical_index_predicate_caches_parse_failures_for_invalid_sql() {
 
 #[test]
 fn compile_index_program_maps_field_slot_to_component_index() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(7),
         op: CompareOp::Eq,
         value: Value::Uint(11),
@@ -133,7 +133,7 @@ fn compile_index_program_maps_field_slot_to_component_index() {
 
 #[test]
 fn compile_index_program_rejects_non_strict_coercion() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::Eq,
         value: Value::Uint(11),
@@ -164,7 +164,7 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
         (CompareOp::StartsWith, Value::Text("x".to_string())),
     ];
     for (op, value) in eligible {
-        let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
             field_slot: Some(1),
             op,
             value,
@@ -184,7 +184,7 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
         (CompareOp::EndsWith, Value::Text("x".to_string())),
     ];
     for (op, value) in ineligible {
-        let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
             field_slot: Some(1),
             op,
             value,
@@ -202,7 +202,7 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
 
 #[test]
 fn compile_index_program_starts_with_compiles_to_bounded_range_compare_pair() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::StartsWith,
         value: Value::Text("foo".to_string()),
@@ -235,7 +235,7 @@ fn compile_index_program_starts_with_compiles_to_bounded_range_compare_pair() {
 
 #[test]
 fn compile_index_program_starts_with_rejects_empty_prefix() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::StartsWith,
         value: Value::Text(String::new()),
@@ -249,7 +249,7 @@ fn compile_index_program_starts_with_rejects_empty_prefix() {
 #[test]
 fn compile_index_program_starts_with_high_unicode_skips_surrogate_gap_upper_bound() {
     let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::StartsWith,
         value: Value::Text(prefix.clone()),
@@ -286,7 +286,7 @@ fn compile_index_program_starts_with_high_unicode_skips_surrogate_gap_upper_boun
 #[test]
 fn compile_index_program_starts_with_max_unicode_compiles_to_lower_bound_only() {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::StartsWith,
         value: Value::Text(prefix.clone()),
@@ -310,7 +310,7 @@ fn compile_index_program_starts_with_max_unicode_compiles_to_lower_bound_only() 
 
 #[test]
 fn compile_index_program_strict_mode_accepts_starts_with_bounded_prefix() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::StartsWith,
         value: Value::Text("foo".to_string()),
@@ -344,7 +344,7 @@ fn compile_index_program_strict_mode_accepts_starts_with_bounded_prefix() {
 #[test]
 fn compile_index_program_strict_mode_accepts_starts_with_max_unicode_prefix() {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::StartsWith,
         value: Value::Text(prefix.clone()),
@@ -386,7 +386,7 @@ fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
     ];
 
     for (op, value) in operators {
-        let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
             field_slot: Some(1),
             op,
             value,
@@ -404,7 +404,7 @@ fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
 
 #[test]
 fn compile_index_program_rejects_in_with_non_list_literal() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::In,
         value: Value::Uint(11),
@@ -417,7 +417,7 @@ fn compile_index_program_rejects_in_with_non_list_literal() {
 
 #[test]
 fn compile_index_program_rejects_in_with_empty_list_literal() {
-    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate {
         field_slot: Some(1),
         op: CompareOp::In,
         value: Value::List(Vec::new()),
@@ -430,18 +430,18 @@ fn compile_index_program_rejects_in_with_empty_list_literal() {
 
 #[test]
 fn compile_index_program_and_subset_compiles_supported_children_only() {
-    let predicate = ResolvedPredicate::And(vec![
-        ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::And(vec![
+        ExecutablePredicate::Compare(ExecutableComparePredicate {
             field_slot: Some(1),
             op: CompareOp::Eq,
             value: Value::Uint(11),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
-        ResolvedPredicate::TextContains {
+        ExecutablePredicate::TextContains {
             field_slot: Some(1),
             value: Value::Text("x".to_string()),
         },
-        ResolvedPredicate::Compare(ResolvedComparePredicate {
+        ExecutablePredicate::Compare(ExecutableComparePredicate {
             field_slot: Some(2),
             op: CompareOp::Gt,
             value: Value::Uint(9),
@@ -477,12 +477,12 @@ fn compile_index_program_and_subset_compiles_supported_children_only() {
 
 #[test]
 fn compile_index_program_and_subset_drops_fully_unsupported_and() {
-    let predicate = ResolvedPredicate::And(vec![
-        ResolvedPredicate::TextContains {
+    let predicate = ExecutablePredicate::And(vec![
+        ExecutablePredicate::TextContains {
             field_slot: Some(1),
             value: Value::Text("x".to_string()),
         },
-        ResolvedPredicate::IsNull {
+        ExecutablePredicate::IsNull {
             field_slot: Some(2),
         },
     ]);
@@ -494,14 +494,14 @@ fn compile_index_program_and_subset_drops_fully_unsupported_and() {
 
 #[test]
 fn compile_index_program_strict_rejects_partial_and_support() {
-    let predicate = ResolvedPredicate::And(vec![
-        ResolvedPredicate::Compare(ResolvedComparePredicate {
+    let predicate = ExecutablePredicate::And(vec![
+        ExecutablePredicate::Compare(ExecutableComparePredicate {
             field_slot: Some(1),
             op: CompareOp::Eq,
             value: Value::Uint(11),
             coercion: CoercionSpec::new(CoercionId::Strict),
         }),
-        ResolvedPredicate::TextContains {
+        ExecutablePredicate::TextContains {
             field_slot: Some(1),
             value: Value::Text("x".to_string()),
         },

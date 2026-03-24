@@ -58,9 +58,16 @@ Optional controls:
 
 ## Output Contract
 
-Write one dated result file for each canister run:
+Write exactly one dated top-level summary file for a batch run:
 
-- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/wasm-footprint*.md`
+- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/wasm-footprint.md`
+
+If per-canister markdown detail files are emitted, they MUST live only under:
+
+- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/wasm-footprint/`
+
+Top-level numbered variants such as `wasm-footprint-2.md` are prohibited for
+batch runs.
 
 Write artifacts under:
 
@@ -70,6 +77,7 @@ Required artifacts for each run:
 
 - copied size report JSON (`*.size-report.json`)
 - copied size summary markdown (`*.size-summary.md`)
+- per-canister detailed markdown report (`*.md`) when multiple canisters are in scope
 - Twiggy top (`*.twiggy-top.txt`, `*.twiggy-top.csv`)
 - Twiggy retained hotspots (`*.twiggy-retained.csv`)
 - Twiggy dominators (`*.twiggy-dominators.txt`)
@@ -78,9 +86,10 @@ Required artifacts for each run:
 Result must include:
 
 - report preamble fields required by `docs/audits/AUDIT-HOWTO.md`
-- checklist table with status and evidence
-- size snapshot table (previous/current/delta)
-- Twiggy-derived culprit tables
+- one top-level summary report with checklist status and per-canister snapshot links
+- either:
+  - one combined top-level file that contains all per-canister detail, or
+  - per-canister detail markdown files stored under `artifacts/wasm-footprint/`
 - explicit follow-up actions for each `PARTIAL`/`FAIL`
 - verification readout section
 

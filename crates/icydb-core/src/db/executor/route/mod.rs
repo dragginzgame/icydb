@@ -15,6 +15,13 @@ mod pushdown;
 mod semantics;
 mod terminal;
 
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests;
+
 pub(in crate::db::executor) use capability::derive_budget_safety_flags_for_model;
 pub(in crate::db::executor::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
@@ -54,3 +61,25 @@ pub(in crate::db::executor) use terminal::{
     derive_count_terminal_fast_path_contract_for_model,
     derive_exists_terminal_fast_path_contract_for_model,
 };
+
+#[cfg(test)]
+const fn route_capability_flag_count_guard() -> usize {
+    10
+}
+
+#[cfg(test)]
+const fn route_execution_mode_case_count_guard() -> usize {
+    4
+}
+
+#[cfg(test)]
+const fn route_shape_kind_count_guard() -> usize {
+    5
+}
+
+#[cfg(test)]
+const fn grouped_ordered_runtime_revalidation_flag_count_guard() -> usize {
+    // Runtime grouped revalidation should stay capability-focused and consume
+    // only eligibility, rejection reason, and grouped execution strategy.
+    3
+}

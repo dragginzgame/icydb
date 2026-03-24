@@ -38,7 +38,7 @@ impl ExecutionKernel {
                 let slot_map = inputs.execution_preparation().slot_map()?;
 
                 compile_index_program(
-                    compiled_predicate.resolved(),
+                    compiled_predicate.executable(),
                     slot_map,
                     predicate_compile_mode,
                 )

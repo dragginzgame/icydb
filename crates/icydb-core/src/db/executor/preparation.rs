@@ -7,7 +7,10 @@ use crate::{
     db::{
         executor::ExecutableAccessPlan,
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
-        predicate::PredicateProgram,
+        predicate::{
+            PredicateCapabilityContext, PredicateCapabilityProfile, PredicateProgram,
+            classify_predicate_capabilities,
+        },
         query::plan::AccessPlannedQuery,
     },
     model::entity::{EntityModel, resolve_field_slot},
@@ -23,6 +26,7 @@ use crate::{
 #[derive(Clone)]
 pub(in crate::db::executor) struct ExecutionPreparation {
     compiled_predicate: Option<PredicateProgram>,
+    predicate_capability_profile: Option<PredicateCapabilityProfile>,
     slot_map: Option<Vec<usize>>,
     strict_mode: Option<IndexPredicateProgram>,
 }
@@ -42,10 +46,20 @@ impl ExecutionPreparation {
             .as_ref()
             .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
 
-        // Phase 2: Build strict index predicate program only when both inputs exist.
+        // Phase 2: Derive canonical predicate capability once for runtime/explain consumers.
+        let predicate_capability_profile = match (compiled_predicate.as_ref(), slot_map.as_deref())
+        {
+            (Some(compiled_predicate), Some(slot_map)) => Some(classify_predicate_capabilities(
+                compiled_predicate.executable(),
+                PredicateCapabilityContext::index_compile(slot_map),
+            )),
+            (Some(_) | None, None) | (None, Some(_)) => None,
+        };
+
+        // Phase 3: Build strict index predicate program only when strict full pushdown is valid.
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
             (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
-                compiled_predicate.resolved(),
+                compiled_predicate.executable(),
                 slot_map,
                 IndexCompilePolicy::StrictAllOrNone,
             ),
@@ -54,6 +68,7 @@ impl ExecutionPreparation {
 
         Self {
             compiled_predicate,
+            predicate_capability_profile,
             slot_map,
             strict_mode,
         }
@@ -67,6 +82,16 @@ impl ExecutionPreparation {
     #[must_use]
     pub(in crate::db::executor) fn slot_map(&self) -> Option<&[usize]> {
         self.slot_map.as_deref()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn predicate_capability_profile(
+        &self,
+    ) -> Option<PredicateCapabilityProfile> {
+        // This is a read-only capability snapshot for planner/explain consumers.
+        // Predicate interpretation and capability meaning stay owned by
+        // `db::predicate::capability`.
+        self.predicate_capability_profile
     }
 
     #[must_use]

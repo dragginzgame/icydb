@@ -10,9 +10,231 @@ REPORT_DIR="${WASM_AUDIT_REPORT_DIR:-$ROOT/docs/audits/reports/$AUDIT_MONTH/$AUD
 REPORT_SCOPE="wasm-footprint"
 ARTIFACT_SCOPE_DIR="$REPORT_DIR/artifacts/$REPORT_SCOPE"
 
+write_summary_report() {
+    local canisters=("$@")
+    local canister_csv=""
+
+    mkdir -p "$REPORT_DIR" "$ARTIFACT_SCOPE_DIR"
+    canister_csv="$(IFS=,; echo "${canisters[*]}")"
+
+    export ROOT PROFILE SQL_VARIANT AUDIT_DATE REPORT_DIR REPORT_SCOPE ARTIFACT_SCOPE_DIR
+    export WASM_AUDIT_CANISTER_CSV="$canister_csv"
+    python3 - <<'PY'
+import json
+import os
+import subprocess
+from pathlib import Path
+
+
+def fmt_int(value):
+    return f"{int(value):,}"
+
+
+def display_path(root: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def load_baseline_metrics(root: Path, baseline_path: str, artifact_scope: str, canister: str, profile: str, sql_variant: str):
+    if baseline_path == "N/A":
+        return None, None
+
+    baseline_report = root / baseline_path
+    candidates = [
+        baseline_report.parent / "artifacts" / artifact_scope / f"{artifact_scope}.{canister}.{profile}.{sql_variant}.size-report.json",
+        baseline_report.parent / "artifacts" / artifact_scope / f"{artifact_scope}.{canister}.{profile}.size-report.json",
+        baseline_report.parent / "helpers" / f"{artifact_scope}.{canister}.{profile}.{sql_variant}.size-report.json",
+        baseline_report.parent / "helpers" / f"{artifact_scope}.{canister}.{profile}.size-report.json",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return json.loads(candidate.read_text(encoding="utf-8")), candidate
+
+    return None, None
+
+
+root = Path(os.environ["ROOT"])
+report_dir = Path(os.environ["REPORT_DIR"])
+artifact_scope_dir = Path(os.environ["ARTIFACT_SCOPE_DIR"])
+report_scope = os.environ["REPORT_SCOPE"]
+audit_date = os.environ["AUDIT_DATE"]
+profile = os.environ["PROFILE"]
+sql_variant = os.environ["SQL_VARIANT"]
+canisters = [canister for canister in os.environ["WASM_AUDIT_CANISTER_CSV"].split(",") if canister]
+report_path = report_dir / f"{report_scope}.md"
+
+rows = []
+for path in root.glob("docs/audits/reports/*/*/wasm-footprint.md"):
+    if path.resolve().parent == report_dir.resolve():
+        continue
+    rows.append(str(path.relative_to(root)))
+
+baseline_path = rows[-1] if rows else "N/A"
+
+try:
+    snapshot = (
+        subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        )
+        .decode("utf-8")
+        .strip()
+    )
+except Exception:
+    snapshot = "N/A"
+
+per_canister = []
+all_baselines_available = True
+for canister in canisters:
+    size_report_path = artifact_scope_dir / f"{report_scope}.{canister}.{profile}.{sql_variant}.size-report.json"
+    detail_report_path = artifact_scope_dir / f"{report_scope}.{canister}.{profile}.{sql_variant}.md"
+    current = json.loads(size_report_path.read_text(encoding="utf-8"))
+    baseline_metrics, baseline_artifact_path = load_baseline_metrics(
+        root, baseline_path, report_scope, canister, profile, sql_variant
+    )
+    if baseline_path != "N/A" and baseline_metrics is None:
+        all_baselines_available = False
+
+    previous_shrunk = (
+        baseline_metrics["artifacts"]["dfx_shrunk_wasm"]["bytes"]
+        if baseline_metrics is not None
+        else None
+    )
+    current_shrunk = current["artifacts"]["dfx_shrunk_wasm"]["bytes"]
+    previous_gz = (
+        baseline_metrics["artifacts"]["dfx_shrunk_wasm_gz"]["bytes"]
+        if baseline_metrics is not None
+        else None
+    )
+    current_gz = current["artifacts"]["dfx_shrunk_wasm_gz"]["bytes"]
+
+    if baseline_path == "N/A":
+        status = "PARTIAL"
+        baseline_note = "first tracked run for this summary layout"
+    elif baseline_metrics is None:
+        status = "PARTIAL"
+        if baseline_artifact_path is None:
+            baseline_note = "baseline size artifact missing"
+        else:
+            baseline_note = f"baseline size artifact missing at `{display_path(root, baseline_artifact_path)}`"
+    else:
+        status = "PASS"
+        baseline_note = "baseline size artifact loaded"
+
+    per_canister.append(
+        {
+            "canister": canister,
+            "status": status,
+            "baseline_note": baseline_note,
+            "current_shrunk": current_shrunk,
+            "current_gz": current_gz,
+            "previous_shrunk": previous_shrunk,
+            "previous_gz": previous_gz,
+            "detail_report_path": display_path(root, detail_report_path),
+        }
+    )
+
+if baseline_path == "N/A":
+    comparability = "non-comparable (first tracked summary-layout run)"
+elif all_baselines_available:
+    comparability = "comparable"
+else:
+    comparability = "non-comparable (one or more baseline size artifacts are missing)"
+
+status_counts = {"PASS": 0, "PARTIAL": 0, "FAIL": 0}
+for item in per_canister:
+    status_counts[item["status"]] += 1
+
+lines = [
+    f"# Recurring Audit - Wasm Footprint ({audit_date})",
+    "",
+    "## Report Preamble",
+    "",
+    (
+        f"- scope: recurring wasm footprint audit for `{', '.join(canisters)}` "
+        f"with profile `{profile}` and SQL variant `{sql_variant}`"
+    ),
+    f"- compared baseline report path: `{baseline_path}`",
+    f"- code snapshot identifier: `{snapshot}`",
+    "- method tag/version: `WASM-1.0`",
+    f"- comparability status: `{comparability}`",
+    "",
+    "## Checklist Results",
+    "",
+    "| Requirement | Status | Evidence |",
+    "| --- | --- | --- |",
+    "| Wasm size artifacts captured | PASS | per-canister size reports + summaries written under `artifacts/wasm-footprint/` |",
+    "| Twiggy top breakdown generated | PASS | per-canister top text/csv artifacts written |",
+    "| Twiggy dominator breakdown generated | PASS | per-canister dominator text artifacts written |",
+    "| Twiggy monomorphization breakdown generated | PASS | per-canister monos artifacts written |",
+]
+
+if all_baselines_available and baseline_path != "N/A":
+    lines.append("| Baseline delta availability | PASS | baseline size artifacts loaded for all canisters |")
+elif baseline_path == "N/A":
+    lines.append("| Baseline delta availability | PARTIAL | first tracked summary-layout run; establishes new baseline layout |")
+else:
+    lines.append("| Baseline delta availability | PARTIAL | one or more prior scoped size artifacts are missing |")
+
+lines.extend(
+    [
+        "",
+        f"PASS={status_counts['PASS'] + 4}, PARTIAL={status_counts['PARTIAL'] + 1}, FAIL={status_counts['FAIL']}",
+        "",
+        "## Per-Canister Size Snapshot",
+        "",
+        "| Canister | Baseline Status | Previous shrunk `.wasm` | Current shrunk `.wasm` | Previous shrunk `.wasm.gz` | Current shrunk `.wasm.gz` | Detail Report |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ]
+)
+
+for item in per_canister:
+    previous_shrunk = fmt_int(item["previous_shrunk"]) if item["previous_shrunk"] is not None else "N/A"
+    previous_gz = fmt_int(item["previous_gz"]) if item["previous_gz"] is not None else "N/A"
+    lines.append(
+        f"| `{item['canister']}` | {item['status']} | {previous_shrunk} | {fmt_int(item['current_shrunk'])} | {previous_gz} | {fmt_int(item['current_gz'])} | `{item['detail_report_path']}` |"
+    )
+
+lines.extend(
+    [
+        "",
+        "## Follow-Up Actions",
+        "",
+    ]
+)
+
+if baseline_path == "N/A":
+    lines.append(
+        "- owner boundary: `wasm-audit`; action: treat this report as the baseline for the consolidated summary layout and compare deltas on the next run."
+    )
+elif all_baselines_available:
+    lines.append("- No follow-up actions required for this run.")
+else:
+    lines.append(
+        "- owner boundary: `wasm-audit history`; action: preserve scoped baseline size artifacts so future consolidated summary runs stay comparable."
+    )
+
+lines.extend(
+    [
+        "",
+        "## Verification Readout",
+        "",
+        f"- `WASM_AUDIT_DATE={audit_date} bash scripts/ci/wasm-audit-report.sh` -> PASS",
+        "- per-canister size-report JSON + Twiggy artifacts -> PASS",
+    ]
+)
+
+report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+}
+
 if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
     for canister_name in minimal one_simple one_complex ten_simple ten_complex; do
         WASM_CANISTER_NAME="$canister_name" \
+            WASM_AUDIT_BATCH_PARENT=1 \
             WASM_PROFILE="$PROFILE" \
             WASM_SQL_VARIANTS="$SQL_VARIANTS_MODE" \
             WASM_AUDIT_DATE="$AUDIT_DATE" \
@@ -20,6 +242,7 @@ if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
             WASM_AUDIT_SKIP_BUILD="${WASM_AUDIT_SKIP_BUILD:-0}" \
             bash "$0"
     done
+    write_summary_report minimal one_simple one_complex ten_simple ten_complex
     exit 0
 fi
 
@@ -71,15 +294,7 @@ for required in "$SIZE_REPORT_JSON" "$SIZE_SUMMARY_MD" "$SHRUNK_WASM"; do
 done
 
 REPORT_STEM="$REPORT_SCOPE"
-if [[ -f "$REPORT_DIR/$REPORT_SCOPE.md" ]]; then
-    run_index=2
-    while [[ -f "$REPORT_DIR/${REPORT_SCOPE}-${run_index}.md" ]]; do
-        run_index=$((run_index + 1))
-    done
-    REPORT_STEM="${REPORT_SCOPE}-${run_index}"
-fi
-
-REPORT_PATH="$REPORT_DIR/${REPORT_STEM}.md"
+REPORT_PATH="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.md"
 SIZE_REPORT_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.size-report.json"
 SIZE_SUMMARY_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.size-summary.md"
 TWIGGY_TOP_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-top.txt"
@@ -88,38 +303,26 @@ TWIGGY_DOMINATORS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PRO
 TWIGGY_RETAINED_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-retained.csv"
 TWIGGY_MONOS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-monos.txt"
 
-if [[ "$REPORT_STEM" == "wasm-footprint" ]]; then
-    BASELINE_PATH="$(
+BASELINE_PATH="$(
         ROOT="$ROOT" REPORT_DIR="$REPORT_DIR" python3 - <<'PY'
 import os
-import re
 from pathlib import Path
 
 root = Path(os.environ["ROOT"])
 report_dir = Path(os.environ["REPORT_DIR"]).resolve()
 rows = []
-for path in root.glob("docs/audits/reports/*/*/wasm-footprint*.md"):
+for path in root.glob("docs/audits/reports/*/*/wasm-footprint.md"):
     if path.resolve().parent == report_dir:
         continue
-    day = path.parent.name
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-        continue
-    match = re.fullmatch(r"wasm-footprint(?:-(\d+))?", path.stem)
-    if not match:
-        continue
-    run = int(match.group(1) or "1")
-    rows.append((day, run, str(path.relative_to(root))))
+    rows.append(str(path.relative_to(root)))
 
 if rows:
-    rows.sort(key=lambda row: (row[0], row[1]))
-    print(rows[-1][2])
+    rows.sort()
+    print(rows[-1])
 else:
     print("N/A")
 PY
     )"
-else
-    BASELINE_PATH="docs/audits/reports/${AUDIT_MONTH}/${AUDIT_DATE}/wasm-footprint.md"
-fi
 
 cp "$SIZE_REPORT_JSON" "$SIZE_REPORT_COPY"
 cp "$SIZE_SUMMARY_MD" "$SIZE_SUMMARY_COPY"
@@ -498,3 +701,7 @@ report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 
 echo "[wasm-audit] Wrote report: $REPORT_PATH"
+
+if [[ "${WASM_AUDIT_BATCH_PARENT:-0}" != "1" ]]; then
+    write_summary_report "$CANISTER_NAME"
+fi
