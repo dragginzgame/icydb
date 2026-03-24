@@ -13,6 +13,48 @@ use crate::db::{
     },
 };
 
+fn from_group_plan_error(err: PlanError) -> InternalError {
+    let message = match err {
+        PlanError::User(inner) => match *inner {
+            PlanUserError::Group(inner) => {
+                InternalError::invalid_logical_plan_message(inner.to_string())
+            }
+            other => {
+                format!("group-plan error conversion received non-group user variant: {other}")
+            }
+        },
+        PlanError::Policy(inner) => match *inner {
+            PlanPolicyError::Group(inner) => {
+                InternalError::invalid_logical_plan_message(inner.to_string())
+            }
+            PlanPolicyError::Policy(inner) => {
+                format!("group-plan error conversion received non-group policy variant: {inner}")
+            }
+        },
+        PlanError::Cursor(inner) => {
+            format!("group-plan error conversion received cursor variant: {inner}")
+        }
+    };
+
+    InternalError::planner_invariant(message)
+}
+
+fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
+    let reason = match err {
+        PolicyPlanError::EmptyOrderSpec => "order specification must include at least one field",
+        PolicyPlanError::DeletePlanWithOffset => "delete plans must not include OFFSET",
+        PolicyPlanError::DeletePlanWithGrouping => {
+            "delete plans must not include GROUP BY or HAVING"
+        }
+        PolicyPlanError::DeletePlanWithPagination => "delete plans must not include pagination",
+        PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
+        PolicyPlanError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
+        PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
+    };
+
+    InternalError::planner_invariant(InternalError::executor_invariant_message(reason))
+}
+
 #[test]
 fn index_plan_index_corruption_uses_index_origin() {
     let err = InternalError::index_plan_index_corruption("broken key payload");
@@ -104,7 +146,7 @@ fn executor_access_plan_error_mapping_stays_invariant_violation() {
 
 #[test]
 fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
-    let err = crate::db::error::plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
+    let err = plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
     assert_eq!(
@@ -115,11 +157,9 @@ fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
 
 #[test]
 fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
-    let err = crate::db::error::from_group_plan_error(PlanError::from(
-        GroupPlanError::UnknownGroupField {
-            field: "tenant".to_string(),
-        },
-    ));
+    let err = from_group_plan_error(PlanError::from(GroupPlanError::UnknownGroupField {
+        field: "tenant".to_string(),
+    }));
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
@@ -131,11 +171,11 @@ fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
 
 #[test]
 fn group_plan_error_mapping_rejects_non_group_user_variant() {
-    let err = crate::db::error::from_group_plan_error(PlanError::from(PlanUserError::Order(
-        Box::new(OrderPlanError::UnknownField {
+    let err = from_group_plan_error(PlanError::from(PlanUserError::Order(Box::new(
+        OrderPlanError::UnknownField {
             field: "tenant".to_string(),
-        }),
-    )));
+        },
+    ))));
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
@@ -148,9 +188,9 @@ fn group_plan_error_mapping_rejects_non_group_user_variant() {
 
 #[test]
 fn group_plan_error_mapping_rejects_non_group_policy_variant() {
-    let err = crate::db::error::from_group_plan_error(PlanError::from(PlanPolicyError::Policy(
-        Box::new(PolicyPlanError::UnorderedPagination),
-    )));
+    let err = from_group_plan_error(PlanError::from(PlanPolicyError::Policy(Box::new(
+        PolicyPlanError::UnorderedPagination,
+    ))));
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
@@ -163,7 +203,7 @@ fn group_plan_error_mapping_rejects_non_group_policy_variant() {
 
 #[test]
 fn group_plan_error_mapping_rejects_cursor_variant() {
-    let err = crate::db::error::from_group_plan_error(PlanError::from(
+    let err = from_group_plan_error(PlanError::from(
         CursorPlanError::ContinuationCursorWindowMismatch {
             expected_offset: 8,
             actual_offset: 3,
