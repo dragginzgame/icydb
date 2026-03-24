@@ -101,11 +101,8 @@ fn decode_canonical_cursor_anchor(
     anchor: &IndexRangeCursorAnchor,
 ) -> Result<ValidatedIdentityIndexRangeCursorAnchor, CursorPlanError> {
     let anchor_raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
-    let decoded_key = IndexKey::try_from_raw(&anchor_raw).map_err(|err| {
-        CursorPlanError::invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor decode failed: {err}"
-        ))
-    })?;
+    let decoded_key = IndexKey::try_from_raw(&anchor_raw)
+        .map_err(CursorPlanError::index_range_anchor_decode_failed)?;
     let canonical_raw = decoded_key.to_raw();
     debug_assert_eq!(
         canonical_raw.as_bytes(),
@@ -113,9 +110,7 @@ fn decode_canonical_cursor_anchor(
         "index-range continuation anchor must round-trip to identical raw bytes",
     );
     if canonical_raw.as_bytes() != anchor.last_raw_key() {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "index-range continuation anchor canonical encoding mismatch",
-        ));
+        return Err(CursorPlanError::index_range_anchor_canonical_encoding_mismatch());
     }
 
     Ok(ValidatedIdentityIndexRangeCursorAnchor::new(
@@ -134,19 +129,13 @@ fn validate_anchor_identity(
     let expected_index_id = IndexId::new(entity_tag, index.ordinal());
 
     if decoded_key.index_id() != &expected_index_id {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "index-range continuation anchor index id mismatch",
-        ));
+        return Err(CursorPlanError::index_range_anchor_index_id_mismatch());
     }
     if decoded_key.key_kind() != IndexKeyKind::User {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "index-range continuation anchor key namespace mismatch",
-        ));
+        return Err(CursorPlanError::index_range_anchor_key_namespace_mismatch());
     }
     if decoded_key.component_count() != index.fields().len() {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "index-range continuation anchor component arity mismatch",
-        ));
+        return Err(CursorPlanError::index_range_anchor_component_arity_mismatch());
     }
 
     Ok(anchor)
@@ -167,9 +156,7 @@ fn validate_anchor_in_envelope(
             .map_err(CursorPlanError::invalid_continuation_cursor_payload)?;
 
     if !KeyEnvelope::new(range_start, range_end).contains(anchor.lowered_key()) {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "index-range continuation anchor is outside the original range envelope",
-        ));
+        return Err(CursorPlanError::index_range_anchor_outside_envelope());
     }
 
     Ok(ValidatedInEnvelopeIndexRangeCursorAnchor::from_identity(
@@ -207,9 +194,7 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 ) -> Result<Option<ValidatedInEnvelopeIndexRangeCursorAnchor>, CursorPlanError> {
     let Some(access) = access else {
         if anchor.is_some() {
-            return Err(CursorPlanError::invalid_continuation_cursor_payload(
-                "unexpected index-range continuation anchor for composite access plan",
-            ));
+            return Err(CursorPlanError::unexpected_index_range_anchor_for_composite_plan());
         }
 
         return Ok(None);
@@ -217,15 +202,11 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 
     if let Some((index, _prefix_len)) = access.index_range_details() {
         let Some((prefix, lower, upper)) = access.index_range_semantic_bounds() else {
-            return Err(CursorPlanError::invalid_continuation_cursor_payload(
-                "index-range continuation validation is missing semantic bounds payload",
-            ));
+            return Err(CursorPlanError::index_range_anchor_semantic_bounds_required());
         };
         let Some(anchor) = anchor else {
             if require_anchor {
-                return Err(CursorPlanError::invalid_continuation_cursor_payload(
-                    "index-range continuation cursor is missing a raw-key anchor",
-                ));
+                return Err(CursorPlanError::index_range_anchor_required());
             }
 
             return Ok(None);
@@ -246,9 +227,7 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 
         return Ok(Some(validated_in_envelope));
     } else if anchor.is_some() {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "unexpected index-range continuation anchor for non-index-range access path",
-        ));
+        return Err(CursorPlanError::unexpected_index_range_anchor_for_non_range_path());
     }
 
     Ok(None)
@@ -274,22 +253,16 @@ pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldVa
         primary_key_matches_value(anchor.decoded_key(), &boundary_pk_key.to_value()).map_err(
             |err| match err {
                 PrimaryKeyEquivalenceError::AnchorDecode { source } => {
-                    CursorPlanError::invalid_continuation_cursor_payload(format!(
-                        "index-range continuation anchor primary key decode failed: {source}"
-                    ))
+                    CursorPlanError::index_range_anchor_primary_key_decode_failed(source)
                 }
                 PrimaryKeyEquivalenceError::BoundaryEncode { source } => {
-                    CursorPlanError::invalid_continuation_cursor_payload(format!(
-                        "index-range continuation boundary primary key decode failed: {source}"
-                    ))
+                    CursorPlanError::index_range_boundary_primary_key_decode_failed(source)
                 }
             },
         )?;
 
     if !matches_boundary {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "index-range continuation boundary/anchor mismatch",
-        ));
+        return Err(CursorPlanError::index_range_boundary_anchor_mismatch());
     }
 
     Ok(())

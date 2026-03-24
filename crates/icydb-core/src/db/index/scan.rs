@@ -174,9 +174,8 @@ impl IndexStore {
         Self::verify_if_debug(raw_key, value);
 
         // Phase 1: decode key + evaluate optional index-only predicate.
-        let decoded_key = IndexKey::try_from_raw(raw_key).map_err(|err| {
-            InternalError::index_corruption(format!("index key corrupted during {context}: {err}"))
-        })?;
+        let decoded_key = IndexKey::try_from_raw(raw_key)
+            .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
 
         if let Some(execution) = index_predicate_execution
             && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
@@ -188,12 +187,10 @@ impl IndexStore {
         let storage_keys = value
             .entry
             .decode_keys()
-            .map_err(|err| InternalError::index_corruption(err.to_string()))?;
+            .map_err(InternalError::index_entry_decode_failed)?;
 
         if index.is_unique() && storage_keys.len() != 1 {
-            return Err(InternalError::index_corruption(
-                "unique index entry contains an unexpected number of keys",
-            ));
+            return Err(InternalError::unique_index_entry_single_key_required());
         }
 
         for storage_key in storage_keys {
@@ -226,14 +223,13 @@ impl IndexStore {
 
         // Phase 1: decode key, extract requested component, and evaluate optional
         // index-only predicate.
-        let decoded_key = IndexKey::try_from_raw(raw_key).map_err(|err| {
-            InternalError::index_corruption(format!("index key corrupted during {context}: {err}"))
-        })?;
+        let decoded_key = IndexKey::try_from_raw(raw_key)
+            .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
         let Some(component) = decoded_key.component(component_index) else {
-            return Err(InternalError::index_invariant(format!(
-                "index projection referenced missing component: index='{}' component_index={component_index}",
-                index.name()
-            )));
+            return Err(InternalError::index_projection_component_required(
+                index.name(),
+                component_index,
+            ));
         };
         let component = component.to_vec();
 
@@ -247,12 +243,10 @@ impl IndexStore {
         let storage_keys = value
             .entry
             .decode_keys()
-            .map_err(|err| InternalError::index_corruption(err.to_string()))?;
+            .map_err(InternalError::index_entry_decode_failed)?;
 
         if index.is_unique() && storage_keys.len() != 1 {
-            return Err(InternalError::index_corruption(
-                "unique index entry contains an unexpected number of keys",
-            ));
+            return Err(InternalError::unique_index_entry_single_key_required());
         }
 
         for storage_key in storage_keys {

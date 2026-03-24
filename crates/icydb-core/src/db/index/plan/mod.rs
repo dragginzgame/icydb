@@ -307,12 +307,7 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     };
 
     let predicate = canonical_index_predicate(index).map_err(|err| {
-        InternalError::index_invariant(format!(
-            "index predicate parse failed: {} ({}) WHERE {} -> {err}",
-            entity_path,
-            index.name(),
-            predicate_sql,
-        ))
+        InternalError::index_predicate_parse_failed(entity_path, index.name(), predicate_sql, err)
     })?;
     let predicate = predicate.expect("index predicate metadata was checked above");
 
@@ -374,9 +369,7 @@ where
         let old_key = match old_slots.as_deref_mut() {
             Some(slots) => {
                 let Some(storage_key) = old_storage_key else {
-                    return Err(InternalError::index_internal(
-                        "missing old entity key for structural index removal".to_string(),
-                    ));
+                    return Err(InternalError::structural_index_removal_entity_key_required());
                 };
                 index_key_for_slot_reader_with_membership_structural(
                     entity_tag,
@@ -391,9 +384,7 @@ where
         let new_key = match new_slots.as_deref_mut() {
             Some(slots) => {
                 let Some(storage_key) = new_storage_key else {
-                    return Err(InternalError::index_internal(
-                        "missing new entity key for structural index insertion".to_string(),
-                    ));
+                    return Err(InternalError::structural_index_insertion_entity_key_required());
                 };
                 index_key_for_slot_reader_with_membership_structural(
                     entity_tag,
@@ -417,37 +408,34 @@ where
         // Phase 2: ensure any existing old membership is still present before
         // commit-phase mutations become mechanical.
         if let Some(old_key) = &old_key {
+            let index_fields = index.fields().join(", ");
+
             let Some(old_storage_key) = old_storage_key else {
-                return Err(InternalError::index_internal(
-                    "missing old entity key for structural index removal".to_string(),
-                ));
+                return Err(InternalError::structural_index_removal_entity_key_required());
             };
 
             let entry = old_entry.as_ref().ok_or_else(|| {
-                InternalError::index_plan_index_corruption(format!(
-                    "index corrupted: {} ({}) -> {}",
+                InternalError::structural_index_entry_corruption(
                     entity_path,
-                    index.fields().join(", "),
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key)
-                ))
+                    &index_fields,
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
+                )
             })?;
 
             if index.is_unique() && entry.len() > 1 {
-                return Err(InternalError::index_plan_index_corruption(format!(
-                    "index corrupted: {} ({}) -> {}",
+                return Err(InternalError::structural_index_entry_corruption(
                     entity_path,
-                    index.fields().join(", "),
-                    IndexEntryCorruption::NonUniqueEntry { keys: entry.len() }
-                )));
+                    &index_fields,
+                    IndexEntryCorruption::NonUniqueEntry { keys: entry.len() },
+                ));
             }
 
             if !entry.contains(old_storage_key) {
-                return Err(InternalError::index_plan_index_corruption(format!(
-                    "index corrupted: {} ({}) -> {}",
+                return Err(InternalError::structural_index_entry_corruption(
                     entity_path,
-                    index.fields().join(", "),
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key)
-                )));
+                    &index_fields,
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
+                ));
             }
         }
 
@@ -514,13 +502,9 @@ pub(super) fn load_existing_entry_structural(
     index_reader
         .read_index_entry_structural(store, &raw_key)?
         .map(|raw_entry| {
+            let index_fields = index.fields().join(", ");
             raw_entry.try_decode().map_err(|err| {
-                InternalError::index_plan_index_corruption(format!(
-                    "index corrupted: {} ({}) -> {}",
-                    entity_path,
-                    index.fields().join(", "),
-                    err
-                ))
+                InternalError::structural_index_entry_corruption(entity_path, &index_fields, err)
             })
         })
         .transpose()

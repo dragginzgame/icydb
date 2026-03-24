@@ -303,9 +303,7 @@ fn decode_grouped_cursor_token(cursor: &[u8]) -> Result<GroupedContinuationToken
 // Grouped continuation cursors are constrained to ascending logical order.
 fn validate_grouped_cursor_direction(direction: Direction) -> Result<(), CursorPlanError> {
     if direction != Direction::Asc {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "grouped continuation cursor direction must be ascending",
-        ));
+        return Err(CursorPlanError::grouped_continuation_cursor_direction_ascending_required());
     }
 
     Ok(())

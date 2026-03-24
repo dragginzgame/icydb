@@ -109,6 +109,86 @@ impl CommitMarker {
 
         Ok(Self { id, row_ops })
     }
+
+    // Build the canonical payload corruption for a truncated marker header.
+    fn payload_truncated_header() -> InternalError {
+        InternalError::commit_corruption("commit marker payload decode failed: truncated header")
+    }
+
+    // Build the canonical payload corruption for a non-UTF-8 entity path.
+    fn payload_entity_path_not_utf8() -> InternalError {
+        InternalError::commit_corruption(
+            "commit marker payload decode failed: entity_path is not utf-8",
+        )
+    }
+
+    // Build the canonical payload corruption for truncated row-op flags.
+    fn payload_row_op_flags_truncated() -> InternalError {
+        InternalError::commit_corruption(
+            "commit marker payload decode failed: truncated row-op flags",
+        )
+    }
+
+    // Build the canonical payload corruption for invalid row-op flags.
+    fn payload_row_op_flags_invalid() -> InternalError {
+        InternalError::commit_corruption(
+            "commit marker payload decode failed: invalid row-op flags",
+        )
+    }
+
+    // Build the canonical payload corruption for trailing bytes after decode.
+    fn payload_trailing_bytes() -> InternalError {
+        InternalError::commit_corruption(
+            "commit marker payload decode failed: trailing bytes after payload",
+        )
+    }
+
+    // Build the canonical payload corruption for truncated variable-length fields.
+    fn payload_truncated_length(label: &'static str) -> InternalError {
+        InternalError::commit_corruption(format!("{label} decode failed: truncated length",))
+    }
+
+    // Build the canonical payload corruption for truncated byte payloads.
+    fn payload_truncated_bytes(label: &'static str) -> InternalError {
+        InternalError::commit_corruption(format!("{label} decode failed: truncated bytes",))
+    }
+
+    // Build the canonical payload corruption for invalid fixed-size payloads.
+    fn payload_invalid_fixed_size(label: &'static str) -> InternalError {
+        InternalError::commit_corruption(format!(
+            "{label} decode failed: invalid fixed-size payload",
+        ))
+    }
+
+    // Build the canonical row-op corruption for an empty entity path.
+    fn row_op_entity_path_required() -> InternalError {
+        InternalError::commit_corruption("row op has empty entity_path")
+    }
+
+    // Build the canonical row-op corruption for an empty mutation payload.
+    fn row_op_mutation_payload_required() -> InternalError {
+        InternalError::commit_corruption("row op has neither before nor after payload")
+    }
+
+    // Build the canonical row-op corruption for oversized row payloads.
+    fn row_op_payload_too_large(label: &str, len: usize) -> InternalError {
+        InternalError::commit_corruption(format!(
+            "row op {label} payload exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})",
+        ))
+    }
+
+    // Build the canonical row-op corruption for invalid key length.
+    fn row_op_key_length_invalid(len: usize) -> InternalError {
+        InternalError::commit_corruption(format!(
+            "row op key has invalid length: {len} bytes (expected {})",
+            DataKey::STORED_SIZE_USIZE,
+        ))
+    }
+
+    // Build the canonical row-op corruption for key decode failures.
+    fn row_op_key_decode_failed(err: impl std::fmt::Display) -> InternalError {
+        InternalError::commit_corruption(format!("row op key decode failed: {err}"))
+    }
 }
 
 const COMMIT_MARKER_ID_BYTES: usize = COMMIT_ID_BYTES;
@@ -187,9 +267,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
 ) -> Result<CommitMarker, InternalError> {
     // Phase 1: parse the fixed marker header before touching any row-op bytes.
     if bytes.len() < COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES {
-        return Err(InternalError::commit_corruption(
-            "commit marker payload decode failed: truncated header",
-        ));
+        return Err(CommitMarker::payload_truncated_header());
     }
 
     let mut cursor = 0;
@@ -201,22 +279,15 @@ pub(in crate::db) fn decode_commit_marker_payload(
     for _ in 0..row_op_count {
         let entity_path_bytes =
             read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
-        let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
-            InternalError::commit_corruption(
-                "commit marker payload decode failed: entity_path is not utf-8",
-            )
-        })?;
+        let entity_path = std::str::from_utf8(entity_path_bytes)
+            .map_err(|_| CommitMarker::payload_entity_path_not_utf8())?;
         let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?.to_vec();
-        let flags = *bytes.get(cursor).ok_or_else(|| {
-            InternalError::commit_corruption(
-                "commit marker payload decode failed: truncated row-op flags",
-            )
-        })?;
+        let flags = *bytes
+            .get(cursor)
+            .ok_or_else(CommitMarker::payload_row_op_flags_truncated)?;
         cursor = cursor.saturating_add(1);
         if flags & !COMMIT_MARKER_FLAG_MASK != 0 {
-            return Err(InternalError::commit_corruption(
-                "commit marker payload decode failed: invalid row-op flags",
-            ));
+            return Err(CommitMarker::payload_row_op_flags_invalid());
         }
 
         let before = if flags & COMMIT_MARKER_FLAG_BEFORE != 0 {
@@ -252,9 +323,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
-        return Err(InternalError::commit_corruption(
-            "commit marker payload decode failed: trailing bytes after payload",
-        ));
+        return Err(CommitMarker::payload_trailing_bytes());
     }
 
     Ok(CommitMarker { id, row_ops })
@@ -290,9 +359,7 @@ fn read_len_u32(
 ) -> Result<u32, InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(4))
-        .ok_or_else(|| {
-            InternalError::commit_corruption(format!("{label} decode failed: truncated length",))
-        })?;
+        .ok_or_else(|| CommitMarker::payload_truncated_length(label))?;
     *cursor = cursor.saturating_add(4);
 
     Ok(u32::from_le_bytes([
@@ -308,16 +375,12 @@ fn read_fixed_array<const N: usize>(
 ) -> Result<[u8; N], InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(N))
-        .ok_or_else(|| {
-            InternalError::commit_corruption(format!("{label} decode failed: truncated bytes",))
-        })?;
+        .ok_or_else(|| CommitMarker::payload_truncated_bytes(label))?;
     *cursor = cursor.saturating_add(N);
 
-    payload.try_into().map_err(|_| {
-        InternalError::commit_corruption(format!(
-            "{label} decode failed: invalid fixed-size payload",
-        ))
-    })
+    payload
+        .try_into()
+        .map_err(|_| CommitMarker::payload_invalid_fixed_size(label))
 }
 
 // Read one length-delimited byte slice from the marker payload.
@@ -329,9 +392,7 @@ fn read_len_prefixed_bytes<'a>(
     let len = read_len_u32(bytes, cursor, label)? as usize;
     let payload = bytes
         .get(*cursor..cursor.saturating_add(len))
-        .ok_or_else(|| {
-            InternalError::commit_corruption(format!("{label} decode failed: truncated bytes",))
-        })?;
+        .ok_or_else(|| CommitMarker::payload_truncated_bytes(label))?;
     *cursor = cursor.saturating_add(len);
 
     Ok(payload)
@@ -410,14 +471,10 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     // Phase 1: reject row ops that cannot encode any mutation semantics.
     for row_op in &marker.row_ops {
         if row_op.entity_path.is_empty() {
-            return Err(InternalError::commit_corruption(
-                "row op has empty entity_path",
-            ));
+            return Err(CommitMarker::row_op_entity_path_required());
         }
         if row_op.before.is_none() && row_op.after.is_none() {
-            return Err(InternalError::commit_corruption(
-                "row op has neither before nor after payload",
-            ));
+            return Err(CommitMarker::row_op_mutation_payload_required());
         }
 
         // Phase 2: guard row payload size at marker-decode boundary so recovery
@@ -429,25 +486,16 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
             if let Some(bytes) = payload
                 && bytes.len() > MAX_ROW_BYTES as usize
             {
-                return Err(InternalError::commit_corruption(format!(
-                    "row op {label} payload exceeds max size: {} bytes (limit {MAX_ROW_BYTES})",
-                    bytes.len()
-                )));
+                return Err(CommitMarker::row_op_payload_too_large(label, bytes.len()));
             }
         }
 
         // Phase 3: enforce data-key byte shape and semantic decode.
         if row_op.key.len() != DataKey::STORED_SIZE_USIZE {
-            return Err(InternalError::commit_corruption(format!(
-                "row op key has invalid length: {} bytes (expected {})",
-                row_op.key.len(),
-                DataKey::STORED_SIZE_USIZE
-            )));
+            return Err(CommitMarker::row_op_key_length_invalid(row_op.key.len()));
         }
         let raw_key = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(row_op.key.as_slice()));
-        DataKey::try_from_raw(&raw_key).map_err(|err| {
-            InternalError::commit_corruption(format!("row op key decode failed: {err}"))
-        })?;
+        DataKey::try_from_raw(&raw_key).map_err(CommitMarker::row_op_key_decode_failed)?;
     }
 
     Ok(())

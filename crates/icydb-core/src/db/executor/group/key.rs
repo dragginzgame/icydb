@@ -27,12 +27,17 @@ pub(in crate::db) enum KeyCanonicalError {
 }
 
 impl KeyCanonicalError {
+    // Build the canonical grouped-key invariant for invalid map payloads.
+    fn invalid_map_value(err: &MapValueError) -> InternalError {
+        InternalError::executor_invariant(format!(
+            "group key canonicalization rejected map value: {err}"
+        ))
+    }
+
     /// Convert one key-canonicalization failure into the executor error surface.
     pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::InvalidMapValue(err) => InternalError::executor_invariant(format!(
-                "group key canonicalization rejected map value: {err}"
-            )),
+            Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
             Self::HashingFailed { reason } => {
                 InternalError::executor_internal(format!("group key hashing failed: {reason}"))
             }

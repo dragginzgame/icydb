@@ -169,9 +169,7 @@ impl MigrationStep {
         validate_non_empty_label(name.as_str(), "migration step name")?;
 
         if row_ops.is_empty() {
-            return Err(InternalError::store_unsupported(format!(
-                "migration step '{name}' must include at least one row op",
-            )));
+            return Err(InternalError::migration_step_row_ops_required(&name));
         }
 
         Ok(Self { name, row_ops })
@@ -216,15 +214,11 @@ impl MigrationPlan {
         let id = id.into();
         validate_non_empty_label(id.as_str(), "migration plan id")?;
         if version == 0 {
-            return Err(InternalError::store_unsupported(format!(
-                "migration plan '{id}' version must be > 0",
-            )));
+            return Err(InternalError::migration_plan_version_required(&id));
         }
 
         if steps.is_empty() {
-            return Err(InternalError::store_unsupported(format!(
-                "migration plan '{id}' must include at least one step",
-            )));
+            return Err(InternalError::migration_plan_steps_required(&id));
         }
 
         Ok(Self { id, version, steps })
@@ -256,13 +250,12 @@ impl MigrationPlan {
 
     fn step_at(&self, index: usize) -> Result<&MigrationStep, InternalError> {
         self.steps.get(index).ok_or_else(|| {
-            InternalError::store_unsupported(format!(
-                "migration '{}@{}' cursor out of bounds: next_step={} total_steps={}",
+            InternalError::migration_cursor_out_of_bounds(
                 self.id(),
                 self.version(),
                 index,
                 self.len(),
-            ))
+            )
         })
     }
 }
@@ -352,10 +345,9 @@ pub(in crate::db) fn execute_migration_plan<C: CanisterKind>(
 ) -> Result<MigrationRunOutcome, InternalError> {
     // Phase 1: validate run-shape controls before touching commit state.
     if max_steps == 0 {
-        return Err(InternalError::store_unsupported(format!(
-            "migration '{}' execution requires max_steps > 0",
+        return Err(InternalError::migration_execution_requires_max_steps(
             plan.id(),
-        )));
+        ));
     }
 
     // Phase 2: recover any in-flight commit marker before migration execution.
@@ -405,31 +397,28 @@ fn load_durable_cursor_for_plan(plan: &MigrationPlan) -> Result<MigrationCursor,
     };
     let state = decode_persisted_migration_state(&bytes)?;
     if state.migration_id != plan.id() || state.migration_version != plan.version() {
-        return Err(InternalError::store_unsupported(format!(
-            "migration '{}@{}' cannot execute while migration '{}@{}' is in progress",
+        return Err(InternalError::migration_in_progress_conflict(
             plan.id(),
             plan.version(),
-            state.migration_id,
+            &state.migration_id,
             state.migration_version,
-        )));
+        ));
     }
 
     let step_index = usize::try_from(state.step_index).map_err(|_| {
-        InternalError::store_corruption(format!(
-            "migration '{}@{}' persisted step index does not fit runtime usize: {}",
+        InternalError::migration_persisted_step_index_invalid_usize(
             plan.id(),
             plan.version(),
             state.step_index,
-        ))
+        )
     })?;
     if step_index > plan.len() {
-        return Err(InternalError::store_corruption(format!(
-            "migration '{}@{}' persisted step index out of bounds: {} > {}",
+        return Err(InternalError::migration_persisted_step_index_out_of_bounds(
             plan.id(),
             plan.version(),
             step_index,
             plan.len(),
-        )));
+        ));
     }
 
     if step_index == plan.len() {
@@ -445,11 +434,7 @@ fn encode_durable_cursor_state(
     last_applied_row_op: Option<&CommitRowOp>,
 ) -> Result<Vec<u8>, InternalError> {
     let step_index = u64::try_from(cursor.next_step()).map_err(|_| {
-        InternalError::store_internal(format!(
-            "migration '{}@{}' next step index does not fit persisted u64 cursor",
-            plan.id(),
-            plan.version(),
-        ))
+        InternalError::migration_next_step_index_u64_required(plan.id(), plan.version())
     })?;
     let state = PersistedMigrationState {
         migration_id: plan.id().to_string(),
@@ -474,9 +459,7 @@ fn decode_persisted_migration_state(
 fn encode_persisted_migration_state(
     state: &PersistedMigrationState,
 ) -> Result<Vec<u8>, InternalError> {
-    serialize(state).map_err(|err| {
-        InternalError::serialize_internal(format!("failed to serialize migration state: {err}"))
-    })
+    serialize(state).map_err(InternalError::migration_state_serialize_failed)
 }
 
 fn execute_migration_step<C: CanisterKind>(
@@ -538,9 +521,7 @@ fn annotate_step_error(
 
 fn validate_non_empty_label(value: &str, label: &str) -> Result<(), InternalError> {
     if value.trim().is_empty() {
-        return Err(InternalError::store_unsupported(format!(
-            "{label} cannot be empty",
-        )));
+        return Err(InternalError::migration_label_empty(label));
     }
 
     Ok(())

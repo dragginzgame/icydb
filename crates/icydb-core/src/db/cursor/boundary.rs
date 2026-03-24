@@ -9,7 +9,7 @@ use crate::{
         cursor::CursorPlanError,
         direction::Direction,
         query::plan::{OrderDirection, OrderSpec},
-        schema::{SchemaInfo, literal_matches_type},
+        schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     model::entity::{EntityModel, resolve_field_slot},
     traits::FieldValue,
@@ -115,9 +115,7 @@ pub(in crate::db) fn validate_cursor_direction(
     actual_direction: Direction,
 ) -> Result<(), CursorPlanError> {
     if actual_direction != expected_direction {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            "continuation cursor direction does not match executable plan direction",
-        ));
+        return Err(CursorPlanError::continuation_cursor_direction_mismatch());
     }
 
     Ok(())
@@ -167,21 +165,43 @@ pub(in crate::db) fn validate_cursor_boundary_for_order<K: FieldValue>(
     decode_typed_primary_key_cursor_slot::<K>(model, order, boundary)
 }
 
+// Load canonical schema information for cursor boundary validation.
+fn boundary_schema(model: &EntityModel) -> Result<SchemaInfo, CursorPlanError> {
+    SchemaInfo::from_entity_model(model)
+        .map_err(CursorPlanError::invalid_continuation_cursor_schema)
+}
+
+// Resolve one order field type from canonical schema info.
+fn boundary_order_field_type<'a>(
+    schema: &'a SchemaInfo,
+    field: &str,
+) -> Result<&'a FieldType, CursorPlanError> {
+    schema
+        .field(field)
+        .ok_or_else(|| CursorPlanError::continuation_cursor_unknown_order_field(field))
+}
+
+// Resolve the deterministic primary-key tie-break position from one order spec.
+fn primary_key_boundary_index(order: &OrderSpec, pk_field: &str) -> Result<usize, CursorPlanError> {
+    order
+        .fields
+        .iter()
+        .position(|(field, _)| field == pk_field)
+        .ok_or_else(|| {
+            CursorPlanError::continuation_cursor_primary_key_tie_break_required(pk_field)
+        })
+}
+
 /// Validate cursor boundary slot types against canonical order fields.
 pub(in crate::db) fn validate_cursor_boundary_types(
     model: &EntityModel,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<(), CursorPlanError> {
-    let schema = SchemaInfo::from_entity_model(model)
-        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))?;
+    let schema = boundary_schema(model)?;
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let field_type = schema.field(field).ok_or_else(|| {
-            CursorPlanError::invalid_continuation_cursor_payload(format!(
-                "unknown order field '{field}'"
-            ))
-        })?;
+        let field_type = boundary_order_field_type(&schema, field)?;
 
         match slot {
             CursorBoundarySlot::Missing => {
@@ -237,26 +257,9 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     boundary: &CursorBoundary,
 ) -> Result<K, CursorPlanError> {
     let pk_field = model.primary_key.name;
-    let pk_index = order
-        .fields
-        .iter()
-        .position(|(field, _)| field == pk_field)
-        .ok_or_else(|| {
-            CursorPlanError::invalid_continuation_cursor_payload(format!(
-                "order specification must end with primary key '{pk_field}' as deterministic tie-break"
-            ))
-        })?;
-
-    let schema = SchemaInfo::from_entity_model(model)
-        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))?;
-    let expected = schema
-        .field(pk_field)
-        .ok_or_else(|| {
-            CursorPlanError::invalid_continuation_cursor_payload(format!(
-                "unknown order field '{pk_field}'"
-            ))
-        })?
-        .to_string();
+    let pk_index = primary_key_boundary_index(order, pk_field)?;
+    let schema = boundary_schema(model)?;
+    let expected = boundary_order_field_type(&schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {
@@ -284,26 +287,9 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot(
     boundary: &CursorBoundary,
 ) -> Result<StorageKey, CursorPlanError> {
     let pk_field = model.primary_key.name;
-    let pk_index = order
-        .fields
-        .iter()
-        .position(|(field, _)| field == pk_field)
-        .ok_or_else(|| {
-            CursorPlanError::invalid_continuation_cursor_payload(format!(
-                "order specification must end with primary key '{pk_field}' as deterministic tie-break"
-            ))
-        })?;
-
-    let schema = SchemaInfo::from_entity_model(model)
-        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))?;
-    let expected = schema
-        .field(pk_field)
-        .ok_or_else(|| {
-            CursorPlanError::invalid_continuation_cursor_payload(format!(
-                "unknown order field '{pk_field}'"
-            ))
-        })?
-        .to_string();
+    let pk_index = primary_key_boundary_index(order, pk_field)?;
+    let schema = boundary_schema(model)?;
+    let expected = boundary_order_field_type(&schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {

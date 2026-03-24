@@ -14,11 +14,10 @@ static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
 
 /// Resolve the configured memory id used for commit marker storage.
 pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
-    COMMIT_STORE_ID.get().copied().ok_or_else(|| {
-        InternalError::store_internal(
-            "commit memory id is not configured; initialize recovery before commit store access",
-        )
-    })
+    COMMIT_STORE_ID
+        .get()
+        .copied()
+        .ok_or_else(InternalError::commit_memory_id_unconfigured)
 }
 
 /// Configure and register the commit marker memory id.
@@ -28,18 +27,16 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
     // Phase 1: enforce one immutable runtime slot id per process.
     if let Some(cached_id) = COMMIT_STORE_ID.get() {
         if *cached_id != memory_id {
-            return Err(InternalError::store_internal(format!(
-                "commit memory id mismatch: cached={cached_id}, configured={memory_id}"
-            )));
+            return Err(InternalError::commit_memory_id_mismatch(
+                *cached_id, memory_id,
+            ));
         }
 
         return Ok(*cached_id);
     }
 
     // Phase 2: initialize registry runtime and validate slot ownership.
-    MemoryRegistryRuntime::init(None).map_err(|err| {
-        InternalError::store_internal(format!("memory registry init failed: {err}"))
-    })?;
+    MemoryRegistryRuntime::init(None).map_err(InternalError::commit_memory_registry_init_failed)?;
 
     validate_commit_slot_registration(memory_id)?;
 
@@ -60,28 +57,28 @@ fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError>
     match commit_ids.as_slice() {
         [] => register_commit_slot(memory_id),
         [registered_id] if *registered_id == memory_id => Ok(()),
-        [registered_id] => Err(InternalError::store_unsupported(format!(
-            "configured commit memory id {memory_id} does not match existing commit marker id {registered_id}"
-        ))),
-        _ => Err(InternalError::store_corruption(format!(
-            "multiple commit marker memory ids registered: {commit_ids:?}"
-        ))),
+        [registered_id] => Err(InternalError::configured_commit_memory_id_mismatch(
+            memory_id,
+            *registered_id,
+        )),
+        _ => Err(InternalError::multiple_commit_memory_ids_registered(
+            commit_ids,
+        )),
     }
 }
 
 /// Register the configured commit-marker slot when no prior slot exists.
 fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
     if let Some(entry) = MemoryRegistryRuntime::get(memory_id) {
-        return Err(InternalError::store_unsupported(format!(
-            "configured commit memory id {memory_id} is already registered as '{}'",
-            entry.label
-        )));
+        return Err(InternalError::commit_memory_id_already_registered(
+            memory_id,
+            &entry.label,
+        ));
     }
 
     let owner = owner_for_memory_id(memory_id)?;
-    MemoryRegistry::register(memory_id, &owner, COMMIT_LABEL).map_err(|err| {
-        InternalError::store_internal(format!("commit memory id registration failed: {err}"))
-    })?;
+    MemoryRegistry::register(memory_id, &owner, COMMIT_LABEL)
+        .map_err(InternalError::commit_memory_id_registration_failed)?;
 
     Ok(())
 }
@@ -103,11 +100,7 @@ fn owner_for_memory_id_in_ranges(
         .find(|range_entry| range_entry.range.contains(memory_id))
         .map(|range_entry| range_entry.owner.clone());
 
-    owner.ok_or_else(|| {
-        InternalError::store_unsupported(format!(
-            "configured commit memory id {memory_id} is outside reserved ranges",
-        ))
-    })
+    owner.ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(memory_id))
 }
 
 #[cfg(test)]

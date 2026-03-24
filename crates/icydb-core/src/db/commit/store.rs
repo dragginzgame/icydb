@@ -48,6 +48,46 @@ impl RawCommitMarker {
         self.0.as_slice()
     }
 
+    // Build the canonical max-size corruption error for raw commit control bytes.
+    fn exceeds_max_size(size: usize) -> InternalError {
+        InternalError::commit_corruption(format!(
+            "commit marker exceeds max size: {size} bytes (limit {MAX_COMMIT_BYTES})",
+        ))
+    }
+
+    // Build the canonical control-slot canonical-envelope corruption error.
+    fn control_slot_canonical_envelope_required() -> InternalError {
+        InternalError::commit_corruption(
+            "commit control-slot decode failed: expected canonical envelope",
+        )
+    }
+
+    // Build the canonical control-slot magic mismatch compatibility error.
+    fn control_slot_magic_mismatch() -> InternalError {
+        InternalError::serialize_incompatible_persisted_format(
+            "commit control-slot magic mismatch".to_string(),
+        )
+    }
+
+    // Build the canonical control-slot version mismatch compatibility error.
+    fn control_slot_version_mismatch(version: u8) -> InternalError {
+        InternalError::serialize_incompatible_persisted_format(format!(
+            "commit control-slot version {version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
+        ))
+    }
+
+    // Build the canonical marker-envelope canonical-envelope corruption error.
+    fn marker_canonical_envelope_required() -> InternalError {
+        InternalError::commit_corruption("commit marker decode failed: expected canonical envelope")
+    }
+
+    // Build the canonical marker-format version mismatch compatibility error.
+    fn marker_format_version_unsupported(version: u8) -> InternalError {
+        InternalError::serialize_incompatible_persisted_format(format!(
+            "commit marker format version {version} is unsupported by runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
+        ))
+    }
+
     /// Serialize and bound-check a commit marker payload.
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
         let bytes = serialize_commit_marker(marker)?;
@@ -69,10 +109,7 @@ impl RawCommitMarker {
 
         // Phase 2: enforce byte-size upper bound before decode.
         if self.0.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::commit_corruption(format!(
-                "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-                self.0.len()
-            )));
+            return Err(Self::exceeds_max_size(self.0.len()));
         }
 
         // Phase 3: decode + semantic shape validation.
@@ -93,46 +130,27 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     }
 
     if bytes.len() > MAX_COMMIT_BYTES as usize {
-        return Err(InternalError::commit_corruption(format!(
-            "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-            bytes.len()
-        )));
+        return Err(RawCommitMarker::exceeds_max_size(bytes.len()));
     }
     if bytes.len() < COMMIT_CONTROL_HEADER_BYTES {
-        return Err(InternalError::commit_corruption(
-            "commit control-slot decode failed: expected canonical envelope",
-        ));
+        return Err(RawCommitMarker::control_slot_canonical_envelope_required());
     }
 
     let magic: [u8; 4] = bytes
         .get(..COMMIT_CONTROL_MAGIC.len())
-        .ok_or_else(|| {
-            InternalError::commit_corruption(
-                "commit control-slot decode failed: expected canonical envelope",
-            )
-        })?
+        .ok_or_else(RawCommitMarker::control_slot_canonical_envelope_required)?
         .try_into()
-        .map_err(|_| {
-            InternalError::commit_corruption(
-                "commit control-slot decode failed: expected canonical envelope",
-            )
-        })?;
+        .map_err(|_| RawCommitMarker::control_slot_canonical_envelope_required())?;
     if magic != COMMIT_CONTROL_MAGIC {
-        return Err(InternalError::serialize_incompatible_persisted_format(
-            "commit control-slot magic mismatch".to_string(),
-        ));
+        return Err(RawCommitMarker::control_slot_magic_mismatch());
     }
 
-    let control_version = *bytes.get(COMMIT_CONTROL_MAGIC.len()).ok_or_else(|| {
-        InternalError::commit_corruption(
-            "commit control-slot decode failed: expected canonical envelope",
-        )
-    })?;
+    let control_version = *bytes
+        .get(COMMIT_CONTROL_MAGIC.len())
+        .ok_or_else(RawCommitMarker::control_slot_canonical_envelope_required)?;
     if control_version != COMMIT_CONTROL_STATE_VERSION_CURRENT {
-        return Err(InternalError::serialize_incompatible_persisted_format(
-            format!(
-                "commit control-slot version {control_version} is incompatible with runtime version {COMMIT_CONTROL_STATE_VERSION_CURRENT}",
-            ),
+        return Err(RawCommitMarker::control_slot_version_mismatch(
+            control_version,
         ));
     }
 
@@ -142,24 +160,18 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     let remaining = bytes.len().saturating_sub(cursor);
     let expected = marker_len.saturating_add(migration_len);
     if remaining != expected {
-        return Err(InternalError::commit_corruption(
-            "commit control-slot decode failed: expected canonical envelope",
-        ));
+        return Err(RawCommitMarker::control_slot_canonical_envelope_required());
     }
 
     let marker_end = cursor.saturating_add(marker_len);
-    let marker_bytes = bytes.get(cursor..marker_end).ok_or_else(|| {
-        InternalError::commit_corruption(
-            "commit control-slot decode failed: expected canonical envelope",
-        )
-    })?;
+    let marker_bytes = bytes
+        .get(cursor..marker_end)
+        .ok_or_else(RawCommitMarker::control_slot_canonical_envelope_required)?;
     cursor = marker_end;
     let migration_end = cursor.saturating_add(migration_len);
-    let migration_bytes = bytes.get(cursor..migration_end).ok_or_else(|| {
-        InternalError::commit_corruption(
-            "commit control-slot decode failed: expected canonical envelope",
-        )
-    })?;
+    let migration_bytes = bytes
+        .get(cursor..migration_end)
+        .ok_or_else(RawCommitMarker::control_slot_canonical_envelope_required)?;
 
     Ok((marker_bytes.to_vec(), migration_bytes.to_vec()))
 }
@@ -191,10 +203,7 @@ fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalErr
 // Decode one commit marker with strict envelope semantics.
 fn decode_commit_marker(bytes: &[u8]) -> Result<CommitMarker, InternalError> {
     if bytes.len() > MAX_COMMIT_BYTES as usize {
-        return Err(InternalError::commit_corruption(format!(
-            "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-            bytes.len()
-        )));
+        return Err(RawCommitMarker::exceeds_max_size(bytes.len()));
     }
 
     let (format_version, marker_payload) = decode_commit_marker_bytes(bytes)?;
@@ -209,10 +218,8 @@ fn validate_commit_marker_format_version(format_version: u8) -> Result<(), Inter
         return Ok(());
     }
 
-    Err(InternalError::serialize_incompatible_persisted_format(
-        format!(
-            "commit marker format version {format_version} is unsupported by runtime version {COMMIT_MARKER_FORMAT_VERSION_CURRENT}",
-        ),
+    Err(RawCommitMarker::marker_format_version_unsupported(
+        format_version,
     ))
 }
 
@@ -280,21 +287,17 @@ fn encode_commit_marker_bytes(
 // Decode the marker envelope without routing through generic tuple deserialization.
 fn decode_commit_marker_bytes(bytes: &[u8]) -> Result<(u8, Vec<u8>), InternalError> {
     if bytes.len() < COMMIT_MARKER_HEADER_BYTES {
-        return Err(InternalError::commit_corruption(
-            "commit marker decode failed: expected canonical envelope",
-        ));
+        return Err(RawCommitMarker::marker_canonical_envelope_required());
     }
 
     let format_version = bytes[0];
     let mut cursor = 1;
     let payload_len = read_u32_le(bytes, &mut cursor, "commit marker")? as usize;
-    let payload = bytes.get(cursor..).ok_or_else(|| {
-        InternalError::commit_corruption("commit marker decode failed: expected canonical envelope")
-    })?;
+    let payload = bytes
+        .get(cursor..)
+        .ok_or_else(RawCommitMarker::marker_canonical_envelope_required)?;
     if payload.len() != payload_len {
-        return Err(InternalError::commit_corruption(
-            "commit marker decode failed: expected canonical envelope",
-        ));
+        return Err(RawCommitMarker::marker_canonical_envelope_required());
     }
 
     Ok((format_version, payload.to_vec()))

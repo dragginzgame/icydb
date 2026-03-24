@@ -212,6 +212,43 @@ impl InternalError {
         )
     }
 
+    /// Construct the canonical index field-count invariant for key building.
+    pub(crate) fn index_key_field_count_exceeds_max(
+        index_name: &str,
+        field_count: usize,
+        max_fields: usize,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "index '{index_name}' has {field_count} fields (max {max_fields})",
+        ))
+    }
+
+    /// Construct the canonical index-key source-field-missing-on-model invariant.
+    pub(crate) fn index_key_item_field_missing_on_entity_model(field: &str) -> Self {
+        Self::index_invariant(format!(
+            "index key item field missing on entity model: {field}",
+        ))
+    }
+
+    /// Construct the canonical index-key source-field-missing-on-row invariant.
+    pub(crate) fn index_key_item_field_missing_on_lookup_row(field: &str) -> Self {
+        Self::index_invariant(format!(
+            "index key item field missing on lookup row: {field}",
+        ))
+    }
+
+    /// Construct the canonical index-expression source-type mismatch invariant.
+    pub(crate) fn index_expression_source_type_mismatch(
+        index_name: &str,
+        expression: impl fmt::Display,
+        expected: &str,
+        source_label: &str,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "index '{index_name}' expression '{expression}' expected {expected} source value, got {source_label}",
+        ))
+    }
+
     /// Construct a planner-origin invariant violation with the canonical
     /// executor-boundary invariant prefix preserved in the message payload.
     pub(crate) fn planner_executor_invariant(reason: impl Into<String>) -> Self {
@@ -557,14 +594,88 @@ impl InternalError {
         )
     }
 
+    /// Construct the canonical duplicate runtime-hook entity-tag invariant.
+    pub(crate) fn duplicate_runtime_hooks_for_entity_tag(
+        entity_tag: crate::types::EntityTag,
+    ) -> Self {
+        Self::store_invariant(format!(
+            "duplicate runtime hooks for entity tag '{}'",
+            entity_tag.value()
+        ))
+    }
+
+    /// Construct the canonical duplicate runtime-hook entity-path invariant.
+    pub(crate) fn duplicate_runtime_hooks_for_entity_path(entity_path: &str) -> Self {
+        Self::store_invariant(format!(
+            "duplicate runtime hooks for entity path '{entity_path}'"
+        ))
+    }
+
     /// Construct a store-origin internal error.
     pub(crate) fn store_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Store, message.into())
     }
 
+    /// Construct the canonical unconfigured commit-memory id internal error.
+    pub(crate) fn commit_memory_id_unconfigured() -> Self {
+        Self::store_internal(
+            "commit memory id is not configured; initialize recovery before commit store access",
+        )
+    }
+
+    /// Construct the canonical commit-memory id mismatch internal error.
+    pub(crate) fn commit_memory_id_mismatch(cached_id: u8, configured_id: u8) -> Self {
+        Self::store_internal(format!(
+            "commit memory id mismatch: cached={cached_id}, configured={configured_id}",
+        ))
+    }
+
+    /// Construct the canonical memory-registry initialization failure for commit memory.
+    pub(crate) fn commit_memory_registry_init_failed(err: impl fmt::Display) -> Self {
+        Self::store_internal(format!("memory registry init failed: {err}"))
+    }
+
+    /// Construct the canonical migration cursor persistence-width internal error.
+    pub(crate) fn migration_next_step_index_u64_required(id: &str, version: u64) -> Self {
+        Self::store_internal(format!(
+            "migration '{id}@{version}' next step index does not fit persisted u64 cursor",
+        ))
+    }
+
+    /// Construct the canonical recovery-integrity totals corruption error.
+    pub(crate) fn recovery_integrity_validation_failed(
+        missing_index_entries: u64,
+        divergent_index_entries: u64,
+        orphan_index_references: u64,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "recovery integrity validation failed: missing_index_entries={missing_index_entries} divergent_index_entries={divergent_index_entries} orphan_index_references={orphan_index_references}",
+        ))
+    }
+
     /// Construct an index-origin internal error.
     pub(crate) fn index_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct the canonical missing old entity-key internal error for structural index removal.
+    pub(crate) fn structural_index_removal_entity_key_required() -> Self {
+        Self::index_internal("missing old entity key for structural index removal")
+    }
+
+    /// Construct the canonical missing new entity-key internal error for structural index insertion.
+    pub(crate) fn structural_index_insertion_entity_key_required() -> Self {
+        Self::index_internal("missing new entity key for structural index insertion")
+    }
+
+    /// Construct the canonical missing old entity-key internal error for index commit-op removal.
+    pub(crate) fn index_commit_op_old_entity_key_required() -> Self {
+        Self::index_internal("missing old entity key for index removal")
+    }
+
+    /// Construct the canonical missing new entity-key internal error for index commit-op insertion.
+    pub(crate) fn index_commit_op_new_entity_key_required() -> Self {
+        Self::index_internal("missing new entity key for index insertion")
     }
 
     /// Construct a query-origin internal error.
@@ -583,9 +694,44 @@ impl InternalError {
         Self::new(ErrorClass::Internal, ErrorOrigin::Serialize, message.into())
     }
 
+    /// Construct the canonical migration-state serialization failure.
+    pub(crate) fn migration_state_serialize_failed(err: impl fmt::Display) -> Self {
+        Self::serialize_internal(format!("failed to serialize migration state: {err}"))
+    }
+
     /// Construct a store-origin corruption error.
     pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
+    }
+
+    /// Construct the canonical multiple-commit-memory-ids corruption error.
+    pub(crate) fn multiple_commit_memory_ids_registered(ids: impl fmt::Debug) -> Self {
+        Self::store_corruption(format!(
+            "multiple commit marker memory ids registered: {ids:?}"
+        ))
+    }
+
+    /// Construct the canonical persisted migration-step index conversion corruption error.
+    pub(crate) fn migration_persisted_step_index_invalid_usize(
+        id: &str,
+        version: u64,
+        step_index: u64,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "migration '{id}@{version}' persisted step index does not fit runtime usize: {step_index}",
+        ))
+    }
+
+    /// Construct the canonical persisted migration-step index bounds corruption error.
+    pub(crate) fn migration_persisted_step_index_out_of_bounds(
+        id: &str,
+        version: u64,
+        step_index: usize,
+        total_steps: usize,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "migration '{id}@{version}' persisted step index out of bounds: {step_index} > {total_steps}",
+        ))
     }
 
     /// Construct a store-origin commit-marker corruption error.
@@ -601,6 +747,153 @@ impl InternalError {
     /// Construct an index-origin corruption error.
     pub(crate) fn index_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct the canonical unique-validation corruption wrapper.
+    pub(crate) fn index_unique_validation_corruption(
+        entity_path: &str,
+        fields: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::index_plan_index_corruption(format!(
+            "index corrupted: {entity_path} ({fields}) -> {detail}",
+        ))
+    }
+
+    /// Construct the canonical structural index-entry corruption wrapper.
+    pub(crate) fn structural_index_entry_corruption(
+        entity_path: &str,
+        fields: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::index_plan_index_corruption(format!(
+            "index corrupted: {entity_path} ({fields}) -> {detail}",
+        ))
+    }
+
+    /// Construct the canonical missing new entity-key invariant during unique validation.
+    pub(crate) fn index_unique_validation_entity_key_required() -> Self {
+        Self::index_invariant("missing entity key during unique validation")
+    }
+
+    /// Construct the canonical missing key-component invariant during unique validation.
+    pub(crate) fn index_unique_validation_key_component_missing(
+        component_index: usize,
+        entity_path: &str,
+        fields: &str,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "index key missing component {component_index} during unique validation: {entity_path} ({fields})",
+        ))
+    }
+
+    /// Construct the canonical missing expected key-component invariant during unique validation.
+    pub(crate) fn index_unique_validation_expected_component_missing(
+        component_index: usize,
+        entity_path: &str,
+        fields: &str,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "index key missing expected component {component_index} during unique validation: {entity_path} ({fields})",
+        ))
+    }
+
+    /// Construct the canonical missing primary-key field invariant during unique validation.
+    pub(crate) fn index_unique_validation_primary_key_field_missing(
+        entity_path: &str,
+        primary_key_name: &str,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "entity primary key field missing during unique validation: {entity_path} field={primary_key_name}",
+        ))
+    }
+
+    /// Construct the canonical unique-validation structural row-decode corruption error.
+    pub(crate) fn index_unique_validation_row_deserialize_failed(
+        data_key: impl fmt::Display,
+        source: impl fmt::Display,
+    ) -> Self {
+        Self::index_plan_serialize_corruption(format!(
+            "failed to structurally deserialize row: {data_key} ({source})"
+        ))
+    }
+
+    /// Construct the canonical unique-validation primary-key slot decode corruption error.
+    pub(crate) fn index_unique_validation_primary_key_decode_failed(
+        data_key: impl fmt::Display,
+        source: impl fmt::Display,
+    ) -> Self {
+        Self::index_plan_serialize_corruption(format!(
+            "failed to decode structural primary-key slot: {data_key} ({source})"
+        ))
+    }
+
+    /// Construct the canonical unique-validation stored key rebuild corruption error.
+    pub(crate) fn index_unique_validation_key_rebuild_failed(
+        data_key: impl fmt::Display,
+        entity_path: &str,
+        source: impl fmt::Display,
+    ) -> Self {
+        Self::index_plan_serialize_corruption(format!(
+            "failed to structurally decode unique key row {data_key} for {entity_path}: {source}",
+        ))
+    }
+
+    /// Construct the canonical structural index-predicate parse invariant.
+    pub(crate) fn index_predicate_parse_failed(
+        entity_path: &str,
+        index_name: &str,
+        predicate_sql: &str,
+        err: impl fmt::Display,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "index predicate parse failed: {entity_path} ({index_name}) WHERE {predicate_sql} -> {err}",
+        ))
+    }
+
+    /// Construct the canonical index-only predicate missing-component invariant.
+    pub(crate) fn index_only_predicate_component_required() -> Self {
+        Self::index_invariant("index-only predicate program referenced missing index component")
+    }
+
+    /// Construct the canonical index-scan continuation-envelope invariant.
+    pub(crate) fn index_scan_continuation_anchor_within_envelope_required() -> Self {
+        Self::index_invariant(
+            "index-range continuation anchor is outside the requested range envelope",
+        )
+    }
+
+    /// Construct the canonical index-scan continuation-advancement invariant.
+    pub(crate) fn index_scan_continuation_advancement_required() -> Self {
+        Self::index_invariant("index-range continuation scan did not advance beyond the anchor")
+    }
+
+    /// Construct the canonical index-scan key-decode corruption error.
+    pub(crate) fn index_scan_key_corrupted_during(
+        context: &'static str,
+        err: impl fmt::Display,
+    ) -> Self {
+        Self::index_corruption(format!("index key corrupted during {context}: {err}"))
+    }
+
+    /// Construct the canonical index-scan missing projection-component invariant.
+    pub(crate) fn index_projection_component_required(
+        index_name: &str,
+        component_index: usize,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "index projection referenced missing component: index='{index_name}' component_index={component_index}",
+        ))
+    }
+
+    /// Construct the canonical unexpected unique index-entry cardinality corruption error.
+    pub(crate) fn unique_index_entry_single_key_required() -> Self {
+        Self::index_corruption("unique index entry contains an unexpected number of keys")
+    }
+
+    /// Construct the canonical scan-time index-entry decode corruption error.
+    pub(crate) fn index_entry_decode_failed(err: impl fmt::Display) -> Self {
+        Self::index_corruption(err.to_string())
     }
 
     /// Construct a serialize-origin corruption error.
@@ -634,9 +927,141 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Store, message.into())
     }
 
+    /// Construct the canonical empty migration label unsupported error.
+    pub(crate) fn migration_label_empty(label: &str) -> Self {
+        Self::store_unsupported(format!("{label} cannot be empty"))
+    }
+
+    /// Construct the canonical empty migration-step row-op set unsupported error.
+    pub(crate) fn migration_step_row_ops_required(name: &str) -> Self {
+        Self::store_unsupported(format!(
+            "migration step '{name}' must include at least one row op",
+        ))
+    }
+
+    /// Construct the canonical invalid migration-plan version unsupported error.
+    pub(crate) fn migration_plan_version_required(id: &str) -> Self {
+        Self::store_unsupported(format!("migration plan '{id}' version must be > 0",))
+    }
+
+    /// Construct the canonical empty migration-plan steps unsupported error.
+    pub(crate) fn migration_plan_steps_required(id: &str) -> Self {
+        Self::store_unsupported(format!(
+            "migration plan '{id}' must include at least one step",
+        ))
+    }
+
+    /// Construct the canonical migration cursor out-of-bounds unsupported error.
+    pub(crate) fn migration_cursor_out_of_bounds(
+        id: &str,
+        version: u64,
+        next_step: usize,
+        total_steps: usize,
+    ) -> Self {
+        Self::store_unsupported(format!(
+            "migration '{id}@{version}' cursor out of bounds: next_step={next_step} total_steps={total_steps}",
+        ))
+    }
+
+    /// Construct the canonical max-steps-required migration execution error.
+    pub(crate) fn migration_execution_requires_max_steps(id: &str) -> Self {
+        Self::store_unsupported(format!("migration '{id}' execution requires max_steps > 0",))
+    }
+
+    /// Construct the canonical in-progress migration-plan conflict error.
+    pub(crate) fn migration_in_progress_conflict(
+        requested_id: &str,
+        requested_version: u64,
+        active_id: &str,
+        active_version: u64,
+    ) -> Self {
+        Self::store_unsupported(format!(
+            "migration '{requested_id}@{requested_version}' cannot execute while migration '{active_id}@{active_version}' is in progress",
+        ))
+    }
+
+    /// Construct the canonical unsupported persisted entity-tag store error.
+    pub(crate) fn unsupported_entity_tag_in_data_store(
+        entity_tag: crate::types::EntityTag,
+    ) -> Self {
+        Self::store_unsupported(format!(
+            "unsupported entity tag in data store: '{}'",
+            entity_tag.value()
+        ))
+    }
+
+    /// Construct the canonical configured-vs-registered commit-memory id mismatch error.
+    pub(crate) fn configured_commit_memory_id_mismatch(
+        configured_id: u8,
+        registered_id: u8,
+    ) -> Self {
+        Self::store_unsupported(format!(
+            "configured commit memory id {configured_id} does not match existing commit marker id {registered_id}",
+        ))
+    }
+
+    /// Construct the canonical occupied commit-memory id unsupported error.
+    pub(crate) fn commit_memory_id_already_registered(memory_id: u8, label: &str) -> Self {
+        Self::store_unsupported(format!(
+            "configured commit memory id {memory_id} is already registered as '{label}'",
+        ))
+    }
+
+    /// Construct the canonical out-of-range commit-memory id unsupported error.
+    pub(crate) fn commit_memory_id_outside_reserved_ranges(memory_id: u8) -> Self {
+        Self::store_unsupported(format!(
+            "configured commit memory id {memory_id} is outside reserved ranges",
+        ))
+    }
+
+    /// Construct the canonical commit-memory id registration failure.
+    pub(crate) fn commit_memory_id_registration_failed(err: impl fmt::Display) -> Self {
+        Self::store_internal(format!("commit memory id registration failed: {err}"))
+    }
+
     /// Construct an index-origin unsupported error.
     pub(crate) fn index_unsupported(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct the canonical index-key component size-limit unsupported error.
+    pub(crate) fn index_component_exceeds_max_size(
+        key_item: impl fmt::Display,
+        len: usize,
+        max_component_size: usize,
+    ) -> Self {
+        Self::index_unsupported(format!(
+            "index component exceeds max size: key item '{key_item}' -> {len} bytes (limit {max_component_size})",
+        ))
+    }
+
+    /// Construct the canonical index-entry max-keys unsupported error during commit encoding.
+    pub(crate) fn index_entry_exceeds_max_keys(
+        entity_path: &str,
+        fields: &str,
+        keys: usize,
+    ) -> Self {
+        Self::index_unsupported(format!(
+            "index entry exceeds max keys: {entity_path} ({fields}) -> {keys} keys",
+        ))
+    }
+
+    /// Construct the canonical duplicate-key invariant during commit entry encoding.
+    pub(crate) fn index_entry_duplicate_keys_unexpected(entity_path: &str, fields: &str) -> Self {
+        Self::index_invariant(format!(
+            "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
+        ))
+    }
+
+    /// Construct the canonical index-entry key-encoding unsupported error during commit encoding.
+    pub(crate) fn index_entry_key_encoding_failed(
+        entity_path: &str,
+        fields: &str,
+        err: impl fmt::Display,
+    ) -> Self {
+        Self::index_unsupported(format!(
+            "index entry key encoding failed: {entity_path} ({fields}) -> {err}",
+        ))
     }
 
     /// Construct a serialize-origin unsupported error.

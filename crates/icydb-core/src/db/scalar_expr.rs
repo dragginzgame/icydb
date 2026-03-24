@@ -62,6 +62,39 @@ pub(in crate::db) enum ScalarIndexExpressionOp {
     Day,
 }
 
+impl ScalarIndexExpressionOp {
+    // Return the stable expression label used in scalar mismatch diagnostics.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Lower => "LOWER",
+            Self::Upper => "UPPER",
+            Self::Trim => "TRIM",
+            Self::LowerTrim => "LOWER(TRIM)",
+            Self::Date => "DATE",
+            Self::Year => "YEAR",
+            Self::Month => "MONTH",
+            Self::Day => "DAY",
+        }
+    }
+
+    // Build the canonical scalar-expression input mismatch error.
+    fn input_type_mismatch(self, expected: &'static str) -> InternalError {
+        let label = self.label();
+
+        match expected {
+            EXPECTED_TEXT => InternalError::query_executor_invariant(format!(
+                "scalar expression {label} expected text input",
+            )),
+            EXPECTED_DATE_OR_TIMESTAMP => InternalError::executor_internal(format!(
+                "scalar expression {label} expected date/timestamp input",
+            )),
+            _ => InternalError::executor_internal(format!(
+                "scalar expression {label} expected {expected} input",
+            )),
+        }
+    }
+}
+
 ///
 /// ScalarExprValue
 ///
@@ -308,20 +341,7 @@ fn eval_scalar_expression_op(
         ScalarExprValue::Null => Ok(Some(ScalarExprValue::Null)),
         value => derive_non_null_scalar_expression_value(op, value)
             .map(Some)
-            .map_err(|expected| {
-                let label = scalar_expression_label(op);
-                match expected {
-                    EXPECTED_TEXT => InternalError::query_executor_invariant(format!(
-                        "scalar expression {label} expected text input",
-                    )),
-                    EXPECTED_DATE_OR_TIMESTAMP => InternalError::executor_internal(format!(
-                        "scalar expression {label} expected date/timestamp input",
-                    )),
-                    _ => InternalError::executor_internal(format!(
-                        "scalar expression {label} expected {expected} input",
-                    )),
-                }
-            }),
+            .map_err(|expected| op.input_type_mismatch(expected)),
     }
 }
 
@@ -386,19 +406,6 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
             }
             _ => Err(EXPECTED_DATE_OR_TIMESTAMP),
         },
-    }
-}
-
-const fn scalar_expression_label(op: ScalarIndexExpressionOp) -> &'static str {
-    match op {
-        ScalarIndexExpressionOp::Lower => "LOWER",
-        ScalarIndexExpressionOp::Upper => "UPPER",
-        ScalarIndexExpressionOp::Trim => "TRIM",
-        ScalarIndexExpressionOp::LowerTrim => "LOWER(TRIM)",
-        ScalarIndexExpressionOp::Date => "DATE",
-        ScalarIndexExpressionOp::Year => "YEAR",
-        ScalarIndexExpressionOp::Month => "MONTH",
-        ScalarIndexExpressionOp::Day => "DAY",
     }
 }
 

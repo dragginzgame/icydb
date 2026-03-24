@@ -27,8 +27,8 @@ pub(in crate::db) use execution_contract::{
     ExecutionOrdering, ExecutionPathPayload,
 };
 pub(in crate::db) use lowering::{
-    LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec,
-    LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs, lower_index_range_specs,
+    LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs,
+    lower_index_range_specs,
 };
 pub(crate) use path::{AccessPath, IndexRangePathRef, SemanticIndexRangeSpec};
 pub(crate) use plan::{

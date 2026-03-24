@@ -115,6 +115,137 @@ impl CursorPlanError {
         }
     }
 
+    /// Construct one schema-validation payload error for cursor boundaries.
+    pub(in crate::db) fn invalid_continuation_cursor_schema(
+        reason: impl std::fmt::Display,
+    ) -> Self {
+        Self::invalid_continuation_cursor_payload(reason.to_string())
+    }
+
+    /// Construct one cursor-direction mismatch payload error.
+    pub(in crate::db) fn continuation_cursor_direction_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "continuation cursor direction does not match executable plan direction",
+        )
+    }
+
+    /// Construct one grouped-cursor direction payload error.
+    pub(in crate::db) fn grouped_continuation_cursor_direction_ascending_required() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "grouped continuation cursor direction must be ascending",
+        )
+    }
+
+    /// Construct one unknown ORDER BY field payload error.
+    pub(in crate::db) fn continuation_cursor_unknown_order_field(field: &str) -> Self {
+        Self::invalid_continuation_cursor_payload(format!("unknown order field '{field}'"))
+    }
+
+    /// Construct one deterministic tie-break payload error.
+    pub(in crate::db) fn continuation_cursor_primary_key_tie_break_required(
+        pk_field: &str,
+    ) -> Self {
+        Self::invalid_continuation_cursor_payload(format!(
+            "order specification must end with primary key '{pk_field}' as deterministic tie-break"
+        ))
+    }
+
+    /// Construct one anchor decode failure payload error.
+    pub(in crate::db) fn index_range_anchor_decode_failed(reason: impl Into<String>) -> Self {
+        Self::invalid_continuation_cursor_payload(format!(
+            "index-range continuation anchor decode failed: {}",
+            reason.into(),
+        ))
+    }
+
+    /// Construct one canonical-anchor encoding mismatch payload error.
+    pub(in crate::db) fn index_range_anchor_canonical_encoding_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation anchor canonical encoding mismatch",
+        )
+    }
+
+    /// Construct one anchor index-id mismatch payload error.
+    pub(in crate::db) fn index_range_anchor_index_id_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation anchor index id mismatch",
+        )
+    }
+
+    /// Construct one anchor key-namespace mismatch payload error.
+    pub(in crate::db) fn index_range_anchor_key_namespace_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation anchor key namespace mismatch",
+        )
+    }
+
+    /// Construct one anchor component-arity mismatch payload error.
+    pub(in crate::db) fn index_range_anchor_component_arity_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation anchor component arity mismatch",
+        )
+    }
+
+    /// Construct one out-of-envelope anchor payload error.
+    pub(in crate::db) fn index_range_anchor_outside_envelope() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation anchor is outside the original range envelope",
+        )
+    }
+
+    /// Construct one composite-plan anchor rejection payload error.
+    pub(in crate::db) fn unexpected_index_range_anchor_for_composite_plan() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "unexpected index-range continuation anchor for composite access plan",
+        )
+    }
+
+    /// Construct one missing semantic-bounds payload error.
+    pub(in crate::db) fn index_range_anchor_semantic_bounds_required() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation validation is missing semantic bounds payload",
+        )
+    }
+
+    /// Construct one missing raw anchor payload error.
+    pub(in crate::db) fn index_range_anchor_required() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation cursor is missing a raw-key anchor",
+        )
+    }
+
+    /// Construct one non-index-range path anchor rejection payload error.
+    pub(in crate::db) fn unexpected_index_range_anchor_for_non_range_path() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "unexpected index-range continuation anchor for non-index-range access path",
+        )
+    }
+
+    /// Construct one anchor-primary-key decode failure payload error.
+    pub(in crate::db) fn index_range_anchor_primary_key_decode_failed(
+        reason: impl std::fmt::Display,
+    ) -> Self {
+        Self::invalid_continuation_cursor_payload(format!(
+            "index-range continuation anchor primary key decode failed: {reason}",
+        ))
+    }
+
+    /// Construct one boundary-primary-key decode failure payload error.
+    pub(in crate::db) fn index_range_boundary_primary_key_decode_failed(
+        reason: impl std::fmt::Display,
+    ) -> Self {
+        Self::invalid_continuation_cursor_payload(format!(
+            "index-range continuation boundary primary key decode failed: {reason}",
+        ))
+    }
+
+    /// Construct one boundary/anchor mismatch payload error.
+    pub(in crate::db) fn index_range_boundary_anchor_mismatch() -> Self {
+        Self::invalid_continuation_cursor_payload(
+            "index-range continuation boundary/anchor mismatch",
+        )
+    }
+
     /// Construct one cursor invariant-violation error variant.
     pub(in crate::db) fn continuation_cursor_invariant(reason: impl Into<String>) -> Self {
         Self::ContinuationCursorInvariantViolation {

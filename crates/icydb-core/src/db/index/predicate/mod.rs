@@ -197,9 +197,7 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
             literal,
         } => {
             let Some(component) = key.component(*component_index) else {
-                return Err(InternalError::index_invariant(
-                    "index-only predicate program referenced missing index component",
-                ));
+                return Err(InternalError::index_only_predicate_component_required());
             };
 
             Ok(eval_index_compare(component, *op, literal))

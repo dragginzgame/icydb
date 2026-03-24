@@ -40,9 +40,7 @@ pub(super) fn build_commit_ops_for_index(
     if old_key == new_key {
         if let Some(key) = old_key {
             let Some(new_entity_key) = new_entity_key else {
-                return Err(InternalError::index_internal(
-                    "missing new entity key for index insertion".to_string(),
-                ));
+                return Err(InternalError::index_commit_op_new_entity_key_required());
             };
 
             let mut entry = old_entry.unwrap_or_else(|| IndexEntry::new(new_entity_key));
@@ -71,9 +69,7 @@ pub(super) fn build_commit_ops_for_index(
 
     if let Some(old_key) = old_key {
         let Some(old_entity_key) = old_entity_key else {
-            return Err(InternalError::index_internal(
-                "missing old entity key for index removal".to_string(),
-            ));
+            return Err(InternalError::index_commit_op_old_entity_key_required());
         };
 
         let after = old_entry.map(|mut entry| {
@@ -86,9 +82,7 @@ pub(super) fn build_commit_ops_for_index(
 
     if let Some(new_key) = new_key {
         let Some(new_entity_key) = new_entity_key else {
-            return Err(InternalError::index_internal(
-                "missing new entity key for index insertion".to_string(),
-            ));
+            return Err(InternalError::index_commit_op_new_entity_key_required());
         };
 
         let mut entry = new_entry.unwrap_or_else(|| IndexEntry::new(new_entity_key));

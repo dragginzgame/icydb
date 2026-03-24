@@ -23,13 +23,6 @@ use crate::{
 };
 use std::ops::Bound;
 
-pub(in crate::db) const LOWERED_INDEX_RANGE_SPEC_INVALID: &str =
-    "validated index-range plan could not be lowered to raw bounds";
-pub(in crate::db) const LOWERED_INDEX_PREFIX_SPEC_INVALID: &str =
-    "validated index-prefix plan could not be lowered to raw bounds";
-const LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE: &str =
-    "validated index-prefix value is not indexable";
-
 pub(in crate::db) type LoweredKey = RawIndexKey;
 
 /// Lower one structural `AccessPlan` into its normalized executable contract.
@@ -146,6 +139,8 @@ pub(in crate::db) struct LoweredIndexPrefixSpec {
 }
 
 impl LoweredIndexPrefixSpec {
+    const INVALID_REASON: &str = "validated index-prefix plan could not be lowered to raw bounds";
+
     #[must_use]
     pub(in crate::db) const fn new(
         index: IndexModel,
@@ -172,6 +167,18 @@ impl LoweredIndexPrefixSpec {
     #[must_use]
     pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
         &self.upper
+    }
+
+    /// Return the canonical lowered-prefix invalidation reason shared by
+    /// planner/executor boundary checks.
+    #[must_use]
+    pub(in crate::db) const fn invalid_reason() -> &'static str {
+        Self::INVALID_REASON
+    }
+
+    // Build the canonical lowering-time invariant for non-indexable prefix values.
+    fn prefix_value_not_indexable() -> InternalError {
+        InternalError::query_executor_invariant("validated index-prefix value is not indexable")
     }
 }
 
@@ -189,6 +196,8 @@ pub(in crate::db) struct LoweredIndexRangeSpec {
 }
 
 impl LoweredIndexRangeSpec {
+    const INVALID_REASON: &str = "validated index-range plan could not be lowered to raw bounds";
+
     #[must_use]
     pub(in crate::db) const fn new(
         index: IndexModel,
@@ -215,6 +224,19 @@ impl LoweredIndexRangeSpec {
     #[must_use]
     pub(in crate::db) const fn upper(&self) -> &Bound<LoweredKey> {
         &self.upper
+    }
+
+    /// Return the canonical lowered-range invalidation reason shared by
+    /// planner/executor boundary checks.
+    #[must_use]
+    pub(in crate::db) const fn invalid_reason() -> &'static str {
+        Self::INVALID_REASON
+    }
+
+    // Build the canonical lowering-time invariant for validated range specs
+    // that still fail raw bound encoding.
+    fn validated_spec_not_indexable(err: IndexRangeBoundEncodeError) -> InternalError {
+        InternalError::query_executor_invariant(err.validated_spec_not_indexable_reason())
     }
 }
 
@@ -249,11 +271,11 @@ fn lower_index_range_bounds_for_scope(
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
-) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), &'static str> {
+) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
     raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
-        .map_err(IndexRangeBoundEncodeError::validated_spec_not_indexable_reason)
+        .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
 }
 
 // Collect index-prefix specs in deterministic depth-first traversal order.
@@ -303,9 +325,8 @@ fn lower_index_prefix_values_for_specs(
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
-        InternalError::query_executor_invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE)
-    })?;
+    let prefix_components = EncodedValue::try_encode_all(values)
+        .map_err(|_| LoweredIndexPrefixSpec::prefix_value_not_indexable())?;
     let index_id = IndexId::new(entity_tag, index.ordinal());
     let (lower, upper) =
         raw_keys_for_encoded_prefix(&index_id, &index, prefix_components.as_slice());
@@ -338,8 +359,7 @@ fn collect_index_range_specs<K>(
                     spec.prefix_values(),
                     spec.lower(),
                     spec.upper(),
-                )
-                .map_err(InternalError::query_executor_invariant)?;
+                )?;
                 specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
             }
 

@@ -33,12 +33,12 @@ fn value_for_expression(
 ) -> Result<Option<Value>, InternalError> {
     let source_label = source.canonical_tag().label();
     derive_index_expression_value(expression, source).map_err(|expected| {
-        InternalError::index_invariant(format!(
-            "index '{}' expression '{}' expected {expected} source value, got {}",
+        InternalError::index_expression_source_type_mismatch(
             index.name(),
             expression,
-            source_label
-        ))
+            expected,
+            source_label,
+        )
     })
 }
 
@@ -53,15 +53,15 @@ where
 {
     let field = key_item.field();
     let Some(field_index) = resolve_field_slot(entity_model, field) else {
-        return Err(InternalError::index_invariant(format!(
-            "index key item field missing on entity model: {field}",
-        )));
+        return Err(InternalError::index_key_item_field_missing_on_entity_model(
+            field,
+        ));
     };
 
     let Some(source) = read_slot(field_index) else {
-        return Err(InternalError::index_invariant(format!(
-            "index key item field missing on lookup row: {field}",
-        )));
+        return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+            field,
+        ));
     };
 
     match key_item {
@@ -85,12 +85,11 @@ impl IndexKey {
             IndexKeyItemsRef::Items(items) => items.len(),
         };
         if index_component_count > MAX_INDEX_FIELDS {
-            return Err(InternalError::index_invariant(format!(
-                "index '{}' has {} fields (max {})",
+            return Err(InternalError::index_key_field_count_exceeds_max(
                 index.name(),
                 index_component_count,
-                MAX_INDEX_FIELDS
-            )));
+                MAX_INDEX_FIELDS,
+            ));
         }
 
         let mut components = Vec::with_capacity(index_component_count);
@@ -106,12 +105,11 @@ impl IndexKey {
                     };
 
                     if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_unsupported(format!(
-                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                        return Err(InternalError::index_component_exceeds_max_size(
                             key_item.canonical_text(),
                             component.len(),
-                            Self::MAX_COMPONENT_SIZE
-                        )));
+                            Self::MAX_COMPONENT_SIZE,
+                        ));
                     }
 
                     components.push(component);
@@ -125,12 +123,11 @@ impl IndexKey {
                     };
 
                     if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_unsupported(format!(
-                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                        return Err(InternalError::index_component_exceeds_max_size(
                             key_item.canonical_text(),
                             component.len(),
-                            Self::MAX_COMPONENT_SIZE
-                        )));
+                            Self::MAX_COMPONENT_SIZE,
+                        ));
                     }
 
                     components.push(component);
@@ -167,12 +164,11 @@ impl IndexKey {
             IndexKeyItemsRef::Items(items) => items.len(),
         };
         if index_component_count > MAX_INDEX_FIELDS {
-            return Err(InternalError::index_invariant(format!(
-                "index '{}' has {} fields (max {})",
+            return Err(InternalError::index_key_field_count_exceeds_max(
                 index.name(),
                 index_component_count,
-                MAX_INDEX_FIELDS
-            )));
+                MAX_INDEX_FIELDS,
+            ));
         }
 
         let mut components = Vec::with_capacity(index_component_count);
@@ -204,12 +200,11 @@ impl IndexKey {
                     let component = encoded.encoded().to_vec();
 
                     if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_unsupported(format!(
-                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                        return Err(InternalError::index_component_exceeds_max_size(
                             key_item.canonical_text(),
                             component.len(),
-                            Self::MAX_COMPONENT_SIZE
-                        )));
+                            Self::MAX_COMPONENT_SIZE,
+                        ));
                     }
 
                     components.push(component);
@@ -239,12 +234,11 @@ impl IndexKey {
                     let component = encoded.encoded().to_vec();
 
                     if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_unsupported(format!(
-                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                        return Err(InternalError::index_component_exceeds_max_size(
                             key_item.canonical_text(),
                             component.len(),
-                            Self::MAX_COMPONENT_SIZE
-                        )));
+                            Self::MAX_COMPONENT_SIZE,
+                        ));
                     }
 
                     components.push(component);
@@ -522,18 +516,18 @@ fn index_component_bytes_from_slots(
         // declared source field. `None` here means the slot is absent, not that
         // the scalar result was non-indexable.
         let Some(source) = eval_scalar_value_program(&program, slots)? else {
-            return Err(InternalError::index_invariant(format!(
-                "index key item field missing on lookup row: {field}",
-            )));
+            return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+                field,
+            ));
         };
 
         return encode_scalar_index_component(source.as_slot_value_ref());
     }
 
     let Some(field_index) = resolve_field_slot(slots.model(), field) else {
-        return Err(InternalError::index_invariant(format!(
-            "index key item field missing on entity model: {field}",
-        )));
+        return Err(InternalError::index_key_item_field_missing_on_entity_model(
+            field,
+        ));
     };
 
     match key_item {
@@ -543,18 +537,18 @@ fn index_component_bytes_from_slots(
             }
 
             let Some(value) = decode_slot_value_by_contract(slots, field_index)? else {
-                return Err(InternalError::index_invariant(format!(
-                    "index key item field missing on lookup row: {field}",
-                )));
+                return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+                    field,
+                ));
             };
 
             encode_value_index_component(value)
         }
         IndexKeyItem::Expression(expression) => {
             let Some(source) = decode_slot_value_by_contract(slots, field_index)? else {
-                return Err(InternalError::index_invariant(format!(
-                    "index key item field missing on lookup row: {field}",
-                )));
+                return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+                    field,
+                ));
             };
             let Some(value) = value_for_expression(index, expression, source)? else {
                 return Ok(None);

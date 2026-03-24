@@ -104,15 +104,15 @@ impl IndexEntryEncodeError {
         fields: &str,
     ) -> InternalError {
         match self {
-            Self::TooManyKeys { keys } => InternalError::index_unsupported(format!(
-                "index entry exceeds max keys: {entity_path} ({fields}) -> {keys} keys",
-            )),
-            Self::DuplicateKey => InternalError::index_invariant(format!(
-                "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
-            )),
-            Self::KeyEncoding(err) => InternalError::index_unsupported(format!(
-                "index entry key encoding failed: {entity_path} ({fields}) -> {err}",
-            )),
+            Self::TooManyKeys { keys } => {
+                InternalError::index_entry_exceeds_max_keys(entity_path, fields, keys)
+            }
+            Self::DuplicateKey => {
+                InternalError::index_entry_duplicate_keys_unexpected(entity_path, fields)
+            }
+            Self::KeyEncoding(err) => {
+                InternalError::index_entry_key_encoding_failed(entity_path, fields, err)
+            }
         }
     }
 }

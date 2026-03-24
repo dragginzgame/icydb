@@ -79,9 +79,7 @@ pub(in crate::db) fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
     if let Some(anchor) = anchor
         && !key_within_envelope(anchor, lower, upper)
     {
-        return Err(InternalError::index_invariant(
-            "index-range continuation anchor is outside the requested range envelope",
-        ));
+        return Err(InternalError::index_scan_continuation_anchor_within_envelope_required());
     }
 
     Ok(())
@@ -121,9 +119,7 @@ pub(in crate::db) fn validate_index_scan_continuation_advancement<K: Ord>(
     if let Some(anchor) = anchor
         && !continuation_advanced(direction, candidate, anchor)
     {
-        return Err(InternalError::index_invariant(
-            "index-range continuation scan did not advance beyond the anchor",
-        ));
+        return Err(InternalError::index_scan_continuation_advancement_required());
     }
 
     Ok(())

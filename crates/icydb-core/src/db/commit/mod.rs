@@ -108,14 +108,11 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
     match init_result {
         Ok(_) => {}
         Err(MemoryRegistryError::Overlap { .. }) => {
-            MemoryRegistryRuntime::init(None).map_err(|err| {
-                InternalError::store_internal(format!("memory registry init failed: {err}"))
-            })?;
+            MemoryRegistryRuntime::init(None)
+                .map_err(InternalError::commit_memory_registry_init_failed)?;
         }
         Err(err) => {
-            return Err(InternalError::store_internal(format!(
-                "memory registry init failed: {err}"
-            )));
+            return Err(InternalError::commit_memory_registry_init_failed(err));
         }
     }
 

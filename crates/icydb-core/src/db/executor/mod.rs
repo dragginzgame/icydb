@@ -29,8 +29,8 @@ mod util;
 mod window;
 
 use crate::db::access::{
-    LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec,
-    LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs, lower_index_range_specs,
+    LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs,
+    lower_index_range_specs,
 };
 
 pub(in crate::db) use crate::db::access::{
@@ -173,12 +173,12 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for invalid lowered index-prefix specs.
     pub(in crate::db) fn lowered_index_prefix_spec_invalid() -> Self {
-        Self::continuation_cursor_invariant(LOWERED_INDEX_PREFIX_SPEC_INVALID)
+        Self::continuation_cursor_invariant(LoweredIndexPrefixSpec::invalid_reason())
     }
 
     /// Construct one executor plan error for invalid lowered index-range specs.
     pub(in crate::db) fn lowered_index_range_spec_invalid() -> Self {
-        Self::continuation_cursor_invariant(LOWERED_INDEX_RANGE_SPEC_INVALID)
+        Self::continuation_cursor_invariant(LoweredIndexRangeSpec::invalid_reason())
     }
 
     /// Lift one executor plan error into the runtime internal taxonomy.

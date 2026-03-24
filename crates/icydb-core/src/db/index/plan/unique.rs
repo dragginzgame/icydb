@@ -47,20 +47,21 @@ pub(super) fn validate_unique_constraint_structural(
     };
 
     let Some(new_storage_key) = new_storage_key else {
-        return Err(InternalError::index_invariant(
-            "missing entity key during unique validation".to_string(),
-        ));
+        return Err(InternalError::index_unique_validation_entity_key_required());
     };
+
+    let index_fields = index.fields().join(", ");
 
     let mut encoded_prefix = Vec::with_capacity(new_index_key.component_count());
     for component_index in 0..new_index_key.component_count() {
         let Some(component) = new_index_key.component(component_index) else {
-            return Err(InternalError::index_invariant(format!(
-                "index key missing component {} during unique validation: {} ({})",
-                component_index,
-                entity_path,
-                index.fields().join(", ")
-            )));
+            return Err(
+                InternalError::index_unique_validation_key_component_missing(
+                    component_index,
+                    entity_path,
+                    &index_fields,
+                ),
+            );
         };
         encoded_prefix.push(component.to_vec());
     }
@@ -91,12 +92,11 @@ pub(super) fn validate_unique_constraint_structural(
     }
 
     if matching_storage_keys.len() > 1 {
-        return Err(InternalError::index_plan_index_corruption(format!(
-            "index corrupted: {} ({}) -> {} keys",
+        return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            index.fields().join(", "),
-            matching_storage_keys.len()
-        )));
+            &index_fields,
+            format_args!("{} keys", matching_storage_keys.len()),
+        ));
     }
 
     let existing_key = matching_storage_keys[0];
@@ -120,7 +120,7 @@ pub(super) fn validate_unique_constraint_structural(
         return Err(InternalError::index_plan_store_invariant(format!(
             "index invariant violated: {} ({}) -> {}",
             entity_path,
-            index.fields().join(", "),
+            &index_fields,
             IndexEntryCorruption::RowKeyMismatch {
                 indexed_key: Box::new(existing_key.as_value()),
                 row_key: Box::new(stored_key.as_value()),
@@ -137,44 +137,44 @@ pub(super) fn validate_unique_constraint_structural(
         index,
     )?
     else {
-        return Err(InternalError::index_plan_index_corruption(format!(
-            "index corrupted: {} ({}) -> stored entity is not indexable for unique key",
+        return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            index.fields().join(", "),
-        )));
+            &index_fields,
+            "stored entity is not indexable for unique key",
+        ));
     };
     if stored_index_key.component_count() != new_index_key.component_count() {
-        return Err(InternalError::index_plan_index_corruption(format!(
-            "index corrupted: {} ({}) -> mismatched unique key component count",
+        return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            index.fields().join(", "),
-        )));
+            &index_fields,
+            "mismatched unique key component count",
+        ));
     }
 
     for component_index in 0..new_index_key.component_count() {
         let Some(expected) = new_index_key.component(component_index) else {
-            return Err(InternalError::index_invariant(format!(
-                "index key missing expected component {} during unique validation: {} ({})",
-                component_index,
-                entity_path,
-                index.fields().join(", "),
-            )));
+            return Err(
+                InternalError::index_unique_validation_expected_component_missing(
+                    component_index,
+                    entity_path,
+                    &index_fields,
+                ),
+            );
         };
         let Some(actual) = stored_index_key.component(component_index) else {
-            return Err(InternalError::index_plan_index_corruption(format!(
-                "index corrupted: {} ({}) -> stored entity missing component {}",
+            return Err(InternalError::index_unique_validation_corruption(
                 entity_path,
-                index.fields().join(", "),
-                component_index,
-            )));
+                &index_fields,
+                format_args!("stored entity missing component {component_index}"),
+            ));
         };
 
         if expected != actual {
-            return Err(InternalError::index_plan_index_corruption(format!(
-                "index canonical collision: {} ({})",
+            return Err(InternalError::index_unique_validation_corruption(
                 entity_path,
-                index.fields().join(", ")
-            )));
+                &index_fields,
+                "index canonical collision",
+            ));
         }
     }
 
@@ -191,9 +191,7 @@ fn decode_unique_row_fields<'a>(
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
     StructuralSlotReader::from_raw_row(row, model).map_err(|source| {
-        InternalError::index_plan_serialize_corruption(format!(
-            "failed to structurally deserialize row: {data_key} ({source})"
-        ))
+        InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
     })
 }
 
@@ -207,16 +205,15 @@ fn decode_unique_row_storage_key(
 ) -> Result<StorageKey, InternalError> {
     let primary_key_name = model.primary_key().name();
     let _ = resolve_primary_key_slot(model).ok_or_else(|| {
-        InternalError::index_invariant(format!(
-            "entity primary key field missing during unique validation: {entity_path} field={primary_key_name}",
-        ))
+        InternalError::index_unique_validation_primary_key_field_missing(
+            entity_path,
+            primary_key_name,
+        )
     })?;
     row_fields
         .validate_storage_key(data_key)
         .map_err(|source| {
-            InternalError::index_plan_serialize_corruption(format!(
-                "failed to decode structural primary-key slot: {data_key} ({source})"
-            ))
+            InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
         })?;
 
     Ok(data_key.storage_key())
@@ -233,8 +230,6 @@ fn build_unique_index_key_from_row_slots(
     index: &IndexModel,
 ) -> Result<Option<IndexKey>, InternalError> {
     IndexKey::new_from_slots(entity_tag, storage_key, row_fields, index).map_err(|err| {
-        InternalError::index_plan_serialize_corruption(format!(
-            "failed to structurally decode unique key row {data_key} for {entity_path}: {err}",
-        ))
+        InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
     })
 }

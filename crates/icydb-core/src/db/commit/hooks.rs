@@ -139,21 +139,15 @@ pub(in crate::db) fn resolve_runtime_hook_by_tag<C: CanisterKind>(
         }
 
         if matched.is_some() {
-            return Err(InternalError::store_invariant(format!(
-                "duplicate runtime hooks for entity tag '{}'",
-                entity_tag.value()
-            )));
+            return Err(InternalError::duplicate_runtime_hooks_for_entity_tag(
+                entity_tag,
+            ));
         }
 
         matched = Some(hooks);
     }
 
-    matched.ok_or_else(|| {
-        InternalError::store_unsupported(format!(
-            "unsupported entity tag in data store: '{}'",
-            entity_tag.value()
-        ))
-    })
+    matched.ok_or_else(|| InternalError::unsupported_entity_tag_in_data_store(entity_tag))
 }
 
 /// Resolve exactly one runtime hook for a persisted entity path.
@@ -169,9 +163,9 @@ pub(in crate::db) fn resolve_runtime_hook_by_path<'a, C: CanisterKind>(
         }
 
         if matched.is_some() {
-            return Err(InternalError::store_invariant(format!(
-                "duplicate runtime hooks for entity path '{entity_path}'"
-            )));
+            return Err(InternalError::duplicate_runtime_hooks_for_entity_path(
+                entity_path,
+            ));
         }
 
         matched = Some(hooks);

@@ -103,12 +103,11 @@ fn validate_recovery_integrity<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         || totals.divergent_index_entries() > 0
         || totals.orphan_index_references() > 0
     {
-        return Err(InternalError::store_corruption(format!(
-            "recovery integrity validation failed: missing_index_entries={} divergent_index_entries={} orphan_index_references={}",
+        return Err(InternalError::recovery_integrity_validation_failed(
             totals.missing_index_entries(),
             totals.divergent_index_entries(),
             totals.orphan_index_references(),
-        )));
+        ));
     }
 
     Ok(())
