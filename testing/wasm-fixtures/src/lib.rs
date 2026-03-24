@@ -69,6 +69,28 @@ macro_rules! assert_generated_sql_dispatch_surface_from_out_dir {
 }
 
 ///
+/// define_generated_sql_dispatch_surface_stability_test
+///
+/// Define the standard SQL-dispatch generated-surface stability test module for
+/// one wasm audit canister.
+///
+#[macro_export]
+macro_rules! define_generated_sql_dispatch_surface_stability_test {
+    () => {
+        ///
+        /// TESTS
+        ///
+        #[cfg(all(test, feature = "sql"))]
+        mod tests {
+            #[test]
+            fn generated_sql_dispatch_surface_is_stable() {
+                $crate::assert_generated_sql_dispatch_surface_from_out_dir!();
+            }
+        }
+    };
+}
+
+///
 /// define_simple_audit_entities
 ///
 /// Generate one or more repeated simple audit entities for wasm-size fixtures.

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
 
-- `0.63.7` keeps the `0.63` cleanup moving outside the core runtime by collapsing dead Pocket-IC canister-build wrappers, deduplicating repeated Pocket-IC canister setup, and sharing one generated-actor SQL surface assertion across the wasm audit canisters, without changing SQL or runtime behavior.
+- `0.63.7` keeps the `0.63` cleanup moving outside the core runtime by collapsing dead Pocket-IC canister-build wrappers, deduplicating repeated Pocket-IC canister setup and metadata-lane checks, and sharing the generated-actor SQL surface assertion across the wasm audit canisters, without changing SQL or runtime behavior.
 - `0.63.6` keeps the `0.63` cleanup moving by tightening row-decode, data-key, executor missing-row, unique-validation, and commit-marker size-classification boundaries, then cutting more one-off local wrappers across scalar/grouped entrypoints, stream access, and aggregate helper files, without changing SQL or runtime behavior.
 - `0.63.5` keeps the `0.63` cleanup moving by pushing more persisted-row, reverse-index, covering decode, and adjacent commit failure paths onto the types that already own those contracts, without changing SQL or runtime behavior.
 - `0.63.4` keeps the `0.63` cleanup moving by pushing more executor, commit, migration, cursor, and index-planning failures onto the types that already own those contracts, without changing SQL or runtime behavior.

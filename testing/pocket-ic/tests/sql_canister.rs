@@ -164,6 +164,17 @@ fn query_projection_rows(
     }
 }
 
+// Read the stable entity name from one metadata-lane SQL payload.
+const fn metadata_entity_name(payload: &SqlQueryResult) -> Option<&str> {
+    match payload {
+        SqlQueryResult::Describe(description) => Some(description.entity_name()),
+        SqlQueryResult::ShowIndexes { entity, .. } | SqlQueryResult::ShowColumns { entity, .. } => {
+            Some(entity.as_str())
+        }
+        _ => None,
+    }
+}
+
 #[test]
 #[expect(clippy::too_many_lines)]
 fn sql_canister_smoke_flow() {
@@ -408,7 +419,6 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines)]
 #[expect(clippy::redundant_closure_for_method_calls)]
 fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
     run_with_pocket_ic(|pic| {
@@ -442,14 +452,11 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
         let describe_normalized_payload =
             query_result(pic, canister_id, " dEsCrIbE public.Character; ")
                 .expect("query normalized DESCRIBE should return an Ok payload");
-        match describe_normalized_payload {
-            SqlQueryResult::Describe(description) => {
-                assert_eq!(description.entity_name(), "Character");
-            }
-            other => {
-                panic!("query normalized DESCRIBE should return Describe payload, got {other:?}")
-            }
-        }
+        assert_eq!(
+            metadata_entity_name(&describe_normalized_payload),
+            Some("Character"),
+            "query normalized DESCRIBE should return Character metadata payload",
+        );
 
         let show_indexes_payload = query_result(pic, canister_id, "SHOW INDEXES Character")
             .expect("query SHOW INDEXES should return an Ok payload");
@@ -474,14 +481,11 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
         let show_indexes_normalized_payload =
             query_result(pic, canister_id, "sHoW InDeXeS public.Character;")
                 .expect("query normalized SHOW INDEXES should return an Ok payload");
-        match show_indexes_normalized_payload {
-            SqlQueryResult::ShowIndexes { entity, .. } => {
-                assert_eq!(entity, "Character");
-            }
-            other => panic!(
-                "query normalized SHOW INDEXES should return ShowIndexes payload, got {other:?}"
-            ),
-        }
+        assert_eq!(
+            metadata_entity_name(&show_indexes_normalized_payload),
+            Some("Character"),
+            "query normalized SHOW INDEXES should return Character metadata payload",
+        );
 
         let show_columns_payload = query_result(pic, canister_id, "SHOW COLUMNS Character")
             .expect("query SHOW COLUMNS should return an Ok payload");
@@ -510,13 +514,10 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
         let show_columns_normalized_payload =
             query_result(pic, canister_id, "sHoW CoLuMnS public.Character;")
                 .expect("query normalized SHOW COLUMNS should return an Ok payload");
-        match show_columns_normalized_payload {
-            SqlQueryResult::ShowColumns { entity, .. } => {
-                assert_eq!(entity, "Character");
-            }
-            other => panic!(
-                "query normalized SHOW COLUMNS should return ShowColumns payload, got {other:?}"
-            ),
-        }
+        assert_eq!(
+            metadata_entity_name(&show_columns_normalized_payload),
+            Some("Character"),
+            "query normalized SHOW COLUMNS should return Character metadata payload",
+        );
     });
 }

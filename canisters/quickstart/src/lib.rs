@@ -75,6 +75,41 @@ mod tests {
         db().execute_sql_dispatch::<User>(sql)
     }
 
+    // Compare one sql_dispatch lane payload against the typed `execute_sql_dispatch` path.
+    fn assert_dispatch_matches_typed(sql: &str, context: &str) {
+        let dispatch = dispatch_result_for_sql(sql);
+        let typed = typed_result_for_sql(sql);
+
+        assert_eq!(dispatch, typed, "{context}");
+    }
+
+    // Compare one fallible projection SQL path across dispatch and typed execution.
+    fn assert_dispatch_result_matches_typed(sql: &str, context: &str) {
+        let dispatch = dispatch_result_for_sql_unchecked(sql);
+        let typed = typed_result_for_sql_unchecked(sql);
+
+        match (dispatch, typed) {
+            (Ok(dispatch), Ok(typed)) => {
+                assert_eq!(dispatch, typed, "{context}");
+            }
+            (Err(dispatch_err), Err(typed_err)) => {
+                assert_eq!(
+                    dispatch_err.kind(),
+                    typed_err.kind(),
+                    "{context}: error kind mismatch",
+                );
+                assert_eq!(
+                    dispatch_err.origin(),
+                    typed_err.origin(),
+                    "{context}: error origin mismatch",
+                );
+            }
+            (dispatch, typed) => {
+                panic!("{context}: dispatch={dispatch:?} typed={typed:?}");
+            }
+        }
+    }
+
     fn dispatch_explain_for_sql(sql: &str) -> String {
         let payload = dispatch_result_for_sql(sql);
         match payload {
@@ -182,68 +217,32 @@ mod tests {
     #[test]
     fn generated_sql_dispatch_projection_matches_typed_projection_surface() {
         let sql = "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 5";
-        let dispatch = dispatch_result_for_sql_unchecked(sql);
-        let typed = typed_result_for_sql_unchecked(sql);
-
-        match (dispatch, typed) {
-            (Ok(dispatch), Ok(typed)) => {
-                assert_eq!(
-                    dispatch, typed,
-                    "typed execute_sql_dispatch and sql_dispatch should return identical projection payloads",
-                );
-            }
-            (Err(dispatch_err), Err(typed_err)) => {
-                assert_eq!(
-                    dispatch_err.kind(),
-                    typed_err.kind(),
-                    "typed execute_sql_dispatch and sql_dispatch should fail with the same error kind for projection SQL",
-                );
-                assert_eq!(
-                    dispatch_err.origin(),
-                    typed_err.origin(),
-                    "typed execute_sql_dispatch and sql_dispatch should fail with the same error origin for projection SQL",
-                );
-            }
-            (dispatch, typed) => {
-                panic!(
-                    "typed execute_sql_dispatch and sql_dispatch projection outcomes diverged: dispatch={dispatch:?} typed={typed:?}"
-                );
-            }
-        }
+        assert_dispatch_result_matches_typed(
+            sql,
+            "typed execute_sql_dispatch and sql_dispatch should keep projection parity",
+        );
     }
 
     #[test]
     fn generated_sql_dispatch_describe_matches_typed_describe_surface() {
-        let sql = "DESCRIBE public.User";
-        let dispatch = dispatch_result_for_sql(sql);
-        let typed = typed_result_for_sql(sql);
-
-        assert_eq!(
-            dispatch, typed,
+        assert_dispatch_matches_typed(
+            "DESCRIBE public.User",
             "typed execute_sql_dispatch and sql_dispatch should return identical DESCRIBE payloads",
         );
     }
 
     #[test]
     fn generated_sql_dispatch_show_indexes_matches_typed_surface() {
-        let sql = "SHOW INDEXES public.User";
-        let dispatch = dispatch_result_for_sql(sql);
-        let typed = typed_result_for_sql(sql);
-
-        assert_eq!(
-            dispatch, typed,
+        assert_dispatch_matches_typed(
+            "SHOW INDEXES public.User",
             "typed execute_sql_dispatch and sql_dispatch should return identical SHOW INDEXES payloads",
         );
     }
 
     #[test]
     fn generated_sql_dispatch_show_columns_matches_typed_surface() {
-        let sql = "SHOW COLUMNS public.User";
-        let dispatch = dispatch_result_for_sql(sql);
-        let typed = typed_result_for_sql(sql);
-
-        assert_eq!(
-            dispatch, typed,
+        assert_dispatch_matches_typed(
+            "SHOW COLUMNS public.User",
             "typed execute_sql_dispatch and sql_dispatch should return identical SHOW COLUMNS payloads",
         );
     }
