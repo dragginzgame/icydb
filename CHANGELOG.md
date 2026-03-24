@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
 
+- `0.63.9` closes this phase of the `0.63` line by running the crosscutting audit suite again, restoring the canonical wasm audit report layout to one top-level summary plus artifact-local per-canister details, and making the route feature budget guard an actually executed test instead of a dead source-only check.
 - `0.63.8` keeps the `0.63` cleanup moving in the canister and test harness layer by deduplicating more quickstart SQL parity checks, sharing the repeated wasm-audit SQL stability test shell across the audit canisters, and simplifying the remaining Pocket-IC metadata-lane assertions, without changing SQL or runtime behavior.
 - `0.63.7` keeps the `0.63` cleanup moving outside the core runtime by collapsing dead Pocket-IC canister-build wrappers, deduplicating repeated Pocket-IC canister setup and metadata-lane checks, and sharing the generated-actor SQL surface assertion across the wasm audit canisters, without changing SQL or runtime behavior.
 - `0.63.6` keeps the `0.63` cleanup moving by tightening row-decode, data-key, executor missing-row, unique-validation, and commit-marker size-classification boundaries, then cutting more one-off local wrappers across scalar/grouped entrypoints, stream access, and aggregate helper files, without changing SQL or runtime behavior.

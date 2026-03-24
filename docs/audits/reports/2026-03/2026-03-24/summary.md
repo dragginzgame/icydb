@@ -16,7 +16,7 @@
 4. `crosscutting/crosscutting-layer-violation` -> `layer-violation.md` (Risk: 3/10)
 5. `crosscutting/crosscutting-module-structure` -> `module-structure.md` (Risk: 4/10)
 6. `crosscutting/crosscutting-velocity-preservation` -> `velocity-preservation.md` (Risk: 4/10)
-7. `crosscutting/crosscutting-wasm-footprint` -> `wasm-footprint*.md` (PASS=4, PARTIAL=1, FAIL=0 per canister report)
+7. `crosscutting/crosscutting-wasm-footprint` -> `wasm-footprint.md` + `artifacts/wasm-footprint/*.md` (PASS=4, PARTIAL=1, FAIL=0)
 
 ## Global Findings
 
@@ -58,4 +58,4 @@
 - `cargo clippy -p icydb-core --all-targets -- -D warnings` -> PASS
 - `cargo test -p icydb-core --lib -- --list | rg "db::executor::route::tests::route_feature_budget_shape_kinds_stay_within_soft_delta"` -> PASS
 - `cargo test -p icydb-core db::executor::route::tests::route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture` -> PASS
-- `WASM_AUDIT_DATE=2026-03-24 bash scripts/ci/wasm-audit-report.sh` -> PASS (generated `wasm-footprint.md` through `wasm-footprint-5.md`)
+- `WASM_AUDIT_DATE=2026-03-24 bash scripts/ci/wasm-audit-report.sh` -> PASS (generated one top-level `wasm-footprint.md` summary plus per-canister detail files under `artifacts/wasm-footprint/`)

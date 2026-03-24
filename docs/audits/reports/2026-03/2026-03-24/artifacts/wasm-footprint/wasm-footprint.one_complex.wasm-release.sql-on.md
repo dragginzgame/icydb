@@ -4,7 +4,7 @@
 
 - scope: recurring wasm footprint audit for `one_complex` with profile `wasm-release` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-03/2026-03-20/wasm-footprint.md`
-- code snapshot identifier: `3f453012`
+- code snapshot identifier: `d85286d4`
 - method tag/version: `WASM-1.0`
 - comparability status: `non-comparable (baseline report exists but baseline size artifact is missing)`
 

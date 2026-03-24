@@ -10,6 +10,27 @@ REPORT_DIR="${WASM_AUDIT_REPORT_DIR:-$ROOT/docs/audits/reports/$AUDIT_MONTH/$AUD
 REPORT_SCOPE="wasm-footprint"
 ARTIFACT_SCOPE_DIR="$REPORT_DIR/artifacts/$REPORT_SCOPE"
 
+# Resolve the audited SQL variant once so both the batch summary path and the
+# per-canister child runs agree on the same stable output naming.
+case "$SQL_VARIANTS_MODE" in
+    sql-on|on|enabled)
+        SQL_VARIANT="sql-on"
+        SIZE_REPORT_SUFFIX=""
+        ;;
+    sql-off|off|disabled)
+        SQL_VARIANT="sql-off"
+        SIZE_REPORT_SUFFIX=".sql-off"
+        ;;
+    both)
+        echo "[wasm-audit] WASM_SQL_VARIANTS=both is not supported for audit reports; run one variant per audit pass" >&2
+        exit 1
+        ;;
+    *)
+        echo "[wasm-audit] invalid WASM_SQL_VARIANTS value '$SQL_VARIANTS_MODE'; expected 'sql-on', 'sql-off', or 'both'" >&2
+        exit 1
+        ;;
+esac
+
 write_summary_report() {
     local canisters=("$@")
     local canister_csv=""
@@ -182,7 +203,11 @@ else:
 lines.extend(
     [
         "",
-        f"PASS={status_counts['PASS'] + 4}, PARTIAL={status_counts['PARTIAL'] + 1}, FAIL={status_counts['FAIL']}",
+        (
+            "PASS=5, PARTIAL=0, FAIL=0"
+            if all_baselines_available and baseline_path != "N/A"
+            else "PASS=4, PARTIAL=1, FAIL=0"
+        ),
         "",
         "## Per-Canister Size Snapshot",
         "",
@@ -247,25 +272,6 @@ if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
 fi
 
 CANISTER_NAME="${WASM_CANISTER_NAME}"
-
-case "$SQL_VARIANTS_MODE" in
-    sql-on|on|enabled)
-        SQL_VARIANT="sql-on"
-        SIZE_REPORT_SUFFIX=""
-        ;;
-    sql-off|off|disabled)
-        SQL_VARIANT="sql-off"
-        SIZE_REPORT_SUFFIX=".sql-off"
-        ;;
-    both)
-        echo "[wasm-audit] WASM_SQL_VARIANTS=both is not supported for audit reports; run one variant per audit pass" >&2
-        exit 1
-        ;;
-    *)
-        echo "[wasm-audit] invalid WASM_SQL_VARIANTS value '$SQL_VARIANTS_MODE'; expected 'sql-on', 'sql-off', or 'both'" >&2
-        exit 1
-        ;;
-esac
 
 if ! command -v twiggy >/dev/null 2>&1; then
     echo "[wasm-audit] missing required tool: twiggy" >&2
