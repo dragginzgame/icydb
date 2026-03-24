@@ -117,10 +117,7 @@ pub(in crate::db) fn decode_slot_value_by_contract(
     slot: usize,
 ) -> Result<Option<Value>, InternalError> {
     let field = slots.model().fields().get(slot).ok_or_else(|| {
-        InternalError::index_invariant(format!(
-            "slot lookup outside model bounds during structural row access: model='{}' slot={slot}",
-            slots.model().path(),
-        ))
+        InternalError::persisted_row_slot_lookup_out_of_bounds(slots.model().path(), slot)
     })?;
 
     if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
@@ -154,11 +151,7 @@ fn decode_non_scalar_slot_value(
     };
 
     decoded.map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "row decode failed for field '{}' kind={:?}: {err}",
-            field.name(),
-            field.kind(),
-        ))
+        InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
     })
 }
 
@@ -256,11 +249,8 @@ pub fn encode_persisted_slot_payload<T>(
 where
     T: serde::Serialize,
 {
-    serialize(value).map_err(|err| {
-        InternalError::serialize_internal(format!(
-            "row encode failed for field '{field_name}': {err}",
-        ))
-    })
+    serialize(value)
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
 }
 
 /// Encode one persisted scalar slot payload using the canonical scalar envelope.
@@ -278,9 +268,10 @@ where
     encoded.extend_from_slice(&payload);
 
     if encoded.len() < 2 {
-        return Err(InternalError::serialize_internal(format!(
-            "row encode failed for field '{field_name}': scalar payload envelope underflow",
-        )));
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            "scalar payload envelope underflow",
+        ));
     }
 
     Ok(encoded)
@@ -308,11 +299,8 @@ pub fn decode_persisted_slot_payload<T>(
 where
     T: serde::de::DeserializeOwned,
 {
-    deserialize(bytes).map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': {err}",
-        ))
-    })
+    deserialize(bytes)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
 /// Decode one persisted scalar slot payload using the canonical scalar envelope.
@@ -324,9 +312,10 @@ where
     T: PersistedScalar,
 {
     let payload = decode_scalar_slot_payload_body(bytes, field_name)?.ok_or_else(|| {
-        InternalError::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': unexpected null for non-nullable scalar field",
-        ))
+        InternalError::persisted_row_field_decode_failed(
+            field_name,
+            "unexpected null for non-nullable scalar field",
+        )
     })?;
 
     T::decode_scalar_payload(payload, field_name)
@@ -369,8 +358,8 @@ impl SlotBufferWriter {
     /// Encode the buffered slots into the canonical row payload.
     pub(in crate::db) fn finish(self) -> Result<Vec<u8>, InternalError> {
         let field_count = u16::try_from(self.slots.len()).map_err(|_| {
-            InternalError::serialize_internal(format!(
-                "row encode failed: field count {} exceeds u16 slot table capacity",
+            InternalError::persisted_row_encode_failed(format!(
+                "field count {} exceeds u16 slot table capacity",
                 self.slots.len(),
             ))
         })?;
@@ -382,13 +371,13 @@ impl SlotBufferWriter {
             match slot_payload {
                 Some(bytes) => {
                     let start = u32::try_from(payload_bytes.len()).map_err(|_| {
-                        InternalError::serialize_internal(
-                            "row encode failed: slot payload start exceeds u32 range",
+                        InternalError::persisted_row_encode_failed(
+                            "slot payload start exceeds u32 range",
                         )
                     })?;
                     let len = u32::try_from(bytes.len()).map_err(|_| {
-                        InternalError::serialize_internal(
-                            "row encode failed: slot payload length exceeds u32 range",
+                        InternalError::persisted_row_encode_failed(
+                            "slot payload length exceeds u32 range",
                         )
                     })?;
                     payload_bytes.extend_from_slice(&bytes);
@@ -416,8 +405,8 @@ impl SlotBufferWriter {
 impl SlotWriter for SlotBufferWriter {
     fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
         let entry = self.slots.get_mut(slot).ok_or_else(|| {
-            InternalError::serialize_internal(format!(
-                "row encode failed: slot {slot} is outside the row layout",
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is outside the row layout",
             ))
         })?;
         *entry = payload.map(<[u8]>::to_vec);
@@ -476,10 +465,9 @@ impl<'a> StructuralSlotReader<'a> {
         data_key: &DataKey,
     ) -> Result<(), InternalError> {
         let Some(primary_key_slot) = resolve_primary_key_slot(self.model) else {
-            return Err(InternalError::index_invariant(format!(
-                "entity primary key field missing during structural row validation: {}",
+            return Err(InternalError::persisted_row_primary_key_field_missing(
                 self.model.path(),
-            )));
+            ));
         };
         let field = self.field_model(primary_key_slot)?;
         let decoded_key = match self.get_scalar(primary_key_slot)? {
@@ -488,25 +476,26 @@ impl<'a> StructuralSlotReader<'a> {
             None => match self.field_bytes.field(primary_key_slot) {
                 Some(raw_value) => Some(
                     decode_storage_key_field_bytes(raw_value, field.kind).map_err(|err| {
-                        InternalError::serialize_corruption(format!(
-                            "row decode failed: primary-key value is not storage-key encodable: {data_key} ({err})",
-                        ))
+                        InternalError::persisted_row_primary_key_not_storage_encodable(
+                            data_key, err,
+                        )
                     })?,
                 ),
                 None => None,
             },
         };
         let Some(decoded_key) = decoded_key else {
-            return Err(InternalError::serialize_corruption(format!(
-                "row decode failed: missing primary-key slot while validating {data_key}",
-            )));
+            return Err(InternalError::persisted_row_primary_key_slot_missing(
+                data_key,
+            ));
         };
         let expected_key = data_key.storage_key();
 
         if decoded_key != expected_key {
-            return Err(InternalError::store_corruption(format!(
-                "row key mismatch: expected {expected_key}, found {decoded_key}",
-            )));
+            return Err(InternalError::persisted_row_key_mismatch(
+                expected_key,
+                decoded_key,
+            ));
         }
 
         Ok(())
@@ -515,10 +504,7 @@ impl<'a> StructuralSlotReader<'a> {
     // Resolve one field model entry by stable slot index.
     fn field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         self.model.fields().get(slot).ok_or_else(|| {
-            InternalError::index_invariant(format!(
-                "slot lookup outside model bounds during structural row access: model='{}' slot={slot}",
-                self.model.path(),
-            ))
+            InternalError::persisted_row_slot_lookup_out_of_bounds(self.model.path(), slot)
         })
     }
 }
@@ -567,10 +553,7 @@ impl SlotReader for StructuralSlotReader<'_> {
 
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
         let cached = self.cached_values.get(slot).ok_or_else(|| {
-            InternalError::index_invariant(format!(
-                "slot cache lookup outside model bounds during structural row access: model='{}' slot={slot}",
-                self.model.path(),
-            ))
+            InternalError::persisted_row_slot_cache_lookup_out_of_bounds(self.model.path(), slot)
         })?;
         if let CachedSlotValue::Decoded(value) = cached {
             return Ok(value.clone());
@@ -650,35 +633,40 @@ fn decode_scalar_slot_payload_body<'a>(
     field_name: &'static str,
 ) -> Result<Option<&'a [u8]>, InternalError> {
     let Some((&prefix, rest)) = bytes.split_first() else {
-        return Err(InternalError::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': empty scalar payload",
-        )));
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            "empty scalar payload",
+        ));
     };
     if prefix != SCALAR_SLOT_PREFIX {
-        return Err(InternalError::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': scalar payload prefix mismatch",
-        )));
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            "scalar payload prefix mismatch",
+        ));
     }
     let Some((&tag, payload)) = rest.split_first() else {
-        return Err(InternalError::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': truncated scalar payload tag",
-        )));
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            "truncated scalar payload tag",
+        ));
     };
 
     match tag {
         SCALAR_SLOT_TAG_NULL => {
             if !payload.is_empty() {
-                return Err(InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': null scalar payload has trailing bytes",
-                )));
+                return Err(InternalError::persisted_row_field_decode_failed(
+                    field_name,
+                    "null scalar payload has trailing bytes",
+                ));
             }
 
             Ok(None)
         }
         SCALAR_SLOT_TAG_VALUE => Ok(Some(payload)),
-        _ => Err(InternalError::serialize_corruption(format!(
-            "row decode failed for field '{field_name}': invalid scalar payload tag {tag}",
-        ))),
+        _ => Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("invalid scalar payload tag {tag}"),
+        )),
     }
 }
 
@@ -697,124 +685,137 @@ fn decode_scalar_slot_value<'a>(
         ScalarCodec::Blob => ScalarValueRef::Blob(payload),
         ScalarCodec::Bool => {
             let [value] = payload else {
-                return Err(InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': bool payload must be exactly {SCALAR_BOOL_PAYLOAD_LEN} byte",
-                )));
+                return Err(
+                    InternalError::persisted_row_field_payload_exact_len_required(
+                        field_name,
+                        "bool",
+                        SCALAR_BOOL_PAYLOAD_LEN,
+                    ),
+                );
             };
             match *value {
                 SCALAR_BOOL_FALSE_TAG => ScalarValueRef::Bool(false),
                 SCALAR_BOOL_TRUE_TAG => ScalarValueRef::Bool(true),
                 _ => {
-                    return Err(InternalError::serialize_corruption(format!(
-                        "row decode failed for field '{field_name}': invalid bool payload byte {value}",
-                    )));
+                    return Err(InternalError::persisted_row_field_payload_invalid_byte(
+                        field_name, "bool", *value,
+                    ));
                 }
             }
         }
         ScalarCodec::Date => {
             let bytes: [u8; SCALAR_WORD32_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': date payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "date",
+                    SCALAR_WORD32_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Date(Date::from_days_since_epoch(i32::from_le_bytes(bytes)))
         }
         ScalarCodec::Duration => {
             let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': duration payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "duration",
+                    SCALAR_WORD64_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Duration(Duration::from_millis(u64::from_le_bytes(bytes)))
         }
         ScalarCodec::Float32 => {
             let bytes: [u8; SCALAR_WORD32_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': float32 payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "float32",
+                    SCALAR_WORD32_PAYLOAD_LEN,
+                )
             })?;
             let value = f32::from_bits(u32::from_le_bytes(bytes));
             let value = Float32::try_new(value).ok_or_else(|| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': float32 payload is non-finite",
-                ))
+                InternalError::persisted_row_field_payload_non_finite(field_name, "float32")
             })?;
             ScalarValueRef::Float32(value)
         }
         ScalarCodec::Float64 => {
             let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': float64 payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "float64",
+                    SCALAR_WORD64_PAYLOAD_LEN,
+                )
             })?;
             let value = f64::from_bits(u64::from_le_bytes(bytes));
             let value = Float64::try_new(value).ok_or_else(|| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': float64 payload is non-finite",
-                ))
+                InternalError::persisted_row_field_payload_non_finite(field_name, "float64")
             })?;
             ScalarValueRef::Float64(value)
         }
         ScalarCodec::Int64 => {
             let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': int payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "int",
+                    SCALAR_WORD64_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Int(i64::from_le_bytes(bytes))
         }
-        ScalarCodec::Principal => {
-            ScalarValueRef::Principal(Principal::try_from_bytes(payload).map_err(|err| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': {err}",
-                ))
-            })?)
-        }
+        ScalarCodec::Principal => ScalarValueRef::Principal(
+            Principal::try_from_bytes(payload)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
+        ),
         ScalarCodec::Subaccount => {
             let bytes: [u8; SCALAR_SUBACCOUNT_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': subaccount payload must be exactly {SCALAR_SUBACCOUNT_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "subaccount",
+                    SCALAR_SUBACCOUNT_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Subaccount(Subaccount::from_array(bytes))
         }
         ScalarCodec::Text => {
             let value = str::from_utf8(payload).map_err(|err| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': invalid UTF-8 text payload ({err})",
-                ))
+                InternalError::persisted_row_field_text_payload_invalid_utf8(field_name, err)
             })?;
             ScalarValueRef::Text(value)
         }
         ScalarCodec::Timestamp => {
             let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': timestamp payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "timestamp",
+                    SCALAR_WORD64_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(i64::from_le_bytes(bytes)))
         }
         ScalarCodec::Uint64 => {
             let bytes: [u8; SCALAR_WORD64_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': uint payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "uint",
+                    SCALAR_WORD64_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Uint(u64::from_le_bytes(bytes))
         }
         ScalarCodec::Ulid => {
             let bytes: [u8; SCALAR_ULID_PAYLOAD_LEN] = payload.try_into().map_err(|_| {
-                InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': ulid payload must be exactly {SCALAR_ULID_PAYLOAD_LEN} bytes",
-                ))
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "ulid",
+                    SCALAR_ULID_PAYLOAD_LEN,
+                )
             })?;
             ScalarValueRef::Ulid(Ulid::from_bytes(bytes))
         }
         ScalarCodec::Unit => {
             if !payload.is_empty() {
-                return Err(InternalError::serialize_corruption(format!(
-                    "row decode failed for field '{field_name}': unit payload must be empty",
-                )));
+                return Err(InternalError::persisted_row_field_payload_must_be_empty(
+                    field_name, "unit",
+                ));
             }
             ScalarValueRef::Unit
         }
@@ -838,14 +839,17 @@ macro_rules! impl_persisted_scalar_signed {
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
                     let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-                        InternalError::serialize_corruption(format!(
-                            "row decode failed for field '{field_name}': int payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                        ))
+                        InternalError::persisted_row_field_payload_exact_len_required(
+                            field_name,
+                            "int",
+                            SCALAR_WORD64_PAYLOAD_LEN,
+                        )
                     })?;
                     <$ty>::try_from(i64::from_le_bytes(raw)).map_err(|_| {
-                        InternalError::serialize_corruption(format!(
-                            "row decode failed for field '{field_name}': integer payload out of range for target type",
-                        ))
+                        InternalError::persisted_row_field_payload_out_of_range(
+                            field_name,
+                            "integer",
+                        )
                     })
                 }
             }
@@ -868,14 +872,17 @@ macro_rules! impl_persisted_scalar_unsigned {
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
                     let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-                        InternalError::serialize_corruption(format!(
-                            "row decode failed for field '{field_name}': uint payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-                        ))
+                        InternalError::persisted_row_field_payload_exact_len_required(
+                            field_name,
+                            "uint",
+                            SCALAR_WORD64_PAYLOAD_LEN,
+                        )
                     })?;
                     <$ty>::try_from(u64::from_le_bytes(raw)).map_err(|_| {
-                        InternalError::serialize_corruption(format!(
-                            "row decode failed for field '{field_name}': unsigned payload out of range for target type",
-                        ))
+                        InternalError::persisted_row_field_payload_out_of_range(
+                            field_name,
+                            "unsigned",
+                        )
                     })
                 }
             }
@@ -898,17 +905,21 @@ impl PersistedScalar for bool {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let [value] = bytes else {
-            return Err(InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': bool payload must be exactly {SCALAR_BOOL_PAYLOAD_LEN} byte",
-            )));
+            return Err(
+                InternalError::persisted_row_field_payload_exact_len_required(
+                    field_name,
+                    "bool",
+                    SCALAR_BOOL_PAYLOAD_LEN,
+                ),
+            );
         };
 
         match *value {
             SCALAR_BOOL_FALSE_TAG => Ok(false),
             SCALAR_BOOL_TRUE_TAG => Ok(true),
-            _ => Err(InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': invalid bool payload byte {value}",
-            ))),
+            _ => Err(InternalError::persisted_row_field_payload_invalid_byte(
+                field_name, "bool", *value,
+            )),
         }
     }
 }
@@ -925,9 +936,7 @@ impl PersistedScalar for String {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         str::from_utf8(bytes).map(str::to_owned).map_err(|err| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': invalid UTF-8 text payload ({err})",
-            ))
+            InternalError::persisted_row_field_text_payload_invalid_utf8(field_name, err)
         })
     }
 }
@@ -973,11 +982,8 @@ impl PersistedScalar for Ulid {
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        Self::try_from_bytes(bytes).map_err(|err| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': {err}",
-            ))
-        })
+        Self::try_from_bytes(bytes)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
     }
 }
 
@@ -993,9 +999,11 @@ impl PersistedScalar for Timestamp {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': timestamp payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-            ))
+            InternalError::persisted_row_field_payload_exact_len_required(
+                field_name,
+                "timestamp",
+                SCALAR_WORD64_PAYLOAD_LEN,
+            )
         })?;
 
         Ok(Self::from_millis(i64::from_le_bytes(raw)))
@@ -1014,9 +1022,11 @@ impl PersistedScalar for Date {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let raw: [u8; SCALAR_WORD32_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': date payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
-            ))
+            InternalError::persisted_row_field_payload_exact_len_required(
+                field_name,
+                "date",
+                SCALAR_WORD32_PAYLOAD_LEN,
+            )
         })?;
 
         Ok(Self::from_days_since_epoch(i32::from_le_bytes(raw)))
@@ -1035,9 +1045,11 @@ impl PersistedScalar for Duration {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': duration payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-            ))
+            InternalError::persisted_row_field_payload_exact_len_required(
+                field_name,
+                "duration",
+                SCALAR_WORD64_PAYLOAD_LEN,
+            )
         })?;
 
         Ok(Self::from_millis(u64::from_le_bytes(raw)))
@@ -1056,16 +1068,16 @@ impl PersistedScalar for Float32 {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let raw: [u8; SCALAR_WORD32_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': float32 payload must be exactly {SCALAR_WORD32_PAYLOAD_LEN} bytes",
-            ))
+            InternalError::persisted_row_field_payload_exact_len_required(
+                field_name,
+                "float32",
+                SCALAR_WORD32_PAYLOAD_LEN,
+            )
         })?;
         let value = f32::from_bits(u32::from_le_bytes(raw));
 
         Self::try_new(value).ok_or_else(|| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': float32 payload is non-finite",
-            ))
+            InternalError::persisted_row_field_payload_non_finite(field_name, "float32")
         })
     }
 }
@@ -1082,16 +1094,16 @@ impl PersistedScalar for Float64 {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let raw: [u8; SCALAR_WORD64_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': float64 payload must be exactly {SCALAR_WORD64_PAYLOAD_LEN} bytes",
-            ))
+            InternalError::persisted_row_field_payload_exact_len_required(
+                field_name,
+                "float64",
+                SCALAR_WORD64_PAYLOAD_LEN,
+            )
         })?;
         let value = f64::from_bits(u64::from_le_bytes(raw));
 
         Self::try_new(value).ok_or_else(|| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': float64 payload is non-finite",
-            ))
+            InternalError::persisted_row_field_payload_non_finite(field_name, "float64")
         })
     }
 }
@@ -1100,22 +1112,16 @@ impl PersistedScalar for Principal {
     const CODEC: ScalarCodec = ScalarCodec::Principal;
 
     fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
-        self.to_bytes().map_err(|err| {
-            InternalError::serialize_internal(format!(
-                "row encode failed for principal field: {err}",
-            ))
-        })
+        self.to_bytes()
+            .map_err(|err| InternalError::persisted_row_field_encode_failed("principal", err))
     }
 
     fn decode_scalar_payload(
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        Self::try_from_bytes(bytes).map_err(|err| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': {err}",
-            ))
-        })
+        Self::try_from_bytes(bytes)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
     }
 }
 
@@ -1131,9 +1137,11 @@ impl PersistedScalar for Subaccount {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         let raw: [u8; SCALAR_SUBACCOUNT_PAYLOAD_LEN] = bytes.try_into().map_err(|_| {
-            InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': subaccount payload must be exactly {SCALAR_SUBACCOUNT_PAYLOAD_LEN} bytes",
-            ))
+            InternalError::persisted_row_field_payload_exact_len_required(
+                field_name,
+                "subaccount",
+                SCALAR_SUBACCOUNT_PAYLOAD_LEN,
+            )
         })?;
 
         Ok(Self::from_array(raw))
@@ -1152,9 +1160,9 @@ impl PersistedScalar for () {
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
         if !bytes.is_empty() {
-            return Err(InternalError::serialize_corruption(format!(
-                "row decode failed for field '{field_name}': unit payload must be empty",
-            )));
+            return Err(InternalError::persisted_row_field_payload_must_be_empty(
+                field_name, "unit",
+            ));
         }
 
         Ok(())

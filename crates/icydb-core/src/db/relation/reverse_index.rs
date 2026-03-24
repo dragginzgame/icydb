@@ -77,16 +77,46 @@ struct ReverseRelationMutationTarget {
     new_contains: bool,
 }
 
+// Resolve the canonical relation-target decode context label used by
+// corruption diagnostics.
+const fn relation_target_key_decode_context_label(
+    context: RelationTargetDecodeContext,
+) -> &'static str {
+    match context {
+        RelationTargetDecodeContext::DeleteValidation => "delete relation target key decode failed",
+        RelationTargetDecodeContext::ReverseIndexPrepare => {
+            "relation target key decode failed while preparing reverse index"
+        }
+    }
+}
+
+// Resolve the canonical relation-target entity mismatch label used by
+// corruption diagnostics.
+const fn relation_target_entity_mismatch_context_label(
+    context: RelationTargetDecodeContext,
+) -> &'static str {
+    match context {
+        RelationTargetDecodeContext::DeleteValidation => {
+            "relation target entity mismatch during delete validation"
+        }
+        RelationTargetDecodeContext::ReverseIndexPrepare => {
+            "relation target entity mismatch while preparing reverse index"
+        }
+    }
+}
+
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
 fn reverse_index_id_for_relation(
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<IndexId, InternalError> {
     let ordinal = u16::try_from(relation.field_index).map_err(|err| {
-        InternalError::index_internal(format!(
-            "reverse index ordinal overflow: source={} field={} target={} ({err})",
-            source.path, relation.field_name, relation.target_path,
-        ))
+        InternalError::reverse_index_ordinal_overflow(
+            source.path,
+            relation.field_name,
+            relation.target_path,
+            err,
+        )
     })?;
 
     Ok(IndexId::new(source.entity_tag, ordinal))
@@ -146,10 +176,13 @@ pub(super) fn decode_reverse_entry(
     raw_entry: &RawIndexEntry,
 ) -> Result<IndexEntry, InternalError> {
     raw_entry.try_decode().map_err(|err| {
-        InternalError::index_corruption(format!(
-            "reverse index entry corrupted: source={} field={} target={} key={:?} ({err})",
-            source.path, relation.field_name, relation.target_path, index_key,
-        ))
+        InternalError::reverse_index_entry_corrupted(
+            source.path,
+            relation.field_name,
+            relation.target_path,
+            index_key,
+            err,
+        )
     })
 }
 
@@ -160,10 +193,12 @@ fn encode_reverse_entry(
     entry: &IndexEntry,
 ) -> Result<RawIndexEntry, InternalError> {
     RawIndexEntry::try_from_entry(entry).map_err(|err| {
-        InternalError::index_unsupported(format!(
-            "reverse index entry encoding failed: source={} field={} target={} ({err})",
-            source.path, relation.field_name, relation.target_path,
-        ))
+        InternalError::reverse_index_entry_encode_failed(
+            source.path,
+            relation.field_name,
+            relation.target_path,
+            err,
+        )
     })
 }
 
@@ -179,10 +214,13 @@ where
     db.with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
         .map(|store| store.index_store())
         .map_err(|err| {
-            InternalError::executor_internal(format!(
-                "relation target store missing: source={} field={} target={} store={} ({err})",
-                source.path, relation.field_name, relation.target_path, relation.target_store_path,
-            ))
+            InternalError::relation_target_store_missing(
+                source.path,
+                relation.field_name,
+                relation.target_path,
+                relation.target_store_path,
+                err,
+            )
         })
 }
 
@@ -195,20 +233,13 @@ pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
     mismatch_policy: RelationTargetMismatchPolicy,
 ) -> Result<Option<DataKey>, InternalError> {
     let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
-        InternalError::identity_corruption(format!(
-            "{}: source={} field={} target={} ({err})",
-            match context {
-                RelationTargetDecodeContext::DeleteValidation => {
-                    "delete relation target key decode failed"
-                }
-                RelationTargetDecodeContext::ReverseIndexPrepare => {
-                    "relation target key decode failed while preparing reverse index"
-                }
-            },
+        InternalError::relation_target_key_decode_failed(
+            relation_target_key_decode_context_label(context),
             source.path,
             relation.field_name,
             relation.target_path,
-        ))
+            err,
+        )
     })?;
 
     if target_data_key.entity_tag() != relation.target_entity_tag {
@@ -216,23 +247,15 @@ pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
             return Ok(None);
         }
 
-        return Err(InternalError::store_corruption(format!(
-            "{}: source={} field={} target={} expected={} (tag={}) actual_tag={}",
-            match context {
-                RelationTargetDecodeContext::DeleteValidation => {
-                    "relation target entity mismatch during delete validation"
-                }
-                RelationTargetDecodeContext::ReverseIndexPrepare => {
-                    "relation target entity mismatch while preparing reverse index"
-                }
-            },
+        return Err(InternalError::relation_target_entity_mismatch(
+            relation_target_entity_mismatch_context_label(context),
             source.path,
             relation.field_name,
             relation.target_path,
             relation.target_entity_name,
             relation.target_entity_tag.value(),
             target_data_key.entity_tag().value(),
-        )));
+        ));
     }
 
     Ok(Some(target_data_key))
@@ -248,17 +271,20 @@ fn relation_target_keys_from_field_bytes(
     validate_relation_field_kind(relation.field_kind)?;
 
     let Some(bytes) = row_fields.get_bytes(relation.field_index) else {
-        return Err(InternalError::serialize_corruption(format!(
-            "relation source row decode failed: missing field: source={} field={} target={}",
-            source.path, relation.field_name, relation.target_path,
-        )));
+        return Err(InternalError::relation_source_row_missing_field(
+            source.path,
+            relation.field_name,
+            relation.target_path,
+        ));
     };
     let keys =
         decode_relation_target_storage_keys_bytes(bytes, relation.field_kind).map_err(|err| {
-            InternalError::serialize_corruption(format!(
-                "relation source row decode failed: source={} field={} target={} ({err})",
-                source.path, relation.field_name, relation.target_path,
-            ))
+            InternalError::relation_source_row_decode_failed(
+                source.path,
+                relation.field_name,
+                relation.target_path,
+                err,
+            )
         })?;
 
     keys.into_iter()
@@ -281,20 +307,22 @@ fn relation_target_keys_from_scalar_slot(
         Some(ScalarSlotValueRef::Null) => Ok(Some(BTreeSet::new())),
         Some(ScalarSlotValueRef::Value(value)) => {
             let storage_key = storage_key_from_relation_scalar(value).ok_or_else(|| {
-                InternalError::serialize_corruption(format!(
-                    "relation source row decode failed: unsupported scalar relation key: source={} field={} target={}",
-                    source.path, relation.field_name, relation.target_path,
-                ))
+                InternalError::relation_source_row_unsupported_scalar_relation_key(
+                    source.path,
+                    relation.field_name,
+                    relation.target_path,
+                )
             })?;
             let key = raw_relation_target_key_from_storage_key(source, relation, storage_key)?;
 
             Ok(Some(BTreeSet::from([key])))
         }
         None if row_fields.has(relation.field_index) => Ok(None),
-        None => Err(InternalError::serialize_corruption(format!(
-            "relation source row decode failed: missing field: source={} field={} target={}",
-            source.path, relation.field_name, relation.target_path,
-        ))),
+        None => Err(InternalError::relation_source_row_missing_field(
+            source.path,
+            relation.field_name,
+            relation.target_path,
+        )),
     }
 }
 
@@ -327,10 +355,12 @@ fn raw_relation_target_key_from_storage_key(
     value: StorageKey,
 ) -> Result<RawDataKey, InternalError> {
     DataKey::raw_from_parts(relation.target_entity_tag, value).map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "relation source row decode failed: source={} field={} target={} ({err})",
-            source.path, relation.field_name, relation.target_path,
-        ))
+        InternalError::relation_source_row_decode_failed(
+            source.path,
+            relation.field_name,
+            relation.target_path,
+            err,
+        )
     })
 }
 
@@ -343,9 +373,7 @@ fn validate_relation_field_kind(kind: FieldKind) -> Result<(), InternalError> {
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => {
             validate_relation_key_kind(**key_kind)
         }
-        other => Err(InternalError::serialize_corruption(format!(
-            "invalid strong relation field kind during structural decode: {other:?}"
-        ))),
+        other => Err(InternalError::relation_source_row_invalid_field_kind(other)),
     }
 }
 
@@ -361,9 +389,9 @@ fn validate_relation_key_kind(key_kind: FieldKind) -> Result<(), InternalError> 
         | FieldKind::Uint
         | FieldKind::Ulid
         | FieldKind::Unit => Ok(()),
-        other => Err(InternalError::serialize_corruption(format!(
-            "unsupported strong relation key kind during structural decode: {other:?}"
-        ))),
+        other => Err(InternalError::relation_source_row_unsupported_key_kind(
+            other,
+        )),
     }
 }
 
@@ -478,10 +506,13 @@ where
                 RelationTargetMismatchPolicy::Reject,
             )?
             else {
-                return Err(InternalError::executor_internal(format!(
-                    "relation target decode invariant violated while preparing reverse index: source={} field={} target={}",
-                    source.path, relation.field_name, relation.target_path,
-                )));
+                return Err(
+                    InternalError::reverse_index_relation_target_decode_invariant_violated(
+                        source.path,
+                        relation.field_name,
+                        relation.target_path,
+                    ),
+                );
             };
 
             let Some(reverse_key) = reverse_index_key_for_target_storage_key(

@@ -165,10 +165,9 @@ impl StructuralGroupedRowRuntime {
             (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => {
                 Ok(Some((key.clone(), row)))
             }
-            (MissingRowPolicy::Error, None) => Err(
-                crate::db::executor::ExecutorError::store_corruption(format!("missing row: {key}"))
-                    .into(),
-            ),
+            (MissingRowPolicy::Error, None) => {
+                Err(crate::db::executor::ExecutorError::missing_row(key).into())
+            }
         }
     }
 }

@@ -157,21 +157,13 @@ fn decode_row_field(
 
     // Phase 2: fall back to the declared field decode contract for complex payloads.
     let Some(bytes) = row_fields.get_bytes(slot) else {
-        return Err(InternalError::serialize_corruption(format!(
-            "row decode failed: missing declared field `{}`",
-            field.name,
-        )));
+        return Err(InternalError::row_decode_declared_field_missing(field.name));
     };
     let value = match field.storage_decode {
         FieldStorageDecode::ByKind => decode_structural_field_by_kind_bytes(bytes, field.kind),
         FieldStorageDecode::Value => decode_structural_value_storage_bytes(bytes),
     }
-    .map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "row decode failed for field '{}' kind={:?}: {err}",
-            field.name, field.kind,
-        ))
-    })?;
+    .map_err(|err| InternalError::row_decode_field_decode_failed(field.name, field.kind, err))?;
 
     Ok(Some(value))
 }
@@ -186,20 +178,16 @@ fn validate_primary_key_slot(
         return Err(InternalError::row_layout_primary_key_slot_required());
     };
     let Some(Some(primary_key_value)) = slots.get(primary_key_slot) else {
-        return Err(InternalError::serialize_corruption(
-            "row decode failed: missing primary-key slot value",
-        ));
+        return Err(InternalError::row_decode_primary_key_slot_missing());
     };
-    let decoded_key = StorageKey::try_from_value(primary_key_value).map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "row decode failed: primary-key value is not storage-key encodable: {err}",
-        ))
-    })?;
+    let decoded_key = StorageKey::try_from_value(primary_key_value)
+        .map_err(InternalError::row_decode_primary_key_not_storage_encodable)?;
 
     if decoded_key != expected_key {
-        return Err(InternalError::store_corruption(format!(
-            "row key mismatch: expected {expected_key}, found {decoded_key}",
-        )));
+        return Err(InternalError::row_decode_key_mismatch(
+            expected_key,
+            decoded_key,
+        ));
     }
 
     Ok(())

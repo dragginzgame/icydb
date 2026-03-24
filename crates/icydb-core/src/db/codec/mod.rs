@@ -130,6 +130,5 @@ fn serialize_row_payload_with_version(
     payload: Vec<u8>,
     format_version: u8,
 ) -> Result<Vec<u8>, InternalError> {
-    serialize(&(format_version, payload))
-        .map_err(|err| InternalError::serialize_internal(format!("row encode failed: {err}")))
+    serialize(&(format_version, payload)).map_err(InternalError::persisted_row_encode_failed)
 }

@@ -244,6 +244,22 @@ impl ExecutorError {
     pub(in crate::db::executor) fn store_corruption(message: impl Into<String>) -> Self {
         Self::corruption(ErrorOrigin::Store, message)
     }
+
+    // Construct the canonical missing-row store corruption error.
+    pub(in crate::db::executor) fn missing_row(key: &DataKey) -> Self {
+        Self::store_corruption(format!("missing row: {key}"))
+    }
+
+    // Construct the canonical persisted-row invariant-violation corruption error.
+    pub(in crate::db::executor) fn persisted_row_invariant_violation(
+        data_key: &DataKey,
+        detail: impl AsRef<str>,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "persisted row invariant violation: {data_key} ({})",
+            detail.as_ref(),
+        ))
+    }
 }
 
 impl From<ExecutorError> for InternalError {

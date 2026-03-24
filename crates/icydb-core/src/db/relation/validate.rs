@@ -157,13 +157,16 @@ where
                 let source_raw_row = source_store.with_data(|store| store.get(&source_raw_key));
 
                 let Some(source_raw_row) = source_raw_row else {
-                    return Err(InternalError::store_corruption(format!(
-                        "reverse index points at missing source row: source={} field={} source_id={source_key:?} target={} key={:?}",
+                    return Err(InternalError::reverse_index_entry_corrupted(
                         source_path,
                         relation.field_name,
                         relation.target_path,
-                        target_data_key.storage_key(),
-                    )));
+                        &reverse_key,
+                        format!(
+                            "reverse index points at missing source row: source_id={source_key:?} key={:?}",
+                            target_data_key.storage_key(),
+                        ),
+                    ));
                 };
 
                 let source_targets = relation_target_keys_for_source_row(

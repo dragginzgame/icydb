@@ -555,9 +555,7 @@ where
 // `Value` so `bytes(field)` can reuse index-only projection payloads.
 fn decode_covering_projection_component(component: &[u8]) -> Result<Option<Value>, InternalError> {
     let Some((&tag, payload)) = component.split_first() else {
-        return Err(InternalError::index_corruption(
-            "index component payload is empty during covering projection decode",
-        ));
+        return Err(InternalError::bytes_covering_component_payload_empty());
     };
 
     if tag == ValueTag::Bool.to_u8() {
@@ -584,30 +582,22 @@ fn decode_covering_projection_component(component: &[u8]) -> Result<Option<Value
 
 fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     let Some(value) = payload.first() else {
-        return Err(InternalError::index_corruption(
-            "bool covering component payload is truncated",
-        ));
+        return Err(InternalError::bytes_covering_bool_payload_truncated());
     };
     if payload.len() != COVERING_BOOL_PAYLOAD_LEN {
-        return Err(InternalError::index_corruption(
-            "bool covering component payload has invalid length",
-        ));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("bool"));
     }
 
     match *value {
         0 => Ok(Some(Value::Bool(false))),
         1 => Ok(Some(Value::Bool(true))),
-        _ => Err(InternalError::index_corruption(
-            "bool covering component payload has invalid value",
-        )),
+        _ => Err(InternalError::bytes_covering_bool_payload_invalid_value()),
     }
 }
 
 fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::index_corruption(
-            "int covering component payload has invalid length",
-        ));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("int"));
     }
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
@@ -620,9 +610,7 @@ fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::index_corruption(
-            "uint covering component payload has invalid length",
-        ));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("uint"));
     }
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
@@ -642,24 +630,17 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
         }
 
         let Some(next) = payload.get(i.saturating_add(1)).copied() else {
-            return Err(InternalError::index_corruption(
-                "text covering component payload has invalid terminator",
-            ));
+            return Err(InternalError::bytes_covering_text_payload_invalid_terminator());
         };
         match next {
             COVERING_TEXT_TERMINATOR => {
                 i = i.saturating_add(2);
                 if i != payload.len() {
-                    return Err(InternalError::index_corruption(
-                        "text covering component payload contains trailing bytes",
-                    ));
+                    return Err(InternalError::bytes_covering_text_payload_trailing_bytes());
                 }
 
-                let text = String::from_utf8(bytes).map_err(|_| {
-                    InternalError::index_corruption(
-                        "text covering component payload is not valid UTF-8",
-                    )
-                })?;
+                let text = String::from_utf8(bytes)
+                    .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
 
                 return Ok(Some(Value::Text(text)));
             }
@@ -668,23 +649,17 @@ fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> 
                 i = i.saturating_add(2);
             }
             _ => {
-                return Err(InternalError::index_corruption(
-                    "text covering component payload has invalid escape byte",
-                ));
+                return Err(InternalError::bytes_covering_text_payload_invalid_escape_byte());
             }
         }
     }
 
-    Err(InternalError::index_corruption(
-        "text covering component payload is missing terminator",
-    ))
+    Err(InternalError::bytes_covering_text_payload_missing_terminator())
 }
 
 fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_ULID_PAYLOAD_LEN {
-        return Err(InternalError::index_corruption(
-            "ulid covering component payload has invalid length",
-        ));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("ulid"));
     }
     let mut bytes = [0u8; COVERING_ULID_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);

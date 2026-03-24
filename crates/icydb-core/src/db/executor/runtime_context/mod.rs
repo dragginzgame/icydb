@@ -146,7 +146,7 @@ pub(in crate::db::executor) fn read_row_with_consistency_from_store(
     match consistency {
         MissingRowPolicy::Error => match read_row(key)? {
             Some(row) => Ok(Some(row)),
-            None => Err(ExecutorError::store_corruption(format!("missing row: {key}")).into()),
+            None => Err(ExecutorError::missing_row(key).into()),
         },
         MissingRowPolicy::Ignore => read_row(key),
     }

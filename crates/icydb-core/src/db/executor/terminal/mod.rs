@@ -74,7 +74,5 @@ pub(in crate::db::executor::terminal) const fn bytes_window_accept_row(
 pub(in crate::db::executor::terminal) fn serialized_value_len(
     value: &Value,
 ) -> Result<usize, InternalError> {
-    serialized_len(value).map_err(|err| {
-        InternalError::serialize_internal(format!("bytes(field) value encode failed: {err}"))
-    })
+    serialized_len(value).map_err(InternalError::bytes_field_value_encode_failed)
 }

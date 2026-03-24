@@ -54,9 +54,7 @@ impl ExecutionKernel {
         match consistency {
             MissingRowPolicy::Error => {
                 let Some(_) = read_row(key)? else {
-                    return Err(InternalError::store_corruption(format!(
-                        "missing row: {key}"
-                    )));
+                    return Err(crate::db::executor::ExecutorError::missing_row(key).into());
                 };
 
                 Ok(true)

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
 
+- `0.63.5` keeps the `0.63` cleanup moving by pushing more persisted-row, row-decode, data-key, reverse-index, covering decode, and adjacent commit/executor failure paths onto the types that already own those contracts, without changing SQL or runtime behavior.
 - `0.63.4` keeps the `0.63` cleanup moving by pushing more executor, commit, migration, cursor, and index-planning failures onto the types that already own those contracts, without changing SQL or runtime behavior.
 - `0.63.3` keeps the internal `0.63` cleanup moving by tightening aggregate, terminal, and access-path ownership boundaries so more invariant and decode logic lives on the types that actually own those contracts, without changing SQL or runtime behavior.
 - `0.63.2` removes the last internal compatibility shells and dead test-support layers from the `0.63` audit line, tightens a few index ownership boundaries, and keeps the current SQL and runtime behavior unchanged.

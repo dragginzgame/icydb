@@ -73,11 +73,9 @@ impl ScalarRowRuntimeState {
         let row = self.store.with_data(|store| store.get(&raw_key));
 
         match consistency {
-            MissingRowPolicy::Error => row.map(Some).ok_or_else(|| {
-                InternalError::from(ExecutorError::store_corruption(format!(
-                    "missing row: {key}"
-                )))
-            }),
+            MissingRowPolicy::Error => row
+                .map(Some)
+                .ok_or_else(|| InternalError::from(ExecutorError::missing_row(key))),
             MissingRowPolicy::Ignore => Ok(row),
         }
     }

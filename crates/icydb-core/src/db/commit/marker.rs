@@ -102,9 +102,7 @@ impl CommitMarker {
     /// Construct a new commit marker with a fresh commit id.
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = Ulid::try_generate()
-            .map_err(|err| {
-                InternalError::store_internal(format!("commit id generation failed: {err}"))
-            })?
+            .map_err(InternalError::commit_id_generation_failed)?
             .to_bytes();
 
         Ok(Self { id, row_ops })
@@ -218,9 +216,12 @@ pub(in crate::db) fn encode_commit_marker_payload(
         }
     }
     if capacity > u32::MAX as usize {
-        return Err(InternalError::store_unsupported(format!(
-            "commit marker payload exceeds u32 length limit: {capacity} bytes",
-        )));
+        return Err(
+            InternalError::commit_marker_payload_exceeds_u32_length_limit(
+                "commit marker payload",
+                capacity,
+            ),
+        );
     }
 
     // Phase 2: emit one length-delimited frame for deterministic recovery replay.
@@ -331,9 +332,8 @@ pub(in crate::db) fn decode_commit_marker_payload(
 
 // Write one bounded little-endian u32 length field.
 fn write_len_u32(out: &mut Vec<u8>, len: usize, label: &'static str) -> Result<(), InternalError> {
-    let len = u32::try_from(len).map_err(|_| {
-        InternalError::store_unsupported(format!("{label} exceeds u32 length limit: {len} bytes"))
-    })?;
+    let len = u32::try_from(len)
+        .map_err(|_| InternalError::commit_marker_payload_exceeds_u32_length_limit(label, len))?;
     out.extend_from_slice(&len.to_le_bytes());
 
     Ok(())
@@ -405,9 +405,10 @@ pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, Inter
     let min = IndexKey::MIN_STORED_SIZE_USIZE;
     let max = IndexKey::STORED_SIZE_USIZE;
     if len < min || len > max {
-        return Err(InternalError::commit_component_corruption(
+        return Err(InternalError::commit_component_length_invalid(
             "index key",
-            format!("invalid length {len}, expected {min}..={max}"),
+            len,
+            format!("{min}..={max}"),
         ));
     }
 
@@ -425,9 +426,10 @@ pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, I
     let len = bytes.len();
     let max = MAX_INDEX_ENTRY_BYTES as usize;
     if len > max {
-        return Err(InternalError::commit_component_corruption(
+        return Err(InternalError::commit_component_length_invalid(
             "index entry",
-            format!("invalid length {len}, expected <= {max}"),
+            len,
+            format!("<= {max}"),
         ));
     }
 
@@ -445,9 +447,8 @@ pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKe
     let len = bytes.len();
     let expected = DataKey::STORED_SIZE_USIZE;
     if len != expected {
-        return Err(InternalError::commit_component_corruption(
-            "data key",
-            format!("invalid length {len}, expected {expected}"),
+        return Err(InternalError::commit_component_length_invalid(
+            "data key", len, expected,
         ));
     }
 

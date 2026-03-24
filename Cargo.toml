@@ -38,9 +38,9 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.15.5"
-canic-memory = "0.15.5"
-canic-utils = "0.15.5"
+canic-cdk = "0.15.7"
+canic-memory = "0.15.7"
+canic-utils = "0.15.7"
 ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
@@ -62,6 +62,7 @@ icydb-testing-ten-simple-fixtures = { path = "schema/ten_simple" }
 icydb-testing-wasm-fixtures = { path = "testing/wasm-fixtures" }
 num-bigint = "0.4"
 num-traits = { version = "0.2", default-features = false }
+pocket-ic = "13.0"
 proc-macro2 = "1.0"
 proptest = "1.9.0"
 quote = "1.0"

@@ -95,9 +95,7 @@ fn rebuild_secondary_indexes_in_place(
 
         for (raw_key, raw_row) in rows {
             let data_key = DataKey::try_from_raw(&raw_key).map_err(|err| {
-                InternalError::store_corruption(format!(
-                    "startup index rebuild failed: invalid data key in store '{store_path}' ({err})"
-                ))
+                InternalError::startup_index_rebuild_invalid_data_key(store_path, err)
             })?;
             let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;
             let row_op = CommitRowOp::new(

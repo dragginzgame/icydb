@@ -109,23 +109,20 @@ pub(super) fn validate_unique_constraint_structural(
     let data_key = DataKey::new(entity_tag, existing_key);
     let row = row_reader
         .read_primary_row_structural(&data_key)?
-        .ok_or_else(|| {
-            InternalError::index_plan_store_corruption(format!("missing row: {data_key}"))
-        })?;
+        .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
     let row_fields = decode_unique_row_fields(&data_key, &row, model)?;
     let stored_key = decode_unique_row_storage_key(entity_path, model, &data_key, &row_fields)?;
     if stored_key != existing_key {
         // Stored row decoded successfully but key disagreement is a cross-component invariant
         // failure, not a structural decode/persistence corruption.
-        return Err(InternalError::index_plan_store_invariant(format!(
-            "index invariant violated: {} ({}) -> {}",
+        return Err(InternalError::index_unique_validation_row_key_mismatch(
             entity_path,
             &index_fields,
             IndexEntryCorruption::RowKeyMismatch {
                 indexed_key: Box::new(existing_key.as_value()),
                 row_key: Box::new(stored_key.as_value()),
-            }
-        )));
+            },
+        ));
     }
 
     let Some(stored_index_key) = build_unique_index_key_from_row_slots(

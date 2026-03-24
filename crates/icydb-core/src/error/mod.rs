@@ -694,6 +694,26 @@ impl InternalError {
         Self::new(ErrorClass::Internal, ErrorOrigin::Serialize, message.into())
     }
 
+    /// Construct the canonical persisted-row encode internal error.
+    pub(crate) fn persisted_row_encode_failed(detail: impl fmt::Display) -> Self {
+        Self::serialize_internal(format!("row encode failed: {detail}"))
+    }
+
+    /// Construct the canonical persisted-row field encode internal error.
+    pub(crate) fn persisted_row_field_encode_failed(
+        field_name: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::serialize_internal(format!(
+            "row encode failed for field '{field_name}': {detail}",
+        ))
+    }
+
+    /// Construct the canonical bytes(field) value encode internal error.
+    pub(crate) fn bytes_field_value_encode_failed(detail: impl fmt::Display) -> Self {
+        Self::serialize_internal(format!("bytes(field) value encode failed: {detail}"))
+    }
+
     /// Construct the canonical migration-state serialization failure.
     pub(crate) fn migration_state_serialize_failed(err: impl fmt::Display) -> Self {
         Self::serialize_internal(format!("failed to serialize migration state: {err}"))
@@ -742,6 +762,76 @@ impl InternalError {
     /// Construct a store-origin commit-marker component corruption error.
     pub(crate) fn commit_component_corruption(component: &str, detail: impl fmt::Display) -> Self {
         Self::store_corruption(format!("commit marker {component} corrupted: {detail}"))
+    }
+
+    /// Construct the canonical commit-marker id generation internal error.
+    pub(crate) fn commit_id_generation_failed(detail: impl fmt::Display) -> Self {
+        Self::store_internal(format!("commit id generation failed: {detail}"))
+    }
+
+    /// Construct the canonical commit-marker payload u32-length-limit error.
+    pub(crate) fn commit_marker_payload_exceeds_u32_length_limit(label: &str, len: usize) -> Self {
+        Self::store_unsupported(format!("{label} exceeds u32 length limit: {len} bytes"))
+    }
+
+    /// Construct the canonical commit-marker component invalid-length corruption error.
+    pub(crate) fn commit_component_length_invalid(
+        component: &str,
+        len: usize,
+        expected: impl fmt::Display,
+    ) -> Self {
+        Self::commit_component_corruption(
+            component,
+            format!("invalid length {len}, expected {expected}"),
+        )
+    }
+
+    /// Construct the canonical commit-marker max-size corruption error.
+    pub(crate) fn commit_marker_exceeds_max_size(size: usize, max_size: u32) -> Self {
+        Self::commit_corruption(format!(
+            "commit marker exceeds max size: {size} bytes (limit {max_size})",
+        ))
+    }
+
+    /// Construct the canonical pre-persist commit-marker max-size unsupported error.
+    pub(crate) fn commit_marker_exceeds_max_size_before_persist(
+        size: usize,
+        max_size: u32,
+    ) -> Self {
+        Self::store_unsupported(format!(
+            "commit marker exceeds max size: {size} bytes (limit {max_size})",
+        ))
+    }
+
+    /// Construct the canonical commit-control slot max-size unsupported error.
+    pub(crate) fn commit_control_slot_exceeds_max_size(size: usize, max_size: u32) -> Self {
+        Self::store_unsupported(format!(
+            "commit control slot exceeds max size: {size} bytes (limit {max_size})",
+        ))
+    }
+
+    /// Construct the canonical commit-control marker-bytes length-limit error.
+    pub(crate) fn commit_control_slot_marker_bytes_exceed_u32_length_limit(size: usize) -> Self {
+        Self::store_unsupported(format!(
+            "commit marker bytes exceed u32 length limit: {size} bytes",
+        ))
+    }
+
+    /// Construct the canonical commit-control migration-bytes length-limit error.
+    pub(crate) fn commit_control_slot_migration_bytes_exceed_u32_length_limit(size: usize) -> Self {
+        Self::store_unsupported(format!(
+            "commit migration bytes exceed u32 length limit: {size} bytes",
+        ))
+    }
+
+    /// Construct the canonical startup index-rebuild invalid-data-key corruption error.
+    pub(crate) fn startup_index_rebuild_invalid_data_key(
+        store_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "startup index rebuild failed: invalid data key in store '{store_path}' ({detail})",
+        ))
     }
 
     /// Construct an index-origin corruption error.
@@ -839,6 +929,22 @@ impl InternalError {
         ))
     }
 
+    /// Construct the canonical unique-validation missing-row corruption error.
+    pub(crate) fn index_unique_validation_row_required(data_key: impl fmt::Display) -> Self {
+        Self::index_plan_store_corruption(format!("missing row: {data_key}"))
+    }
+
+    /// Construct the canonical unique-validation row-key invariant error.
+    pub(crate) fn index_unique_validation_row_key_mismatch(
+        entity_path: &str,
+        fields: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::index_plan_store_invariant(format!(
+            "index invariant violated: {entity_path} ({fields}) -> {detail}",
+        ))
+    }
+
     /// Construct the canonical structural index-predicate parse invariant.
     pub(crate) fn index_predicate_parse_failed(
         entity_path: &str,
@@ -903,6 +1009,389 @@ impl InternalError {
             ErrorOrigin::Serialize,
             message.into(),
         )
+    }
+
+    /// Construct the canonical persisted-row decode corruption error.
+    pub(crate) fn persisted_row_decode_failed(detail: impl fmt::Display) -> Self {
+        Self::serialize_corruption(format!("row decode failed: {detail}"))
+    }
+
+    /// Construct the canonical persisted-row field decode corruption error.
+    pub(crate) fn persisted_row_field_decode_failed(
+        field_name: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::serialize_corruption(format!(
+            "row decode failed for field '{field_name}': {detail}",
+        ))
+    }
+
+    /// Construct the canonical persisted-row field-kind decode corruption error.
+    pub(crate) fn persisted_row_field_kind_decode_failed(
+        field_name: &str,
+        field_kind: impl fmt::Debug,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("kind={field_kind:?}: {detail}"),
+        )
+    }
+
+    /// Construct the canonical persisted-row scalar-payload length corruption error.
+    pub(crate) fn persisted_row_field_payload_exact_len_required(
+        field_name: &str,
+        payload_kind: &str,
+        expected_len: usize,
+    ) -> Self {
+        let unit = if expected_len == 1 { "byte" } else { "bytes" };
+
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("{payload_kind} payload must be exactly {expected_len} {unit}"),
+        )
+    }
+
+    /// Construct the canonical persisted-row scalar-payload empty-body corruption error.
+    pub(crate) fn persisted_row_field_payload_must_be_empty(
+        field_name: &str,
+        payload_kind: &str,
+    ) -> Self {
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("{payload_kind} payload must be empty"),
+        )
+    }
+
+    /// Construct the canonical persisted-row scalar-payload invalid-byte corruption error.
+    pub(crate) fn persisted_row_field_payload_invalid_byte(
+        field_name: &str,
+        payload_kind: &str,
+        value: u8,
+    ) -> Self {
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("invalid {payload_kind} payload byte {value}"),
+        )
+    }
+
+    /// Construct the canonical persisted-row scalar-payload non-finite corruption error.
+    pub(crate) fn persisted_row_field_payload_non_finite(
+        field_name: &str,
+        payload_kind: &str,
+    ) -> Self {
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("{payload_kind} payload is non-finite"),
+        )
+    }
+
+    /// Construct the canonical persisted-row scalar-payload out-of-range corruption error.
+    pub(crate) fn persisted_row_field_payload_out_of_range(
+        field_name: &str,
+        payload_kind: &str,
+    ) -> Self {
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("{payload_kind} payload out of range for target type"),
+        )
+    }
+
+    /// Construct the canonical persisted-row invalid text payload corruption error.
+    pub(crate) fn persisted_row_field_text_payload_invalid_utf8(
+        field_name: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::persisted_row_field_decode_failed(
+            field_name,
+            format!("invalid UTF-8 text payload ({detail})"),
+        )
+    }
+
+    /// Construct the canonical persisted-row structural slot-lookup invariant.
+    pub(crate) fn persisted_row_slot_lookup_out_of_bounds(model_path: &str, slot: usize) -> Self {
+        Self::index_invariant(format!(
+            "slot lookup outside model bounds during structural row access: model='{model_path}' slot={slot}",
+        ))
+    }
+
+    /// Construct the canonical persisted-row structural slot-cache invariant.
+    pub(crate) fn persisted_row_slot_cache_lookup_out_of_bounds(
+        model_path: &str,
+        slot: usize,
+    ) -> Self {
+        Self::index_invariant(format!(
+            "slot cache lookup outside model bounds during structural row access: model='{model_path}' slot={slot}",
+        ))
+    }
+
+    /// Construct the canonical persisted-row primary-key-slot-missing invariant.
+    pub(crate) fn persisted_row_primary_key_field_missing(model_path: &str) -> Self {
+        Self::index_invariant(format!(
+            "entity primary key field missing during structural row validation: {model_path}",
+        ))
+    }
+
+    /// Construct the canonical persisted-row primary-key decode corruption error.
+    pub(crate) fn persisted_row_primary_key_not_storage_encodable(
+        data_key: impl fmt::Display,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::persisted_row_decode_failed(format!(
+            "primary-key value is not storage-key encodable: {data_key} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical persisted-row missing primary-key slot corruption error.
+    pub(crate) fn persisted_row_primary_key_slot_missing(data_key: impl fmt::Display) -> Self {
+        Self::persisted_row_decode_failed(format!(
+            "missing primary-key slot while validating {data_key}",
+        ))
+    }
+
+    /// Construct the canonical persisted-row key mismatch corruption error.
+    pub(crate) fn persisted_row_key_mismatch(
+        expected_key: impl fmt::Display,
+        found_key: impl fmt::Display,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "row key mismatch: expected {expected_key}, found {found_key}",
+        ))
+    }
+
+    /// Construct the canonical row-decoder missing-field corruption error.
+    pub(crate) fn row_decode_declared_field_missing(field_name: &str) -> Self {
+        Self::persisted_row_decode_failed(format!("missing declared field `{field_name}`"))
+    }
+
+    /// Construct the canonical row-decoder field-decode corruption error.
+    pub(crate) fn row_decode_field_decode_failed(
+        field_name: &str,
+        field_kind: impl fmt::Debug,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::serialize_corruption(format!(
+            "row decode failed for field '{field_name}' kind={field_kind:?}: {detail}",
+        ))
+    }
+
+    /// Construct the canonical row-decoder missing primary-key slot corruption error.
+    pub(crate) fn row_decode_primary_key_slot_missing() -> Self {
+        Self::persisted_row_decode_failed("missing primary-key slot value")
+    }
+
+    /// Construct the canonical row-decoder primary-key encoding corruption error.
+    pub(crate) fn row_decode_primary_key_not_storage_encodable(detail: impl fmt::Display) -> Self {
+        Self::persisted_row_decode_failed(format!(
+            "primary-key value is not storage-key encodable: {detail}",
+        ))
+    }
+
+    /// Construct the canonical row-decoder key-mismatch corruption error.
+    pub(crate) fn row_decode_key_mismatch(
+        expected_key: impl fmt::Display,
+        found_key: impl fmt::Display,
+    ) -> Self {
+        Self::persisted_row_key_mismatch(expected_key, found_key)
+    }
+
+    /// Construct the canonical data-key entity mismatch corruption error.
+    pub(crate) fn data_key_entity_mismatch(
+        expected: impl fmt::Display,
+        found: impl fmt::Display,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "data key entity mismatch: expected {expected}, found {found}",
+        ))
+    }
+
+    /// Construct the canonical data-key primary-key decode corruption error.
+    pub(crate) fn data_key_primary_key_decode_failed(value: impl fmt::Debug) -> Self {
+        Self::store_corruption(format!("data key primary key decode failed: {value:?}",))
+    }
+
+    /// Construct the canonical reverse-index ordinal overflow internal error.
+    pub(crate) fn reverse_index_ordinal_overflow(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::index_internal(format!(
+            "reverse index ordinal overflow: source={source_path} field={field_name} target={target_path} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical reverse-index entry corruption error.
+    pub(crate) fn reverse_index_entry_corrupted(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        index_key: impl fmt::Debug,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::index_corruption(format!(
+            "reverse index entry corrupted: source={source_path} field={field_name} target={target_path} key={index_key:?} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical reverse-index entry encode unsupported error.
+    pub(crate) fn reverse_index_entry_encode_failed(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::index_unsupported(format!(
+            "reverse index entry encoding failed: source={source_path} field={field_name} target={target_path} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical relation-target store missing internal error.
+    pub(crate) fn relation_target_store_missing(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        store_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::executor_internal(format!(
+            "relation target store missing: source={source_path} field={field_name} target={target_path} store={store_path} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical relation-target key decode corruption error.
+    pub(crate) fn relation_target_key_decode_failed(
+        context_label: &str,
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::identity_corruption(format!(
+            "{context_label}: source={source_path} field={field_name} target={target_path} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical relation-target entity mismatch corruption error.
+    pub(crate) fn relation_target_entity_mismatch(
+        context_label: &str,
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        target_entity_name: &str,
+        expected_tag: impl fmt::Display,
+        actual_tag: impl fmt::Display,
+    ) -> Self {
+        Self::store_corruption(format!(
+            "{context_label}: source={source_path} field={field_name} target={target_path} expected={target_entity_name} (tag={expected_tag}) actual_tag={actual_tag}",
+        ))
+    }
+
+    /// Construct the canonical relation-source row missing-field corruption error.
+    pub(crate) fn relation_source_row_missing_field(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+    ) -> Self {
+        Self::serialize_corruption(format!(
+            "relation source row decode failed: missing field: source={source_path} field={field_name} target={target_path}",
+        ))
+    }
+
+    /// Construct the canonical relation-source row decode corruption error.
+    pub(crate) fn relation_source_row_decode_failed(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        detail: impl fmt::Display,
+    ) -> Self {
+        Self::serialize_corruption(format!(
+            "relation source row decode failed: source={source_path} field={field_name} target={target_path} ({detail})",
+        ))
+    }
+
+    /// Construct the canonical relation-source unsupported scalar relation-key corruption error.
+    pub(crate) fn relation_source_row_unsupported_scalar_relation_key(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+    ) -> Self {
+        Self::serialize_corruption(format!(
+            "relation source row decode failed: unsupported scalar relation key: source={source_path} field={field_name} target={target_path}",
+        ))
+    }
+
+    /// Construct the canonical invalid strong-relation field-kind corruption error.
+    pub(crate) fn relation_source_row_invalid_field_kind(field_kind: impl fmt::Debug) -> Self {
+        Self::serialize_corruption(format!(
+            "invalid strong relation field kind during structural decode: {field_kind:?}"
+        ))
+    }
+
+    /// Construct the canonical unsupported strong-relation key-kind corruption error.
+    pub(crate) fn relation_source_row_unsupported_key_kind(field_kind: impl fmt::Debug) -> Self {
+        Self::serialize_corruption(format!(
+            "unsupported strong relation key kind during structural decode: {field_kind:?}"
+        ))
+    }
+
+    /// Construct the canonical reverse-index relation-target decode invariant failure.
+    pub(crate) fn reverse_index_relation_target_decode_invariant_violated(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+    ) -> Self {
+        Self::executor_internal(format!(
+            "relation target decode invariant violated while preparing reverse index: source={source_path} field={field_name} target={target_path}",
+        ))
+    }
+
+    /// Construct the canonical covering-component empty-payload corruption error.
+    pub(crate) fn bytes_covering_component_payload_empty() -> Self {
+        Self::index_corruption("index component payload is empty during covering projection decode")
+    }
+
+    /// Construct the canonical covering-component truncated bool corruption error.
+    pub(crate) fn bytes_covering_bool_payload_truncated() -> Self {
+        Self::index_corruption("bool covering component payload is truncated")
+    }
+
+    /// Construct the canonical covering-component invalid-length corruption error.
+    pub(crate) fn bytes_covering_component_payload_invalid_length(payload_kind: &str) -> Self {
+        Self::index_corruption(format!(
+            "{payload_kind} covering component payload has invalid length"
+        ))
+    }
+
+    /// Construct the canonical covering-component invalid-bool corruption error.
+    pub(crate) fn bytes_covering_bool_payload_invalid_value() -> Self {
+        Self::index_corruption("bool covering component payload has invalid value")
+    }
+
+    /// Construct the canonical covering-component invalid text terminator corruption error.
+    pub(crate) fn bytes_covering_text_payload_invalid_terminator() -> Self {
+        Self::index_corruption("text covering component payload has invalid terminator")
+    }
+
+    /// Construct the canonical covering-component trailing-text corruption error.
+    pub(crate) fn bytes_covering_text_payload_trailing_bytes() -> Self {
+        Self::index_corruption("text covering component payload contains trailing bytes")
+    }
+
+    /// Construct the canonical covering-component invalid-UTF-8 text corruption error.
+    pub(crate) fn bytes_covering_text_payload_invalid_utf8() -> Self {
+        Self::index_corruption("text covering component payload is not valid UTF-8")
+    }
+
+    /// Construct the canonical covering-component invalid text escape corruption error.
+    pub(crate) fn bytes_covering_text_payload_invalid_escape_byte() -> Self {
+        Self::index_corruption("text covering component payload has invalid escape byte")
+    }
+
+    /// Construct the canonical covering-component missing text terminator corruption error.
+    pub(crate) fn bytes_covering_text_payload_missing_terminator() -> Self {
+        Self::index_corruption("text covering component payload is missing terminator")
     }
 
     /// Construct the canonical missing persisted-field decode error.

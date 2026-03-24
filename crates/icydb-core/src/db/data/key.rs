@@ -155,19 +155,15 @@ impl DataKey {
     {
         let expected = E::ENTITY_TAG;
         if self.entity != expected {
-            return Err(InternalError::store_corruption(format!(
-                "data key entity mismatch: expected {}, found {}",
+            return Err(InternalError::data_key_entity_mismatch(
                 expected.value(),
-                self.entity.value()
-            )));
+                self.entity.value(),
+            ));
         }
 
         let value = self.key.as_value();
-        <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
-            InternalError::store_corruption(format!(
-                "data key primary key decode failed: {value:?}"
-            ))
-        })
+        <E::Key as FieldValue>::from_value(&value)
+            .ok_or_else(|| InternalError::data_key_primary_key_decode_failed(value))
     }
 
     #[must_use]

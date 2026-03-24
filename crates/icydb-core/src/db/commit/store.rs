@@ -50,9 +50,7 @@ impl RawCommitMarker {
 
     // Build the canonical max-size corruption error for raw commit control bytes.
     fn exceeds_max_size(size: usize) -> InternalError {
-        InternalError::commit_corruption(format!(
-            "commit marker exceeds max size: {size} bytes (limit {MAX_COMMIT_BYTES})",
-        ))
+        InternalError::commit_marker_exceeds_max_size(size, MAX_COMMIT_BYTES)
     }
 
     // Build the canonical control-slot canonical-envelope corruption error.
@@ -92,10 +90,12 @@ impl RawCommitMarker {
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
         let bytes = serialize_commit_marker(marker)?;
         if bytes.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::store_unsupported(format!(
-                "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-                bytes.len()
-            )));
+            return Err(
+                InternalError::commit_marker_exceeds_max_size_before_persist(
+                    bytes.len(),
+                    MAX_COMMIT_BYTES,
+                ),
+            );
         }
         Ok(Self(bytes))
     }
@@ -184,10 +184,10 @@ fn encode_commit_control_slot(
     let encoded = encode_commit_control_slot_bytes(&marker_bytes, &migration_bytes)?;
 
     if encoded.len() > MAX_COMMIT_BYTES as usize {
-        return Err(InternalError::store_unsupported(format!(
-            "commit control slot exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-            encoded.len()
-        )));
+        return Err(InternalError::commit_control_slot_exceeds_max_size(
+            encoded.len(),
+            MAX_COMMIT_BYTES,
+        ));
     }
 
     Ok(encoded)
@@ -235,16 +235,12 @@ fn encode_commit_control_slot_bytes(
             .saturating_add(migration_bytes.len()),
     );
     let marker_len = u32::try_from(marker_bytes.len()).map_err(|_| {
-        InternalError::store_unsupported(format!(
-            "commit marker bytes exceed u32 length limit: {} bytes",
-            marker_bytes.len()
-        ))
+        InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit(marker_bytes.len())
     })?;
     let migration_len = u32::try_from(migration_bytes.len()).map_err(|_| {
-        InternalError::store_unsupported(format!(
-            "commit migration bytes exceed u32 length limit: {} bytes",
-            migration_bytes.len()
-        ))
+        InternalError::commit_control_slot_migration_bytes_exceed_u32_length_limit(
+            migration_bytes.len(),
+        )
     })?;
     encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
     encoded.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
@@ -263,17 +259,19 @@ fn encode_commit_marker_bytes(
     marker_payload: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
     if marker_payload.len() > u32::MAX as usize {
-        return Err(InternalError::store_unsupported(format!(
-            "commit marker payload exceeds u32 length limit: {} bytes",
-            marker_payload.len()
-        )));
+        return Err(
+            InternalError::commit_marker_payload_exceeds_u32_length_limit(
+                "commit marker payload",
+                marker_payload.len(),
+            ),
+        );
     }
 
     let payload_len = u32::try_from(marker_payload.len()).map_err(|_| {
-        InternalError::store_unsupported(format!(
-            "commit marker payload exceeds u32 length limit: {} bytes",
-            marker_payload.len()
-        ))
+        InternalError::commit_marker_payload_exceeds_u32_length_limit(
+            "commit marker payload",
+            marker_payload.len(),
+        )
     })?;
     let mut encoded =
         Vec::with_capacity(COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload.len()));

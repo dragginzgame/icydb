@@ -56,6 +56,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 #[cfg(all(test, feature = "sql"))]
 mod tests {
     use super::{SqlQueryResult, User, db, sql_dispatch};
+    use candid::encode_one;
     use icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_is_stable;
 
     fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
@@ -247,6 +248,33 @@ mod tests {
             dispatch, typed,
             "typed execute_sql_dispatch and sql_dispatch should return identical SHOW COLUMNS payloads",
         );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_metadata_surfaces_encode_cleanly() {
+        for sql in [
+            "DESCRIBE Character",
+            "DESCRIBE public.Character",
+            "SHOW INDEXES Character",
+            "SHOW INDEXES public.Character",
+            "SHOW COLUMNS Character",
+            "SHOW COLUMNS public.Character",
+        ] {
+            let payload = sql_dispatch::query(sql).unwrap_or_else(|err| {
+                panic!("sql_dispatch query should succeed for {sql}: {err:?}")
+            });
+            let encoded = encode_one(&payload).unwrap_or_else(|err| {
+                panic!("Candid encoding should succeed for {sql} payload {payload:?}: {err}")
+            });
+            let decoded: SqlQueryResult = candid::decode_one(&encoded).unwrap_or_else(|err| {
+                panic!("Candid decoding should succeed for {sql} payload {payload:?}: {err}")
+            });
+
+            assert_eq!(
+                decoded, payload,
+                "Character metadata payload should survive canister-style Candid roundtrip for {sql}",
+            );
+        }
     }
 }
 
