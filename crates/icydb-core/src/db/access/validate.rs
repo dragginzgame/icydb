@@ -8,6 +8,7 @@ use crate::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         schema::{SchemaInfo, literal_matches_type},
     },
+    error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
@@ -49,6 +50,13 @@ pub enum AccessPlanError {
     /// Key range has invalid ordering.
     #[error("key range start is greater than end")]
     InvalidKeyRange,
+}
+
+impl AccessPlanError {
+    /// Map access-validation failures into query-boundary runtime invariants.
+    pub(crate) fn into_internal_error(self) -> InternalError {
+        InternalError::query_invariant(self.to_string())
+    }
 }
 
 ///

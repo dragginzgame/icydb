@@ -272,4 +272,27 @@ impl CursorPlanError {
             }
         }
     }
+
+    /// Map cursor-plan failures into runtime taxonomy classes.
+    ///
+    /// Cursor token/version/signature/window/payload mismatches are external
+    /// input failures (`Unsupported` at cursor origin). Only explicit
+    /// continuation invariant violations remain invariant-class failures.
+    pub(crate) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::ContinuationCursorInvariantViolation { reason } => {
+                InternalError::cursor_invariant(InternalError::executor_invariant_message(reason))
+            }
+            Self::InvalidContinuationCursor { .. }
+            | Self::InvalidContinuationCursorPayload { .. }
+            | Self::ContinuationCursorVersionMismatch { .. }
+            | Self::ContinuationCursorSignatureMismatch { .. }
+            | Self::ContinuationCursorBoundaryArityMismatch { .. }
+            | Self::ContinuationCursorWindowMismatch { .. }
+            | Self::ContinuationCursorBoundaryTypeMismatch { .. }
+            | Self::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
+                InternalError::cursor_unsupported(self.to_string())
+            }
+        }
+    }
 }
