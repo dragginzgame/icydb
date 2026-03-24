@@ -6,9 +6,8 @@
 use crate::db::{
     contracts::first_violated_rule,
     query::plan::{
-        LoadSpec,
+        LoadSpec, validate::FluentLoadPolicyViolation,
         validate::cursor_policy::validate_cursor_paging_requirements,
-        validate::{CursorPagingPolicyError, FluentLoadPolicyViolation},
     },
 };
 
@@ -47,14 +46,14 @@ fn fluent_non_paged_cursor_token_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
     ctx.has_cursor_token
-        .then_some(FluentLoadPolicyViolation::CursorRequiresPagedExecution)
+        .then_some(FluentLoadPolicyViolation::cursor_requires_paged_execution())
 }
 
 fn fluent_non_paged_grouped_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
     ctx.has_grouping
-        .then_some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped)
+        .then_some(FluentLoadPolicyViolation::grouped_requires_execute_grouped())
 }
 
 ///
@@ -84,7 +83,7 @@ fn fluent_paged_grouped_violation(
     ctx: FluentPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
     ctx.has_grouping
-        .then_some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped)
+        .then_some(FluentLoadPolicyViolation::grouped_requires_execute_grouped())
 }
 
 /// Validate fluent non-paged load entry policy.
@@ -106,18 +105,8 @@ pub(crate) fn validate_fluent_paged_mode(
     first_violated_rule(FLUENT_PAGED_POLICY_RULES, context)
         .map_or(Ok(()), Err)
         .and_then(|()| match spec {
-            Some(spec) => {
-                validate_cursor_paging_requirements(has_explicit_order, spec).map_err(|err| {
-                    match err {
-                        CursorPagingPolicyError::CursorRequiresOrder => {
-                            FluentLoadPolicyViolation::CursorRequiresOrder
-                        }
-                        CursorPagingPolicyError::CursorRequiresLimit => {
-                            FluentLoadPolicyViolation::CursorRequiresLimit
-                        }
-                    }
-                })
-            }
+            Some(spec) => validate_cursor_paging_requirements(has_explicit_order, spec)
+                .map_err(FluentLoadPolicyViolation::from),
             None => Ok(()),
         })
 }

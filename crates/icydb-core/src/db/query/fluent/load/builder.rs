@@ -220,18 +220,14 @@ where
 
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        if let Some(err) = self.cursor_intent_error() {
-            return Err(QueryError::intent(err));
-        }
+        self.ensure_cursor_mode_ready()?;
 
         self.query.planned()
     }
 
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        if let Some(err) = self.cursor_intent_error() {
-            return Err(QueryError::intent(err));
-        }
+        self.ensure_cursor_mode_ready()?;
 
         self.query.plan()
     }

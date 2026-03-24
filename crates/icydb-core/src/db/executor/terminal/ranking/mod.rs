@@ -87,7 +87,7 @@ where
     fn into_rows(self) -> Result<EntityResponse<E>, InternalError> {
         match self {
             Self::Rows(rows) => Ok(rows),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "ranking terminal boundary rows output kind mismatch",
             )),
         }
@@ -97,7 +97,7 @@ where
     fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "ranking terminal boundary values output kind mismatch",
             )),
         }
@@ -110,7 +110,7 @@ where
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "ranking terminal boundary values-with-ids output kind mismatch",
             )),
         }

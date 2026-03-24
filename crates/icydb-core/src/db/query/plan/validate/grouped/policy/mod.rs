@@ -97,7 +97,7 @@ fn validate_global_distinct_aggregate_without_group_keys(
         Ok(Some(aggregate)) => aggregate,
         Ok(None) => {
             return Err(PlanError::from(
-                GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
+                GroupPlanError::global_distinct_aggregate_shape_unsupported(),
             ));
         }
         Err(reason) => {

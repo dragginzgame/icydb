@@ -21,7 +21,8 @@ use crate::{
             ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, PreparedAggregatePlan,
             StructuralTraversalRuntime,
             aggregate::field::{
-                FieldSlot, extract_numeric_field_decimal_with_slot_reader,
+                AggregateFieldValueError, FieldSlot,
+                extract_numeric_field_decimal_with_slot_reader,
                 resolve_numeric_aggregate_target_slot_from_planner_slot_with_model,
             },
             aggregate::{
@@ -104,7 +105,7 @@ where
             authority.model(),
             &target_field,
         )
-        .map_err(Self::map_aggregate_field_value_error)?;
+        .map_err(AggregateFieldValueError::into_internal_error)?;
         let op = request.prepared_op();
 
         if request.requires_global_distinct() {
@@ -180,7 +181,7 @@ where
                         )
                     }
                     PreparedScalarNumericStrategy::GlobalDistinctGrouped => {
-                        Err(crate::db::error::query_executor_invariant(
+                        Err(InternalError::query_executor_invariant(
                             "numeric aggregate direct execution reached global DISTINCT strategy",
                         ))
                     }
@@ -213,7 +214,7 @@ where
                 field_slot,
                 &mut |index| row.slot(index),
             )
-            .map_err(Self::map_aggregate_field_value_error)?;
+            .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value);
         }
 
@@ -349,7 +350,7 @@ where
                 field_slot,
                 &mut |index| row.slot(index),
             )
-            .map_err(Self::map_aggregate_field_value_error)?;
+            .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value);
 
             Ok(KeyStreamLoopControl::Emit)
@@ -423,7 +424,7 @@ fn finalize_numeric_field_output(
         PreparedScalarNumericOp::Sum => accumulator.sum,
         PreparedScalarNumericOp::Avg => {
             let Some(avg) = average_decimal_terms(accumulator.sum, accumulator.row_count) else {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "numeric field AVG divisor conversion overflowed decimal bounds",
                 ));
             };
@@ -445,7 +446,7 @@ fn decode_global_distinct_numeric_output(
     match value {
         Some(Value::Decimal(value)) => Ok(Some(value)),
         Some(Value::Null) | None => Ok(None),
-        Some(value) => Err(crate::db::error::query_executor_invariant(format!(
+        Some(value) => Err(InternalError::query_executor_invariant(format!(
             "global {aggregate_name}(DISTINCT field) grouped output type mismatch: {value:?}",
         ))),
     }

@@ -4,7 +4,10 @@
 //! Boundary: canonical equality/hash substrate for grouped execution.
 
 use crate::{
-    db::executor::group::{StableHash, stable_hash_value},
+    db::executor::{
+        aggregate::GroupError,
+        group::{StableHash, stable_hash_value},
+    },
     error::InternalError,
     value::{MapValueError, Value},
 };
@@ -27,13 +30,19 @@ impl KeyCanonicalError {
     /// Convert one key-canonicalization failure into the executor error surface.
     pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::InvalidMapValue(err) => crate::db::error::executor_invariant(format!(
+            Self::InvalidMapValue(err) => InternalError::executor_invariant(format!(
                 "group key canonicalization rejected map value: {err}"
             )),
             Self::HashingFailed { reason } => {
-                crate::db::error::executor_internal(format!("group key hashing failed: {reason}"))
+                InternalError::executor_internal(format!("group key hashing failed: {reason}"))
             }
         }
+    }
+
+    /// Convert one key-canonicalization failure into the grouped execution
+    /// error surface while preserving grouped runtime ownership.
+    pub(in crate::db::executor) fn into_group_error(self) -> GroupError {
+        GroupError::from(self.into_internal_error())
     }
 }
 

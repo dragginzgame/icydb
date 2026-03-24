@@ -179,7 +179,7 @@ where
     db.with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
         .map(|store| store.index_store())
         .map_err(|err| {
-            crate::db::error::executor_internal(format!(
+            InternalError::executor_internal(format!(
                 "relation target store missing: source={} field={} target={} store={} ({err})",
                 source.path, relation.field_name, relation.target_path, relation.target_store_path,
             ))
@@ -478,7 +478,7 @@ where
                 RelationTargetMismatchPolicy::Reject,
             )?
             else {
-                return Err(crate::db::error::executor_internal(format!(
+                return Err(InternalError::executor_internal(format!(
                     "relation target decode invariant violated while preparing reverse index: source={} field={} target={}",
                     source.path, relation.field_name, relation.target_path,
                 )));

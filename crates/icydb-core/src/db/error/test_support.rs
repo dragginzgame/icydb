@@ -1,5 +1,4 @@
 use crate::{
-    db::error::planner::invalid_logical_plan_message,
     db::query::plan::{PlanError, PlanPolicyError, PlanUserError, PolicyPlanError},
     error::InternalError,
 };
@@ -8,13 +7,17 @@ use crate::{
 pub(crate) fn from_group_plan_error(err: PlanError) -> InternalError {
     let message = match err {
         PlanError::User(inner) => match *inner {
-            PlanUserError::Group(inner) => invalid_logical_plan_message(inner.to_string()),
+            PlanUserError::Group(inner) => {
+                InternalError::invalid_logical_plan_message(inner.to_string())
+            }
             other => {
                 format!("group-plan error conversion received non-group user variant: {other}")
             }
         },
         PlanError::Policy(inner) => match *inner {
-            PlanPolicyError::Group(inner) => invalid_logical_plan_message(inner.to_string()),
+            PlanPolicyError::Group(inner) => {
+                InternalError::invalid_logical_plan_message(inner.to_string())
+            }
             PlanPolicyError::Policy(inner) => {
                 format!("group-plan error conversion received non-group policy variant: {inner}")
             }
@@ -24,7 +27,7 @@ pub(crate) fn from_group_plan_error(err: PlanError) -> InternalError {
         }
     };
 
-    super::planner_invariant(message)
+    InternalError::planner_invariant(message)
 }
 
 /// Map plan-shape policy variants into executor-boundary invariants for tests.
@@ -41,5 +44,5 @@ pub(crate) fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
         PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
     };
 
-    super::planner_invariant(crate::db::error::executor_invariant_message(reason))
+    InternalError::planner_invariant(InternalError::executor_invariant_message(reason))
 }

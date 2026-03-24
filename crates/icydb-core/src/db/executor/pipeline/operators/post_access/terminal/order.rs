@@ -38,7 +38,7 @@ where
         && !order.fields.is_empty()
     {
         if has_predicate && !filtered {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "ordering must run after filtering",
             ));
         }

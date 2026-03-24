@@ -10,6 +10,7 @@ use crate::db::query::{
         GroupedExecutionConfig, validate::GroupPlanError,
     },
 };
+use crate::error::InternalError;
 
 ///
 /// GroupDistinctPolicyReason
@@ -70,6 +71,48 @@ impl<'a> GlobalDistinctFieldAggregate<'a> {
 }
 
 impl GroupDistinctPolicyReason {
+    /// Construct one grouped DISTINCT HAVING-unsupported reason.
+    #[must_use]
+    pub(crate) const fn distinct_having_unsupported() -> Self {
+        Self::DistinctHavingUnsupported
+    }
+
+    /// Construct one grouped DISTINCT adjacency-eligibility-required reason.
+    #[must_use]
+    pub(crate) const fn distinct_adjacency_eligibility_required() -> Self {
+        Self::DistinctAdjacencyEligibilityRequired
+    }
+
+    /// Construct one global DISTINCT HAVING-unsupported reason.
+    #[must_use]
+    pub(crate) const fn global_distinct_having_unsupported() -> Self {
+        Self::GlobalDistinctHavingUnsupported
+    }
+
+    /// Construct one global DISTINCT requires-single-aggregate reason.
+    #[must_use]
+    pub(crate) const fn global_distinct_requires_single_aggregate() -> Self {
+        Self::GlobalDistinctRequiresSingleAggregate
+    }
+
+    /// Construct one global DISTINCT requires-field-target-aggregate reason.
+    #[must_use]
+    pub(crate) const fn global_distinct_requires_field_target_aggregate() -> Self {
+        Self::GlobalDistinctRequiresFieldTargetAggregate
+    }
+
+    /// Construct one global DISTINCT requires-DISTINCT-terminal reason.
+    #[must_use]
+    pub(crate) const fn global_distinct_requires_distinct_aggregate_terminal() -> Self {
+        Self::GlobalDistinctRequiresDistinctAggregateTerminal
+    }
+
+    /// Construct one global DISTINCT unsupported-aggregate-kind reason.
+    #[must_use]
+    pub(crate) const fn global_distinct_unsupported_aggregate_kind() -> Self {
+        Self::GlobalDistinctUnsupportedAggregateKind
+    }
+
     /// Return canonical executor invariant message text for this policy reason.
     #[must_use]
     pub(in crate::db) const fn invariant_message(self) -> &'static str {
@@ -98,6 +141,38 @@ impl GroupDistinctPolicyReason {
         }
     }
 
+    /// Convert this grouped DISTINCT policy reason into the executor-facing
+    /// invariant used by global DISTINCT grouped route preparation.
+    #[must_use]
+    pub(in crate::db) fn into_global_distinct_prepare_internal_error(
+        self,
+        kind: AggregateKind,
+    ) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "{}: found {kind:?}",
+            self.invariant_message(),
+        ))
+    }
+
+    /// Convert this grouped DISTINCT policy reason into the planner handoff
+    /// invariant used when executor-only grouped DISTINCT shapes appear
+    /// without prior planner validation.
+    #[must_use]
+    pub(in crate::db) fn into_planner_handoff_internal_error(self) -> InternalError {
+        InternalError::planner_executor_invariant(format!(
+            "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
+            self.invariant_message()
+        ))
+    }
+
+    /// Convert this grouped DISTINCT policy reason into the executor-facing
+    /// invariant used when grouped route resolution reaches an executor-only
+    /// grouped DISTINCT rejection path.
+    #[must_use]
+    pub(crate) fn into_grouped_route_internal_error(self) -> InternalError {
+        InternalError::query_executor_invariant(self.invariant_message())
+    }
+
     /// Project this grouped DISTINCT policy reason into a planner-domain
     /// grouped plan error.
     #[must_use]
@@ -106,22 +181,23 @@ impl GroupDistinctPolicyReason {
         unsupported_kind: Option<AggregateKind>,
     ) -> GroupPlanError {
         match self {
-            Self::DistinctHavingUnsupported => GroupPlanError::DistinctHavingUnsupported,
+            Self::DistinctHavingUnsupported => GroupPlanError::distinct_having_unsupported(),
             Self::DistinctAdjacencyEligibilityRequired => {
-                GroupPlanError::DistinctAdjacencyEligibilityRequired
+                GroupPlanError::distinct_adjacency_eligibility_required()
             }
             Self::GlobalDistinctHavingUnsupported
             | Self::GlobalDistinctRequiresSingleAggregate
             | Self::GlobalDistinctRequiresFieldTargetAggregate
             | Self::GlobalDistinctRequiresDistinctAggregateTerminal => {
-                GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+                GroupPlanError::global_distinct_aggregate_shape_unsupported()
             }
             Self::GlobalDistinctUnsupportedAggregateKind => {
                 let kind = unsupported_kind.map_or_else(
                     || "Unknown".to_string(),
                     |aggregate_kind| format!("{aggregate_kind:?}"),
                 );
-                GroupPlanError::DistinctAggregateKindUnsupported { index: 0, kind }
+
+                GroupPlanError::distinct_aggregate_kind_unsupported(0, kind)
             }
         }
     }
@@ -135,12 +211,12 @@ pub(crate) const fn grouped_distinct_admissibility(
 ) -> GroupDistinctAdmissibility {
     if distinct && has_having {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::DistinctHavingUnsupported,
+            GroupDistinctPolicyReason::distinct_having_unsupported(),
         );
     }
     if distinct {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired,
+            GroupDistinctPolicyReason::distinct_adjacency_eligibility_required(),
         );
     }
 
@@ -170,24 +246,24 @@ pub(crate) fn global_distinct_field_aggregate_admissibility(
 ) -> GroupDistinctAdmissibility {
     if having.is_some() {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported,
+            GroupDistinctPolicyReason::global_distinct_having_unsupported(),
         );
     }
     if aggregates.len() != 1 {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::GlobalDistinctRequiresSingleAggregate,
+            GroupDistinctPolicyReason::global_distinct_requires_single_aggregate(),
         );
     }
 
     let aggregate = &aggregates[0];
     if aggregate.target_field().is_none() {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate,
+            GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate(),
         );
     }
     if !aggregate.distinct() {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal,
+            GroupDistinctPolicyReason::global_distinct_requires_distinct_aggregate_terminal(),
         );
     }
     if !aggregate
@@ -195,7 +271,7 @@ pub(crate) fn global_distinct_field_aggregate_admissibility(
         .supports_global_distinct_without_group_keys()
     {
         return GroupDistinctAdmissibility::Disallowed(
-            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind,
+            GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind(),
         );
     }
 
@@ -218,7 +294,7 @@ pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
     let aggregate = &aggregates[0];
     let target_field = aggregate
         .target_field()
-        .ok_or(GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate)?;
+        .ok_or(GroupDistinctPolicyReason::global_distinct_requires_field_target_aggregate())?;
 
     Ok(Some(GlobalDistinctFieldAggregate {
         kind: aggregate.kind(),
@@ -241,7 +317,7 @@ pub(in crate::db) fn global_distinct_group_spec_for_semantic_aggregate(
         | AggregateKind::Max
         | AggregateKind::First
         | AggregateKind::Last => {
-            return Err(GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind);
+            return Err(GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind());
         }
     };
 

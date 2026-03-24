@@ -26,10 +26,10 @@ pub(in crate::db::query::plan::validate) fn validate_group_cursor_constraints(
         .as_ref()
         .and_then(|page| page.limit)
         .map(|_| ())
-        .ok_or_else(|| PlanError::from(GroupPlanError::OrderRequiresLimit))?;
+        .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
     order_prefix_aligned_with_group_fields(order, group.group_fields.as_slice())
         .then_some(())
-        .ok_or_else(|| PlanError::from(GroupPlanError::OrderPrefixNotAlignedWithGroupKeys))
+        .ok_or_else(|| PlanError::from(GroupPlanError::order_prefix_not_aligned_with_group_keys()))
 }
 
 // Return true when ORDER BY starts with GROUP BY key fields in declaration order.

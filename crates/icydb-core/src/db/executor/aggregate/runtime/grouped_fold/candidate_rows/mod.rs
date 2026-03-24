@@ -81,15 +81,14 @@ fn collect_grouped_candidate_rows_from_finalized(
         None
     };
     if aggregate_count == 0 {
-        return Err(crate::db::error::query_executor_invariant(
-            "grouped execution requires at least one aggregate terminal",
-        ));
+        return Err(GroupedRouteStage::aggregate_terminal_required());
     }
 
     // Phase 2: align sibling iterators by canonical key and collect candidates.
-    let mut primary_iter = finalized_iters.drain(..1).next().ok_or_else(|| {
-        crate::db::error::query_executor_invariant("missing grouped primary iterator")
-    })?;
+    let mut primary_iter = finalized_iters
+        .drain(..1)
+        .next()
+        .ok_or_else(GroupedRouteStage::missing_primary_aggregate_iterator)?;
     let mut grouped_candidate_sink = GroupedCandidateSink::new(selection_bound, max_groups_bound);
 
     if limit.is_none_or(|limit| limit != 0) {
@@ -98,15 +97,15 @@ fn collect_grouped_candidate_rows_from_finalized(
             aggregate_values.push(primary_value);
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                 let (sibling_group_key, sibling_value) = sibling_iter.next().ok_or_else(|| {
-                    crate::db::error::query_executor_invariant(format!(
-                        "grouped finalize alignment missing sibling aggregate row: sibling_index={sibling_index}"
-                    ))
+                    GroupedRouteStage::missing_sibling_aggregate_row(sibling_index)
                 })?;
                 if canonical_value_compare(&sibling_group_key, &group_key_value) != Ordering::Equal
                 {
-                    return Err(crate::db::error::query_executor_invariant(format!(
-                        "grouped finalize alignment mismatch at sibling_index={sibling_index}: primary_key={group_key_value:?}, sibling_key={sibling_group_key:?}"
-                    )));
+                    return Err(GroupedRouteStage::sibling_aggregate_key_mismatch(
+                        sibling_index,
+                        &group_key_value,
+                        &sibling_group_key,
+                    ));
                 }
                 aggregate_values.push(sibling_value);
             }
@@ -135,9 +134,9 @@ fn collect_grouped_candidate_rows_from_finalized(
         }
         for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
             if sibling_iter.next().is_some() {
-                return Err(crate::db::error::query_executor_invariant(format!(
-                    "grouped finalize alignment has trailing sibling rows: sibling_index={sibling_index}"
-                )));
+                return Err(GroupedRouteStage::trailing_sibling_aggregate_rows(
+                    sibling_index,
+                ));
             }
         }
     }

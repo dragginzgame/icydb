@@ -91,10 +91,12 @@ fn fold_group_input_with_engines(
         }
 
         let Some(engine) = grouped_engines.get_mut(index) else {
-            return Err(crate::db::error::query_executor_invariant(format!(
-                "grouped engine index out of bounds during fold ingest: index={index}, engine_count={}",
-                grouped_engines.len()
-            )));
+            return Err(
+                GroupedRouteStage::engine_index_out_of_bounds_during_fold_ingest(
+                    index,
+                    grouped_engines.len(),
+                ),
+            );
         };
         let fold_control = engine
             .ingest(grouped_execution_context, data_key, group_key)

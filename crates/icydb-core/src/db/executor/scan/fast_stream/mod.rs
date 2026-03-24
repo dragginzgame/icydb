@@ -27,7 +27,7 @@ fn finalize_fast_path_key_stream(
     optimization: ExecutionOptimization,
 ) -> Result<FastPathKeyResult, InternalError> {
     let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
-        crate::db::error::query_executor_invariant(
+        InternalError::query_executor_invariant(
             "fast-path stream must expose an exact key-count hint",
         )
     })?;

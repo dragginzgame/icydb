@@ -138,11 +138,11 @@ impl<K> QueryIntent<K> {
                 return Ok(());
             }
 
-            return Err(IntentError::HavingRequiresGroupBy);
+            return Err(IntentError::having_requires_group_by());
         }
 
         let Some(grouped) = self.grouped_mut() else {
-            return Err(IntentError::HavingRequiresGroupBy);
+            return Err(IntentError::having_requires_group_by());
         };
 
         let having = grouped.having.get_or_insert(GroupHavingSpec {

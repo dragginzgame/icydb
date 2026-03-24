@@ -8,6 +8,7 @@ mod scalar;
 
 use crate::{
     db::{executor::projection::grouped::GroupedRowView, query::plan::expr::Expr},
+    error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
@@ -63,6 +64,21 @@ pub(in crate::db::executor) enum ProjectionEvalError {
         aggregate_index: usize,
         aggregate_count: usize,
     },
+}
+
+impl ProjectionEvalError {
+    /// Map one projection evaluation failure into the executor invalid-logical-plan boundary.
+    pub(in crate::db::executor) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
+        InternalError::query_invalid_logical_plan(self.to_string())
+    }
+
+    /// Map one grouped projection evaluation failure into the grouped-output
+    /// invalid-logical-plan boundary while preserving grouped context.
+    pub(in crate::db::executor) fn into_grouped_projection_internal_error(self) -> InternalError {
+        InternalError::query_invalid_logical_plan(format!(
+            "grouped projection evaluation failed: {self}",
+        ))
+    }
 }
 
 /// Evaluate one projection expression through one runtime slot reader.

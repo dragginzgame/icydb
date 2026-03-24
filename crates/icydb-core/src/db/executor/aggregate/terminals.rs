@@ -17,7 +17,10 @@ use crate::{
                 PreparedAggregateStreamingInputsCore, PreparedScalarTerminalBoundary,
                 PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp,
                 PreparedScalarTerminalStrategy, ScalarAggregateOutput,
-                field::resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
+                field::{
+                    AggregateFieldValueError,
+                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
+                },
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
@@ -93,7 +96,7 @@ impl ScalarTerminalBoundaryOutput {
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar terminal boundary COUNT output kind mismatch",
             )),
         }
@@ -103,7 +106,7 @@ impl ScalarTerminalBoundaryOutput {
     pub(in crate::db) fn into_exists(self) -> Result<bool, InternalError> {
         match self {
             Self::Exists(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar terminal boundary EXISTS output kind mismatch",
             )),
         }
@@ -116,7 +119,7 @@ impl ScalarTerminalBoundaryOutput {
     {
         match self {
             Self::Id(value) => value.map(decode_storage_key_to_id::<E>).transpose(),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar terminal boundary id output kind mismatch",
             )),
         }
@@ -136,7 +139,7 @@ impl ScalarTerminalBoundaryOutput {
                     ))
                 })
                 .transpose(),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar terminal boundary id-pair output kind mismatch",
             )),
         }
@@ -207,7 +210,7 @@ where
                     | AggregateKind::First
                     | AggregateKind::Last
             ) {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
                 ));
             }
@@ -219,7 +222,7 @@ where
             target_field_name,
         } => {
             if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "id-by-slot aggregate request requires MIN/MAX kind",
                 ));
             }
@@ -376,7 +379,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
     let page = logical_plan.scalar_plan().page.as_ref();
     let access_strategy = logical_plan.access.resolve_strategy();
     let Some(path) = access_strategy.as_path() else {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "pk cardinality COUNT fast path requires single-path access strategy",
         ));
     };
@@ -398,7 +401,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
             })
         }
         _ => {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "pk cardinality COUNT fast path requires full-scan or key-range access",
             ));
         }
@@ -417,7 +420,7 @@ fn expect_count_output(
 ) -> Result<u32, InternalError> {
     match aggregate_output {
         ScalarAggregateOutput::Count(value) => Ok(value),
-        _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
+        _ => Err(InternalError::query_executor_invariant(mismatch_context)),
     }
 }
 
@@ -428,7 +431,7 @@ fn expect_exists_output(
 ) -> Result<bool, InternalError> {
     match aggregate_output {
         ScalarAggregateOutput::Exists(value) => Ok(value),
-        _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
+        _ => Err(InternalError::query_executor_invariant(mismatch_context)),
     }
 }
 
@@ -462,7 +465,7 @@ where
                         authority.model(),
                         &target_field,
                     )
-                    .map_err(Self::map_aggregate_field_value_error)?;
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
                 let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
                 self.execute_nth_field_aggregate_with_slot(
@@ -480,7 +483,7 @@ where
                         authority.model(),
                         &target_field,
                     )
-                    .map_err(Self::map_aggregate_field_value_error)?;
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
                 let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
                 self.execute_median_field_aggregate_with_slot(
@@ -497,7 +500,7 @@ where
                         authority.model(),
                         &target_field,
                     )
-                    .map_err(Self::map_aggregate_field_value_error)?;
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
                 let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
                 self.execute_min_max_field_aggregate_with_slot(
@@ -536,7 +539,7 @@ where
                     authority.model(),
                     &target_field,
                 )
-                .map_err(Self::map_aggregate_field_value_error)?;
+                .map_err(AggregateFieldValueError::into_internal_error)?;
 
                 PreparedScalarTerminalBoundary {
                     op: PreparedScalarTerminalOp::IdBySlot {
@@ -549,7 +552,7 @@ where
             ScalarTerminalBoundaryRequest::NthBySlot { .. }
             | ScalarTerminalBoundaryRequest::MedianBySlot { .. }
             | ScalarTerminalBoundaryRequest::MinMaxBySlot { .. } => {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "prepared scalar terminal boundary only supports COUNT/EXISTS/id terminals",
                 ));
             }
@@ -651,7 +654,7 @@ where
             | (AggregateKind::Max, ScalarAggregateOutput::Max(value))
             | (AggregateKind::First, ScalarAggregateOutput::First(value))
             | (AggregateKind::Last, ScalarAggregateOutput::Last(value)) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
+            _ => Err(InternalError::query_executor_invariant(mismatch_context)),
         }
     }
 }

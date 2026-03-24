@@ -20,17 +20,14 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
     for (field, _) in &order.fields {
         let field_type = schema
             .field(field)
-            .ok_or_else(|| OrderPlanError::UnknownField {
-                field: field.clone(),
-            })
+            .ok_or_else(|| OrderPlanError::unknown_field(field))
             .map_err(PlanError::from)?;
 
         // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
-        field_type.is_orderable().then_some(()).ok_or_else(|| {
-            PlanError::from(OrderPlanError::UnorderableField {
-                field: field.clone(),
-            })
-        })?;
+        field_type
+            .is_orderable()
+            .then_some(())
+            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)))?;
     }
 
     Ok(())
@@ -49,11 +46,9 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
         if !non_pk_field {
             continue;
         }
-        seen.insert(field.as_str()).then_some(()).ok_or_else(|| {
-            PlanError::from(OrderPlanError::DuplicateOrderField {
-                field: field.clone(),
-            })
-        })?;
+        seen.insert(field.as_str())
+            .then_some(())
+            .ok_or_else(|| PlanError::from(OrderPlanError::duplicate_order_field(field)))?;
     }
 
     Ok(())
@@ -72,9 +67,7 @@ pub(crate) fn validate_primary_key_tie_break(
                 .has_exact_primary_key_tie_break(pk_field)
                 .then_some(())
                 .ok_or_else(|| {
-                    PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
-                        field: pk_field.to_string(),
-                    })
+                    PlanError::from(OrderPlanError::missing_primary_key_tie_break(pk_field))
                 })
         },
         |()| Ok(()),

@@ -8,8 +8,7 @@ use crate::{
         codec::cursor::CursorDecodeError,
         cursor::{
             ContinuationSignature, CursorPlanError, GroupedContinuationToken,
-            map_pk_cursor_decode_error, prepare_grouped_cursor, revalidate_grouped_cursor,
-            validate_grouped_cursor_order_plan,
+            prepare_grouped_cursor, revalidate_grouped_cursor, validate_grouped_cursor_order_plan,
         },
         direction::Direction,
         query::plan::{OrderDirection, OrderSpec},
@@ -264,7 +263,7 @@ fn pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants() {
     ];
 
     for err in cases {
-        let mapped = map_pk_cursor_decode_error(err);
+        let mapped = err.into_pk_cursor_decode_internal_error();
 
         assert_eq!(
             mapped.class,

@@ -22,7 +22,8 @@ use crate::{
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
                 PreparedScalarProjectionStrategy, ScalarAggregateOutput, ScalarProjectionWindow,
                 field::{
-                    FieldSlot, extract_orderable_field_value_with_slot_reader,
+                    AggregateFieldValueError, FieldSlot,
+                    extract_orderable_field_value_with_slot_reader,
                     resolve_any_aggregate_target_slot_from_planner_slot_with_model,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
@@ -82,7 +83,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
         match self {
             Self::Values(values) => Ok(values),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar projection boundary values output kind mismatch",
             )),
         }
@@ -92,7 +93,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
         match self {
             Self::Count(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar projection boundary count output kind mismatch",
             )),
         }
@@ -108,7 +109,7 @@ impl ScalarProjectionBoundaryOutput {
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar projection boundary values-with-ids output kind mismatch",
             )),
         }
@@ -118,7 +119,7 @@ impl ScalarProjectionBoundaryOutput {
     pub(in crate::db) fn into_terminal_value(self) -> Result<Option<Value>, InternalError> {
         match self {
             Self::TerminalValue(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "scalar projection boundary terminal-value output kind mismatch",
             )),
         }
@@ -161,14 +162,14 @@ where
             authority.model(),
             &target_field,
         )
-        .map_err(Self::map_aggregate_field_value_error)?;
+        .map_err(AggregateFieldValueError::into_internal_error)?;
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
         let op = PreparedScalarProjectionOp::from_request(request);
         if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = op
             && !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last)
         {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "terminal value projection requires FIRST/LAST aggregate kind",
             ));
         }
@@ -303,7 +304,7 @@ where
                             dedup_values_preserving_first(covering_projection.values)?
                         }
                         None => {
-                            return Err(crate::db::error::query_executor_invariant(
+                            return Err(InternalError::query_executor_invariant(
                                 "covering DISTINCT projection requires prepared distinct strategy",
                             ));
                         }
@@ -326,7 +327,7 @@ where
                             dedup_values_preserving_first(covering_projection.values)?
                         }
                         None => {
-                            return Err(crate::db::error::query_executor_invariant(
+                            return Err(InternalError::query_executor_invariant(
                                 "covering COUNT DISTINCT projection requires prepared distinct strategy",
                             ));
                         }
@@ -356,7 +357,7 @@ where
                         AggregateKind::First => covering_projection.values.first().cloned(),
                         AggregateKind::Last => covering_projection.values.last().cloned(),
                         _ => {
-                            return Err(crate::db::error::query_executor_invariant(
+                            return Err(InternalError::query_executor_invariant(
                                 "covering terminal value projection requires FIRST/LAST aggregate kind",
                             ));
                         }
@@ -409,7 +410,7 @@ where
                 ))
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
-                Err(crate::db::error::query_executor_invariant(
+                Err(InternalError::query_executor_invariant(
                     "values-with-ids projection cannot execute constant covering strategy",
                 ))
             }
@@ -484,7 +485,7 @@ where
                 .map(ScalarProjectionBoundaryOutput::ValuesWithDataKeys)
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
-                Err(crate::db::error::query_executor_invariant(
+                Err(InternalError::query_executor_invariant(
                     "terminal value projection materialized branch must execute before row materialization",
                 ))
             }
@@ -513,7 +514,7 @@ where
         | ScalarAggregateOutput::Last(selected_key)) =
             ExecutionKernel::execute_prepared_aggregate_state(self, state)?
         else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "terminal value projection result kind mismatch",
             ));
         };
@@ -574,7 +575,7 @@ where
                     &mut |index| row.slot(index),
                 )
                 .map(|value| (data_key, value))
-                .map_err(Self::map_aggregate_field_value_error)
+                .map_err(AggregateFieldValueError::into_internal_error)
             })
             .collect()
     }
@@ -709,7 +710,7 @@ where
             );
         }
         if !prefix_specs.is_empty() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "covering projection index-prefix path requires one lowered prefix spec",
             ));
         }
@@ -726,12 +727,12 @@ where
             );
         }
         if !range_specs.is_empty() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "covering projection index-range path requires one lowered range spec",
             ));
         }
 
-        Err(crate::db::error::query_executor_invariant(
+        Err(InternalError::query_executor_invariant(
             "covering projection component scans require index-backed access paths",
         ))
     }
@@ -748,7 +749,7 @@ where
         );
         match ExecutionKernel::execute_prepared_aggregate_state(self, state)? {
             ScalarAggregateOutput::Count(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "projection COUNT helper result kind mismatch",
             )),
         }
@@ -766,7 +767,7 @@ where
         );
         match ExecutionKernel::execute_prepared_aggregate_state(self, state)? {
             ScalarAggregateOutput::Exists(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "projection EXISTS helper result kind mismatch",
             )),
         }

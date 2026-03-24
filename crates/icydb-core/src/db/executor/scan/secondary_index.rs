@@ -37,7 +37,7 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
         return Ok(None);
     };
     let Some(index_prefix_spec) = index_prefix_spec else {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "index-prefix executable spec must be materialized for index-prefix plans",
         ));
     };

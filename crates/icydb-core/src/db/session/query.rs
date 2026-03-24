@@ -10,10 +10,7 @@ use crate::{
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             plan::QueryMode,
         },
-        session::{
-            continuation_cursor_serialize_error, decode_optional_cursor_bytes,
-            map_executor_plan_error, query_invariant_error,
-        },
+        session::decode_optional_cursor_bytes,
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -27,11 +24,11 @@ impl<C: CanisterKind> DbSession<C> {
         strategy: ExecutionStrategy,
     ) -> Result<(), QueryError> {
         match strategy {
-            ExecutionStrategy::PrimaryKey => Err(query_invariant_error(
+            ExecutionStrategy::PrimaryKey => Err(QueryError::invariant(
                 CursorPlanError::cursor_requires_explicit_or_grouped_ordering_message(),
             )),
             ExecutionStrategy::Ordered => Ok(()),
-            ExecutionStrategy::Grouped => Err(query_invariant_error(
+            ExecutionStrategy::Grouped => Err(QueryError::invariant(
                 "grouped plans require execute_grouped(...)",
             )),
         }
@@ -43,7 +40,7 @@ impl<C: CanisterKind> DbSession<C> {
         match strategy {
             ExecutionStrategy::Grouped => Ok(()),
             ExecutionStrategy::PrimaryKey | ExecutionStrategy::Ordered => Err(
-                query_invariant_error("execute_grouped requires grouped logical plans"),
+                QueryError::invariant("execute_grouped requires grouped logical plans"),
             ),
         }
     }
@@ -210,7 +207,7 @@ impl<C: CanisterKind> DbSession<C> {
         let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
         let cursor = plan
             .prepare_cursor(cursor_bytes.as_deref())
-            .map_err(map_executor_plan_error)?;
+            .map_err(QueryError::from_executor_plan_error)?;
 
         // Phase 3: execute one traced page and encode outbound continuation token.
         let (page, trace) = self
@@ -223,13 +220,11 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
-                    return Err(query_invariant_error(
-                        "scalar load pagination emitted grouped continuation token",
-                    ));
+                    return Err(QueryError::scalar_paged_emitted_grouped_continuation());
                 };
 
                 token.encode().map_err(|err| {
-                    continuation_cursor_serialize_error(format!(
+                    QueryError::serialize_internal(format!(
                         "failed to serialize continuation cursor: {err}"
                     ))
                 })
@@ -265,7 +260,7 @@ impl<C: CanisterKind> DbSession<C> {
         let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
         let cursor = plan
             .prepare_grouped_cursor(cursor_bytes.as_deref())
-            .map_err(map_executor_plan_error)?;
+            .map_err(QueryError::from_executor_plan_error)?;
 
         // Phase 3: execute grouped page and encode outbound grouped continuation token.
         let (page, trace) = self
@@ -278,13 +273,11 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
-                    return Err(query_invariant_error(
-                        "grouped pagination emitted scalar continuation token",
-                    ));
+                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
                 };
 
                 token.encode().map_err(|err| {
-                    continuation_cursor_serialize_error(format!(
+                    QueryError::serialize_internal(format!(
                         "failed to serialize grouped continuation cursor: {err}"
                     ))
                 })

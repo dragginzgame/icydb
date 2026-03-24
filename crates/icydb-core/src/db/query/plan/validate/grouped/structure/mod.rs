@@ -30,7 +30,7 @@ pub(in crate::db::query::plan::validate) fn validate_group_structure(
 ) -> Result<(), PlanError> {
     if group.group_fields.is_empty() && having.is_some() {
         return Err(PlanError::from(
-            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
+            GroupPlanError::global_distinct_aggregate_shape_unsupported(),
         ));
     }
 
@@ -76,10 +76,10 @@ fn validate_having_group_field_reference(
         .any(|group_field| group_field.index() == field_slot.index())
         .then_some(())
         .ok_or_else(|| {
-            PlanError::from(GroupPlanError::HavingNonGroupFieldReference {
+            PlanError::from(GroupPlanError::having_non_group_field_reference(
                 index,
-                field: field_slot.field().to_string(),
-            })
+                field_slot.field(),
+            ))
         })
 }
 
@@ -92,11 +92,11 @@ fn validate_having_aggregate_index(
     (aggregate_index < group.aggregates.len())
         .then_some(())
         .ok_or_else(|| {
-            PlanError::from(GroupPlanError::HavingAggregateIndexOutOfBounds {
+            PlanError::from(GroupPlanError::having_aggregate_index_out_of_bounds(
                 index,
                 aggregate_index,
-                aggregate_count: group.aggregates.len(),
-            })
+                group.aggregates.len(),
+            ))
         })
 }
 
@@ -111,27 +111,23 @@ fn validate_group_spec_structure(
         group.aggregates.iter().any(GroupAggregateSpec::distinct),
     ) {
         (true, true) => return Ok(()),
-        (true, false) => return Err(PlanError::from(GroupPlanError::EmptyGroupFields)),
+        (true, false) => return Err(PlanError::from(GroupPlanError::empty_group_fields())),
         (false, _) => {}
     }
     (!group.aggregates.is_empty())
         .then_some(())
-        .ok_or_else(|| PlanError::from(GroupPlanError::EmptyAggregates))?;
+        .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
 
     let mut seen_group_slots = BTreeSet::<usize>::new();
     for field_slot in &group.group_fields {
         model.fields.get(field_slot.index()).ok_or_else(|| {
-            PlanError::from(GroupPlanError::UnknownGroupField {
-                field: field_slot.field().to_string(),
-            })
+            PlanError::from(GroupPlanError::unknown_group_field(field_slot.field()))
         })?;
         seen_group_slots
             .insert(field_slot.index())
             .then_some(())
             .ok_or_else(|| {
-                PlanError::from(GroupPlanError::DuplicateGroupField {
-                    field: field_slot.field().to_string(),
-                })
+                PlanError::from(GroupPlanError::duplicate_group_field(field_slot.field()))
             })?;
     }
 

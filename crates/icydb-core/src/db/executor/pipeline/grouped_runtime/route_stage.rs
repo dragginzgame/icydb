@@ -42,9 +42,7 @@ where
         validate_executor_plan_for_authority(authority, plan.logical_plan())?;
         let grouped_handoff = grouped_executor_handoff(plan.logical_plan())?;
         if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
-            return Err(crate::db::error::query_executor_invariant(
-                reason.invariant_message(),
-            ));
+            return Err(reason.into_grouped_route_internal_error());
         }
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();

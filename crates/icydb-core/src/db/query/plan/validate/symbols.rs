@@ -20,11 +20,8 @@ pub(crate) fn resolve_group_field_slot(
     model: &EntityModel,
     field: &str,
 ) -> Result<FieldSlot, PlanError> {
-    FieldSlot::resolve(model, field).ok_or_else(|| {
-        PlanError::from(GroupPlanError::UnknownGroupField {
-            field: field.to_string(),
-        })
-    })
+    FieldSlot::resolve(model, field)
+        .ok_or_else(|| PlanError::from(GroupPlanError::unknown_group_field(field)))
 }
 
 /// Resolve one aggregate target field into a stable field slot.
@@ -32,9 +29,8 @@ pub(crate) fn resolve_aggregate_target_field_slot(
     model: &EntityModel,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {
-    FieldSlot::resolve(model, field).ok_or_else(|| {
-        QueryError::unsupported_query(format!("unknown aggregate target field: {field}"))
-    })
+    FieldSlot::resolve(model, field)
+        .ok_or_else(|| QueryError::unknown_aggregate_target_field(field))
 }
 
 /// Resolve one grouped aggregate target field into one schema field type.
@@ -45,8 +41,5 @@ pub(in crate::db::query::plan::validate) fn resolve_group_aggregate_target_field
 ) -> Result<&'a FieldType, GroupPlanError> {
     schema
         .field(field)
-        .ok_or_else(|| GroupPlanError::UnknownAggregateTargetField {
-            index,
-            field: field.to_string(),
-        })
+        .ok_or_else(|| GroupPlanError::unknown_aggregate_target_field(index, field))
 }

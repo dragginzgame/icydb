@@ -34,6 +34,17 @@ pub(in crate::db::executor) enum ScalarProjectionEvalError {
     Internal(InternalError),
 }
 
+impl ScalarProjectionEvalError {
+    /// Map one scalar projection evaluation failure into the executor
+    /// invalid-logical-plan or internal boundary owned by this taxonomy.
+    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::Eval(err) => err.into_invalid_logical_plan_internal_error(),
+            Self::Internal(err) => err,
+        }
+    }
+}
+
 ///
 /// ScalarProjectionExpr
 ///

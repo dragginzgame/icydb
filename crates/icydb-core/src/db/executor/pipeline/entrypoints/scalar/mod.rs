@@ -374,7 +374,7 @@ where
         RequestedLoadExecutionShape::Scalar,
     )?;
     let PreparedLoadCursor::Scalar(resolved_continuation) = resolved_cursor.into_cursor() else {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "scalar rows execution requires scalar continuation resolution",
         ));
     };
@@ -405,7 +405,7 @@ where
     let continuation_contract = logical_plan
         .continuation_contract(authority.entity_path())
         .ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
+            InternalError::query_executor_invariant(
                 "scalar materialized rows path requires load-mode continuation contract",
             )
         })?;

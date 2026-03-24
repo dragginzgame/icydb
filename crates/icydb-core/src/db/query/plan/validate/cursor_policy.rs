@@ -14,8 +14,8 @@ pub(crate) const fn validate_cursor_paging_requirements(
     spec: LoadSpec,
 ) -> Result<(), CursorPagingPolicyError> {
     match (has_order, spec.limit.is_some()) {
-        (false, _) => Err(CursorPagingPolicyError::CursorRequiresOrder),
-        (true, false) => Err(CursorPagingPolicyError::CursorRequiresLimit),
+        (false, _) => Err(CursorPagingPolicyError::cursor_requires_order()),
+        (true, false) => Err(CursorPagingPolicyError::cursor_requires_limit()),
         (true, true) => Ok(()),
     }
 }
@@ -26,11 +26,11 @@ pub(crate) fn validate_cursor_order_plan_shape(
     require_explicit_order: bool,
 ) -> Result<Option<&OrderSpec>, CursorOrderPlanShapeError> {
     match (order, require_explicit_order) {
-        (None, true) => Err(CursorOrderPlanShapeError::MissingExplicitOrder),
+        (None, true) => Err(CursorOrderPlanShapeError::missing_explicit_order()),
         (None, false) => Ok(None),
         (Some(order), _) => (!order.fields.is_empty())
             .then_some(order)
-            .ok_or(CursorOrderPlanShapeError::EmptyOrderSpec)
+            .ok_or(CursorOrderPlanShapeError::empty_order_spec())
             .map(Some),
     }
 }

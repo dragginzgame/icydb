@@ -116,7 +116,7 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
             effective_fetch,
             index_predicate_execution,
         ),
-        _ => Err(crate::db::error::query_executor_invariant(
+        _ => Err(InternalError::query_executor_invariant(
             "fast-stream route kind/request mismatch",
         )),
     }

@@ -598,13 +598,13 @@ where
     ) -> Result<EntityResponse<E>, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
         if plan.is_grouped() {
-            return Err(crate::db::error::executor_unsupported(
+            return Err(InternalError::executor_unsupported(
                 "grouped query execution is not yet enabled in this release",
             ));
         }
 
         if !plan.mode().is_delete() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "delete executor requires delete plans",
             ));
         }
@@ -669,13 +669,13 @@ where
     ) -> Result<StructuralDeleteProjection, InternalError> {
         // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
         if plan.is_grouped() {
-            return Err(crate::db::error::executor_unsupported(
+            return Err(InternalError::executor_unsupported(
                 "grouped query execution is not yet enabled in this release",
             ));
         }
 
         if !plan.mode().is_delete() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "delete executor requires delete plans",
             ));
         }

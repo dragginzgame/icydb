@@ -119,6 +119,28 @@ pub(in crate::db) enum ExecutorPlanError {
     Cursor(Box<CursorPlanError>),
 }
 
+impl ExecutorPlanError {
+    /// Construct one executor plan error from one cursor invariant violation.
+    pub(in crate::db) fn continuation_cursor_invariant(message: impl Into<String>) -> Self {
+        Self::from(CursorPlanError::continuation_cursor_invariant(message))
+    }
+
+    /// Construct one executor plan error for load-only continuation cursors.
+    pub(in crate::db) fn continuation_cursor_requires_load_plan() -> Self {
+        Self::continuation_cursor_invariant(
+            "continuation cursors are only supported for load plans",
+        )
+    }
+
+    /// Construct one executor plan error for grouped cursor preparation
+    /// attempted against non-grouped logical plans.
+    pub(in crate::db) fn grouped_cursor_preparation_requires_grouped_plan() -> Self {
+        Self::continuation_cursor_invariant(
+            "grouped cursor preparation requires grouped logical plans",
+        )
+    }
+}
+
 impl From<CursorPlanError> for ExecutorPlanError {
     fn from(err: CursorPlanError) -> Self {
         Self::Cursor(Box::new(err))

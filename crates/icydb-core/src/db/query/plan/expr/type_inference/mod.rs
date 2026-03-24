@@ -80,11 +80,9 @@ fn resolve_expr_field_kind<'a>(
     field_name: &str,
     schema: &'a SchemaInfo,
 ) -> Result<&'a FieldKind, PlanError> {
-    schema.field_kind(field_name).ok_or_else(|| {
-        PlanError::from(ExprPlanError::UnknownExprField {
-            field: field_name.to_string(),
-        })
-    })
+    schema
+        .field_kind(field_name)
+        .ok_or_else(|| PlanError::from(ExprPlanError::unknown_expr_field(field_name)))
 }
 
 fn infer_field_expr_type(field: &FieldId, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
@@ -118,18 +116,17 @@ fn infer_sum_aggregate_type(
     aggregate_name: &str,
 ) -> Result<ExprType, PlanError> {
     let Some(field_name) = target_field else {
-        return Err(PlanError::from(ExprPlanError::AggregateTargetRequired {
-            kind: aggregate_name.to_string(),
-        }));
+        return Err(PlanError::from(ExprPlanError::aggregate_target_required(
+            aggregate_name,
+        )));
     };
 
     let field_kind = resolve_expr_field_kind(field_name, schema)?;
 
     if !field_kind_supports_expr_numeric(field_kind) {
-        return Err(PlanError::from(ExprPlanError::NonNumericAggregateTarget {
-            kind: aggregate_name.to_string(),
-            field: field_name.to_string(),
-        }));
+        return Err(PlanError::from(
+            ExprPlanError::non_numeric_aggregate_target(aggregate_name, field_name),
+        ));
     }
 
     Ok(expr_type_from_field_kind(field_kind))
@@ -161,10 +158,10 @@ fn infer_unary_expr_type(
     match op {
         UnaryOp::Neg => {
             if !inner.is_numeric_eligible() {
-                return Err(PlanError::from(ExprPlanError::InvalidUnaryOperand {
-                    op: "neg".to_string(),
-                    found: format!("{inner:?}"),
-                }));
+                return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
+                    "neg",
+                    format!("{inner:?}"),
+                )));
             }
 
             Ok(ExprType::Numeric(
@@ -173,10 +170,10 @@ fn infer_unary_expr_type(
         }
         UnaryOp::Not => {
             if !matches!(inner, ExprType::Bool) {
-                return Err(PlanError::from(ExprPlanError::InvalidUnaryOperand {
-                    op: "not".to_string(),
-                    found: format!("{inner:?}"),
-                }));
+                return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
+                    "not",
+                    format!("{inner:?}"),
+                )));
             }
 
             Ok(ExprType::Bool)
@@ -196,11 +193,11 @@ fn infer_binary_expr_type(
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
             if !binary_numeric_compatible(&left_ty, &right_ty) {
-                return Err(PlanError::from(ExprPlanError::InvalidBinaryOperands {
-                    op: binary_op_name(op).to_string(),
-                    left: format!("{left_ty:?}"),
-                    right: format!("{right_ty:?}"),
-                }));
+                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
+                    binary_op_name(op),
+                    format!("{left_ty:?}"),
+                    format!("{right_ty:?}"),
+                )));
             }
 
             Ok(ExprType::Numeric(infer_numeric_result_subtype(
@@ -209,33 +206,33 @@ fn infer_binary_expr_type(
         }
         BinaryOp::And | BinaryOp::Or => {
             if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
-                return Err(PlanError::from(ExprPlanError::InvalidBinaryOperands {
-                    op: binary_op_name(op).to_string(),
-                    left: format!("{left_ty:?}"),
-                    right: format!("{right_ty:?}"),
-                }));
+                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
+                    binary_op_name(op),
+                    format!("{left_ty:?}"),
+                    format!("{right_ty:?}"),
+                )));
             }
 
             Ok(ExprType::Bool)
         }
         BinaryOp::Eq | BinaryOp::Ne => {
             if !binary_equality_comparable(&left_ty, &right_ty) {
-                return Err(PlanError::from(ExprPlanError::InvalidBinaryOperands {
-                    op: binary_op_name(op).to_string(),
-                    left: format!("{left_ty:?}"),
-                    right: format!("{right_ty:?}"),
-                }));
+                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
+                    binary_op_name(op),
+                    format!("{left_ty:?}"),
+                    format!("{right_ty:?}"),
+                )));
             }
 
             Ok(ExprType::Bool)
         }
         BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
             if !binary_order_comparable(&left_ty, &right_ty) {
-                return Err(PlanError::from(ExprPlanError::InvalidBinaryOperands {
-                    op: binary_op_name(op).to_string(),
-                    left: format!("{left_ty:?}"),
-                    right: format!("{right_ty:?}"),
-                }));
+                return Err(PlanError::from(ExprPlanError::invalid_binary_operands(
+                    binary_op_name(op),
+                    format!("{left_ty:?}"),
+                    format!("{right_ty:?}"),
+                )));
             }
 
             Ok(ExprType::Bool)

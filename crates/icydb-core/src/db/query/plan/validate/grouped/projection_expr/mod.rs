@@ -36,9 +36,9 @@ pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
                             .then_some(())
                             .ok_or_else(|| {
                                 PlanError::from(
-                                    ExprPlanError::GroupedProjectionReferencesNonGroupField {
+                                    ExprPlanError::grouped_projection_references_non_group_field(
                                         index,
-                                    },
+                                    ),
                                 )
                             })?;
                     }

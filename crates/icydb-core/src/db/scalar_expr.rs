@@ -4,10 +4,7 @@
 //! Boundary: predicate and index runtimes use this to avoid `Value` fallback for scalar work.
 
 use crate::{
-    db::{
-        data::{ScalarSlotValueRef, ScalarValueRef, SlotReader},
-        error::{executor_internal, query_executor_invariant},
-    },
+    db::data::{ScalarSlotValueRef, ScalarValueRef, SlotReader},
     error::InternalError,
     model::{
         entity::{EntityModel, resolve_field_slot},
@@ -314,13 +311,13 @@ fn eval_scalar_expression_op(
             .map_err(|expected| {
                 let label = scalar_expression_label(op);
                 match expected {
-                    EXPECTED_TEXT => query_executor_invariant(format!(
+                    EXPECTED_TEXT => InternalError::query_executor_invariant(format!(
                         "scalar expression {label} expected text input",
                     )),
-                    EXPECTED_DATE_OR_TIMESTAMP => executor_internal(format!(
+                    EXPECTED_DATE_OR_TIMESTAMP => InternalError::executor_internal(format!(
                         "scalar expression {label} expected date/timestamp input",
                     )),
-                    _ => executor_internal(format!(
+                    _ => InternalError::executor_internal(format!(
                         "scalar expression {label} expected {expected} input",
                     )),
                 }

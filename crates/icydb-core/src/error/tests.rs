@@ -64,7 +64,7 @@ fn index_plan_store_invariant_uses_store_origin() {
 
 #[test]
 fn query_executor_invariant_uses_invariant_violation_class() {
-    let err = crate::db::error::query_executor_invariant("route contract mismatch");
+    let err = InternalError::query_executor_invariant("route contract mismatch");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
 }

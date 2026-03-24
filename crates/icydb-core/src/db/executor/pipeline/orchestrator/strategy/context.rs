@@ -25,7 +25,7 @@ where
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadAccessState, InternalError> {
         if !plan.mode().is_load() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "load executor requires load plans",
             ));
         }

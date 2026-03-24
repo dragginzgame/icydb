@@ -16,11 +16,11 @@ mod write;
 use crate::{
     db::{
         Db, EntityFieldDescription, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
-        IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PersistedRow,
-        PlanError, Query, QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PersistedRow, Query,
+        QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
-        executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
+        executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         schema::{describe_entity_model, show_indexes_for_model},
     },
     error::InternalError,
@@ -34,32 +34,10 @@ use std::thread::LocalKey;
 #[cfg(feature = "sql")]
 pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlPreparedStatement, SqlStatementRoute};
 
-// Map executor-owned plan-surface failures into query-owned plan errors.
-fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
-    match err {
-        ExecutorPlanError::Cursor(err) => QueryError::from(PlanError::from(*err)),
-    }
-}
-
 // Decode one optional external cursor token and map decode failures into the
 // query-plan cursor error boundary.
 fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec<u8>>, QueryError> {
-    decode_optional_cursor_token(cursor_token).map_err(|err| QueryError::from(PlanError::from(err)))
-}
-
-// Build one query-facing invariant violation at the session boundary.
-fn query_invariant_error(reason: impl Into<String>) -> QueryError {
-    QueryError::execute(crate::db::error::query_executor_invariant(reason))
-}
-
-// Build one query-facing unsupported error at the session boundary.
-fn unsupported_query_error(reason: impl Into<String>) -> QueryError {
-    QueryError::unsupported_query(reason)
-}
-
-// Build one query-facing cursor serialization error at the session boundary.
-fn continuation_cursor_serialize_error(reason: impl Into<String>) -> QueryError {
-    QueryError::execute(InternalError::serialize_internal(reason))
+    decode_optional_cursor_token(cursor_token).map_err(QueryError::from_cursor_plan_error)
 }
 
 ///

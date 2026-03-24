@@ -4,6 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
+    cursor::CursorPlanError,
     predicate::{
         CompareOp,
         grouped_having_compare_op_supported as predicate_grouped_having_compare_op_supported,
@@ -36,6 +37,13 @@ impl GroupedCursorPolicyViolation {
                 "global DISTINCT grouped aggregates do not support continuation cursors"
             }
         }
+    }
+
+    /// Convert one grouped cursor-policy violation into the cursor-plan error
+    /// surface used by continuation validation.
+    #[must_use]
+    pub(in crate::db) fn into_cursor_plan_error(self) -> CursorPlanError {
+        CursorPlanError::continuation_cursor_invariant(self.invariant_message())
     }
 }
 

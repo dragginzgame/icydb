@@ -93,7 +93,7 @@ impl ScalarAggregateReducerState {
                 *count = count.saturating_add(1);
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "aggregate reducer COUNT state mismatch",
             )),
         }
@@ -106,7 +106,7 @@ impl ScalarAggregateReducerState {
                 *exists = true;
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "aggregate reducer EXISTS state mismatch",
             )),
         }
@@ -126,7 +126,7 @@ impl ScalarAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "aggregate reducer MIN state mismatch",
             )),
         }
@@ -146,7 +146,7 @@ impl ScalarAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "aggregate reducer MAX state mismatch",
             )),
         }
@@ -159,7 +159,7 @@ impl ScalarAggregateReducerState {
                 *first_key = Some(key);
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "aggregate reducer FIRST state mismatch",
             )),
         }
@@ -172,7 +172,7 @@ impl ScalarAggregateReducerState {
                 *last_key = Some(key);
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "aggregate reducer LAST state mismatch",
             )),
         }
@@ -233,7 +233,7 @@ impl GroupedAggregateReducerState {
                 *count = count.saturating_add(1);
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer COUNT state mismatch",
             )),
         }
@@ -246,7 +246,7 @@ impl GroupedAggregateReducerState {
                 *exists = true;
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer EXISTS state mismatch",
             )),
         }
@@ -266,7 +266,7 @@ impl GroupedAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer MIN state mismatch",
             )),
         }
@@ -286,7 +286,7 @@ impl GroupedAggregateReducerState {
 
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer MAX state mismatch",
             )),
         }
@@ -299,7 +299,7 @@ impl GroupedAggregateReducerState {
                 *first_key = Some(key);
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer FIRST state mismatch",
             )),
         }
@@ -312,7 +312,7 @@ impl GroupedAggregateReducerState {
                 *last_key = Some(key);
                 Ok(())
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer LAST state mismatch",
             )),
         }
@@ -466,7 +466,7 @@ impl GroupedTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(crate::db::error::query_executor_invariant(
+        Err(InternalError::query_executor_invariant(
             "grouped aggregate reducer SUM requires field-target execution path",
         ))
     }
@@ -474,7 +474,7 @@ impl GroupedTerminalAggregateState {
     // Apply one MIN grouped terminal update.
     fn apply_min(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer MIN update requires storage key",
             ));
         };
@@ -490,7 +490,7 @@ impl GroupedTerminalAggregateState {
     // Apply one MAX grouped terminal update.
     fn apply_max(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer MAX update requires storage key",
             ));
         };
@@ -506,7 +506,7 @@ impl GroupedTerminalAggregateState {
     // Apply one FIRST grouped terminal update.
     fn apply_first(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer FIRST update requires storage key",
             ));
         };
@@ -518,7 +518,7 @@ impl GroupedTerminalAggregateState {
     // Apply one LAST grouped terminal update.
     fn apply_last(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "grouped aggregate reducer LAST update requires storage key",
             ));
         };
@@ -532,7 +532,7 @@ impl GroupedTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(crate::db::error::query_executor_invariant(
+        Err(InternalError::query_executor_invariant(
             "grouped aggregate reducer AVG requires field-target execution path",
         ))
     }
@@ -643,7 +643,7 @@ impl ScalarTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(crate::db::error::query_executor_invariant(
+        Err(InternalError::query_executor_invariant(
             "aggregate reducer SUM requires field-target execution path",
         ))
     }
@@ -651,7 +651,7 @@ impl ScalarTerminalAggregateState {
     // Apply one MIN scalar terminal update.
     fn apply_min(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "aggregate reducer MIN update requires storage key",
             ));
         };
@@ -667,7 +667,7 @@ impl ScalarTerminalAggregateState {
     // Apply one MAX scalar terminal update.
     fn apply_max(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "aggregate reducer MAX update requires storage key",
             ));
         };
@@ -683,7 +683,7 @@ impl ScalarTerminalAggregateState {
     // Apply one FIRST scalar terminal update.
     fn apply_first(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "aggregate reducer FIRST update requires storage key",
             ));
         };
@@ -695,7 +695,7 @@ impl ScalarTerminalAggregateState {
     // Apply one LAST scalar terminal update.
     fn apply_last(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "aggregate reducer LAST update requires storage key",
             ));
         };
@@ -709,7 +709,7 @@ impl ScalarTerminalAggregateState {
         _state: &mut Self,
         _key: Option<StorageKey>,
     ) -> Result<FoldControl, InternalError> {
-        Err(crate::db::error::query_executor_invariant(
+        Err(InternalError::query_executor_invariant(
             "aggregate reducer AVG requires field-target execution path",
         ))
     }

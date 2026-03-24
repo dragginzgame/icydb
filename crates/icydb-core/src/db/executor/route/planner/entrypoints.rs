@@ -58,7 +58,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_mutation_with_mode
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, InternalError> {
     if !plan.scalar_plan().mode.is_delete() {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "mutation route planning requires delete plans",
         ));
     }

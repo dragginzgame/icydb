@@ -10,12 +10,18 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "sql")]
+use crate::db::sql::{lowering::SqlLoweringError, parser::SqlParseError};
 use crate::{
     db::{
         cursor::CursorPlanError,
-        query::plan::{
-            CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
-            PlanError, PlannerError, PolicyPlanError,
+        executor::ExecutorPlanError,
+        query::{
+            expr::SortLowerError,
+            plan::{
+                CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
+                PlanError, PlannerError, PolicyPlanError,
+            },
         },
         response::ResponseError,
         schema::ValidateError,
@@ -47,6 +53,11 @@ pub enum QueryError {
 }
 
 impl QueryError {
+    /// Construct one validation-domain query error.
+    pub(crate) const fn validate(err: ValidateError) -> Self {
+        Self::Validate(err)
+    }
+
     /// Construct an execution-domain query error from one classified runtime error.
     pub(crate) fn execute(err: InternalError) -> Self {
         Self::Execute(QueryExecutionError::from(err))
@@ -54,7 +65,7 @@ impl QueryError {
 
     /// Construct one query-origin invariant-violation execution error.
     pub(crate) fn invariant(message: impl Into<String>) -> Self {
-        Self::execute(crate::db::error::query_executor_invariant(message))
+        Self::execute(InternalError::query_executor_invariant(message))
     }
 
     /// Construct one intent-domain query error.
@@ -64,7 +75,7 @@ impl QueryError {
 
     /// Construct one grouped-query intent error for scalar/query-only surfaces.
     pub(crate) const fn grouped_requires_execute_grouped() -> Self {
-        Self::Intent(IntentError::GroupedRequiresExecuteGrouped)
+        Self::Intent(IntentError::grouped_requires_execute_grouped())
     }
 
     /// Construct one query-origin unsupported execution error.
@@ -77,10 +88,54 @@ impl QueryError {
         Self::execute(InternalError::serialize_internal(message))
     }
 
+    /// Construct one query error from one executor plan-surface failure.
+    pub(in crate::db) fn from_executor_plan_error(err: ExecutorPlanError) -> Self {
+        match err {
+            ExecutorPlanError::Cursor(err) => Self::from_cursor_plan_error(*err),
+        }
+    }
+
+    /// Construct one query error from one cursor plan-surface failure.
+    pub(in crate::db) fn from_cursor_plan_error(err: CursorPlanError) -> Self {
+        Self::from(PlanError::from(err))
+    }
+
     /// Construct one query-origin unsupported SQL-feature execution error.
     #[cfg(feature = "sql")]
     pub(crate) fn unsupported_sql_feature(feature: &'static str) -> Self {
         Self::execute(InternalError::query_unsupported_sql_feature(feature))
+    }
+
+    /// Construct one query error from one SQL lowering failure.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn from_sql_lowering_error(err: SqlLoweringError) -> Self {
+        match err {
+            SqlLoweringError::Query(err) => err,
+            SqlLoweringError::Parse(SqlParseError::UnsupportedFeature { feature }) => {
+                Self::unsupported_sql_feature(feature)
+            }
+            other => Self::unsupported_query(format!(
+                "SQL query is not executable in this release: {other}"
+            )),
+        }
+    }
+
+    /// Construct one query error from one reduced SQL parse failure.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn from_sql_parse_error(err: SqlParseError) -> Self {
+        Self::from_sql_lowering_error(SqlLoweringError::Parse(err))
+    }
+
+    /// Construct one unsupported query-lane SQL dispatch error.
+    pub(crate) fn unsupported_query_lane_dispatch() -> Self {
+        Self::unsupported_query(
+            "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
+        )
+    }
+
+    /// Construct one unsupported aggregate target-field query error.
+    pub(crate) fn unknown_aggregate_target_field(field: &str) -> Self {
+        Self::unsupported_query(format!("unknown aggregate target field: {field}"))
     }
 
     /// Construct one invariant violation for scalar pagination emitting the wrong cursor kind.
@@ -167,6 +222,15 @@ impl From<PlanError> for QueryError {
     }
 }
 
+impl From<SortLowerError> for QueryError {
+    fn from(err: SortLowerError) -> Self {
+        match err {
+            SortLowerError::Validate(err) => Self::validate(err),
+            SortLowerError::Plan(err) => Self::from(*err),
+        }
+    }
+}
+
 ///
 /// IntentError
 ///
@@ -195,6 +259,38 @@ pub enum IntentError {
     HavingRequiresGroupBy,
 }
 
+impl IntentError {
+    /// Construct one by-ids-with-predicate intent error.
+    pub(crate) const fn by_ids_with_predicate() -> Self {
+        Self::ByIdsWithPredicate
+    }
+
+    /// Construct one only-with-predicate intent error.
+    pub(crate) const fn only_with_predicate() -> Self {
+        Self::OnlyWithPredicate
+    }
+
+    /// Construct one key-access-conflict intent error.
+    pub(crate) const fn key_access_conflict() -> Self {
+        Self::KeyAccessConflict
+    }
+
+    /// Construct one invalid-paging-shape intent error.
+    pub(crate) const fn invalid_paging_shape(err: PagingIntentError) -> Self {
+        Self::InvalidPagingShape(err)
+    }
+
+    /// Construct one grouped-requires-execute-grouped intent error.
+    pub(crate) const fn grouped_requires_execute_grouped() -> Self {
+        Self::GroupedRequiresExecuteGrouped
+    }
+
+    /// Construct one HAVING-requires-GROUP-BY intent error.
+    pub(crate) const fn having_requires_group_by() -> Self {
+        Self::HavingRequiresGroupBy
+    }
+}
+
 ///
 /// PagingIntentError
 ///
@@ -221,27 +317,44 @@ pub enum PagingIntentError {
     CursorRequiresPagedExecution,
 }
 
+impl PagingIntentError {
+    /// Construct one cursor-requires-order paging intent error.
+    pub(crate) const fn cursor_requires_order() -> Self {
+        Self::CursorRequiresOrder
+    }
+
+    /// Construct one cursor-requires-limit paging intent error.
+    pub(crate) const fn cursor_requires_limit() -> Self {
+        Self::CursorRequiresLimit
+    }
+
+    /// Construct one cursor-requires-paged-execution paging intent error.
+    pub(crate) const fn cursor_requires_paged_execution() -> Self {
+        Self::CursorRequiresPagedExecution
+    }
+}
+
 impl From<CursorPagingPolicyError> for PagingIntentError {
     fn from(err: CursorPagingPolicyError) -> Self {
         match err {
-            CursorPagingPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
-            CursorPagingPolicyError::CursorRequiresLimit => Self::CursorRequiresLimit,
+            CursorPagingPolicyError::CursorRequiresOrder => Self::cursor_requires_order(),
+            CursorPagingPolicyError::CursorRequiresLimit => Self::cursor_requires_limit(),
         }
     }
 }
 
 impl From<CursorPagingPolicyError> for IntentError {
     fn from(err: CursorPagingPolicyError) -> Self {
-        Self::InvalidPagingShape(PagingIntentError::from(err))
+        Self::invalid_paging_shape(PagingIntentError::from(err))
     }
 }
 
 impl From<IntentKeyAccessPolicyViolation> for IntentError {
     fn from(err: IntentKeyAccessPolicyViolation) -> Self {
         match err {
-            IntentKeyAccessPolicyViolation::KeyAccessConflict => Self::KeyAccessConflict,
-            IntentKeyAccessPolicyViolation::ByIdsWithPredicate => Self::ByIdsWithPredicate,
-            IntentKeyAccessPolicyViolation::OnlyWithPredicate => Self::OnlyWithPredicate,
+            IntentKeyAccessPolicyViolation::KeyAccessConflict => Self::key_access_conflict(),
+            IntentKeyAccessPolicyViolation::ByIdsWithPredicate => Self::by_ids_with_predicate(),
+            IntentKeyAccessPolicyViolation::OnlyWithPredicate => Self::only_with_predicate(),
         }
     }
 }
@@ -250,16 +363,16 @@ impl From<FluentLoadPolicyViolation> for IntentError {
     fn from(err: FluentLoadPolicyViolation) -> Self {
         match err {
             FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
-                Self::InvalidPagingShape(PagingIntentError::CursorRequiresPagedExecution)
+                Self::invalid_paging_shape(PagingIntentError::cursor_requires_paged_execution())
             }
             FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped => {
-                Self::GroupedRequiresExecuteGrouped
+                Self::grouped_requires_execute_grouped()
             }
             FluentLoadPolicyViolation::CursorRequiresOrder => {
-                Self::InvalidPagingShape(PagingIntentError::CursorRequiresOrder)
+                Self::invalid_paging_shape(PagingIntentError::cursor_requires_order())
             }
             FluentLoadPolicyViolation::CursorRequiresLimit => {
-                Self::InvalidPagingShape(PagingIntentError::CursorRequiresLimit)
+                Self::invalid_paging_shape(PagingIntentError::cursor_requires_limit())
             }
         }
     }

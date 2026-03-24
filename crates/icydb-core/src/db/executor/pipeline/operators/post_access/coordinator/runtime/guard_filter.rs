@@ -14,7 +14,7 @@ impl<K> PostAccessPlan<'_, K> {
         cursor: Option<&CursorBoundary>,
     ) -> Result<(), InternalError> {
         if cursor.is_some() && !self.contract.mode().is_load() {
-            return Err(crate::db::error::query_invalid_logical_plan(
+            return Err(InternalError::query_invalid_logical_plan(
                 "delete plans must not carry cursor boundaries",
             ));
         }
@@ -40,7 +40,7 @@ impl<K> PostAccessPlan<'_, K> {
             }
 
             let Some(compiled_predicate) = compiled_predicate else {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "post-access filtering requires precompiled predicate slots",
                 ));
             };

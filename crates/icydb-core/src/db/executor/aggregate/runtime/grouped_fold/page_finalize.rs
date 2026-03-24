@@ -68,9 +68,7 @@ fn finalize_grouped_page_rows(
         let emitted_group_key = match group_key_value {
             Value::List(values) => values,
             value => {
-                return Err(crate::db::error::query_executor_invariant(format!(
-                    "grouped canonical key must be Value::List, found {value:?}"
-                )));
+                return Err(GroupedRouteStage::canonical_group_key_must_be_list(&value));
             }
         };
         last_emitted_group_key = Some(emitted_group_key.clone());

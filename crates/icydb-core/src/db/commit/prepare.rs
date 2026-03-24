@@ -611,7 +611,7 @@ fn materialize_prepared_row_commit(
             .get(index_op.store.as_str())
             .copied()
             .ok_or_else(|| {
-                crate::db::error::executor_invariant(format!(
+                InternalError::executor_invariant(format!(
                     "commit prepare missing index store mapping: store='{}' entity='{}'",
                     index_op.store, entity_path
                 ))

@@ -24,6 +24,12 @@ pub(super) enum GroupedCandidateSink {
 }
 
 impl GroupedCandidateSink {
+    fn duplicate_canonical_group_key(group_key_value: &Value) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
+        ))
+    }
+
     pub(super) const fn new(selection_bound: Option<usize>, max_groups_bound: usize) -> Self {
         match selection_bound {
             Some(selection_bound) => Self::Bounded {
@@ -51,9 +57,7 @@ impl GroupedCandidateSink {
                     canonical_value_compare(existing_key, &group_key_value)
                 }) {
                     Ok(_) => {
-                        return Err(crate::db::error::query_executor_invariant(format!(
-                            "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
-                        )));
+                        return Err(Self::duplicate_canonical_group_key(&group_key_value));
                     }
                     Err(insert_index) => {
                         rows.insert(insert_index, (group_key_value, aggregate_values));

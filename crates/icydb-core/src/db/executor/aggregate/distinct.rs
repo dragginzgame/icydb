@@ -49,12 +49,7 @@ where
                 GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES,
             ),
         )
-        .map_err(|reason| {
-            crate::db::error::query_executor_invariant(format!(
-                "{}: found {kind:?}",
-                reason.invariant_message(),
-            ))
-        })?;
+        .map_err(|reason| reason.into_global_distinct_prepare_internal_error(kind))?;
 
         Self::resolve_grouped_route(
             plan.into_grouped_load_plan(grouped_shape),
@@ -69,12 +64,12 @@ where
         page: GroupedCursorPage,
     ) -> Result<Option<Value>, InternalError> {
         if page.next_cursor.is_some() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "global DISTINCT grouped aggregate must not emit continuation cursor",
             ));
         }
         if page.rows.len() > 1 {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "global DISTINCT grouped aggregate must emit at most one grouped row",
             ));
         }
@@ -90,12 +85,12 @@ where
         row: &GroupedRow,
     ) -> Result<Option<Value>, InternalError> {
         if !row.group_key().is_empty() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "global DISTINCT grouped aggregate row must have empty grouped key",
             ));
         }
         if row.aggregate_values().len() != 1 {
-            return Err(crate::db::error::query_executor_invariant(format!(
+            return Err(InternalError::query_executor_invariant(format!(
                 "global DISTINCT grouped aggregate row must have one aggregate value, found {}",
                 row.aggregate_values().len()
             )));

@@ -61,12 +61,12 @@ impl ExecutionKernel {
         field_slot: FieldSlot,
     ) -> Result<ScalarAggregateOutput, InternalError> {
         if !kind.is_extrema() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "materialized field-extrema reduction requires MIN/MAX terminal",
             ));
         }
         let compare_direction = aggregate_extrema_direction(kind).ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
+            InternalError::query_executor_invariant(
                 "materialized field-extrema reduction reached non-extrema terminal",
             )
         })?;
@@ -107,7 +107,7 @@ impl ExecutionKernel {
         let selected_key = selected.map(|(key, _)| key);
 
         kind.extrema_output(selected_key).ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
+            InternalError::query_executor_invariant(
                 "materialized field-extrema reduction reached non-extrema terminal",
             )
         })
@@ -127,12 +127,12 @@ impl ExecutionKernel {
         } else if kind == AggregateKind::Max {
             route_plan.field_max_fast_path_eligible()
         } else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "field-target aggregate execution requires MIN/MAX terminal",
             ));
         };
         if !field_fast_path_eligible {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "field-target aggregate streaming requires route-eligible field-extrema fast path",
             ));
         }
@@ -249,12 +249,12 @@ impl ExecutionKernel {
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         if spec.direction
             != aggregate_extrema_direction(spec.kind).ok_or_else(|| {
-                crate::db::error::query_executor_invariant(
+                InternalError::query_executor_invariant(
                     "field-target aggregate direction requires MIN/MAX terminal",
                 )
             })?
         {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "field-extrema fold direction must match aggregate terminal semantics",
             ));
         }
@@ -324,7 +324,7 @@ impl ExecutionKernel {
 
         let selected_key = selected.map(|(key, _)| key);
         let output = spec.kind.extrema_output(selected_key).ok_or_else(|| {
-            crate::db::error::query_executor_invariant(
+            InternalError::query_executor_invariant(
                 "field-extrema fold reached non-extrema terminal",
             )
         })?;

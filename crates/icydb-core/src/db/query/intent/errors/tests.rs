@@ -146,6 +146,60 @@ fn query_intent_constructor_keeps_intent_boundary() {
     ));
 }
 
+#[test]
+fn having_requires_group_by_constructor_keeps_intent_boundary() {
+    let err = IntentError::having_requires_group_by();
+
+    assert!(matches!(err, IntentError::HavingRequiresGroupBy));
+}
+
+#[test]
+fn query_invariant_constructor_preserves_query_invariant_boundary() {
+    let query_err = QueryError::invariant("route contract mismatch");
+
+    assert!(matches!(
+        query_err,
+        QueryError::Execute(QueryExecutionError::InvariantViolation(inner))
+            if inner.class == ErrorClass::InvariantViolation
+                && inner.origin == ErrorOrigin::Query
+    ));
+}
+
+#[test]
+fn query_serialize_internal_constructor_preserves_serialize_internal_boundary() {
+    let query_err = QueryError::serialize_internal("cursor token encode failed");
+
+    assert!(matches!(
+        query_err,
+        QueryError::Execute(QueryExecutionError::Internal(inner))
+            if inner.class == ErrorClass::Internal
+                && inner.origin == ErrorOrigin::Serialize
+    ));
+}
+
+#[test]
+fn continuation_kind_mismatch_helpers_preserve_invariant_messages() {
+    let scalar = QueryError::scalar_paged_emitted_grouped_continuation();
+    let grouped = QueryError::grouped_paged_emitted_scalar_continuation();
+
+    let QueryError::Execute(QueryExecutionError::InvariantViolation(scalar_inner)) = scalar else {
+        panic!("scalar continuation kind mismatch must stay in invariant boundary");
+    };
+    let QueryError::Execute(QueryExecutionError::InvariantViolation(grouped_inner)) = grouped
+    else {
+        panic!("grouped continuation kind mismatch must stay in invariant boundary");
+    };
+
+    assert_eq!(
+        scalar_inner.message,
+        "executor invariant violated: scalar load pagination emitted grouped continuation token",
+    );
+    assert_eq!(
+        grouped_inner.message,
+        "executor invariant violated: grouped pagination emitted scalar continuation token",
+    );
+}
+
 #[cfg(feature = "sql")]
 #[test]
 fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
@@ -157,6 +211,24 @@ fn unsupported_sql_feature_preserves_query_unsupported_execution_boundary() {
             if inner.class == ErrorClass::Unsupported
                 && inner.origin == ErrorOrigin::Query
     ));
+}
+
+#[test]
+fn unknown_aggregate_target_field_preserves_query_unsupported_execution_boundary() {
+    let query_err = QueryError::unknown_aggregate_target_field("missing");
+
+    assert!(matches!(
+        query_err,
+        QueryError::Execute(QueryExecutionError::Unsupported(ref inner))
+            if inner.class == ErrorClass::Unsupported
+                && inner.origin == ErrorOrigin::Query
+    ));
+
+    let QueryError::Execute(QueryExecutionError::Unsupported(inner)) = query_err else {
+        panic!("unknown aggregate target field must map to query unsupported execution error");
+    };
+
+    assert_eq!(inner.message, "unknown aggregate target field: missing");
 }
 
 #[test]

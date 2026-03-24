@@ -24,7 +24,7 @@ use crate::{
         codec::cursor::decode_cursor,
         direction::Direction,
         executor::ExecutableAccessPath,
-        query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
+        query::plan::{OrderSpec, validate_cursor_order_plan_shape},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -154,65 +154,7 @@ pub(in crate::db) fn decode_pk_cursor_boundary_storage_key(
     model: &EntityModel,
 ) -> Result<Option<StorageKey>, InternalError> {
     boundary::decode_pk_cursor_boundary_storage_key(boundary, model)
-        .map_err(map_pk_cursor_decode_error)
-}
-
-// Map cursor decode variants into explicit pk-cursor invariant taxonomy.
-// This keeps variant/domain ownership explicit and avoids fallback conversion.
-fn map_pk_cursor_decode_error(err: CursorPlanError) -> InternalError {
-    match err {
-        CursorPlanError::InvalidContinuationCursor { reason } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                format!("pk cursor decode rejected invalid continuation cursor: {reason}"),
-            ))
-        }
-        CursorPlanError::InvalidContinuationCursorPayload { reason } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                format!("pk cursor decode rejected invalid continuation payload: {reason}"),
-            ))
-        }
-        CursorPlanError::ContinuationCursorVersionMismatch { version } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                format!("pk cursor decode rejected unsupported continuation version: {version}"),
-            ))
-        }
-        CursorPlanError::ContinuationCursorSignatureMismatch { .. } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                "pk cursor decode encountered continuation signature mismatch",
-            ))
-        }
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected, found } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                format!("pk cursor boundary arity mismatch: expected {expected}, found {found}"),
-            ))
-        }
-        CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset,
-            actual_offset,
-        } => crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-            format!(
-                "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
-            ),
-        )),
-        CursorPlanError::ContinuationCursorBoundaryTypeMismatch { field, .. } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                format!("pk cursor boundary type mismatch on field '{field}'"),
-            ))
-        }
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                "pk cursor slot must be present",
-            ))
-        }
-        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
-                "pk cursor slot type mismatch",
-            ))
-        }
-        CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
-            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(reason))
-        }
-    }
+        .map_err(CursorPlanError::into_pk_cursor_decode_internal_error)
 }
 
 // Resolve cursor ordering for plan-surface decoding and executor revalidation.
@@ -250,12 +192,6 @@ fn validated_cursor_order_internal<'a>(
     require_explicit_order: bool,
     missing_order_message: &'static str,
 ) -> Result<Option<&'a OrderSpec>, CursorPlanError> {
-    validate_cursor_order_plan_shape(order, require_explicit_order).map_err(|err| match err {
-        CursorOrderPlanShapeError::MissingExplicitOrder => {
-            CursorPlanError::continuation_cursor_invariant(missing_order_message)
-        }
-        CursorOrderPlanShapeError::EmptyOrderSpec => {
-            CursorPlanError::cursor_requires_non_empty_order()
-        }
-    })
+    validate_cursor_order_plan_shape(order, require_explicit_order)
+        .map_err(|err| err.to_cursor_plan_error(missing_order_message))
 }

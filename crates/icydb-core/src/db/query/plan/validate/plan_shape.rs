@@ -64,23 +64,23 @@ impl PlanShapePolicyRule {
 
 const PLAN_SHAPE_POLICY_RULES: &[PlanShapePolicyRule] = &[
     PlanShapePolicyRule::new(
-        PolicyPlanError::DeletePlanWithGrouping,
+        PolicyPlanError::delete_plan_with_grouping(),
         plan_shape_delete_with_grouping_violated,
     ),
     PlanShapePolicyRule::new(
-        PolicyPlanError::DeleteLimitRequiresOrder,
+        PolicyPlanError::delete_limit_requires_order(),
         plan_shape_delete_limit_requires_order_violated,
     ),
     PlanShapePolicyRule::new(
-        PolicyPlanError::DeletePlanWithPagination,
+        PolicyPlanError::delete_plan_with_pagination(),
         plan_shape_delete_with_pagination_violated,
     ),
     PlanShapePolicyRule::new(
-        PolicyPlanError::LoadPlanWithDeleteLimit,
+        PolicyPlanError::load_plan_with_delete_limit(),
         plan_shape_load_with_delete_limit_violated,
     ),
     PlanShapePolicyRule::new(
-        PolicyPlanError::UnorderedPagination,
+        PolicyPlanError::unordered_pagination(),
         plan_shape_unordered_scalar_load_pagination_violated,
     ),
 ];
@@ -132,7 +132,7 @@ pub(crate) fn has_empty_order(order: Option<&OrderSpec>) -> bool {
 /// Validate order-shape rules shared across intent and logical plan boundaries.
 pub(crate) fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PolicyPlanError> {
     if has_empty_order(order) {
-        return Err(PolicyPlanError::EmptyOrderSpec);
+        return Err(PolicyPlanError::empty_order_spec());
     }
 
     Ok(())

@@ -189,7 +189,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
 
     let predicate_preapplied = plan.scalar_plan().predicate.is_some();
     if predicate_preapplied && predicate_slots.is_none() {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "post-access filtering requires precompiled predicate slots",
         ));
     }
@@ -297,7 +297,7 @@ fn apply_post_access_to_kernel_rows_dyn(
     let filtered = if logical.predicate.is_some() {
         if !predicate_preapplied {
             let Some(predicate_program) = predicate_slots else {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "post-access filtering requires precompiled predicate slots",
                 ));
             };
@@ -320,7 +320,7 @@ fn apply_post_access_to_kernel_rows_dyn(
         && !order.fields.is_empty()
     {
         if logical.predicate.is_some() && !filtered {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "ordering must run after filtering",
             ));
         }
@@ -345,12 +345,12 @@ fn apply_post_access_to_kernel_rows_dyn(
     let rows_after_cursor = if logical.mode.is_load() {
         if let Some(boundary) = cursor {
             let Some(order) = logical.order.as_ref() else {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "cursor boundary requires ordering",
                 ));
             };
             if !ordered {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "cursor boundary must run after ordering",
                 ));
             }
@@ -371,7 +371,7 @@ fn apply_post_access_to_kernel_rows_dyn(
         && let Some(page) = logical.page.as_ref()
     {
         if logical.order.is_some() && !ordered {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "pagination must run after ordering",
             ));
         }
@@ -387,7 +387,7 @@ fn apply_post_access_to_kernel_rows_dyn(
         && let Some(delete_limit) = logical.delete_limit.as_ref()
     {
         if logical.order.is_some() && !ordered {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "delete limit must run after ordering",
             ));
         }

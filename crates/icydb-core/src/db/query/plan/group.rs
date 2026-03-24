@@ -44,6 +44,73 @@ impl PlannedProjectionLayout {
     pub(in crate::db) const fn aggregate_positions(&self) -> &[usize] {
         self.aggregate_positions.as_slice()
     }
+
+    /// Construct one grouped layout invariant for mismatched grouped-field counts.
+    pub(in crate::db) fn group_field_count_mismatch(
+        layout_count: usize,
+        handoff_count: usize,
+    ) -> InternalError {
+        InternalError::planner_executor_invariant(format!(
+            "grouped projection layout group-field count mismatch: layout={layout_count}, handoff={handoff_count}",
+        ))
+    }
+
+    /// Construct one grouped layout invariant for mismatched aggregate counts.
+    pub(in crate::db) fn aggregate_count_mismatch(
+        layout_count: usize,
+        handoff_count: usize,
+    ) -> InternalError {
+        InternalError::planner_executor_invariant(format!(
+            "grouped projection layout aggregate count mismatch: layout={layout_count}, handoff={handoff_count}",
+        ))
+    }
+
+    /// Construct one grouped layout invariant for non-monotonic grouped-field positions.
+    pub(in crate::db) fn group_field_positions_not_strictly_increasing() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "grouped projection layout group-field positions must be strictly increasing",
+        )
+    }
+
+    /// Construct one grouped layout invariant for non-monotonic aggregate positions.
+    pub(in crate::db) fn aggregate_positions_not_strictly_increasing() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "grouped projection layout aggregate positions must be strictly increasing",
+        )
+    }
+
+    /// Construct one grouped layout invariant for mixed field/aggregate ordering.
+    pub(in crate::db) fn group_fields_must_precede_aggregates() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "grouped projection layout must keep group fields before aggregate terminals",
+        )
+    }
+
+    /// Construct one grouped layout invariant for non-grouped projection expressions.
+    pub(in crate::db) fn non_grouped_projection_expression(index: usize) -> InternalError {
+        InternalError::planner_executor_invariant(format!(
+            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
+        ))
+    }
+
+    /// Construct one grouped layout invariant for residual alias wrappers.
+    pub(in crate::db) fn alias_normalization_required() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "grouped projection layout alias normalization must remove alias wrappers",
+        )
+    }
+
+    /// Construct one grouped layout invariant for runtime projection splits
+    /// that reference a layout position outside the projected value buffer.
+    pub(in crate::db) fn projected_position_out_of_bounds(
+        position_kind: &str,
+        position: usize,
+        projected_len: usize,
+    ) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped projection layout {position_kind} position out of bounds: position={position}, projected_len={projected_len}",
+        ))
+    }
 }
 
 ///
@@ -68,6 +135,22 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
 }
 
 impl<'a> GroupedExecutorHandoff<'a> {
+    /// Construct one planner/runtime boundary invariant for non-grouped plans
+    /// reaching grouped handoff lowering.
+    pub(in crate::db) fn requires_grouped_logical_plan() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "grouped executor handoff requires grouped logical plans",
+        )
+    }
+
+    /// Construct one planner/runtime boundary invariant for grouped plans that
+    /// failed to carry a grouped strategy hint into handoff lowering.
+    pub(in crate::db) fn missing_grouped_strategy_hint() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "grouped executor handoff must carry grouped strategy hint for grouped plans",
+        )
+    }
+
     /// Borrow the grouped query base plan.
     #[must_use]
     pub(in crate::db) const fn base(&self) -> &'a AccessPlannedQuery {
@@ -140,11 +223,7 @@ pub(in crate::db) fn grouped_executor_handoff(
 ) -> Result<GroupedExecutorHandoff<'_>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
-        return Err(crate::db::error::planner_invariant(
-            crate::db::error::executor_invariant_message(
-                "grouped executor handoff requires grouped logical plans",
-            ),
-        ));
+        return Err(GroupedExecutorHandoff::requires_grouped_logical_plan());
     };
     let projection_spec = plan.projection_spec_for_identity();
     let (projection_layout, aggregate_exprs) =
@@ -155,11 +234,8 @@ pub(in crate::db) fn grouped_executor_handoff(
         aggregate_exprs.len(),
     )
     .map(|()| true)?;
-    let grouped_plan_strategy_hint = grouped_plan_strategy_hint(plan).ok_or_else(|| {
-        crate::db::error::planner_invariant(crate::db::error::executor_invariant_message(
-            "grouped executor handoff must carry grouped strategy hint for grouped plans",
-        ))
-    })?;
+    let grouped_plan_strategy_hint = grouped_plan_strategy_hint(plan)
+        .ok_or_else(GroupedExecutorHandoff::missing_grouped_strategy_hint)?;
     let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
         grouped.scalar.distinct,
         grouped.having.is_some(),
@@ -236,6 +312,16 @@ pub(in crate::db) enum GroupedDistinctExecutionStrategy {
     GlobalDistinctFieldAvg { target_field: String },
 }
 
+impl GroupedDistinctExecutionStrategy {
+    /// Construct one planner/runtime boundary invariant for aggregate kinds
+    /// that should never survive validated grouped DISTINCT lowering.
+    pub(in crate::db) fn unsupported_field_target_aggregate_kind() -> InternalError {
+        InternalError::planner_executor_invariant(
+            "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
+        )
+    }
+}
+
 // Lower grouped DISTINCT execution strategy from validated grouped planner semantics.
 fn grouped_distinct_execution_strategy(
     group_fields: &[FieldSlot],
@@ -259,19 +345,12 @@ fn grouped_distinct_execution_strategy(
             | AggregateKind::Min
             | AggregateKind::Max
             | AggregateKind::First
-            | AggregateKind::Last => Err(crate::db::error::planner_invariant(
-                crate::db::error::executor_invariant_message(
-                    "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
-                ),
-            )),
+            | AggregateKind::Last => {
+                Err(GroupedDistinctExecutionStrategy::unsupported_field_target_aggregate_kind())
+            }
         },
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
-        Err(reason) => Err(crate::db::error::planner_invariant(
-            crate::db::error::executor_invariant_message(format!(
-                "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
-                reason.invariant_message()
-            )),
-        )),
+        Err(reason) => Err(reason.into_planner_handoff_internal_error()),
     }
 }
 
@@ -314,18 +393,12 @@ fn planned_projection_layout_and_aggregate_exprs_from_spec(
                         aggregate_exprs.push(aggregate_expr.clone());
                     }
                     Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
-                        return Err(crate::db::error::planner_invariant(
-                            crate::db::error::executor_invariant_message(format!(
-                                "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}"
-                            )),
+                        return Err(PlannedProjectionLayout::non_grouped_projection_expression(
+                            index,
                         ));
                     }
                     Expr::Alias { .. } => {
-                        return Err(crate::db::error::planner_invariant(
-                            crate::db::error::executor_invariant_message(
-                                "grouped projection layout alias normalization must remove alias wrappers",
-                            ),
-                        ));
+                        return Err(PlannedProjectionLayout::alias_normalization_required());
                     }
                 }
             }

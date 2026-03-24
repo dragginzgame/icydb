@@ -353,12 +353,12 @@ impl<'a> ScalarContinuationBindings<'a> {
     ) -> Result<(), InternalError> {
         if scan_budget_hint.is_some() {
             if self.continuation_applied() {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "load page scan budget hint requires non-continuation execution",
                 ));
             }
             if !stream_order_contract_safe {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "load page scan budget hint requires streaming-safe access shape",
                 ));
             }

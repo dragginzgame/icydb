@@ -8,5 +8,5 @@ use crate::{db::access::AccessPlanError, error::InternalError};
 
 /// Map shared access-validation failures into query-boundary invariants.
 pub(crate) fn from_executor_access_plan_error(err: AccessPlanError) -> InternalError {
-    crate::db::error::query_invariant(err.to_string())
+    InternalError::query_invariant(err.to_string())
 }

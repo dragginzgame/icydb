@@ -45,7 +45,7 @@ where
                 Ok((page.into_cursor_page::<E>()?, trace))
             }
             LoadExecutionSurface::GroupedPageWithTrace(..) => {
-                Err(crate::db::error::query_executor_invariant(
+                Err(InternalError::query_executor_invariant(
                     "scalar traced entrypoint must produce scalar traced page surface",
                 ))
             }

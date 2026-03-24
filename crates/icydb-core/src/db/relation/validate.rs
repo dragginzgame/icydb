@@ -77,7 +77,7 @@ where
     };
 
     // Phase 3: keep typed key reconstruction at the final diagnostic edge only.
-    Err(crate::db::error::executor_unsupported(
+    Err(InternalError::executor_unsupported(
         blocked_delete_diagnostic::<S>(
             blocked.relation,
             blocked.source_data_key.try_key::<S>()?,

@@ -228,12 +228,7 @@ impl GlobalDistinctFieldAccumulator {
         numeric_value: Option<Decimal>,
     ) -> Result<(), InternalError> {
         let Some(numeric_value) = numeric_value else {
-            return Err(
-                GroupError::Internal(crate::db::error::query_executor_invariant(
-                    "grouped global DISTINCT SUM/AVG reducer requires numeric ingest payload",
-                ))
-                .into_internal_error(),
-            );
+            return Err(GroupError::numeric_ingest_payload_required().into_internal_error());
         };
         state.numeric_sum = crate::db::numeric::add_decimal_terms(state.numeric_sum, numeric_value);
         state.saw_numeric_value = true;
@@ -259,7 +254,7 @@ impl GlobalDistinctFieldAccumulator {
         let Some(avg) =
             crate::db::numeric::average_decimal_terms(state.numeric_sum, state.distinct_count)
         else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "global grouped AVG(DISTINCT field) divisor conversion overflowed decimal bounds",
             ));
         };

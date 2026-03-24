@@ -36,15 +36,15 @@ pub(super) fn build_grouped_engines(
                 .grouped_aggregate_exprs()
                 .get(aggregate_index)
                 .ok_or_else(|| {
-                    crate::db::error::query_executor_invariant(format!(
-                        "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}"
-                    ))
+                    GroupedRouteStage::aggregate_index_out_of_bounds_for_projection_layout(
+                        *projection_index,
+                        aggregate_index,
+                    )
                 })?;
             if aggregate_expr.target_field().is_some() {
-                return Err(crate::db::error::query_executor_invariant(format!(
-                    "grouped field-target aggregate reached executor after planning: {:?}",
-                    aggregate_expr.kind()
-                )));
+                return Err(GroupedRouteStage::field_target_aggregate_reached_executor(
+                    aggregate_expr.kind(),
+                ));
             }
 
             Ok(Box::new(grouped_execution_context.create_grouped_state(

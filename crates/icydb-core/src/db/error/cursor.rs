@@ -4,19 +4,7 @@
 //! Does not own: cursor token decoding itself.
 //! Boundary: cursor plan/domain failures are mapped here.
 
-use crate::{
-    db::cursor::CursorPlanError,
-    error::{ErrorClass, ErrorOrigin, InternalError},
-};
-
-/// Construct a cursor-origin invariant violation.
-pub(crate) fn cursor_invariant(message: impl Into<String>) -> InternalError {
-    InternalError::classified(
-        ErrorClass::InvariantViolation,
-        ErrorOrigin::Cursor,
-        message.into(),
-    )
-}
+use crate::{db::cursor::CursorPlanError, error::InternalError};
 
 /// Map cursor-plan failures into runtime taxonomy classes.
 ///
@@ -26,7 +14,7 @@ pub(crate) fn cursor_invariant(message: impl Into<String>) -> InternalError {
 pub(crate) fn from_cursor_plan_error(err: CursorPlanError) -> InternalError {
     match err {
         CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
-            cursor_invariant(crate::db::error::executor_invariant_message(reason))
+            InternalError::cursor_invariant(InternalError::executor_invariant_message(reason))
         }
         CursorPlanError::InvalidContinuationCursor { .. }
         | CursorPlanError::InvalidContinuationCursorPayload { .. }

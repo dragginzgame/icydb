@@ -236,6 +236,36 @@ pub(crate) enum SqlLoweringError {
     UnsupportedSelectHaving,
 }
 
+impl SqlLoweringError {
+    /// Construct one entity-mismatch SQL lowering error.
+    fn entity_mismatch(sql_entity: impl Into<String>, expected_entity: &'static str) -> Self {
+        Self::EntityMismatch {
+            sql_entity: sql_entity.into(),
+            expected_entity,
+        }
+    }
+
+    /// Construct one unsupported SELECT projection SQL lowering error.
+    const fn unsupported_select_projection() -> Self {
+        Self::UnsupportedSelectProjection
+    }
+
+    /// Construct one unsupported SELECT DISTINCT SQL lowering error.
+    const fn unsupported_select_distinct() -> Self {
+        Self::UnsupportedSelectDistinct
+    }
+
+    /// Construct one unsupported SELECT GROUP BY shape SQL lowering error.
+    const fn unsupported_select_group_by() -> Self {
+        Self::UnsupportedSelectGroupBy
+    }
+
+    /// Construct one unsupported SELECT HAVING shape SQL lowering error.
+    const fn unsupported_select_having() -> Self {
+        Self::UnsupportedSelectHaving
+    }
+}
+
 ///
 /// PreparedSqlStatement
 ///
@@ -405,7 +435,7 @@ fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
     let SqlStatement::Select(statement) = prepared.statement else {
-        return Err(SqlLoweringError::UnsupportedSelectProjection);
+        return Err(SqlLoweringError::unsupported_select_projection());
     };
 
     Ok(bind_lowered_sql_global_aggregate_command::<E>(
@@ -582,13 +612,13 @@ fn lower_global_aggregate_select_shape(
     } = statement;
 
     if distinct {
-        return Err(SqlLoweringError::UnsupportedSelectDistinct);
+        return Err(SqlLoweringError::unsupported_select_distinct());
     }
     if !group_by.is_empty() {
-        return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+        return Err(SqlLoweringError::unsupported_select_group_by());
     }
     if !having.is_empty() {
-        return Err(SqlLoweringError::UnsupportedSelectHaving);
+        return Err(SqlLoweringError::unsupported_select_having());
     }
 
     let terminal = lower_global_aggregate_terminal(projection)?;
@@ -684,7 +714,7 @@ fn lower_select_shape(
         (scalar_projection_fields, Vec::new())
     } else {
         if distinct {
-            return Err(SqlLoweringError::UnsupportedSelectDistinct);
+            return Err(SqlLoweringError::unsupported_select_distinct());
         }
         let grouped_projection_aggregates =
             grouped_projection_aggregate_calls(&projection, group_by.as_slice())?;
@@ -729,14 +759,14 @@ fn lower_scalar_projection_fields(
         .iter()
         .any(|item| matches!(item, SqlSelectItem::Aggregate(_)));
     if has_aggregate {
-        return Err(SqlLoweringError::UnsupportedSelectProjection);
+        return Err(SqlLoweringError::unsupported_select_projection());
     }
 
     let fields = items
         .into_iter()
         .map(|item| match item {
             SqlSelectItem::Field(field) => Ok(field),
-            SqlSelectItem::Aggregate(_) => Err(SqlLoweringError::UnsupportedSelectProjection),
+            SqlSelectItem::Aggregate(_) => Err(SqlLoweringError::unsupported_select_projection()),
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -762,7 +792,7 @@ fn validate_scalar_distinct_projection(
         .iter()
         .any(|field| field == primary_key_field);
     if !has_primary_key_field {
-        return Err(SqlLoweringError::UnsupportedSelectDistinct);
+        return Err(SqlLoweringError::unsupported_select_distinct());
     }
 
     Ok(())
@@ -778,13 +808,13 @@ fn lower_having_clauses(
         return Ok(Vec::new());
     }
     if group_by_fields.is_empty() {
-        return Err(SqlLoweringError::UnsupportedSelectHaving);
+        return Err(SqlLoweringError::unsupported_select_having());
     }
 
     let projection_aggregates = grouped_projection_aggregate_calls(projection, group_by_fields)
-        .map_err(|_| SqlLoweringError::UnsupportedSelectHaving)?;
+        .map_err(|_| SqlLoweringError::unsupported_select_having())?;
     if projection_aggregates.as_slice() != grouped_projection_aggregates {
-        return Err(SqlLoweringError::UnsupportedSelectHaving);
+        return Err(SqlLoweringError::unsupported_select_having());
     }
 
     let mut lowered = Vec::with_capacity(having_clauses.len());
@@ -953,14 +983,14 @@ fn lower_global_aggregate_terminal(
     projection: SqlProjection,
 ) -> Result<SqlGlobalAggregateTerminal, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
-        return Err(SqlLoweringError::UnsupportedSelectProjection);
+        return Err(SqlLoweringError::unsupported_select_projection());
     };
     if items.len() != 1 {
-        return Err(SqlLoweringError::UnsupportedSelectProjection);
+        return Err(SqlLoweringError::unsupported_select_projection());
     }
 
     let Some(SqlSelectItem::Aggregate(aggregate)) = items.into_iter().next() else {
-        return Err(SqlLoweringError::UnsupportedSelectProjection);
+        return Err(SqlLoweringError::unsupported_select_projection());
     };
 
     match (aggregate.kind, aggregate.field) {
@@ -970,7 +1000,7 @@ fn lower_global_aggregate_terminal(
         (SqlAggregateKind::Avg, Some(field)) => Ok(SqlGlobalAggregateTerminal::AvgField(field)),
         (SqlAggregateKind::Min, Some(field)) => Ok(SqlGlobalAggregateTerminal::MinField(field)),
         (SqlAggregateKind::Max, Some(field)) => Ok(SqlGlobalAggregateTerminal::MaxField(field)),
-        _ => Err(SqlLoweringError::UnsupportedSelectProjection),
+        _ => Err(SqlLoweringError::unsupported_select_projection()),
     }
 }
 
@@ -979,11 +1009,11 @@ fn grouped_projection_aggregate_calls(
     group_by_fields: &[String],
 ) -> Result<Vec<SqlAggregateCall>, SqlLoweringError> {
     if group_by_fields.is_empty() {
-        return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+        return Err(SqlLoweringError::unsupported_select_group_by());
     }
 
     let SqlProjection::Items(items) = projection else {
-        return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+        return Err(SqlLoweringError::unsupported_select_group_by());
     };
 
     let mut projected_group_fields = Vec::<String>::new();
@@ -996,7 +1026,7 @@ fn grouped_projection_aggregate_calls(
                 // Keep grouped projection deterministic and mappable to grouped
                 // response contracts: group keys must be declared first.
                 if seen_aggregate {
-                    return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+                    return Err(SqlLoweringError::unsupported_select_group_by());
                 }
                 projected_group_fields.push(field.clone());
             }
@@ -1008,7 +1038,7 @@ fn grouped_projection_aggregate_calls(
     }
 
     if aggregate_calls.is_empty() || projected_group_fields.as_slice() != group_by_fields {
-        return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+        return Err(SqlLoweringError::unsupported_select_group_by());
     }
 
     Ok(aggregate_calls)
@@ -1024,7 +1054,7 @@ fn lower_aggregate_call(
         (SqlAggregateKind::Avg, Some(field)) => Ok(avg(field)),
         (SqlAggregateKind::Min, Some(field)) => Ok(min_by(field)),
         (SqlAggregateKind::Max, Some(field)) => Ok(max_by(field)),
-        _ => Err(SqlLoweringError::UnsupportedSelectProjection),
+        _ => Err(SqlLoweringError::unsupported_select_projection()),
     }
 }
 
@@ -1037,10 +1067,10 @@ fn resolve_having_aggregate_index(
         .enumerate()
         .filter_map(|(index, aggregate)| (aggregate == target).then_some(index));
     let Some(index) = matched.next() else {
-        return Err(SqlLoweringError::UnsupportedSelectHaving);
+        return Err(SqlLoweringError::unsupported_select_having());
     };
     if matched.next().is_some() {
-        return Err(SqlLoweringError::UnsupportedSelectHaving);
+        return Err(SqlLoweringError::unsupported_select_having());
     }
 
     Ok(index)
@@ -1198,8 +1228,8 @@ fn ensure_entity_matches_expected(
         return Ok(());
     }
 
-    Err(SqlLoweringError::EntityMismatch {
-        sql_entity: sql_entity.to_string(),
+    Err(SqlLoweringError::entity_mismatch(
+        sql_entity,
         expected_entity,
-    })
+    ))
 }

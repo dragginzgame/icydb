@@ -43,7 +43,7 @@ where
     ) -> Result<bool, InternalError> {
         let field_order =
             compare_orderable_field_values(target_field, candidate_value, current_value)
-                .map_err(Self::map_aggregate_field_value_error)?;
+                .map_err(AggregateFieldValueError::into_internal_error)?;
         if field_order == field_preference {
             return Ok(true);
         }
@@ -205,7 +205,7 @@ where
             return Ok(None);
         };
         let Some((max_key, _)) = max_candidate else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "min_max(field) reduction produced a min id without a max id",
             ));
         };
@@ -315,7 +315,7 @@ where
             field_slot,
             &mut |index| row.slot(index),
         )
-        .map_err(Self::map_aggregate_field_value_error)?;
+        .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Some(value))
     }
@@ -348,13 +348,5 @@ where
 
             on_key(data_key, row)
         })
-    }
-
-    // Adapter so aggregate submodules keep one internal mapping entrypoint while
-    // taxonomy mapping ownership remains centralized in aggregate field semantics.
-    pub(in crate::db::executor::aggregate) fn map_aggregate_field_value_error(
-        err: AggregateFieldValueError,
-    ) -> InternalError {
-        err.into_internal_error()
     }
 }

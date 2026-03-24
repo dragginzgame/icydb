@@ -171,7 +171,7 @@ where
                             target_field.field(),
                         )
                         .ok_or_else(|| {
-                            crate::db::error::query_executor_invariant(
+                            InternalError::query_executor_invariant(
                                 "bytes_by covering-constant mode selected without constant value",
                             )
                         })?;
@@ -350,7 +350,7 @@ where
             );
         }
         if !prefix_specs.is_empty() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "covering projection index-prefix path requires one lowered prefix spec",
             ));
         }
@@ -367,12 +367,12 @@ where
             );
         }
         if !range_specs.is_empty() {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "covering projection index-range path requires one lowered range spec",
             ));
         }
 
-        Err(crate::db::error::query_executor_invariant(
+        Err(InternalError::query_executor_invariant(
             "covering projection component scans require index-backed access paths",
         ))
     }
@@ -435,7 +435,7 @@ where
         let page = prepared.page_spec().cloned();
         let access_strategy = prepared.logical_plan.access.resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
             ));
         };
@@ -465,7 +465,7 @@ where
                     limit,
                 )
             }
-            _ => Err(crate::db::error::query_executor_invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires full-scan or key-range access",
             )),
         }

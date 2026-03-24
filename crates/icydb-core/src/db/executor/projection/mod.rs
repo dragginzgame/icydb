@@ -9,7 +9,6 @@ mod materialize;
 #[cfg(test)]
 mod tests;
 
-#[cfg_attr(not(test), expect(unused_imports))]
 pub(in crate::db::executor) use eval::*;
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db) use materialize::*;

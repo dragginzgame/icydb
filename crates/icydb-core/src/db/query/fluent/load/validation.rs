@@ -58,19 +58,25 @@ where
         .map(IntentError::from)
     }
 
-    pub(super) fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
-        if let Some(err) = self.paged_intent_error() {
+    // Lift one optional fluent intent violation into the query-facing boundary
+    // so builder and terminal surfaces share the same intent-error wrapper.
+    pub(super) const fn ensure_intent_ready(error: Option<IntentError>) -> Result<(), QueryError> {
+        if let Some(err) = error {
             return Err(QueryError::intent(err));
         }
 
         Ok(())
     }
 
-    pub(super) fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
-        if let Some(err) = self.non_paged_intent_error() {
-            return Err(QueryError::intent(err));
-        }
+    pub(super) fn ensure_cursor_mode_ready(&self) -> Result<(), QueryError> {
+        Self::ensure_intent_ready(self.cursor_intent_error())
+    }
 
-        Ok(())
+    pub(super) fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
+        Self::ensure_intent_ready(self.paged_intent_error())
+    }
+
+    pub(super) fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
+        Self::ensure_intent_ready(self.non_paged_intent_error())
     }
 }

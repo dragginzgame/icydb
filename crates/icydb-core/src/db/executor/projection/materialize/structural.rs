@@ -11,11 +11,11 @@ use crate::{
         executor::{
             EntityAuthority, PreparedLoadPlan,
             projection::{
-                eval::{ScalarProjectionExpr, eval_scalar_projection_expr},
-                materialize::{
-                    map_projection_eval_error, map_scalar_projection_eval_error,
-                    prepare_projection_plan, visit_projection_values_with_slot_reader,
+                eval::{
+                    ProjectionEvalError, ScalarProjectionEvalError, ScalarProjectionExpr,
+                    eval_scalar_projection_expr,
                 },
+                materialize::{prepare_projection_plan, visit_projection_values_with_slot_reader},
             },
         },
         query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
@@ -124,7 +124,7 @@ fn project_scalar_data_rows_from_projection_structural(
         let mut values = Vec::with_capacity(compiled_fields.len());
         for compiled in compiled_fields {
             let value = eval_scalar_projection_expr(compiled, &row_fields)
-                .map_err(map_scalar_projection_eval_error)?;
+                .map_err(ScalarProjectionEvalError::into_internal_error)?;
             values.push(value);
         }
         projected_rows.push(values);
@@ -165,7 +165,7 @@ fn project_generic_data_rows_from_projection_structural(
         visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |value| {
             values.push(value);
         })
-        .map_err(map_projection_eval_error)?;
+        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
         if let Some(err) = slot_error {
             return Err(err);
         }

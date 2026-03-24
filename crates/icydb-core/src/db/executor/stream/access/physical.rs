@@ -220,7 +220,7 @@ impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let [spec] = index_prefix_specs else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
             ));
         };
@@ -250,7 +250,7 @@ impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         if index_prefix_specs.len() != value_count {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
             ));
         }

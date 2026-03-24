@@ -71,7 +71,9 @@ pub(crate) fn validate_group_query_semantics(
     let (logical, group, having) = match &plan.logical {
         LogicalPlan::Grouped(grouped) => (&grouped.scalar, &grouped.group, grouped.having.as_ref()),
         LogicalPlan::Scalar(_) => {
-            return Err(PlanError::from(GroupPlanError::GroupedLogicalPlanRequired));
+            return Err(PlanError::from(
+                GroupPlanError::grouped_logical_plan_required(),
+            ));
         }
     };
     let projection = plan.projection_spec(model);

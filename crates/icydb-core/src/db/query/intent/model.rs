@@ -11,7 +11,7 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
-            expr::{FilterExpr, SortExpr, SortLowerError},
+            expr::{FilterExpr, SortExpr},
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
@@ -83,7 +83,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Apply a dynamic filter expression using the model schema.
     pub(crate) fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
         let schema = SchemaInfo::from_entity_model(self.model)?;
-        let predicate = expr.lower_with(&schema).map_err(QueryError::Validate)?;
+        let predicate = expr.lower_with(&schema).map_err(QueryError::validate)?;
 
         Ok(self.filter(predicate))
     }
@@ -91,11 +91,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Apply a dynamic sort expression using the model schema.
     pub(crate) fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
         let schema = SchemaInfo::from_entity_model(self.model)?;
-        let order = match expr.lower_with(&schema) {
-            Ok(order) => order,
-            Err(SortLowerError::Validate(err)) => return Err(QueryError::Validate(err)),
-            Err(SortLowerError::Plan(err)) => return Err(QueryError::from(*err)),
-        };
+        let order = expr.lower_with(&schema).map_err(QueryError::from)?;
 
         validate_order_shape(Some(&order))
             .map_err(IntentError::from)
@@ -187,7 +183,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     fn push_having_clause(mut self, clause: GroupHavingClause) -> Result<Self, QueryError> {
         self.intent
             .push_having_clause(clause)
-            .map_err(QueryError::Intent)?;
+            .map_err(QueryError::intent)?;
 
         Ok(self)
     }

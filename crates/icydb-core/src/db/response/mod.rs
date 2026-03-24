@@ -145,6 +145,20 @@ pub enum ResponseError {
     NotUnique { entity: &'static str, count: u32 },
 }
 
+impl ResponseError {
+    /// Construct one response not-found cardinality error.
+    #[must_use]
+    pub const fn not_found(entity: &'static str) -> Self {
+        Self::NotFound { entity }
+    }
+
+    /// Construct one response not-unique cardinality error.
+    #[must_use]
+    pub const fn not_unique(entity: &'static str, count: u32) -> Self {
+        Self::NotUnique { entity, count }
+    }
+}
+
 ///
 /// Response
 ///

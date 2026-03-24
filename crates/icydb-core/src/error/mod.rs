@@ -211,6 +211,93 @@ impl InternalError {
         )
     }
 
+    /// Construct a planner-origin invariant violation with the canonical
+    /// executor-boundary invariant prefix preserved in the message payload.
+    pub(crate) fn planner_executor_invariant(reason: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Planner,
+            Self::executor_invariant_message(reason),
+        )
+    }
+
+    /// Construct a query-origin invariant violation with the canonical
+    /// executor-boundary invariant prefix preserved in the message payload.
+    pub(crate) fn query_executor_invariant(reason: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            Self::executor_invariant_message(reason),
+        )
+    }
+
+    /// Construct an executor-origin invariant violation.
+    pub(crate) fn executor_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Executor,
+            message.into(),
+        )
+    }
+
+    /// Construct an executor-origin internal error.
+    pub(crate) fn executor_internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Executor, message.into())
+    }
+
+    /// Construct an executor-origin unsupported error.
+    pub(crate) fn executor_unsupported(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            message.into(),
+        )
+    }
+
+    /// Build the canonical executor-invariant message prefix.
+    #[must_use]
+    pub(crate) fn executor_invariant_message(reason: impl Into<String>) -> String {
+        format!("executor invariant violated: {}", reason.into())
+    }
+
+    /// Construct a planner-origin invariant violation.
+    pub(crate) fn planner_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Planner,
+            message.into(),
+        )
+    }
+
+    /// Build the canonical invalid-logical-plan message prefix.
+    #[must_use]
+    pub(crate) fn invalid_logical_plan_message(reason: impl Into<String>) -> String {
+        format!("invalid logical plan: {}", reason.into())
+    }
+
+    /// Construct a planner-origin invariant with the canonical invalid-plan prefix.
+    pub(crate) fn query_invalid_logical_plan(reason: impl Into<String>) -> Self {
+        Self::planner_invariant(Self::invalid_logical_plan_message(reason))
+    }
+
+    /// Construct a query-origin invariant violation.
+    pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            message.into(),
+        )
+    }
+
+    /// Construct a cursor-origin invariant violation.
+    pub(crate) fn cursor_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Cursor,
+            message.into(),
+        )
+    }
+
     /// Construct a store-origin invariant violation.
     pub(crate) fn store_invariant(message: impl Into<String>) -> Self {
         Self::new(

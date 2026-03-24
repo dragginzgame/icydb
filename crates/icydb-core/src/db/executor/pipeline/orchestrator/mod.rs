@@ -29,7 +29,7 @@ fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState,
                 state::LoadExecutionPayload::Scalar(payload)
             }
             state::LoadExecutionPayload::Grouped(_) => {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "scalar load mode must carry scalar runtime payload",
                 ));
             }
@@ -44,7 +44,7 @@ fn apply_runtime_paging(mut state: LoadPayloadState) -> Result<LoadPayloadState,
                 state::LoadExecutionPayload::Grouped(page)
             }
             state::LoadExecutionPayload::Scalar(_) => {
-                return Err(crate::db::error::query_executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "grouped load mode must carry grouped runtime payload",
                 ));
             }
@@ -71,7 +71,7 @@ fn materialize_runtime_surface(
     let execution_mode = state.context.mode;
     if execution_mode.scalar_page_mode() {
         let state::LoadExecutionPayload::Scalar(page) = state.payload else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "scalar page load mode must carry scalar runtime payload",
             ));
         };
@@ -83,7 +83,7 @@ fn materialize_runtime_surface(
             "runtime surface materialization expects grouped mode for non-scalar load surfaces",
         );
         let state::LoadExecutionPayload::Grouped(page) = state.payload else {
-            return Err(crate::db::error::query_executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "grouped page load mode must carry grouped runtime payload",
             ));
         };

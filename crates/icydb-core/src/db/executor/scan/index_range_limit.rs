@@ -36,7 +36,7 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
         return Ok(None);
     };
     let Some(index_range_spec) = index_range_spec else {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "index-range executable spec must be materialized for index-range plans",
         ));
     };

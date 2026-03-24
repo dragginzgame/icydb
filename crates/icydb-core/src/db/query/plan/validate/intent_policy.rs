@@ -58,18 +58,19 @@ const INTENT_PLAN_SHAPE_POLICY_RULES: &[IntentPlanShapePolicyRule] = &[
 ];
 
 fn intent_delete_offset_violation(ctx: IntentPlanShapePolicyContext) -> Option<PolicyPlanError> {
-    (ctx.is_delete_mode && ctx.has_delete_offset).then_some(PolicyPlanError::DeletePlanWithOffset)
+    (ctx.is_delete_mode && ctx.has_delete_offset)
+        .then_some(PolicyPlanError::delete_plan_with_offset())
 }
 
 fn intent_delete_grouping_violation(ctx: IntentPlanShapePolicyContext) -> Option<PolicyPlanError> {
-    (ctx.is_delete_mode && ctx.grouped).then_some(PolicyPlanError::DeletePlanWithGrouping)
+    (ctx.is_delete_mode && ctx.grouped).then_some(PolicyPlanError::delete_plan_with_grouping())
 }
 
 fn intent_delete_limit_requires_order_violation(
     ctx: IntentPlanShapePolicyContext,
 ) -> Option<PolicyPlanError> {
     (ctx.is_delete_mode && ctx.has_delete_limit && !ctx.has_order)
-        .then_some(PolicyPlanError::DeleteLimitRequiresOrder)
+        .then_some(PolicyPlanError::delete_limit_requires_order())
 }
 
 ///
@@ -117,21 +118,21 @@ fn intent_key_access_conflict_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
     ctx.has_key_access_conflict
-        .then_some(IntentKeyAccessPolicyViolation::KeyAccessConflict)
+        .then_some(IntentKeyAccessPolicyViolation::key_access_conflict())
 }
 
 fn intent_by_ids_with_predicate_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
     (ctx.is_many_selector && ctx.has_predicate)
-        .then_some(IntentKeyAccessPolicyViolation::ByIdsWithPredicate)
+        .then_some(IntentKeyAccessPolicyViolation::by_ids_with_predicate())
 }
 
 fn intent_only_with_predicate_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
     (ctx.is_only_selector && ctx.has_predicate)
-        .then_some(IntentKeyAccessPolicyViolation::OnlyWithPredicate)
+        .then_some(IntentKeyAccessPolicyViolation::only_with_predicate())
 }
 
 /// Validate intent-level plan-shape rules derived from query mode + modifiers.

@@ -101,10 +101,7 @@ pub(super) fn first_grouped_having_policy_violation(
 
 fn grouped_having_compare_op_rule(ctx: GroupedHavingPolicyContext<'_>) -> Option<GroupPlanError> {
     (!grouped_having_compare_op_supported(ctx.clause.op())).then(|| {
-        GroupPlanError::HavingUnsupportedCompareOp {
-            index: ctx.index,
-            op: format!("{:?}", ctx.clause.op()),
-        }
+        GroupPlanError::having_unsupported_compare_op(ctx.index, format!("{:?}", ctx.clause.op()))
     })
 }
 
@@ -122,10 +119,10 @@ fn grouped_aggregate_distinct_kind_supported_rule(
     ctx: GroupedAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
     (ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_grouped_distinct_v1()).then(|| {
-        GroupPlanError::DistinctAggregateKindUnsupported {
-            index: ctx.index,
-            kind: format!("{:?}", ctx.aggregate.kind()),
-        }
+        GroupPlanError::distinct_aggregate_kind_unsupported(
+            ctx.index,
+            format!("{:?}", ctx.aggregate.kind()),
+        )
     })
 }
 
@@ -136,13 +133,13 @@ fn grouped_aggregate_distinct_field_target_unsupported_rule(
         .target_field
         .as_ref()
         .filter(|_| ctx.aggregate.distinct())
-        .map(
-            |target_field| GroupPlanError::DistinctAggregateFieldTargetUnsupported {
-                index: ctx.index,
-                kind: format!("{:?}", ctx.aggregate.kind()),
-                field: target_field.clone(),
-            },
-        )
+        .map(|target_field| {
+            GroupPlanError::distinct_aggregate_field_target_unsupported(
+                ctx.index,
+                format!("{:?}", ctx.aggregate.kind()),
+                target_field,
+            )
+        })
 }
 
 fn grouped_aggregate_field_target_unsupported_rule(
@@ -152,13 +149,13 @@ fn grouped_aggregate_field_target_unsupported_rule(
         .target_field
         .as_ref()
         .filter(|_| !ctx.aggregate.distinct())
-        .map(
-            |target_field| GroupPlanError::FieldTargetAggregatesUnsupported {
-                index: ctx.index,
-                kind: format!("{:?}", ctx.aggregate.kind()),
-                field: target_field.clone(),
-            },
-        )
+        .map(|target_field| {
+            GroupPlanError::field_target_aggregates_unsupported(
+                ctx.index,
+                format!("{:?}", ctx.aggregate.kind()),
+                target_field,
+            )
+        })
 }
 
 pub(super) fn first_global_distinct_aggregate_policy_violation(
@@ -188,8 +185,5 @@ fn global_distinct_numeric_target_rule(
         .ok()
         .flatten()
         .filter(|field_type| !field_type.supports_numeric_coercion())
-        .map(|_| GroupPlanError::GlobalDistinctSumTargetNotNumeric {
-            index: 0,
-            field: ctx.target_field.to_string(),
-        })
+        .map(|_| GroupPlanError::global_distinct_sum_target_not_numeric(0, ctx.target_field))
 }

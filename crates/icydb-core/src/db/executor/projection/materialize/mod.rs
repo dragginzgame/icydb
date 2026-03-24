@@ -20,8 +20,8 @@ use crate::{
 
 use crate::db::executor::projection::{
     eval::{
-        ProjectionEvalError, ScalarProjectionEvalError, ScalarProjectionExpr,
-        compile_scalar_projection_expr, eval_expr_grouped, eval_expr_with_slot_reader,
+        ProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
+        eval_expr_grouped, eval_expr_with_slot_reader,
         eval_scalar_projection_expr_with_value_reader,
     },
     grouped::GroupedRowView,
@@ -66,7 +66,7 @@ pub(in crate::db::executor) fn validate_projection_over_slot_rows(
             &mut read_slot,
             &mut |_| {},
         )
-        .map_err(map_projection_eval_error)?;
+        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
     }
 
     Ok(())
@@ -133,17 +133,6 @@ pub(super) fn prepare_projection_plan(
     }
 
     PreparedProjectionPlan::Scalar(compiled_fields)
-}
-
-pub(super) fn map_projection_eval_error(err: ProjectionEvalError) -> InternalError {
-    crate::db::error::query_invalid_logical_plan(err.to_string())
-}
-
-pub(super) fn map_scalar_projection_eval_error(err: ScalarProjectionEvalError) -> InternalError {
-    match err {
-        ScalarProjectionEvalError::Eval(err) => map_projection_eval_error(err),
-        ScalarProjectionEvalError::Internal(err) => err,
-    }
 }
 
 fn projection_is_model_identity_for_model(

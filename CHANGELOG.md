@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
 
+- `0.63.1` continues the internal cleanup line by removing the old shared DB error-constructor layer, consolidating more planner/executor/session ownership boundaries, and keeping the current SQL and runtime behavior unchanged.
 - `0.63.0` consolidates internal query, session, projection, cursor, mutation, and planner validation boundaries so repeated wrappers and drifted helper paths collapse onto shared owners without changing the current SQL/runtime feature surface.
 
 See detailed breakdown:

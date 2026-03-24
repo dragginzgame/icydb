@@ -349,7 +349,7 @@ impl ExecutionContext {
     ) -> Result<(), GroupError> {
         let implicit_group_key = Value::List(Vec::new())
             .canonical_key()
-            .map_err(|err| GroupError::Internal(err.into_internal_error()))?;
+            .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
 
         self.record_new_group(&implicit_group_key, true, 0, 0)
     }

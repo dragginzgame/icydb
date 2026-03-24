@@ -29,7 +29,7 @@ where
     if aggregate.target_field().is_some()
         && !matches!(aggregate.kind(), AggregateKind::Min | AggregateKind::Max)
     {
-        return Err(crate::db::error::query_executor_invariant(format!(
+        return Err(InternalError::query_executor_invariant(format!(
             "field-target aggregate requires MIN/MAX terminal after planning: found {:?}",
             aggregate.kind()
         )));

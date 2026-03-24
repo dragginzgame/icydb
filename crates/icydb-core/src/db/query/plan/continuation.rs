@@ -292,16 +292,18 @@ impl ContinuationContract {
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
         if self.is_grouped() {
-            return Err(cursor_invariant_error(
+            return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped plans require grouped cursor preparation",
             ));
         }
 
         match self.validate_cursor_bytes(entity_path, entity_tag, entity_model, bytes)? {
             CursorValidationOutcome::Scalar(cursor) => Ok(*cursor),
-            CursorValidationOutcome::Grouped(_) => Err(cursor_invariant_error(
-                "grouped plans require grouped cursor preparation",
-            )),
+            CursorValidationOutcome::Grouped(_) => {
+                Err(CursorPlanError::continuation_cursor_invariant(
+                    "grouped plans require grouped cursor preparation",
+                ))
+            }
         }
     }
 
@@ -312,7 +314,7 @@ impl ContinuationContract {
         bytes: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
         if !self.is_grouped() {
-            return Err(cursor_invariant_error(
+            return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped cursor preparation requires grouped logical plans",
             ));
         }
@@ -338,7 +340,7 @@ impl ContinuationContract {
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
         if self.is_grouped() {
-            return Err(cursor_invariant_error(
+            return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped plans require grouped cursor revalidation",
             ));
         }
@@ -360,7 +362,7 @@ impl ContinuationContract {
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
         if !self.is_grouped() {
-            return Err(cursor_invariant_error(
+            return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped cursor revalidation requires grouped logical plans",
             ));
         }
@@ -378,7 +380,7 @@ impl ContinuationContract {
         cursor: &GroupedPlannedCursor,
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
         if !self.is_grouped() {
-            return Err(cursor_invariant_error(
+            return Err(CursorPlanError::continuation_cursor_invariant(
                 "grouped paging window requires grouped logical plans",
             ));
         }
@@ -417,9 +419,7 @@ impl ContinuationContract {
 
     fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
         if let Some(violation) = self.grouped_cursor_policy_violation() {
-            return Err(CursorPlanError::continuation_cursor_invariant(
-                violation.invariant_message(),
-            ));
+            return Err(violation.into_cursor_plan_error());
         }
 
         Ok(())
@@ -490,10 +490,6 @@ impl AccessPlannedQuery {
             grouped_cursor_policy_violation,
         ))
     }
-}
-
-fn cursor_invariant_error(message: impl Into<String>) -> CursorPlanError {
-    CursorPlanError::continuation_cursor_invariant(message)
 }
 
 ///

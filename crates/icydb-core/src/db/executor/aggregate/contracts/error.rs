@@ -37,12 +37,21 @@ pub(in crate::db::executor) enum GroupError {
 }
 
 impl GroupError {
+    /// Construct one grouped runtime invariant for missing numeric ingest
+    /// payloads in grouped global DISTINCT SUM/AVG reduction.
+    #[must_use]
+    pub(in crate::db::executor) fn numeric_ingest_payload_required() -> Self {
+        Self::from(InternalError::query_executor_invariant(
+            "grouped global DISTINCT SUM/AVG reducer requires numeric ingest payload",
+        ))
+    }
+
     /// Convert grouped execution failures into executor-owned internal errors.
     #[must_use]
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::MemoryLimitExceeded { .. } | Self::DistinctBudgetExceeded { .. } => {
-                crate::db::error::executor_internal(self.to_string())
+                InternalError::executor_internal(self.to_string())
             }
             Self::Internal(inner) => inner,
         }

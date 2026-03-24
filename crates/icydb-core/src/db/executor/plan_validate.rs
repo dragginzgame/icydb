@@ -18,7 +18,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 ) -> Result<(), InternalError> {
     let entity_path = authority.entity_path();
     let schema = SchemaInfo::from_entity_model(authority.model()).map_err(|err| {
-        crate::db::error::query_invariant(format!("entity schema invalid for {entity_path}: {err}"))
+        InternalError::query_invariant(format!("entity schema invalid for {entity_path}: {err}"))
     })?;
 
     validate_access_structure_model(&schema, authority.model(), &plan.access)

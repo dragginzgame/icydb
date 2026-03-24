@@ -86,15 +86,13 @@ impl InternalError {
     ) -> Self {
         match err {
             RelationTargetRawKeyError::StorageKeyEncode(err) => {
-                crate::db::error::executor_unsupported(format!(
+                Self::executor_unsupported(format!(
                     "{storage_compat_message}: source={source_path} field={field_name} target={target_path} value={value:?} ({err})",
                 ))
             }
-            RelationTargetRawKeyError::TargetEntityName(err) => {
-                crate::db::error::executor_internal(format!(
-                    "{invalid_target_message}: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
-                ))
-            }
+            RelationTargetRawKeyError::TargetEntityName(err) => Self::executor_internal(format!(
+                "{invalid_target_message}: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
+            )),
         }
     }
 }
@@ -106,7 +104,7 @@ pub(crate) fn target_key_mismatch_error(
     target_path: &str,
     value: &Value,
 ) -> InternalError {
-    crate::db::error::executor_unsupported(format!(
+    InternalError::executor_unsupported(format!(
         "strong relation missing: source={source_path} field={field_name} target={target_path} key={value:?}",
     ))
 }
@@ -120,7 +118,7 @@ pub(crate) fn incompatible_store_error(
     value: &Value,
     err: impl Display,
 ) -> InternalError {
-    crate::db::error::executor_internal(format!(
+    InternalError::executor_internal(format!(
         "strong relation target store missing: source={source_path} field={field_name} target={target_path} store={target_store_path} key={value:?} ({err})",
     ))
 }

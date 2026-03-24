@@ -36,7 +36,7 @@ pub(in crate::db::executor) fn validate_index_range_spec_alignment<K>(
         && let Some(index) = path_capabilities.index_range_model()
         && spec.index() != &index
     {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "index-range spec does not match access path index",
         ));
     }
@@ -49,7 +49,7 @@ pub(in crate::db::executor) fn require_index_range_spec(
     index_range_spec: Option<&LoweredIndexRangeSpec>,
 ) -> Result<&LoweredIndexRangeSpec, InternalError> {
     index_range_spec.ok_or_else(|| {
-        crate::db::error::query_executor_invariant(
+        InternalError::query_executor_invariant(
             "index-range execution requires pre-lowered index-range spec",
         )
     })
@@ -61,7 +61,7 @@ pub(in crate::db::executor) fn validate_index_range_specs_consumed(
     available: usize,
 ) -> Result<(), InternalError> {
     if consumed < available {
-        return Err(crate::db::error::query_executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "unused index-range executable specs after access-plan traversal",
         ));
     }

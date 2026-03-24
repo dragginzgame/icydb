@@ -56,12 +56,8 @@ fn project_grouped_row_from_projection(
         group_fields,
         aggregate_exprs,
     );
-    let projected_values =
-        evaluate_grouped_projection_values(projection, &grouped_row).map_err(|err| {
-            crate::db::error::query_invalid_logical_plan(format!(
-                "grouped projection evaluation failed: {err}",
-            ))
-        })?;
+    let projected_values = evaluate_grouped_projection_values(projection, &grouped_row)
+        .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
     let projected_group_key = projected_values_for_positions(
         projected_values.as_slice(),
         projection_layout.group_field_positions(),
@@ -89,10 +85,11 @@ fn projected_values_for_positions(
     let mut values = Vec::with_capacity(positions.len());
     for position in positions {
         let Some(value) = projected_values.get(*position) else {
-            return Err(crate::db::error::query_executor_invariant(format!(
-                "grouped projection layout {position_kind} position out of bounds: position={position}, projected_len={}",
-                projected_values.len()
-            )));
+            return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
+                position_kind,
+                *position,
+                projected_values.len(),
+            ));
         };
         values.push(value.clone());
     }

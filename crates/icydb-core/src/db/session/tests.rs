@@ -1,10 +1,11 @@
 use super::*;
 use crate::{
     db::{
-        Db,
+        Db, PlanError,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
         data::DataStore,
+        executor::ExecutorPlanError,
         index::IndexStore,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::expr::{Expr, ProjectionField},
@@ -317,7 +318,8 @@ fn assert_cursor_mapping_parity(
     build: impl Fn() -> CursorPlanError,
     predicate: impl Fn(&CursorPlanError) -> bool + Copy,
 ) {
-    let mapped_via_executor = map_executor_plan_error(ExecutorPlanError::from(build()));
+    let mapped_via_executor =
+        QueryError::from_executor_plan_error(ExecutorPlanError::from(build()));
     assert_query_error_is_cursor_plan(mapped_via_executor, predicate);
 
     let mapped_via_plan = QueryError::from(PlanError::from(build()));
