@@ -218,9 +218,9 @@ fn sql_dispatch_query_surface_tokens() -> TokenStream {
             ::icydb::db::sql::generated_sql_entities(SQL_ENTITY_AUTHORITIES)
         }
 
-        /// Execute one reduced SQL statement and return one typed SQL surface payload.
+        /// Execute one reduced SQL query-side statement and return one typed SQL surface payload.
         pub fn query(sql: &str) -> Result<SqlQueryResult, Error> {
-            ::icydb::db::sql::execute_generated_sql_dispatch(&db(), sql, SQL_ENTITY_AUTHORITIES)
+            ::icydb::db::sql::execute_generated_sql_query_dispatch(&db(), sql, SQL_ENTITY_AUTHORITIES)
         }
     }
 }

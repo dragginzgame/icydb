@@ -121,9 +121,10 @@ pub use error::Error;
 /// This is intentionally narrow and not semver-stable.
 #[doc(hidden)]
 pub mod __macro {
+    #[cfg(feature = "sql")]
+    pub use icydb_core::db::LoweredSqlCommand;
     pub use icydb_core::db::{
-        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, LoweredSqlCommand,
-        StoreRegistry,
+        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
     };
 }
 

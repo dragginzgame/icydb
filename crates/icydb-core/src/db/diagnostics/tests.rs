@@ -489,11 +489,11 @@ fn storage_report_min_max_key_correctness() {
 
     assert_eq!(
         entity_snapshot.min_key(),
-        Some(&StorageKey::Int(-5).as_value())
+        Some("-5")
     );
     assert_eq!(
         entity_snapshot.max_key(),
-        Some(&StorageKey::Int(9).as_value())
+        Some("9")
     );
 }
 
@@ -648,8 +648,8 @@ fn storage_report_serialization_shape_is_stable() {
             "entity_a".to_string(),
             2,
             64,
-            Some(StorageKey::Int(1).as_value()),
-            Some(StorageKey::Int(9).as_value()),
+            Some(StorageKey::Int(1)),
+            Some(StorageKey::Int(9)),
         )],
         5,
         6,
@@ -731,8 +731,8 @@ fn entity_snapshot_serialization_shape_is_stable() {
         "entity_a".to_string(),
         2,
         64,
-        Some(StorageKey::Int(1).as_value()),
-        Some(StorageKey::Int(9).as_value()),
+        Some(StorageKey::Int(1)),
+        Some(StorageKey::Int(9)),
     ));
     let root = expect_cbor_map(&encoded);
 

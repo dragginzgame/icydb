@@ -76,6 +76,7 @@ pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
     OrderedKeyStreamBox, VecOrderedKeyStream, drive_key_stream_with_control_flow,
 };
+#[cfg(feature = "sql")]
 pub(in crate::db) use terminal::KernelRow;
 pub(in crate::db::executor) use util::saturating_row_len;
 pub(in crate::db) use window::compute_page_keep_count;

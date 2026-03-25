@@ -57,6 +57,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 mod tests {
     use super::{SqlQueryResult, User, db, sql_dispatch};
     use candid::encode_one;
+    use icydb::error::{ErrorKind, RuntimeErrorKind};
 
     fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
         sql_dispatch::query(sql).expect("sql_dispatch query should succeed")
@@ -220,6 +221,28 @@ mod tests {
         assert_dispatch_result_matches_typed(
             sql,
             "typed execute_sql_dispatch and sql_dispatch should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_query_rejects_delete_lane() {
+        let err = dispatch_result_for_sql_unchecked("DELETE FROM User ORDER BY id LIMIT 1")
+            .expect_err("query lane should reject DELETE");
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_query_rejects_explain_delete_lane() {
+        let err = dispatch_result_for_sql_unchecked("EXPLAIN DELETE FROM User ORDER BY id LIMIT 1")
+            .expect_err("query lane should reject EXPLAIN DELETE");
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
         );
     }
 

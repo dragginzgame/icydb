@@ -38,6 +38,18 @@
 
 ---
 
+## Wasm Measurement Priority
+
+* For wasm optimization decisions, treat non-gzipped wasm bytes as the primary metric.
+* Primary decision metrics are:
+  * built `.wasm`
+  * shrunk `.wasm`
+* Deterministic gzip artifacts (`.wasm.gz`) are secondary transport metrics only.
+* Do not reject or accept a wasm change primarily because of gzip movement when raw non-gzipped wasm improves.
+* Mention gzip deltas only as supporting context or when they are unexpectedly large enough to warrant a note.
+
+---
+
 ## Concurrent Editing During Agent Runs
 
 * User edits made while the coding agent is running are expected in this repository.

@@ -268,21 +268,21 @@ where
     .join("\n")
 }
 
-const DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN: &str = "diagnostic.route.secondary_order_pushdown";
-const DIAG_ROUTE_TOP_N_SEEK: &str = "diagnostic.route.top_n_seek";
-const DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN: &str = "diagnostic.route.index_range_limit_pushdown";
-const DIAG_ROUTE_PREDICATE_STAGE: &str = "diagnostic.route.predicate_stage";
-const DIAG_ROUTE_PROJECTED_FIELDS: &str = "diagnostic.route.projected_fields";
-const DIAG_ROUTE_PROJECTION_PUSHDOWN: &str = "diagnostic.route.projection_pushdown";
-const DIAG_ROUTE_ACCESS_CHOICE_CHOSEN: &str = "diagnostic.route.access_choice_chosen";
-const DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON: &str = "diagnostic.route.access_choice_chosen_reason";
-const DIAG_ROUTE_ACCESS_CHOICE_ALTERNATIVES: &str = "diagnostic.route.access_choice_alternatives";
-const DIAG_ROUTE_ACCESS_CHOICE_REJECTIONS: &str = "diagnostic.route.access_choice_rejections";
-const DIAG_DESCRIPTOR_HAS_TOP_N_SEEK: &str = "diagnostic.descriptor.has_top_n_seek";
+const DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN: &str = "diag.r.secondary_order_pushdown";
+const DIAG_ROUTE_TOP_N_SEEK: &str = "diag.r.top_n_seek";
+const DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN: &str = "diag.r.index_range_limit_pushdown";
+const DIAG_ROUTE_PREDICATE_STAGE: &str = "diag.r.predicate_stage";
+const DIAG_ROUTE_PROJECTED_FIELDS: &str = "diag.r.projected_fields";
+const DIAG_ROUTE_PROJECTION_PUSHDOWN: &str = "diag.r.projection_pushdown";
+const DIAG_ROUTE_ACCESS_CHOICE_CHOSEN: &str = "diag.r.access_choice_chosen";
+const DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON: &str = "diag.r.access_choice_chosen_reason";
+const DIAG_ROUTE_ACCESS_CHOICE_ALTERNATIVES: &str = "diag.r.access_choice_alternatives";
+const DIAG_ROUTE_ACCESS_CHOICE_REJECTIONS: &str = "diag.r.access_choice_rejections";
+const DIAG_DESCRIPTOR_HAS_TOP_N_SEEK: &str = "diag.d.has_top_n_seek";
 const DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN: &str =
-    "diagnostic.descriptor.has_index_range_limit_pushdown";
-const DIAG_PLAN_MODE: &str = "diagnostic.plan.mode";
-const DIAG_PLAN_PREDICATE_PUSHDOWN: &str = "diagnostic.plan.predicate_pushdown";
+    "diag.d.has_index_range_limit_pushdown";
+const DIAG_PLAN_MODE: &str = "diag.p.mode";
+const DIAG_PLAN_PREDICATE_PUSHDOWN: &str = "diag.p.predicate_pushdown";
 
 #[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
@@ -1528,12 +1528,12 @@ fn expression_casefold_starts_with_planner_access_choice_and_runtime_route_stay_
         "text-casefold expression starts-with must keep residual filtering enabled",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.descriptor.has_index_predicate_prefilter"),
+        diagnostics.get("diag.d.has_index_predicate_prefilter"),
         Some(&"false".to_string()),
         "text-casefold expression starts-with should not compile strict index prefilters",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.descriptor.has_residual_predicate_filter"),
+        diagnostics.get("diag.d.has_residual_predicate_filter"),
         Some(&"true".to_string()),
         "text-casefold expression starts-with must retain residual predicate filter enforcement",
     );
@@ -2067,30 +2067,30 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_top_n_seek_shape() {
 
     let diagnostics = verbose_diagnostics_lines(&verbose);
     let expected = vec![
-        "diagnostic.route.execution_mode=Streaming",
-        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
-        "diagnostic.route.continuation_applied=false",
-        "diagnostic.route.limit=Some(3)",
-        "diagnostic.route.secondary_order_pushdown=not_applicable",
-        "diagnostic.route.top_n_seek=fetch(6)",
-        "diagnostic.route.index_range_limit_pushdown=disabled",
-        "diagnostic.route.predicate_stage=none",
-        "diagnostic.route.projected_fields=[\"id\"]",
-        "diagnostic.route.projection_pushdown=false",
-        "diagnostic.route.access_choice_chosen=full_scan",
-        "diagnostic.route.access_choice_chosen_reason=non_index_access",
-        "diagnostic.route.access_choice_alternatives=[]",
-        "diagnostic.route.access_choice_rejections=[]",
-        "diagnostic.descriptor.has_top_n_seek=true",
-        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
-        "diagnostic.descriptor.has_index_predicate_prefilter=false",
-        "diagnostic.descriptor.has_residual_predicate_filter=false",
-        "diagnostic.plan.mode=Load(LoadSpec { limit: Some(3), offset: 2 })",
-        "diagnostic.plan.order_pushdown=missing_model_context",
-        "diagnostic.plan.predicate_pushdown=none",
-        "diagnostic.plan.distinct=false",
-        "diagnostic.plan.page=Page { limit: Some(3), offset: 2 }",
-        "diagnostic.plan.consistency=Ignore",
+        "diag.r.execution_mode=Streaming",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=Some(3)",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=fetch(6)",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=none",
+        "diag.r.projected_fields=[\"id\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=full_scan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=true",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=false",
+        "diag.p.mode=Load(LoadSpec { limit: Some(3), offset: 2 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=none",
+        "diag.p.distinct=false",
+        "diag.p.page=Page { limit: Some(3), offset: 2 }",
+        "diag.p.consistency=Ignore",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -2120,10 +2120,10 @@ fn query_explain_execution_verbose_reports_temporal_ranked_order_shape_parity() 
     let top_like = verbose_diagnostics_map(&top_like_verbose);
     let bottom_like = verbose_diagnostics_map(&bottom_like_verbose);
     let parity_keys = [
-        "diagnostic.route.execution_mode",
-        "diagnostic.route.fast_path_order",
-        "diagnostic.route.continuation_applied",
-        "diagnostic.route.limit",
+        "diag.r.execution_mode",
+        "diag.r.fast_path_order",
+        "diag.r.continuation_applied",
+        "diag.r.limit",
         DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN,
         DIAG_ROUTE_TOP_N_SEEK,
         DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN,
@@ -2136,14 +2136,14 @@ fn query_explain_execution_verbose_reports_temporal_ranked_order_shape_parity() 
         DIAG_ROUTE_ACCESS_CHOICE_REJECTIONS,
         DIAG_DESCRIPTOR_HAS_TOP_N_SEEK,
         DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN,
-        "diagnostic.descriptor.has_index_predicate_prefilter",
-        "diagnostic.descriptor.has_residual_predicate_filter",
+        "diag.d.has_index_predicate_prefilter",
+        "diag.d.has_residual_predicate_filter",
         DIAG_PLAN_MODE,
-        "diagnostic.plan.order_pushdown",
+        "diag.p.order_pushdown",
         DIAG_PLAN_PREDICATE_PUSHDOWN,
-        "diagnostic.plan.distinct",
-        "diagnostic.plan.page",
-        "diagnostic.plan.consistency",
+        "diag.p.distinct",
+        "diag.p.page",
+        "diag.p.consistency",
     ];
     for key in parity_keys {
         assert_eq!(
@@ -2165,30 +2165,30 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_temporal_ranked_shap
 
     let diagnostics = verbose_diagnostics_lines(&verbose);
     let expected = vec![
-        "diagnostic.route.execution_mode=Materialized",
-        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
-        "diagnostic.route.continuation_applied=false",
-        "diagnostic.route.limit=Some(2)",
-        "diagnostic.route.secondary_order_pushdown=not_applicable",
-        "diagnostic.route.top_n_seek=disabled",
-        "diagnostic.route.index_range_limit_pushdown=disabled",
-        "diagnostic.route.predicate_stage=none",
-        "diagnostic.route.projected_fields=[\"id\", \"occurred_on\", \"occurred_at\", \"elapsed\"]",
-        "diagnostic.route.projection_pushdown=false",
-        "diagnostic.route.access_choice_chosen=full_scan",
-        "diagnostic.route.access_choice_chosen_reason=non_index_access",
-        "diagnostic.route.access_choice_alternatives=[]",
-        "diagnostic.route.access_choice_rejections=[]",
-        "diagnostic.descriptor.has_top_n_seek=false",
-        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
-        "diagnostic.descriptor.has_index_predicate_prefilter=false",
-        "diagnostic.descriptor.has_residual_predicate_filter=false",
-        "diagnostic.plan.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
-        "diagnostic.plan.order_pushdown=missing_model_context",
-        "diagnostic.plan.predicate_pushdown=none",
-        "diagnostic.plan.distinct=false",
-        "diagnostic.plan.page=Page { limit: Some(2), offset: 0 }",
-        "diagnostic.plan.consistency=Ignore",
+        "diag.r.execution_mode=Materialized",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=Some(2)",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=none",
+        "diag.r.projected_fields=[\"id\", \"occurred_on\", \"occurred_at\", \"elapsed\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=full_scan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=false",
+        "diag.p.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=none",
+        "diag.p.distinct=false",
+        "diag.p.page=Page { limit: Some(2), offset: 0 }",
+        "diag.p.consistency=Ignore",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -2282,30 +2282,30 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_index_range_pushdown
 
     let diagnostics = verbose_diagnostics_lines(&verbose);
     let expected = vec![
-        "diagnostic.route.execution_mode=Streaming",
-        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
-        "diagnostic.route.continuation_applied=false",
-        "diagnostic.route.limit=Some(2)",
-        "diagnostic.route.secondary_order_pushdown=eligible(index=code_unique,prefix_len=0)",
-        "diagnostic.route.top_n_seek=disabled",
-        "diagnostic.route.index_range_limit_pushdown=fetch(3)",
-        "diagnostic.route.predicate_stage=residual_post_access",
-        "diagnostic.route.projected_fields=[\"id\", \"code\", \"label\"]",
-        "diagnostic.route.projection_pushdown=false",
-        "diagnostic.route.access_choice_chosen=index:code_unique",
-        "diagnostic.route.access_choice_chosen_reason=single_candidate",
-        "diagnostic.route.access_choice_alternatives=[]",
-        "diagnostic.route.access_choice_rejections=[]",
-        "diagnostic.descriptor.has_top_n_seek=false",
-        "diagnostic.descriptor.has_index_range_limit_pushdown=true",
-        "diagnostic.descriptor.has_index_predicate_prefilter=false",
-        "diagnostic.descriptor.has_residual_predicate_filter=true",
-        "diagnostic.plan.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
-        "diagnostic.plan.order_pushdown=missing_model_context",
-        "diagnostic.plan.predicate_pushdown=applied(index_range)",
-        "diagnostic.plan.distinct=false",
-        "diagnostic.plan.page=Page { limit: Some(2), offset: 0 }",
-        "diagnostic.plan.consistency=Ignore",
+        "diag.r.execution_mode=Streaming",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=Some(2)",
+        "diag.r.secondary_order_pushdown=eligible(index=code_unique,prefix_len=0)",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=fetch(3)",
+        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.projected_fields=[\"id\", \"code\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=index:code_unique",
+        "diag.r.access_choice_chosen_reason=single_candidate",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=true",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=true",
+        "diag.p.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=applied(index_range)",
+        "diag.p.distinct=false",
+        "diag.p.page=Page { limit: Some(2), offset: 0 }",
+        "diag.p.consistency=Ignore",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -2332,30 +2332,30 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_rejection_shape() {
 
     let diagnostics = verbose_diagnostics_lines(&verbose);
     let expected = vec![
-        "diagnostic.route.execution_mode=Materialized",
-        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
-        "diagnostic.route.continuation_applied=false",
-        "diagnostic.route.limit=None",
-        "diagnostic.route.secondary_order_pushdown=rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))",
-        "diagnostic.route.top_n_seek=disabled",
-        "diagnostic.route.index_range_limit_pushdown=disabled",
-        "diagnostic.route.predicate_stage=index_prefilter(strict_all_or_none)",
-        "diagnostic.route.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
-        "diagnostic.route.projection_pushdown=false",
-        "diagnostic.route.access_choice_chosen=index:group_rank",
-        "diagnostic.route.access_choice_chosen_reason=single_candidate",
-        "diagnostic.route.access_choice_alternatives=[]",
-        "diagnostic.route.access_choice_rejections=[]",
-        "diagnostic.descriptor.has_top_n_seek=false",
-        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
-        "diagnostic.descriptor.has_index_predicate_prefilter=true",
-        "diagnostic.descriptor.has_residual_predicate_filter=false",
-        "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
-        "diagnostic.plan.order_pushdown=missing_model_context",
-        "diagnostic.plan.predicate_pushdown=applied(index_prefix)",
-        "diagnostic.plan.distinct=false",
-        "diagnostic.plan.page=None",
-        "diagnostic.plan.consistency=Ignore",
+        "diag.r.execution_mode=Materialized",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=None",
+        "diag.r.secondary_order_pushdown=rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=index_prefilter(strict_all_or_none)",
+        "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=index:group_rank",
+        "diag.r.access_choice_chosen_reason=single_candidate",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=true",
+        "diag.d.has_residual_predicate_filter=false",
+        "diag.p.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=applied(index_prefix)",
+        "diag.p.distinct=false",
+        "diag.p.page=None",
+        "diag.p.consistency=Ignore",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -2618,30 +2618,30 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_is_null_fallback_sha
 
     let diagnostics = verbose_diagnostics_lines(&verbose);
     let expected = vec![
-        "diagnostic.route.execution_mode=Materialized",
-        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
-        "diagnostic.route.continuation_applied=false",
-        "diagnostic.route.limit=None",
-        "diagnostic.route.secondary_order_pushdown=not_applicable",
-        "diagnostic.route.top_n_seek=disabled",
-        "diagnostic.route.index_range_limit_pushdown=disabled",
-        "diagnostic.route.predicate_stage=residual_post_access",
-        "diagnostic.route.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
-        "diagnostic.route.projection_pushdown=false",
-        "diagnostic.route.access_choice_chosen=full_scan",
-        "diagnostic.route.access_choice_chosen_reason=non_index_access",
-        "diagnostic.route.access_choice_alternatives=[]",
-        "diagnostic.route.access_choice_rejections=[]",
-        "diagnostic.descriptor.has_top_n_seek=false",
-        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
-        "diagnostic.descriptor.has_index_predicate_prefilter=false",
-        "diagnostic.descriptor.has_residual_predicate_filter=true",
-        "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
-        "diagnostic.plan.order_pushdown=missing_model_context",
-        "diagnostic.plan.predicate_pushdown=fallback(is_null_full_scan)",
-        "diagnostic.plan.distinct=false",
-        "diagnostic.plan.page=None",
-        "diagnostic.plan.consistency=Ignore",
+        "diag.r.execution_mode=Materialized",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=None",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=full_scan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=true",
+        "diag.p.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=fallback(is_null_full_scan)",
+        "diag.p.distinct=false",
+        "diag.p.page=None",
+        "diag.p.consistency=Ignore",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -2667,30 +2667,30 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_non_strict_fallback_
 
     let diagnostics = verbose_diagnostics_lines(&verbose);
     let expected = vec![
-        "diagnostic.route.execution_mode=Materialized",
-        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
-        "diagnostic.route.continuation_applied=false",
-        "diagnostic.route.limit=None",
-        "diagnostic.route.secondary_order_pushdown=not_applicable",
-        "diagnostic.route.top_n_seek=disabled",
-        "diagnostic.route.index_range_limit_pushdown=disabled",
-        "diagnostic.route.predicate_stage=residual_post_access",
-        "diagnostic.route.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
-        "diagnostic.route.projection_pushdown=false",
-        "diagnostic.route.access_choice_chosen=full_scan",
-        "diagnostic.route.access_choice_chosen_reason=non_index_access",
-        "diagnostic.route.access_choice_alternatives=[]",
-        "diagnostic.route.access_choice_rejections=[]",
-        "diagnostic.descriptor.has_top_n_seek=false",
-        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
-        "diagnostic.descriptor.has_index_predicate_prefilter=false",
-        "diagnostic.descriptor.has_residual_predicate_filter=true",
-        "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
-        "diagnostic.plan.order_pushdown=missing_model_context",
-        "diagnostic.plan.predicate_pushdown=fallback(non_strict_compare_coercion)",
-        "diagnostic.plan.distinct=false",
-        "diagnostic.plan.page=None",
-        "diagnostic.plan.consistency=Ignore",
+        "diag.r.execution_mode=Materialized",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=None",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=full_scan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=true",
+        "diag.p.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=fallback(non_strict_compare_coercion)",
+        "diag.p.distinct=false",
+        "diag.p.page=None",
+        "diag.p.consistency=Ignore",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -2911,12 +2911,12 @@ fn query_explain_execution_verbose_reports_indexed_prefix_like_strict_prefilter_
         "indexed strict starts-with should compile to strict index prefilter route stage",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.descriptor.has_index_predicate_prefilter"),
+        diagnostics.get("diag.d.has_index_predicate_prefilter"),
         Some(&"true".to_string()),
         "indexed strict starts-with should emit index prefilter descriptor node",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.descriptor.has_residual_predicate_filter"),
+        diagnostics.get("diag.d.has_residual_predicate_filter"),
         Some(&"false".to_string()),
         "indexed strict starts-with should not require residual predicate filtering",
     );
@@ -3009,7 +3009,7 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
         .explain_execution_verbose()
         .expect("fluent execution verbose explain should build");
     assert!(
-        verbose.contains("diagnostic.route.secondary_order_pushdown="),
+        verbose.contains("diag.r.secondary_order_pushdown="),
         "fluent execution verbose surface should include diagnostics",
     );
 }

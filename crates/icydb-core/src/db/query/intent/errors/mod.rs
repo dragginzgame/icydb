@@ -74,6 +74,7 @@ impl QueryError {
     }
 
     /// Construct one grouped-query intent error for scalar/query-only surfaces.
+    #[cfg(feature = "sql")]
     pub(crate) const fn grouped_requires_execute_grouped() -> Self {
         Self::Intent(IntentError::grouped_requires_execute_grouped())
     }
@@ -127,6 +128,7 @@ impl QueryError {
     }
 
     /// Construct one unsupported query-lane SQL dispatch error.
+    #[cfg(feature = "sql")]
     pub(crate) fn unsupported_query_lane_dispatch() -> Self {
         Self::unsupported_query(
             "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",

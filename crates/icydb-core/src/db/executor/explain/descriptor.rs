@@ -39,23 +39,13 @@ use crate::{
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::{collections::BTreeMap, ops::Bound};
 
-// Assemble one canonical scalar load execution descriptor tree through route authority.
-pub(in crate::db::executor) fn assemble_load_execution_node_descriptor<E>(
-    plan: &AccessPlannedQuery,
-) -> Result<ExplainExecutionNodeDescriptor, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    assemble_load_execution_node_descriptor_with_model(E::MODEL, plan)
-}
-
 // Assemble one canonical scalar load execution descriptor tree through one
 // model-owned structural authority path.
+#[inline(never)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
@@ -69,24 +59,24 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
+    let strict_predicate_compatible =
+        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
+    let execution_mode = explain_execution_mode(route_shape);
 
     // Phase 2: seed one root access node from the canonical access plan projection.
-    let execution_mode = explain_execution_mode(route_shape);
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let mut root = access_execution_node_descriptor(access_strategy, execution_mode);
     annotate_access_root_node_properties(&mut root, &route_plan);
     annotate_access_choice_node_properties(&mut root, model, plan);
-    let strict_predicate_compatible =
-        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
     let covering_scan = load_covering_scan_eligible(plan, strict_predicate_compatible);
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
-        "covering_scan_reason".to_string(),
+        "cov_scan_reason".to_string(),
         Value::from(load_covering_scan_reason(plan, strict_predicate_compatible)),
     );
     if let Some(capability) = predicate_index_capability {
         root.node_properties.insert(
-            "predicate_index_capability".to_string(),
+            "pred_idx_cap".to_string(),
             Value::from(predicate_index_capability_label(capability)),
         );
     }
@@ -123,7 +113,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
         };
         let mut order_node = empty_execution_node_descriptor(order_node_type, execution_mode);
         order_node.node_properties.insert(
-            "order_satisfied_by_index".to_string(),
+            "order_by_idx".to_string(),
             Value::from(matches!(
                 order_node_type,
                 ExplainExecutionNodeType::OrderByAccessSatisfied
@@ -183,39 +173,36 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
         build_execution_route_plan_for_load_with_model(model, plan, &continuation, None)?;
-    let route_shape = route_plan.shape();
-    let predicate_index_capability =
-        execution_preparation_predicate_index_capability(&execution_preparation);
     let strict_predicate_compatible =
-        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
+        execution_preparation_predicate_index_capability(&execution_preparation)
+            == Some(IndexPredicateCapability::FullyIndexable);
     let projected_fields = plan
         .projection_spec(model)
         .fields()
         .map(projection_field_label)
         .collect::<Vec<_>>();
     let projection_pushdown = load_covering_scan_eligible(plan, strict_predicate_compatible);
+    let access_choice = project_access_choice_explain_snapshot(model, plan);
+    let rejections = access_choice
+        .rejected
+        .into_iter()
+        .map(|entry| entry.render())
+        .collect::<Vec<_>>();
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![
         format!(
-            "diagnostic.route.execution_mode={:?}",
-            route_shape.execution_mode()
+            "diag.r.execution_mode={:?}",
+            route_plan.shape().execution_mode()
         ),
         format!(
-            "diagnostic.route.fast_path_order={:?}",
-            route_plan.fast_path_order()
-        ),
-        format!(
-            "diagnostic.route.continuation_applied={}",
+            "diag.r.continuation_applied={}",
             route_plan.continuation().capabilities().applied()
         ),
-        format!(
-            "diagnostic.route.limit={:?}",
-            route_plan.continuation().limit()
-        ),
+        format!("diag.r.limit={:?}", route_plan.continuation().limit()),
+        format!("diag.r.fast_path_order={:?}", route_plan.fast_path_order()),
         secondary_order_pushdown_verbose_line(&route_plan),
     ];
-
     lines.push(route_fetch_diagnostic_line(
         "top_n_seek",
         route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
@@ -224,67 +211,46 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-
-    let predicate_stage = if plan.scalar_plan().predicate.is_none() {
-        "none".to_string()
-    } else if strict_predicate_compatible {
-        "index_prefilter(strict_all_or_none)".to_string()
-    } else {
-        "residual_post_access".to_string()
-    };
     lines.push(format!(
-        "diagnostic.route.predicate_stage={predicate_stage}"
+        "diag.r.predicate_stage={}",
+        if plan.scalar_plan().predicate.is_none() {
+            "none".to_string()
+        } else if strict_predicate_compatible {
+            "index_prefilter(strict_all_or_none)".to_string()
+        } else {
+            "residual_post_access".to_string()
+        }
     ));
-    if let Some(capability) = predicate_index_capability {
-        lines.push(format!(
-            "diagnostic.route.predicate_index_capability={}",
-            predicate_index_capability_label(capability)
-        ));
-    }
+    lines.push(format!("diag.r.projected_fields={projected_fields:?}"));
+    lines.push(format!("diag.r.projection_pushdown={projection_pushdown}"));
     lines.push(format!(
-        "diagnostic.route.projected_fields={projected_fields:?}"
-    ));
-    lines.push(format!(
-        "diagnostic.route.projection_pushdown={projection_pushdown}"
-    ));
-    let access_choice = project_access_choice_explain_snapshot(model, plan);
-    lines.push(format!(
-        "diagnostic.route.access_choice_chosen={}",
+        "diag.r.access_choice_chosen={}",
         access_choice.chosen_label
     ));
     lines.push(format!(
-        "diagnostic.route.access_choice_chosen_reason={}",
+        "diag.r.access_choice_chosen_reason={}",
         access_choice.chosen_reason.code()
     ));
     lines.push(format!(
-        "diagnostic.route.access_choice_alternatives={:?}",
+        "diag.r.access_choice_alternatives={:?}",
         access_choice.alternatives
     ));
-    let rejections = access_choice
-        .rejected
-        .into_iter()
-        .map(|entry| entry.render())
-        .collect::<Vec<_>>();
-    lines.push(format!(
-        "diagnostic.route.access_choice_rejections={rejections:?}"
-    ));
+    lines.push(format!("diag.r.access_choice_rejections={rejections:?}"));
+    if let Some(capability) =
+        execution_preparation_predicate_index_capability(&execution_preparation)
+    {
+        lines.push(descriptor_route_property_line(
+            "diag.r.predicate_index_capability",
+            predicate_index_capability_label(capability),
+        ));
+    }
 
     Ok(lines)
 }
 
-// Assemble one canonical scalar aggregate execution descriptor through route authority.
-pub(in crate::db::executor) fn assemble_aggregate_terminal_execution_descriptor<E>(
-    plan: &AccessPlannedQuery,
-    aggregate: AggregateExpr,
-) -> ExplainExecutionDescriptor
-where
-    E: EntityKind + EntityValue,
-{
-    assemble_aggregate_terminal_execution_descriptor_with_model(E::MODEL, plan, aggregate)
-}
-
 // Assemble one canonical scalar aggregate execution descriptor through one
 // model-owned structural authority path.
+#[inline(never)]
 pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
@@ -420,20 +386,20 @@ fn load_covering_scan_reason(
     strict_predicate_compatible: bool,
 ) -> &'static str {
     if plan.scalar_plan().order.is_some() {
-        return "order_requires_materialization";
+        return "order_mat";
     }
 
     let index_shape_supported =
         plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
     if !index_shape_supported {
-        return "access_not_covering_index_shape";
+        return "access_not_cov";
     }
 
     if plan.scalar_plan().predicate.is_some() && !strict_predicate_compatible {
-        return "predicate_not_strict_prefilter_compatible";
+        return "pred_not_strict";
     }
 
-    "index_covering_existing_rows_eligible"
+    "idx_cover_rows"
 }
 
 fn annotate_projection_pushdown_node_properties(
@@ -442,20 +408,16 @@ fn annotate_projection_pushdown_node_properties(
     plan: &AccessPlannedQuery,
     covering_scan: bool,
 ) {
-    let projection = plan.projection_spec(model);
-    let projected_fields = projection
+    let projected_fields = plan
+        .projection_spec(model)
         .fields()
         .map(projection_field_label)
         .map(Value::from)
         .collect();
-    node.node_properties.insert(
-        "projected_fields".to_string(),
-        Value::List(projected_fields),
-    );
-    node.node_properties.insert(
-        "projection_pushdown".to_string(),
-        Value::from(covering_scan),
-    );
+    node.node_properties
+        .insert("proj_fields".to_string(), Value::List(projected_fields));
+    node.node_properties
+        .insert("proj_pushdown".to_string(), Value::from(covering_scan));
 }
 
 fn projection_field_label(field: &ProjectionField) -> String {
@@ -485,32 +447,31 @@ fn annotate_access_choice_node_properties(
 ) {
     let access_choice = project_access_choice_explain_snapshot(model, plan);
     node.node_properties.insert(
-        "access_choice_chosen".to_string(),
+        "acc_choice".to_string(),
         Value::from(access_choice.chosen_label),
     );
     node.node_properties.insert(
-        "access_choice_chosen_reason".to_string(),
+        "acc_reason".to_string(),
         Value::from(access_choice.chosen_reason.code()),
     );
-
     let alternatives = access_choice
         .alternatives
         .into_iter()
         .map(Value::from)
         .collect();
-    node.node_properties.insert(
-        "access_choice_alternatives".to_string(),
-        Value::List(alternatives),
-    );
+    node.node_properties
+        .insert("acc_alts".to_string(), Value::List(alternatives));
     let rejected = access_choice
         .rejected
         .into_iter()
         .map(|entry| Value::from(entry.render()))
         .collect();
-    node.node_properties.insert(
-        "access_choice_rejections".to_string(),
-        Value::List(rejected),
-    );
+    node.node_properties
+        .insert("acc_reject".to_string(), Value::List(rejected));
+}
+
+fn descriptor_route_property_line(line_key: &str, property_value: &str) -> String {
+    format!("{line_key}={property_value}")
 }
 
 const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
@@ -577,18 +538,14 @@ fn annotate_fast_path_reason_node_properties(
             fast_path_selected_reason(route, route_plan),
         )
     } else {
-        ("none", "materialized_fallback")
+        ("none", "mat_fallback")
     };
-    node.node_properties.insert(
-        "fast_path_selected".to_string(),
-        Value::from(selected_label),
-    );
-    node.node_properties.insert(
-        "fast_path_selected_reason".to_string(),
-        Value::from(selected_reason),
-    );
     node.node_properties
-        .insert("fast_path_rejections".to_string(), Value::List(rejections));
+        .insert("fast_path".to_string(), Value::from(selected_label));
+    node.node_properties
+        .insert("fast_reason".to_string(), Value::from(selected_reason));
+    node.node_properties
+        .insert("fast_reject".to_string(), Value::List(rejections));
 }
 
 const fn fast_path_label(route: FastPathOrder) -> &'static str {
@@ -606,21 +563,21 @@ const fn fast_path_selected_reason(
     route_plan: &ExecutionRoutePlan,
 ) -> &'static str {
     match route {
-        FastPathOrder::PrimaryKey => "pk_order_fast_path_eligible",
+        FastPathOrder::PrimaryKey => "pk_fast_ok",
         FastPathOrder::SecondaryPrefix => {
             if route_plan.secondary_fast_path_eligible() {
-                "secondary_order_pushdown_eligible"
+                "sec_order_ok"
             } else if route_plan.field_min_fast_path_eligible()
                 || route_plan.field_max_fast_path_eligible()
             {
-                "field_extrema_probe_eligible"
+                "extrema_ok"
             } else {
-                "secondary_prefix_fast_path_eligible"
+                "sec_prefix_ok"
             }
         }
-        FastPathOrder::IndexRange => "index_range_limit_pushdown_enabled",
-        FastPathOrder::PrimaryScan => "primary_scan_fast_path_eligible",
-        FastPathOrder::Composite => "composite_fast_path_eligible",
+        FastPathOrder::IndexRange => "idx_limit_ok",
+        FastPathOrder::PrimaryScan => "prim_scan_ok",
+        FastPathOrder::Composite => "comp_ok",
     }
 }
 
@@ -629,15 +586,15 @@ const fn fast_path_rejection_reason(
     route_plan: &ExecutionRoutePlan,
 ) -> &'static str {
     match route {
-        FastPathOrder::PrimaryKey => "pk_order_fast_path_ineligible",
+        FastPathOrder::PrimaryKey => "pk_fast_no",
         FastPathOrder::SecondaryPrefix => match &route_plan.secondary_pushdown_applicability {
-            PushdownApplicability::NotApplicable => "secondary_order_not_applicable",
+            PushdownApplicability::NotApplicable => "sec_order_na",
             PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(_)) => {
-                "secondary_order_rejected"
+                "sec_order_no"
             }
             PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
                 ..
-            }) => "secondary_prefix_ineligible",
+            }) => "sec_prefix_no",
         },
         FastPathOrder::IndexRange => {
             if route_plan
@@ -645,13 +602,13 @@ const fn fast_path_rejection_reason(
                 .capabilities()
                 .index_range_limit_pushdown_allowed()
             {
-                "index_range_limit_pushdown_disabled"
+                "idx_limit_no"
             } else {
-                "continuation_disallows_index_range_limit"
+                "cont_blocks_idx_limit"
             }
         }
-        FastPathOrder::PrimaryScan => "primary_scan_ineligible",
-        FastPathOrder::Composite => "composite_ineligible",
+        FastPathOrder::PrimaryScan => "prim_scan_no",
+        FastPathOrder::Composite => "comp_no",
     }
 }
 
@@ -722,18 +679,18 @@ fn secondary_order_pushdown_descriptor(
 fn secondary_order_pushdown_verbose_line(route_plan: &ExecutionRoutePlan) -> String {
     match &route_plan.secondary_pushdown_applicability {
         PushdownApplicability::NotApplicable => {
-            "diagnostic.route.secondary_order_pushdown=not_applicable".to_string()
+            "diag.r.secondary_order_pushdown=not_applicable".to_string()
         }
         PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
             index,
             prefix_len,
         }) => format!(
-            "diagnostic.route.secondary_order_pushdown=eligible(index={index},prefix_len={})",
+            "diag.r.secondary_order_pushdown=eligible(index={index},prefix_len={})",
             u64_from_usize(*prefix_len)
         ),
         PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
             format!(
-                "diagnostic.route.secondary_order_pushdown=rejected({})",
+                "diag.r.secondary_order_pushdown=rejected({})",
                 secondary_order_pushdown_rejection_label(reason)
             )
         }
@@ -964,16 +921,16 @@ fn explain_node_properties_for_route(
     }
     if matches!(aggregation, AggregateKind::Count) {
         node_properties.insert(
-            "count_fold_mode".to_string(),
+            "count_fold".to_string(),
             Value::from(aggregate_fold_mode_label(route_plan.aggregate_fold_mode)),
         );
     }
     node_properties.insert(
-        "projected_field".to_string(),
+        "proj_field".to_string(),
         Value::from(projected_field.unwrap_or("none")),
     );
     node_properties.insert(
-        "projection_mode".to_string(),
+        "proj_mode".to_string(),
         Value::from(aggregate_projection_mode_label(
             aggregation,
             projected_field.is_some(),
@@ -991,28 +948,28 @@ const fn aggregate_projection_mode_label(
 ) -> &'static str {
     if has_projected_field {
         if covering_projection {
-            "field_index_only"
+            "field_idx"
         } else {
-            "field_materialized"
+            "field_mat"
         }
     } else {
         match aggregation {
             AggregateKind::Count
             | AggregateKind::Exists
             | AggregateKind::Sum
-            | AggregateKind::Avg => "scalar_aggregate",
+            | AggregateKind::Avg => "scalar_agg",
             AggregateKind::Min
             | AggregateKind::Max
             | AggregateKind::First
-            | AggregateKind::Last => "entity_terminal",
+            | AggregateKind::Last => "entity_term",
         }
     }
 }
 
 const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {
     match mode {
-        AggregateFoldMode::ExistingRows => "existing_rows",
-        AggregateFoldMode::KeysOnly => "keys_only",
+        AggregateFoldMode::ExistingRows => "rows",
+        AggregateFoldMode::KeysOnly => "keys",
     }
 }
 
@@ -1042,9 +999,9 @@ fn aggregate_covering_projection_for_terminal(
 
 fn route_fetch_diagnostic_line(label: &str, fetch: Option<usize>) -> String {
     if let Some(fetch) = fetch {
-        format!("diagnostic.route.{label}=fetch({})", u64_from_usize(fetch))
+        format!("diag.r.{label}=fetch({})", u64_from_usize(fetch))
     } else {
-        format!("diagnostic.route.{label}=disabled")
+        format!("diag.r.{label}=disabled")
     }
 }
 
@@ -1054,11 +1011,11 @@ fn annotate_continuation_node_properties(
     continuation_mode: ContinuationMode,
 ) {
     node.node_properties.insert(
-        "scan_direction".to_string(),
+        "scan_dir".to_string(),
         Value::from(direction_code(direction)),
     );
     node.node_properties.insert(
-        "continuation_mode".to_string(),
+        "cont_mode".to_string(),
         Value::from(continuation_mode_code(continuation_mode)),
     );
     node.node_properties.insert(

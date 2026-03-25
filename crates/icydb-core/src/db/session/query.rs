@@ -4,17 +4,12 @@ use crate::{
         PersistedRow, Query, QueryError, QueryTracePlan, TraceExecutionStrategy,
         access::AccessStrategy,
         cursor::CursorPlanError,
-        executor::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy, LoadExecutor},
-        query::{
-            builder::aggregate::AggregateExpr,
-            explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
-            plan::QueryMode,
-        },
+        executor::{ExecutablePlan, ExecutionStrategy, LoadExecutor},
+        query::plan::QueryMode,
         session::decode_optional_cursor_bytes,
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
-    value::Value,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -123,68 +118,6 @@ impl<C: CanisterKind> DbSession<C> {
             execution_strategy,
             explain,
         ))
-    }
-
-    /// Build one aggregate-terminal explain payload without executing the query.
-    pub(crate) fn explain_load_query_terminal_with<E>(
-        query: &Query<E>,
-        aggregate: AggregateExpr,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        // Phase 1: build one compiled query once and project logical explain output.
-        let compiled = query.plan()?;
-        let query_explain = compiled.explain();
-        let terminal = aggregate.kind();
-
-        // Phase 2: derive the executor route label for this aggregate terminal.
-        let executable = compiled.into_executable();
-        let execution = executable.explain_aggregate_terminal_execution_descriptor(aggregate);
-
-        Ok(ExplainAggregateTerminalPlan::new(
-            query_explain,
-            terminal,
-            execution,
-        ))
-    }
-
-    /// Build one bytes-by terminal execution descriptor without executing the query.
-    pub(crate) fn explain_load_query_bytes_by_with<E>(
-        query: &Query<E>,
-        target_field: &str,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        let executable = query.plan()?.into_executable();
-        let mut descriptor = executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
-        let projection_mode = executable.bytes_by_projection_mode(target_field);
-        let projection_mode_label =
-            ExecutablePlan::<E>::bytes_by_projection_mode_label(projection_mode);
-
-        descriptor
-            .node_properties
-            .insert("terminal".to_string(), Value::from("bytes_by"));
-        descriptor.node_properties.insert(
-            "terminal_field".to_string(),
-            Value::from(target_field.to_string()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_projection_mode".to_string(),
-            Value::from(projection_mode_label),
-        );
-        descriptor.node_properties.insert(
-            "terminal_index_only".to_string(),
-            Value::from(matches!(
-                projection_mode,
-                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
-            )),
-        );
-
-        Ok(descriptor)
     }
 
     /// Execute one scalar paged load query and return optional continuation cursor plus trace.

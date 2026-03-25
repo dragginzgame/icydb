@@ -6,6 +6,7 @@
 use crate::{
     db::{
         executor::{
+            BytesByProjectionMode, ExecutablePlan,
             assemble_aggregate_terminal_execution_descriptor_with_model,
             assemble_load_execution_node_descriptor_with_model,
             assemble_load_execution_verbose_diagnostics_with_model,
@@ -217,12 +218,14 @@ impl StructuralQuery {
         self.intent.build_plan_model()
     }
 
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) const fn model(&self) -> &'static crate::model::entity::EntityModel {
         self.intent.model()
     }
 
     // Explain one scalar load execution shape through the structural query core.
+    #[inline(never)]
     pub(in crate::db) fn explain_execution(
         &self,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
@@ -246,6 +249,7 @@ impl StructuralQuery {
 
     // Render one verbose scalar load execution payload through the shared
     // structural descriptor and route-diagnostics paths.
+    #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
         let plan = self.build_plan()?;
         let descriptor =
@@ -262,25 +266,25 @@ impl StructuralQuery {
 
         // Phase 2: add descriptor-stage summaries for key execution operators.
         lines.push(format!(
-            "diagnostic.descriptor.has_top_n_seek={}",
+            "diag.d.has_top_n_seek={}",
             contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
         ));
         lines.push(format!(
-            "diagnostic.descriptor.has_index_range_limit_pushdown={}",
+            "diag.d.has_index_range_limit_pushdown={}",
             contains_execution_node_type(
                 &descriptor,
                 ExplainExecutionNodeType::IndexRangeLimitPushdown,
             )
         ));
         lines.push(format!(
-            "diagnostic.descriptor.has_index_predicate_prefilter={}",
+            "diag.d.has_index_predicate_prefilter={}",
             contains_execution_node_type(
                 &descriptor,
                 ExplainExecutionNodeType::IndexPredicatePrefilter,
             )
         ));
         lines.push(format!(
-            "diagnostic.descriptor.has_residual_predicate_filter={}",
+            "diag.d.has_residual_predicate_filter={}",
             contains_execution_node_type(
                 &descriptor,
                 ExplainExecutionNodeType::ResidualPredicateFilter,
@@ -288,27 +292,25 @@ impl StructuralQuery {
         ));
 
         // Phase 3: append logical-plan diagnostics relevant to verbose explain.
-        lines.push(format!("diagnostic.plan.mode={:?}", explain.mode()));
+        lines.push(format!("diag.p.mode={:?}", explain.mode()));
         lines.push(format!(
-            "diagnostic.plan.order_pushdown={}",
+            "diag.p.order_pushdown={}",
             plan_order_pushdown_label(explain.order_pushdown())
         ));
         lines.push(format!(
-            "diagnostic.plan.predicate_pushdown={}",
+            "diag.p.predicate_pushdown={}",
             plan_predicate_pushdown_label(explain.predicate(), explain.access())
         ));
-        lines.push(format!("diagnostic.plan.distinct={}", explain.distinct()));
-        lines.push(format!("diagnostic.plan.page={:?}", explain.page()));
-        lines.push(format!(
-            "diagnostic.plan.consistency={:?}",
-            explain.consistency()
-        ));
+        lines.push(format!("diag.p.distinct={}", explain.distinct()));
+        lines.push(format!("diag.p.page={:?}", explain.page()));
+        lines.push(format!("diag.p.consistency={:?}", explain.consistency()));
 
         Ok(lines.join("\n"))
     }
 
     // Build one aggregate-terminal explain payload through the shared structural
     // query and execution-descriptor path.
+    #[inline(never)]
     pub(in crate::db) fn explain_aggregate_terminal(
         &self,
         aggregate: AggregateExpr,
@@ -441,7 +443,7 @@ impl CompiledQueryCore {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(test)]
     fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
         self.plan.projection_spec(self.model)
     }
@@ -487,7 +489,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     }
 
     #[must_use]
-    #[cfg(feature = "sql")]
+    #[cfg(test)]
     pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
         self.inner.projection_spec()
     }
@@ -760,11 +762,62 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Explain executor-selected scalar load execution shape with route diagnostics.
+    #[inline(never)]
     pub fn explain_execution_verbose(&self) -> Result<String, QueryError>
     where
         E: EntityValue,
     {
         self.inner.explain_execution_verbose()
+    }
+
+    // Build one aggregate-terminal explain payload without executing the query.
+    #[inline(never)]
+    pub(in crate::db) fn explain_aggregate_terminal(
+        &self,
+        aggregate: AggregateExpr,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.inner.explain_aggregate_terminal(aggregate)
+    }
+
+    // Build one bytes-by execution descriptor without executing the query.
+    pub(in crate::db) fn explain_bytes_by(
+        &self,
+        target_field: &str,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        let executable = self.plan()?.into_executable();
+        let mut descriptor = executable
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+        let projection_mode = executable.bytes_by_projection_mode(target_field);
+        let projection_mode_label =
+            ExecutablePlan::<E>::bytes_by_projection_mode_label(projection_mode);
+
+        descriptor
+            .node_properties
+            .insert("terminal".to_string(), Value::from("bytes_by"));
+        descriptor.node_properties.insert(
+            "terminal_field".to_string(),
+            Value::from(target_field.to_string()),
+        );
+        descriptor.node_properties.insert(
+            "terminal_projection_mode".to_string(),
+            Value::from(projection_mode_label),
+        );
+        descriptor.node_properties.insert(
+            "terminal_index_only".to_string(),
+            Value::from(matches!(
+                projection_mode,
+                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
+            )),
+        );
+
+        Ok(descriptor)
     }
 
     /// Plan this intent into a neutral planned query contract.

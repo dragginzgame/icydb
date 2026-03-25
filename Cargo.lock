@@ -187,9 +187,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.15.7"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "682e21adcf834b96dec21ea7ad8ceae86900619f3925278ccc403f41366b35dd"
+checksum = "204004b2b4e60bfa10d0d957a8a5b44cc913a76786e972728a2b02506e221865"
 dependencies = [
  "candid",
  "derive_more",
@@ -205,9 +205,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.15.7"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11f0cf07963c8a3222560e640f559a0449353d0600e48b4e321e9ffc95465338"
+checksum = "06aaec420883cf84d9e2473c4cf1f407dd28e1b42a257452b7e81a066403a24f"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -219,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.15.7"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bf8f5d7cfebf178cc50f189abe72cd1c511229f1c3a990dcc77690db4e21703"
+checksum = "171ffbbbc12c349d1c6c90af4ad44cf11ee6d63121acb43e21956ea0ac1b310f"
 dependencies = [
  "convert_case 0.11.0",
  "derive_more",
@@ -1590,9 +1590,9 @@ dependencies = [
 
 [[package]]
 name = "num-conv"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf97ec579c3c42f953ef76dbf8d55ac91fb219dde70e49aa4a6b7d74e9919050"
+checksum = "c6673768db2d862beb9b39a78fdcb1a69439615d5794a1be50caa9bc92c81967"
 
 [[package]]
 name = "num-integer"
@@ -2933,9 +2933,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.13.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a559e63b5d8004e12f9bce88af5c6d939c58de839b7532cfe9653846cedd2a9e"
+checksum = "da36089a805484bcccfffe0739803392c8298778a2d2f09febf76fac5ad9025b"
 
 [[package]]
 name = "unicode-width"

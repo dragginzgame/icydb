@@ -58,6 +58,7 @@ impl KernelRow {
         self.slots
     }
 
+    #[cfg(feature = "sql")]
     pub(in crate::db) fn into_parts(self) -> (DataRow, Vec<Option<Value>>) {
         (self.data_row, self.slots)
     }

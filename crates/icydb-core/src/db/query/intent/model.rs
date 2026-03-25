@@ -266,6 +266,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     /// Build a model-level logical plan using Value-based access keys.
+    #[inline(never)]
     pub(in crate::db::query::intent) fn build_plan_model(
         &self,
     ) -> Result<AccessPlannedQuery, QueryError> {

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow,
+        PersistedRow,
         executor::{
             ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
             ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
@@ -72,7 +72,7 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), aggregate)
+        self.query().explain_aggregate_terminal(aggregate)
     }
 
     // ------------------------------------------------------------------
@@ -203,10 +203,7 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            DbSession::<E::Canister>::explain_load_query_bytes_by_with(
-                self.query(),
-                target_slot.field(),
-            )
+            self.query().explain_bytes_by(target_slot.field())
         })
     }
 

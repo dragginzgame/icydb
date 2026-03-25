@@ -127,6 +127,8 @@ impl InternalError {
     /// Construct an InternalError with optional origin-specific detail.
     /// This constructor provides default StoreError details for certain
     /// (class, origin) combinations but does not guarantee a detail payload.
+    #[cold]
+    #[inline(never)]
     pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
         let message = message.into();
 
@@ -183,6 +185,8 @@ impl InternalError {
     }
 
     /// Construct an error while preserving an explicit class/origin taxonomy pair.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn classified(
         class: ErrorClass,
         origin: ErrorOrigin,
@@ -192,6 +196,8 @@ impl InternalError {
     }
 
     /// Rebuild this error with a new message while preserving class/origin taxonomy.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn with_message(self, message: impl Into<String>) -> Self {
         Self::classified(self.class, self.origin, message)
     }
@@ -199,11 +205,15 @@ impl InternalError {
     /// Rebuild this error with a new origin while preserving class/message.
     ///
     /// Origin-scoped detail payloads are intentionally dropped when re-origining.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn with_origin(self, origin: ErrorOrigin) -> Self {
         Self::classified(self.class, origin, self.message)
     }
 
     /// Construct an index-origin invariant violation.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -251,6 +261,8 @@ impl InternalError {
 
     /// Construct a planner-origin invariant violation with the canonical
     /// executor-boundary invariant prefix preserved in the message payload.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn planner_executor_invariant(reason: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -261,6 +273,8 @@ impl InternalError {
 
     /// Construct a query-origin invariant violation with the canonical
     /// executor-boundary invariant prefix preserved in the message payload.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn query_executor_invariant(reason: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -271,6 +285,8 @@ impl InternalError {
 
     /// Construct a cursor-origin invariant violation with the canonical
     /// executor-boundary invariant prefix preserved in the message payload.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn cursor_executor_invariant(reason: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -280,6 +296,8 @@ impl InternalError {
     }
 
     /// Construct an executor-origin invariant violation.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn executor_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -289,11 +307,15 @@ impl InternalError {
     }
 
     /// Construct an executor-origin internal error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn executor_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Executor, message.into())
     }
 
     /// Construct an executor-origin unsupported error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn executor_unsupported(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::Unsupported,
@@ -552,11 +574,15 @@ impl InternalError {
 
     /// Build the canonical executor-invariant message prefix.
     #[must_use]
+    #[cold]
+    #[inline(never)]
     pub(crate) fn executor_invariant_message(reason: impl Into<String>) -> String {
         format!("executor invariant violated: {}", reason.into())
     }
 
     /// Construct a planner-origin invariant violation.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn planner_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -577,6 +603,8 @@ impl InternalError {
     }
 
     /// Construct a query-origin invariant violation.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
@@ -612,6 +640,8 @@ impl InternalError {
     }
 
     /// Construct a store-origin internal error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn store_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Store, message.into())
     }
@@ -654,6 +684,8 @@ impl InternalError {
     }
 
     /// Construct an index-origin internal error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Index, message.into())
     }
@@ -685,11 +717,15 @@ impl InternalError {
     }
 
     /// Construct a query-origin unsupported error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn query_unsupported(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, message.into())
     }
 
     /// Construct a serialize-origin internal error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Serialize, message.into())
     }
@@ -720,6 +756,8 @@ impl InternalError {
     }
 
     /// Construct a store-origin corruption error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
     }
@@ -835,6 +873,8 @@ impl InternalError {
     }
 
     /// Construct an index-origin corruption error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Index, message.into())
     }
@@ -1412,6 +1452,8 @@ impl InternalError {
     }
 
     /// Construct a store-origin unsupported error.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn store_unsupported(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Store, message.into())
     }
@@ -1655,6 +1697,8 @@ impl InternalError {
     }
 
     /// Construct an index-plan corruption error with a canonical prefix.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_plan_corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
         let message = message.into();
         Self::new(
@@ -1665,16 +1709,22 @@ impl InternalError {
     }
 
     /// Construct an index-plan corruption error for index-origin failures.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_plan_index_corruption(message: impl Into<String>) -> Self {
         Self::index_plan_corruption(ErrorOrigin::Index, message)
     }
 
     /// Construct an index-plan corruption error for store-origin failures.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_plan_store_corruption(message: impl Into<String>) -> Self {
         Self::index_plan_corruption(ErrorOrigin::Store, message)
     }
 
     /// Construct an index-plan corruption error for serialize-origin failures.
+    #[cold]
+    #[inline(never)]
     pub(crate) fn index_plan_serialize_corruption(message: impl Into<String>) -> Self {
         Self::index_plan_corruption(ErrorOrigin::Serialize, message)
     }

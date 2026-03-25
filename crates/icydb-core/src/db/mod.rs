@@ -103,9 +103,7 @@ pub use schema::{
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
 #[cfg(feature = "sql")]
-pub use session::{
-    DbSession, SqlDispatchResult, SqlParsedStatement, SqlPreparedStatement, SqlStatementRoute,
-};
+pub use session::{DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute};
 #[cfg(feature = "sql")]
 pub use sql::identifier::{
     identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,

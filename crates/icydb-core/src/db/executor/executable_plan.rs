@@ -9,23 +9,16 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            explain::{
-                assemble_aggregate_terminal_execution_descriptor,
-                assemble_load_execution_node_descriptor,
-            },
-            lower_index_prefix_specs, lower_index_range_specs,
-            preparation::slot_map_for_model_plan,
+            explain::assemble_load_execution_node_descriptor_with_model, lower_index_prefix_specs,
+            lower_index_range_specs, preparation::slot_map_for_model_plan,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
+        query::explain::ExplainExecutionNodeDescriptor,
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupSpec, OrderSpec,
             QueryMode, constant_covering_projection_value_from_access,
             covering_index_projection_context,
-        },
-        query::{
-            builder::AggregateExpr,
-            explain::{ExplainExecutionDescriptor, ExplainExecutionNodeDescriptor},
         },
     },
     error::InternalError,
@@ -490,18 +483,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
     }
 
-    /// Explain one scalar aggregate execution descriptor without executing it.
-    #[must_use]
-    pub(in crate::db) fn explain_aggregate_terminal_execution_descriptor(
-        &self,
-        aggregate: AggregateExpr,
-    ) -> ExplainExecutionDescriptor
-    where
-        E: EntityValue,
-    {
-        assemble_aggregate_terminal_execution_descriptor::<E>(self.core.plan(), aggregate)
-    }
-
     /// Explain scalar load execution shape as one canonical execution-node descriptor tree.
     pub(in crate::db) fn explain_load_execution_node_descriptor(
         &self,
@@ -516,7 +497,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             );
         }
 
-        assemble_load_execution_node_descriptor::<E>(self.core.plan())
+        assemble_load_execution_node_descriptor_with_model(E::MODEL, self.core.plan())
     }
 
     /// Validate and decode a continuation cursor into executor-ready cursor state.

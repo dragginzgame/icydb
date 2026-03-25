@@ -32,7 +32,7 @@ use crate::{
 use std::thread::LocalKey;
 
 #[cfg(feature = "sql")]
-pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlPreparedStatement, SqlStatementRoute};
+pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlStatementRoute};
 
 // Decode one optional external cursor token and map decode failures into the
 // query-plan cursor error boundary.

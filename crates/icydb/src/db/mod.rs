@@ -24,6 +24,6 @@ pub use icydb_core::db::{SqlStatementRoute, identifiers_tail_match};
 pub use response::{
     PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
 };
-pub use session::{DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery};
 #[cfg(feature = "sql")]
-pub use session::{SqlParsedStatement, SqlPreparedStatement};
+pub use session::SqlParsedStatement;
+pub use session::{DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery};

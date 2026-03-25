@@ -5,9 +5,6 @@
 
 mod descriptor;
 
-pub(in crate::db::executor) use descriptor::{
-    assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
-};
 pub(in crate::db) use descriptor::{
     assemble_aggregate_terminal_execution_descriptor_with_model,
     assemble_load_execution_node_descriptor_with_model,

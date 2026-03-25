@@ -3,6 +3,7 @@
 //! Does not own: the structural SQL row loop itself or expression evaluation semantics.
 //! Boundary: keeps validation, grouped projection materialization, and shared row-walk helpers behind one executor-owned boundary.
 
+#[cfg(feature = "sql")]
 mod structural;
 
 use crate::{
@@ -158,7 +159,6 @@ fn projection_is_model_identity_for_model(
 
 // Walk one projection spec through one slot-reader boundary so validation and
 // row materialization share the same expression-evaluation spine.
-#[cfg_attr(not(feature = "sql"), expect(dead_code))]
 pub(super) fn visit_projection_values_with_slot_reader(
     projection: &ProjectionSpec,
     model: &EntityModel,

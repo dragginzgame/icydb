@@ -14,9 +14,8 @@ use crate::{
         registry::StoreHandle,
     },
     error::{ErrorClass, InternalError},
-    traits::CanisterKind,
+    traits::{CanisterKind, Repr},
     types::EntityTag,
-    value::Value,
 };
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
@@ -473,30 +472,45 @@ pub struct EntitySnapshot {
     pub(crate) memory_bytes: u64,
 
     /// Minimum primary key for this entity (entity-local ordering)
-    pub(crate) min_key: Option<Value>,
+    pub(crate) min_key: Option<String>,
 
     /// Maximum primary key for this entity (entity-local ordering)
-    pub(crate) max_key: Option<Value>,
+    pub(crate) max_key: Option<String>,
 }
 
 impl EntitySnapshot {
     /// Construct one entity-storage snapshot row.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         store: String,
         path: String,
         entries: u64,
         memory_bytes: u64,
-        min_key: Option<Value>,
-        max_key: Option<Value>,
+        min_key: Option<StorageKey>,
+        max_key: Option<StorageKey>,
     ) -> Self {
         Self {
             store,
             path,
             entries,
             memory_bytes,
-            min_key,
-            max_key,
+            min_key: min_key.map(Self::storage_key_text),
+            max_key: max_key.map(Self::storage_key_text),
+        }
+    }
+
+    // Keep snapshot key rendering local to the diagnostics contract so the
+    // canister DTO does not retain the full `Value` Candid surface.
+    fn storage_key_text(key: StorageKey) -> String {
+        match key {
+            StorageKey::Account(value) => value.to_string(),
+            StorageKey::Int(value) => value.to_string(),
+            StorageKey::Principal(value) => value.to_string(),
+            StorageKey::Subaccount(value) => value.to_string(),
+            StorageKey::Timestamp(value) => value.repr().to_string(),
+            StorageKey::Uint(value) => value.to_string(),
+            StorageKey::Ulid(value) => value.to_string(),
+            StorageKey::Unit => "()".to_string(),
         }
     }
 
@@ -526,14 +540,14 @@ impl EntitySnapshot {
 
     /// Borrow optional minimum primary key.
     #[must_use]
-    pub const fn min_key(&self) -> Option<&Value> {
-        self.min_key.as_ref()
+    pub fn min_key(&self) -> Option<&str> {
+        self.min_key.as_deref()
     }
 
     /// Borrow optional maximum primary key.
     #[must_use]
-    pub const fn max_key(&self) -> Option<&Value> {
-        self.max_key.as_ref()
+    pub fn max_key(&self) -> Option<&str> {
+        self.max_key.as_deref()
     }
 }
 
@@ -653,8 +667,8 @@ pub(crate) fn storage_report<C: CanisterKind>(
                         path_name,
                         stats.entries,
                         stats.memory_bytes,
-                        stats.min_key.map(|key| key.as_value()),
-                        stats.max_key.map(|key| key.as_value()),
+                        stats.min_key,
+                        stats.max_key,
                     ));
                 }
             });

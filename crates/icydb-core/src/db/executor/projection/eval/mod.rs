@@ -14,9 +14,11 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::executor) use scalar::{ScalarProjectionEvalError, eval_scalar_projection_expr};
 pub(in crate::db::executor) use scalar::{
-    ScalarProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
-    eval_scalar_projection_expr, eval_scalar_projection_expr_with_value_reader,
+    ScalarProjectionExpr, compile_scalar_projection_expr,
+    eval_scalar_projection_expr_with_value_reader,
 };
 
 ///

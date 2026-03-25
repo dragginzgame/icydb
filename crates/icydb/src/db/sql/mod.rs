@@ -5,6 +5,7 @@
 //! Boundary: consumes executed SQL projection/explain outputs and renders stable text payloads.
 
 use candid::CandidType;
+use icydb_core::db::SqlParsedStatement as CoreSqlParsedStatement;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -209,20 +210,25 @@ pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
         .collect()
 }
 
-/// Execute one generated canister SQL dispatch entrypoint from structural authority.
+/// Execute one generated canister SQL query/explain/describe dispatch entrypoint.
 #[doc(hidden)]
-pub fn execute_generated_sql_dispatch<C: CanisterKind>(
+pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
     session: &DbSession<C>,
     sql: &str,
     authorities: &[EntityAuthority],
 ) -> Result<SqlQueryResult, Error> {
     // Phase 1: normalize and parse the incoming SQL statement once.
     let sql_trimmed = normalize_sql_input(sql)?;
-    let parsed = session.parse_sql_statement(sql_trimmed)?;
+    let parsed = session.core_session().parse_sql_statement(sql_trimmed)?;
     let statement = parsed.route();
 
     // Phase 2: route the parsed statement through one shared structural helper.
     match statement {
+        SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. }
+            if parsed.is_delete_like_query_surface() =>
+        {
+            Err(unsupported_sql_query_surface_statement_error())
+        }
         SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. } => {
             query_lane_result_for_statement(session, sql_trimmed, &parsed, statement, authorities)
         }
@@ -268,27 +274,41 @@ fn authority_for_entity_name(
 fn query_lane_result_for_statement<C: CanisterKind>(
     session: &DbSession<C>,
     sql: &str,
-    parsed: &crate::db::SqlParsedStatement,
+    parsed: &CoreSqlParsedStatement,
     statement: &SqlStatementRoute,
     authorities: &[EntityAuthority],
 ) -> Result<SqlQueryResult, Error> {
+    // Phase 1: resolve one canonical structural authority for the routed
+    // query/explain statement.
     let authority = authority_for_statement(statement, authorities)?;
-    let prepared = session.prepare_sql_dispatch_parsed(parsed, authority.model().name())?;
-    let lowered = session.lower_sql_dispatch_query_lane_prepared(
-        &prepared,
+    let core_session = session.core_session();
+    let lowered = parsed.lower_query_lane_for_entity(
+        authority.model().name(),
         authority.model().primary_key().name(),
     )?;
-    let result = if statement.is_explain() {
-        session.explain_lowered_sql_dispatch_for_model(&lowered, authority.model())
-    } else {
-        session.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
-    };
 
+    // Phase 2: execute the lowered query lane on the core session directly so
+    // the canister SQL facade does not retain extra hidden prepare/lower/execute
+    // forwarders just for generated dispatch.
     if matches!(statement, SqlStatementRoute::Explain { .. }) {
-        return result.map_err(|err| explain_surface_error(sql, authority.model(), err));
+        let explain = lowered
+            .explain_for_model(authority.model())
+            .map_err(Error::from)
+            .map_err(|err| explain_surface_error(sql, authority.model(), err))?;
+
+        return Ok(SqlQueryResult::Explain {
+            entity: authority.model().name().to_string(),
+            explain,
+        });
     }
 
-    result
+    let result =
+        core_session.execute_lowered_sql_dispatch_select_for_authority(&lowered, authority)?;
+
+    Ok(DbSession::<C>::map_sql_dispatch_result(
+        result,
+        authority.model().name().to_string(),
+    ))
 }
 
 // Render one DESCRIBE result through one shared structural authority path.
@@ -357,6 +377,15 @@ fn unsupported_entity_route_statement_error() -> Error {
         ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
         ErrorOrigin::Query,
         "entity route resolution requires one entity-scoped SQL statement",
+    )
+}
+
+// Reject delete-like SQL from the generated canister query lane.
+fn unsupported_sql_query_surface_statement_error() -> Error {
+    Error::new(
+        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        ErrorOrigin::Query,
+        "query endpoint accepts SELECT, EXPLAIN SELECT, DESCRIBE, and SHOW statements only; use a typed update surface for DELETE",
     )
 }
 

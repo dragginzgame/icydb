@@ -33,34 +33,6 @@ use crate::{
 use thiserror::Error as ThisError;
 
 ///
-/// SqlCommand
-///
-/// Lowered SQL command for one entity-typed query surface.
-///
-/// `Query` contains executable load/delete intent.
-/// `Explain` wraps one executable query intent plus requested explain mode.
-/// `ExplainGlobalAggregate` wraps one constrained global aggregate SQL command
-/// plus requested explain mode.
-///
-
-#[derive(Debug)]
-pub(crate) enum SqlCommand<E: EntityKind> {
-    Query(Query<E>),
-    Explain {
-        mode: SqlExplainMode,
-        query: Query<E>,
-    },
-    ExplainGlobalAggregate {
-        mode: SqlExplainMode,
-        command: SqlGlobalAggregateCommand<E>,
-    },
-    DescribeEntity,
-    ShowIndexesEntity,
-    ShowColumnsEntity,
-    ShowEntities,
-}
-
-///
 /// LoweredSqlCommand
 ///
 /// Generic-free SQL command shape after reduced SQL parsing and entity-route
@@ -81,6 +53,31 @@ enum LoweredSqlCommandInner {
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
         command: LoweredSqlGlobalAggregateCommand,
+    },
+    DescribeEntity,
+    ShowIndexesEntity,
+    ShowColumnsEntity,
+    ShowEntities,
+}
+
+///
+/// SqlCommand
+///
+/// Test-only typed SQL command shell over the shared lowered SQL surface.
+/// Runtime dispatch now consumes `LoweredSqlCommand` directly, but lowering
+/// tests still validate typed binding behavior on this local envelope.
+///
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) enum SqlCommand<E: EntityKind> {
+    Query(Query<E>),
+    Explain {
+        mode: SqlExplainMode,
+        query: Query<E>,
+    },
+    ExplainGlobalAggregate {
+        mode: SqlExplainMode,
+        command: SqlGlobalAggregateCommand<E>,
     },
     DescribeEntity,
     ShowIndexesEntity,
@@ -292,6 +289,7 @@ pub(crate) enum LoweredSqlLaneKind {
 }
 
 /// Parse and lower one SQL statement into canonical query intent for `E`.
+#[cfg(test)]
 pub(crate) fn compile_sql_command<E: EntityKind>(
     sql: &str,
     consistency: MissingRowPolicy,
@@ -301,6 +299,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
 }
 
 /// Lower one parsed SQL statement into canonical query intent for `E`.
+#[cfg(test)]
 pub(crate) fn compile_sql_command_from_statement<E: EntityKind>(
     statement: SqlStatement,
     consistency: MissingRowPolicy,
@@ -310,6 +309,7 @@ pub(crate) fn compile_sql_command_from_statement<E: EntityKind>(
 }
 
 /// Lower one prepared SQL statement into canonical query intent for `E`.
+#[cfg(test)]
 pub(crate) fn compile_sql_command_from_prepared_statement<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
@@ -339,6 +339,8 @@ pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> Low
     }
 }
 
+/// Render one lowered EXPLAIN command through the shared structural SQL path.
+#[inline(never)]
 pub(crate) fn render_lowered_sql_explain_plan_or_json(
     lowered: &LoweredSqlCommand,
     model: &'static crate::model::entity::EntityModel,
@@ -384,6 +386,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(
 }
 
 /// Bind one shared generic-free SQL command shape to the typed query surface.
+#[cfg(test)]
 pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
     lowered: LoweredSqlCommand,
     consistency: MissingRowPolicy,

@@ -3,18 +3,24 @@
 //! Does not own: grouped projection execution, generic `Expr` evaluation, or planner validation.
 //! Boundary: structural projection materialization calls into this file when a projection stays entirely on the scalar seam.
 
+#[cfg(any(test, feature = "sql"))]
 use crate::{
     db::{
         data::SlotReader,
-        executor::projection::eval::{ProjectionEvalError, operators},
-        query::plan::expr::{BinaryOp, Expr, UnaryOp},
         scalar_expr::{
-            ScalarExprValue, ScalarValueProgram, compile_scalar_field_program,
-            compile_scalar_literal_expr_value, eval_scalar_value_program,
-            scalar_expr_value_into_value,
+            ScalarValueProgram, compile_scalar_field_program, eval_scalar_value_program,
         },
     },
     error::InternalError,
+};
+use crate::{
+    db::{
+        executor::projection::eval::{ProjectionEvalError, operators},
+        query::plan::expr::{BinaryOp, Expr, UnaryOp},
+        scalar_expr::{
+            ScalarExprValue, compile_scalar_literal_expr_value, scalar_expr_value_into_value,
+        },
+    },
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
@@ -29,11 +35,13 @@ use crate::{
 ///
 
 #[derive(Debug)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db::executor) enum ScalarProjectionEvalError {
     Eval(ProjectionEvalError),
     Internal(InternalError),
 }
 
+#[cfg(any(test, feature = "sql"))]
 impl ScalarProjectionEvalError {
     /// Map one scalar projection evaluation failure into the executor
     /// invalid-logical-plan or internal boundary owned by this taxonomy.
@@ -83,6 +91,7 @@ pub(in crate::db::executor) enum ScalarProjectionExpr {
 pub(in crate::db::executor) struct ScalarProjectionField {
     field: String,
     slot: usize,
+    #[cfg(any(test, feature = "sql"))]
     program: ScalarValueProgram,
 }
 
@@ -96,11 +105,13 @@ pub(in crate::db::executor) fn compile_scalar_projection_expr(
     match expr {
         Expr::Field(field_id) => {
             let slot = resolve_field_slot(model, field_id.as_str())?;
+            #[cfg(any(test, feature = "sql"))]
             let program = compile_scalar_field_program(model, field_id.as_str())?;
 
             Some(ScalarProjectionExpr::Field(ScalarProjectionField {
                 field: field_id.as_str().to_string(),
                 slot,
+                #[cfg(any(test, feature = "sql"))]
                 program,
             }))
         }
@@ -130,6 +141,7 @@ pub(in crate::db::executor) fn compile_scalar_projection_expr(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 /// Evaluate one compiled scalar projection expression against one slot reader.
 pub(in crate::db::executor) fn eval_scalar_projection_expr(
     expr: &ScalarProjectionExpr,
@@ -185,6 +197,7 @@ fn eval_scalar_projection_expr_core<E>(
     }
 }
 
+#[cfg(any(test, feature = "sql"))]
 fn eval_scalar_projection_field(
     field: &ScalarProjectionField,
     slots: &dyn SlotReader,

@@ -2,9 +2,9 @@
 
 ## Report Preamble
 
-- scope: recurring wasm footprint audit for `minimal, one_simple, one_complex, ten_simple, ten_complex` with profile `wasm-release` and SQL variant `sql-on`
+- scope: recurring wasm footprint audit for `minimal, one_simple, one_complex, ten_simple, ten_complex` with profile `debug` and SQL variant `sql-on`
 - compared baseline report path: `docs/audits/reports/2026-03/2026-03-15/wasm-footprint.md`
-- code snapshot identifier: `d85286d4`
+- code snapshot identifier: `5a1d34bd`
 - method tag/version: `WASM-1.0`
 - comparability status: `non-comparable (one or more baseline size artifacts are missing)`
 
@@ -24,11 +24,11 @@ PASS=4, PARTIAL=1, FAIL=0
 
 | Canister | Baseline Status | Previous shrunk `.wasm` | Current shrunk `.wasm` | Previous shrunk `.wasm.gz` | Current shrunk `.wasm.gz` | Detail Report |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `minimal` | PASS | 1,403,593 | 1,293,185 | 488,906 | 475,641 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.minimal.wasm-release.sql-on.md` |
-| `one_simple` | PARTIAL | N/A | 1,383,715 | N/A | 507,627 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.one_simple.wasm-release.sql-on.md` |
-| `one_complex` | PARTIAL | N/A | 1,384,746 | N/A | 507,891 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.one_complex.wasm-release.sql-on.md` |
-| `ten_simple` | PARTIAL | N/A | 1,396,718 | N/A | 508,878 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.ten_simple.wasm-release.sql-on.md` |
-| `ten_complex` | PARTIAL | N/A | 1,397,717 | N/A | 509,102 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.ten_complex.wasm-release.sql-on.md` |
+| `minimal` | PARTIAL | N/A | 2,719,250 | N/A | 821,706 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.minimal.debug.sql-on.md` |
+| `one_simple` | PARTIAL | N/A | 2,879,061 | N/A | 876,449 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.one_simple.debug.sql-on.md` |
+| `one_complex` | PARTIAL | N/A | 2,882,418 | N/A | 877,471 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.one_complex.debug.sql-on.md` |
+| `ten_simple` | PARTIAL | N/A | 2,929,083 | N/A | 880,652 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.ten_simple.debug.sql-on.md` |
+| `ten_complex` | PARTIAL | N/A | 2,935,278 | N/A | 881,459 | `docs/audits/reports/2026-03/2026-03-24/artifacts/wasm-footprint/wasm-footprint.ten_complex.debug.sql-on.md` |
 
 ## Follow-Up Actions
 

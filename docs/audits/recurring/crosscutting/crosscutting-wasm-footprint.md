@@ -14,8 +14,8 @@ It is not a feature-design audit.
 
 Measure and report:
 
-- `dfx-built` wasm size (`.wasm` and deterministic `.wasm.gz`)
-- canonical `dfx-shrunk` wasm size (`.wasm` and deterministic `.wasm.gz`)
+- `dfx-built` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
+- canonical `dfx-shrunk` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
 - shrink deltas between built and shrunk artifacts
 - `ic-wasm info` structure snapshots (function/data/export counts)
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution
@@ -39,6 +39,12 @@ For each run, explicitly mark `PASS` / `PARTIAL` / `FAIL` with concrete evidence
 6. Baseline path was selected according to daily baseline discipline.
 7. Size deltas versus baseline were recorded when comparable baseline artifacts exist.
 8. Verification readout includes command outcomes with `PASS`/`FAIL`/`BLOCKED`.
+
+Decision rule:
+
+- Raw non-gzipped wasm is the optimization authority.
+- Use built `.wasm` and shrunk `.wasm` as the primary pass/fail and trend metrics.
+- Record deterministic gzip artifacts for transport continuity, but treat them as secondary context rather than the deciding metric for optimization work.
 
 ---
 

@@ -51,26 +51,6 @@ impl SqlParsedStatement {
 }
 
 ///
-/// SqlPreparedStatement
-///
-/// Opaque prepared SQL envelope exposed by the facade.
-/// Use this to prepare once per resolved entity route and reuse one
-/// normalized fail-closed lowering contract across lane callbacks.
-///
-#[cfg(feature = "sql")]
-pub struct SqlPreparedStatement {
-    inner: core::db::SqlPreparedStatement,
-}
-
-#[cfg(feature = "sql")]
-impl SqlPreparedStatement {
-    #[must_use]
-    const fn from_core(inner: core::db::SqlPreparedStatement) -> Self {
-        Self { inner }
-    }
-}
-
-///
 /// DbSession
 ///
 /// Public facade for session-scoped query execution and policy.
@@ -101,6 +81,12 @@ impl<C: CanisterKind> DbSession<C> {
     pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
         self.inner = self.inner.metrics_sink(sink);
         self
+    }
+
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(crate) const fn core_session(&self) -> &core::db::DbSession<C> {
+        &self.inner
     }
 
     // ------------------------------------------------------------------
@@ -155,19 +141,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Prepare one parsed reduced SQL statement for one concrete entity route.
-    #[cfg(feature = "sql")]
-    pub fn prepare_sql_dispatch_parsed(
-        &self,
-        parsed: &SqlParsedStatement,
-        expected_entity: &'static str,
-    ) -> Result<SqlPreparedStatement, Error> {
-        Ok(SqlPreparedStatement::from_core(
-            self.inner
-                .prepare_sql_dispatch_parsed(&parsed.inner, expected_entity)?,
-        ))
-    }
-
     /// Execute one reduced SQL `SELECT`/`DELETE` statement.
     #[cfg(feature = "sql")]
     pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
@@ -205,95 +178,8 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one prepared reduced SQL statement and return one unified SQL payload.
     #[cfg(feature = "sql")]
-    pub fn execute_sql_dispatch_prepared<E>(
-        &self,
-        prepared: &SqlPreparedStatement,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let result = self
-            .inner
-            .execute_sql_dispatch_prepared::<E>(&prepared.inner)?;
-
-        Ok(Self::map_sql_dispatch_result(
-            result,
-            E::MODEL.name().to_string(),
-        ))
-    }
-
-    /// Execute one prepared reduced SQL statement limited to query/explain lanes.
-    #[cfg(feature = "sql")]
-    pub fn execute_sql_dispatch_query_lane_prepared<E>(
-        &self,
-        prepared: &SqlPreparedStatement,
-    ) -> Result<SqlQueryResult, Error>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let result = self
-            .inner
-            .execute_sql_dispatch_query_lane_prepared::<E>(&prepared.inner)?;
-
-        Ok(Self::map_sql_dispatch_result(
-            result,
-            E::MODEL.name().to_string(),
-        ))
-    }
-
-    /// Lower one prepared reduced SQL statement into one shared query-lane shape.
-    #[cfg(feature = "sql")]
-    #[doc(hidden)]
-    pub fn lower_sql_dispatch_query_lane_prepared(
-        &self,
-        prepared: &SqlPreparedStatement,
-        primary_key_field: &str,
-    ) -> Result<core::db::LoweredSqlCommand, Error> {
-        Ok(self
-            .inner
-            .lower_sql_dispatch_query_lane_prepared(&prepared.inner, primary_key_field)?)
-    }
-
-    /// Execute one already-lowered shared SQL query shape for resolved authority.
-    #[cfg(feature = "sql")]
-    #[doc(hidden)]
-    pub fn execute_lowered_sql_dispatch_query_for_authority(
-        &self,
-        lowered: &core::db::LoweredSqlCommand,
-        authority: core::db::EntityAuthority,
-    ) -> Result<SqlQueryResult, Error> {
-        let result = self
-            .inner
-            .execute_lowered_sql_dispatch_query_for_authority(lowered, authority)?;
-
-        Ok(Self::map_sql_dispatch_result(
-            result,
-            authority.model().name().to_string(),
-        ))
-    }
-
-    /// Execute one already-lowered shared SQL explain shape for one model.
-    #[cfg(feature = "sql")]
-    #[doc(hidden)]
-    pub fn explain_lowered_sql_dispatch_for_model(
-        &self,
-        lowered: &core::db::LoweredSqlCommand,
-        model: &'static EntityModel,
-    ) -> Result<SqlQueryResult, Error> {
-        let explain = self
-            .inner
-            .explain_lowered_sql_dispatch_for_model(lowered, model)?;
-
-        Ok(SqlQueryResult::Explain {
-            entity: model.name().to_string(),
-            explain,
-        })
-    }
-
-    #[cfg(feature = "sql")]
-    fn map_sql_dispatch_result(
+    pub(crate) fn map_sql_dispatch_result(
         result: core::db::SqlDispatchResult,
         entity_name: String,
     ) -> SqlQueryResult {

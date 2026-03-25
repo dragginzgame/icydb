@@ -19,6 +19,7 @@ pub(crate) use key_access::{
 };
 #[expect(unreachable_pub)]
 pub use query::PlannedQuery;
+#[cfg(feature = "sql")]
 pub(in crate::db) use query::StructuralQuery;
 pub use query::{CompiledQuery, Query};
 pub(in crate::db::query::intent) use state::QueryIntent;
