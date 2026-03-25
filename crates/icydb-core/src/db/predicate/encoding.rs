@@ -6,17 +6,11 @@
 use crate::{
     db::{
         access::canonical::canonicalize_value_set,
-        codec::{
-            write_hash_len_u32 as write_len_u32, write_hash_str_u32 as write_str_u32,
-            write_hash_tag_u8 as write_tag_u8,
-        },
         numeric::coerce_numeric_decimal,
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
     },
-    value::{Value, ValueEnum, hash_value},
+    value::{Value, ValueEnum},
 };
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 
 const SORT_PRED_TRUE: u8 = 0x00;
 const SORT_PRED_FALSE: u8 = 0x01;
@@ -31,21 +25,6 @@ const SORT_PRED_IS_NOT_EMPTY: u8 = 0x09;
 const SORT_PRED_IS_NOT_NULL: u8 = 0x0A;
 const SORT_PRED_TEXT_CONTAINS: u8 = 0x0D;
 const SORT_PRED_TEXT_CONTAINS_CI: u8 = 0x0E;
-
-const FINGERPRINT_PRED_TRUE: u8 = 0x21;
-const FINGERPRINT_PRED_FALSE: u8 = 0x22;
-const FINGERPRINT_PRED_AND: u8 = 0x23;
-const FINGERPRINT_PRED_OR: u8 = 0x24;
-const FINGERPRINT_PRED_NOT: u8 = 0x25;
-const FINGERPRINT_PRED_COMPARE: u8 = 0x26;
-const FINGERPRINT_PRED_IS_NULL: u8 = 0x27;
-const FINGERPRINT_PRED_IS_MISSING: u8 = 0x28;
-const FINGERPRINT_PRED_IS_EMPTY: u8 = 0x29;
-const FINGERPRINT_PRED_IS_NOT_EMPTY: u8 = 0x2A;
-const FINGERPRINT_PRED_IS_NOT_NULL: u8 = 0x2B;
-const FINGERPRINT_PRED_TEXT_CONTAINS: u8 = 0x2E;
-const FINGERPRINT_PRED_TEXT_CONTAINS_CI: u8 = 0x2F;
-const FINGERPRINT_HASH_ERROR: u8 = 0xEE;
 
 ///
 /// Encode a predicate into deterministic sort-key bytes.
@@ -265,118 +244,6 @@ const fn coercion_id_sort_tag(id: CoercionId) -> u8 {
         CoercionId::TextCasefold => 3,
         CoercionId::CollectionElement => 4,
     }
-}
-
-///
-/// Hash one predicate using the fingerprint stream encoding.
-///
-pub(in crate::db::predicate) fn hash_predicate_fingerprint(
-    hasher: &mut Sha256,
-    predicate: &Predicate,
-) {
-    match predicate {
-        Predicate::True => write_tag_u8(hasher, FINGERPRINT_PRED_TRUE),
-        Predicate::False => write_tag_u8(hasher, FINGERPRINT_PRED_FALSE),
-        Predicate::And(children) => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_AND);
-            write_len_u32(hasher, children.len());
-            for child in children {
-                hash_predicate_fingerprint(hasher, child);
-            }
-        }
-        Predicate::Or(children) => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_OR);
-            write_len_u32(hasher, children.len());
-            for child in children {
-                hash_predicate_fingerprint(hasher, child);
-            }
-        }
-        Predicate::Not(inner) => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_NOT);
-            hash_predicate_fingerprint(hasher, inner);
-        }
-        Predicate::Compare(compare) => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_COMPARE);
-            write_str_u32(hasher, &compare.field);
-            write_tag_u8(hasher, compare.op.tag());
-            hash_compare_value_fingerprint(hasher, compare.op, compare.coercion.id, &compare.value);
-            hash_coercion_fingerprint(hasher, compare.coercion.id, &compare.coercion.params);
-        }
-        Predicate::IsNull { field } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_IS_NULL);
-            write_str_u32(hasher, field);
-        }
-        Predicate::IsNotNull { field } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_IS_NOT_NULL);
-            write_str_u32(hasher, field);
-        }
-        Predicate::IsMissing { field } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_IS_MISSING);
-            write_str_u32(hasher, field);
-        }
-        Predicate::IsEmpty { field } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_IS_EMPTY);
-            write_str_u32(hasher, field);
-        }
-        Predicate::IsNotEmpty { field } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_IS_NOT_EMPTY);
-            write_str_u32(hasher, field);
-        }
-        Predicate::TextContains { field, value } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_TEXT_CONTAINS);
-            write_str_u32(hasher, field);
-            hash_value_fingerprint(hasher, value);
-        }
-        Predicate::TextContainsCi { field, value } => {
-            write_tag_u8(hasher, FINGERPRINT_PRED_TEXT_CONTAINS_CI);
-            write_str_u32(hasher, field);
-            hash_value_fingerprint(hasher, value);
-        }
-    }
-}
-
-///
-/// Hash one coercion descriptor using the fingerprint stream encoding.
-///
-pub(in crate::db::predicate) fn hash_coercion_fingerprint(
-    hasher: &mut Sha256,
-    id: CoercionId,
-    params: &BTreeMap<String, String>,
-) {
-    write_tag_u8(hasher, id.plan_hash_tag());
-    write_len_u32(hasher, params.len());
-    for (key, value) in params {
-        write_str_u32(hasher, key);
-        write_str_u32(hasher, value);
-    }
-}
-
-fn hash_value_fingerprint(hasher: &mut Sha256, value: &Value) {
-    match hash_value(value) {
-        Ok(digest) => hasher.update(digest),
-        Err(err) => {
-            write_tag_u8(hasher, FINGERPRINT_HASH_ERROR);
-            write_str_u32(hasher, &err.display_with_class());
-        }
-    }
-}
-
-fn hash_compare_value_fingerprint(
-    hasher: &mut Sha256,
-    op: CompareOp,
-    coercion: CoercionId,
-    value: &Value,
-) {
-    if matches!(op, CompareOp::In | CompareOp::NotIn)
-        && let Value::List(items) = value
-    {
-        let ordered = canonicalize_compare_literal_list_for_coercion(coercion, items);
-        hash_value_fingerprint(hasher, &Value::List(ordered));
-        return;
-    }
-
-    let canonical = canonicalize_compare_literal_for_coercion(coercion, value);
-    hash_value_fingerprint(hasher, &canonical);
 }
 
 // Canonicalize compare-list literals once so sort-key and fingerprint encoding

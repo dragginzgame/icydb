@@ -102,7 +102,7 @@ impl PredicateProgram {
     /// Evaluate one precompiled predicate program against one structural slot reader.
     pub(in crate::db) fn eval_with_structural_slot_reader(
         &self,
-        slots: &mut dyn SlotReader,
+        slots: &dyn SlotReader,
     ) -> Result<bool, crate::error::InternalError> {
         match &self.compiled {
             CompiledPredicate::Scalar(program) => {
@@ -332,22 +332,10 @@ fn eval_scalar_executable_predicate(
         ExecutablePredicate::True => Ok(true),
         ExecutablePredicate::False => Ok(false),
         ExecutablePredicate::And(children) => {
-            for child in children {
-                if !eval_scalar_executable_predicate(child, slots)? {
-                    return Ok(false);
-                }
-            }
-
-            Ok(true)
+            eval_all_children_result(children, slots, eval_scalar_executable_predicate)
         }
         ExecutablePredicate::Or(children) => {
-            for child in children {
-                if eval_scalar_executable_predicate(child, slots)? {
-                    return Ok(true);
-                }
-            }
-
-            Ok(false)
+            eval_any_children_result(children, slots, eval_scalar_executable_predicate)
         }
         ExecutablePredicate::Not(inner) => Ok(!eval_scalar_executable_predicate(inner, slots)?),
         ExecutablePredicate::Compare(cmp) => eval_scalar_executable_compare_predicate(cmp, slots),
@@ -475,28 +463,16 @@ fn eval_scalar_executable_compare_predicate(
 // Evaluate one executable predicate against one structural slot reader.
 fn eval_with_structural_slots(
     predicate: &ExecutablePredicate,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     match predicate {
         ExecutablePredicate::True => Ok(true),
         ExecutablePredicate::False => Ok(false),
         ExecutablePredicate::And(children) => {
-            for child in children {
-                if !eval_with_structural_slots(child, slots)? {
-                    return Ok(false);
-                }
-            }
-
-            Ok(true)
+            eval_all_children_result(children, slots, eval_with_structural_slots)
         }
         ExecutablePredicate::Or(children) => {
-            for child in children {
-                if eval_with_structural_slots(child, slots)? {
-                    return Ok(true);
-                }
-            }
-
-            Ok(false)
+            eval_any_children_result(children, slots, eval_with_structural_slots)
         }
         ExecutablePredicate::Not(inner) => Ok(!eval_with_structural_slots(inner, slots)?),
         ExecutablePredicate::Compare(cmp) => eval_compare_with_structural_slots(cmp, slots),
@@ -553,6 +529,42 @@ fn eval_compare_with_structural_slots(
         &cmp.value,
         &cmp.coercion,
     ))
+}
+
+// Evaluate one logical `AND` child list through a shared fallible predicate walker.
+fn eval_all_children_result<T>(
+    children: &[ExecutablePredicate],
+    input: T,
+    eval_child: fn(&ExecutablePredicate, T) -> Result<bool, crate::error::InternalError>,
+) -> Result<bool, crate::error::InternalError>
+where
+    T: Copy,
+{
+    for child in children {
+        if !eval_child(child, input)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+// Evaluate one logical `OR` child list through a shared fallible predicate walker.
+fn eval_any_children_result<T>(
+    children: &[ExecutablePredicate],
+    input: T,
+    eval_child: fn(&ExecutablePredicate, T) -> Result<bool, crate::error::InternalError>,
+) -> Result<bool, crate::error::InternalError>
+where
+    T: Copy,
+{
+    for child in children {
+        if eval_child(child, input)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 // Evaluate `IS NULL` through the structural slot seam.
@@ -743,12 +755,12 @@ where
 {
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => match op {
-            CompareOp::Eq => Some(decode(value).is_some_and(|expected| actual == expected)),
-            CompareOp::Ne => Some(decode(value).is_some_and(|expected| actual != expected)),
-            CompareOp::Lt => Some(decode(value).is_some_and(|expected| actual < expected)),
-            CompareOp::Lte => Some(decode(value).is_some_and(|expected| actual <= expected)),
-            CompareOp::Gt => Some(decode(value).is_some_and(|expected| actual > expected)),
-            CompareOp::Gte => Some(decode(value).is_some_and(|expected| actual >= expected)),
+            CompareOp::Eq
+            | CompareOp::Ne
+            | CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte => Some(eval_ordered_scalar_compare(actual, op, value, decode)),
             CompareOp::In => Some(scalar_in_list(actual, value, decode).unwrap_or(false)),
             CompareOp::NotIn => {
                 Some(scalar_in_list(actual, value, decode).is_some_and(|matched| !matched))
@@ -757,6 +769,36 @@ where
         },
         CoercionId::TextCasefold => Some(false),
         CoercionId::NumericWiden => None,
+    }
+}
+
+// Evaluate one ordered scalar literal compare after decoding the predicate
+// literal exactly once for the whole compare branch.
+fn eval_ordered_scalar_compare<T>(
+    actual: T,
+    op: CompareOp,
+    value: &Value,
+    decode: impl Fn(&Value) -> Option<T>,
+) -> bool
+where
+    T: Copy + Ord,
+{
+    let Some(expected) = decode(value) else {
+        return false;
+    };
+
+    match op {
+        CompareOp::Eq => actual == expected,
+        CompareOp::Ne => actual != expected,
+        CompareOp::Lt => actual < expected,
+        CompareOp::Lte => actual <= expected,
+        CompareOp::Gt => actual > expected,
+        CompareOp::Gte => actual >= expected,
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
     }
 }
 
@@ -825,24 +867,12 @@ fn eval_text_scalar_compare(
     };
 
     match op {
-        CompareOp::Eq => Some(
-            matches!(value, Value::Text(expected) if compare_scalar_text(actual, expected, mode) == Ordering::Equal),
-        ),
-        CompareOp::Ne => Some(
-            matches!(value, Value::Text(expected) if compare_scalar_text(actual, expected, mode) != Ordering::Equal),
-        ),
-        CompareOp::Lt => Some(
-            matches!(value, Value::Text(expected) if compare_scalar_text(actual, expected, mode).is_lt()),
-        ),
-        CompareOp::Lte => Some(
-            matches!(value, Value::Text(expected) if compare_scalar_text(actual, expected, mode).is_le()),
-        ),
-        CompareOp::Gt => Some(
-            matches!(value, Value::Text(expected) if compare_scalar_text(actual, expected, mode).is_gt()),
-        ),
-        CompareOp::Gte => Some(
-            matches!(value, Value::Text(expected) if compare_scalar_text(actual, expected, mode).is_ge()),
-        ),
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte => Some(eval_text_scalar_order_compare(actual, op, value, mode)),
         CompareOp::StartsWith => Some(
             matches!(value, Value::Text(expected) if text_starts_with_scalar(actual, expected, mode)),
         ),
@@ -852,6 +882,34 @@ fn eval_text_scalar_compare(
         CompareOp::In => Some(text_in_list(actual, value, mode).unwrap_or(false)),
         CompareOp::NotIn => Some(text_in_list(actual, value, mode).is_some_and(|matched| !matched)),
         CompareOp::Contains => Some(false),
+    }
+}
+
+// Evaluate one ordered text compare against one scalar text value without
+// repeating the literal-match and canonical text compare path for each op.
+fn eval_text_scalar_order_compare(
+    actual: &str,
+    op: CompareOp,
+    value: &Value,
+    mode: TextMode,
+) -> bool {
+    let Value::Text(expected) = value else {
+        return false;
+    };
+
+    let ordering = compare_scalar_text(actual, expected, mode);
+    match op {
+        CompareOp::Eq => ordering == Ordering::Equal,
+        CompareOp::Ne => ordering != Ordering::Equal,
+        CompareOp::Lt => ordering.is_lt(),
+        CompareOp::Lte => ordering.is_le(),
+        CompareOp::Gt => ordering.is_gt(),
+        CompareOp::Gte => ordering.is_ge(),
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
     }
 }
 
@@ -1412,7 +1470,7 @@ mod tests {
             },
         ]);
         let program = PredicateProgram::compile_with_model(&PREDICATE_MODEL, &predicate);
-        let mut slots = PredicateTestSlotReader {
+        let slots = PredicateTestSlotReader {
             score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
             name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
         };
@@ -1420,7 +1478,7 @@ mod tests {
         assert!(program.uses_scalar_program());
         assert!(
             program
-                .eval_with_structural_slot_reader(&mut slots)
+                .eval_with_structural_slot_reader(&slots)
                 .expect("scalar non-compare predicate should evaluate")
         );
     }
@@ -1442,7 +1500,7 @@ mod tests {
             }),
         ]);
         let program = PredicateProgram::compile_with_model(&PREDICATE_MODEL, &predicate);
-        let mut slots = PredicateTestSlotReader {
+        let slots = PredicateTestSlotReader {
             score: None,
             name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
         };
@@ -1450,7 +1508,7 @@ mod tests {
         assert!(program.uses_scalar_program());
         assert!(
             program
-                .eval_with_structural_slot_reader(&mut slots)
+                .eval_with_structural_slot_reader(&slots)
                 .expect("scalar text prefix/suffix predicate should evaluate")
         );
     }

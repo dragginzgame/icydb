@@ -21,7 +21,7 @@ use std::ops::Bound;
 /// Canonicalize access plans that use `Value` keys.
 fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
     // Canonical sort is total and must remain deterministic.
-    plans.sort_by(|left, right| left.canonical_form().cmp(&right.canonical_form()));
+    plans.sort_by(canonical_cmp_access_plan_value);
 }
 
 /// Canonicalize a list of key values for deterministic ByKeys plans.
@@ -57,8 +57,7 @@ fn canonical_cmp_plan_list_value(
     left: &[AccessPlan<Value>],
     right: &[AccessPlan<Value>],
 ) -> Ordering {
-    let limit = left.len().min(right.len());
-    for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
+    for (left, right) in left.iter().zip(right.iter()) {
         let cmp = canonical_cmp_access_plan_value(left, right);
         if cmp != Ordering::Equal {
             return cmp;
@@ -76,12 +75,6 @@ fn canonical_cmp_access_path_value(
 }
 
 impl AccessPlan<Value> {
-    /// Build a canonical structural view used for deterministic comparisons.
-    #[must_use]
-    pub(crate) const fn canonical_form(&self) -> CanonicalAccessShape<'_> {
-        CanonicalAccessShape { plan: self }
-    }
-
     // Compare access plans with a total deterministic ordering.
     fn canonical_cmp(&self, right: &Self) -> Ordering {
         match (self, right) {
@@ -187,36 +180,6 @@ impl AccessPlan<Value> {
             Self::Intersection(children) => out.extend(children),
             other => out.push(other),
         }
-    }
-}
-
-///
-/// CanonicalAccessShape
-///
-/// Borrowed canonical comparator surface for one `AccessPlan<Value>`.
-///
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CanonicalAccessShape<'a> {
-    plan: &'a AccessPlan<Value>,
-}
-
-impl PartialEq for CanonicalAccessShape<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for CanonicalAccessShape<'_> {}
-
-impl PartialOrd for CanonicalAccessShape<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(std::cmp::Ord::cmp(self, other))
-    }
-}
-
-impl Ord for CanonicalAccessShape<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        canonical_cmp_access_plan_value(self.plan, other.plan)
     }
 }
 
@@ -452,8 +415,7 @@ struct AccessPathRank {
 
 /// Lexicographic comparison of value lists.
 fn canonical_cmp_value_list(left: &[Value], right: &[Value]) -> Ordering {
-    let limit = left.len().min(right.len());
-    for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
+    for (left, right) in left.iter().zip(right.iter()) {
         let cmp = Value::canonical_cmp(left, right);
         if cmp != Ordering::Equal {
             return cmp;

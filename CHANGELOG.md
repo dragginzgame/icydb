@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.64.x] - 2026-03-25 - Structural Mutation API
 
+- `0.64.2` trims more raw SQL canister wasm by collapsing duplicated access canonicalization plus index planning and commit-preparation paths onto shared owners, cutting raw `wasm-release` size from `1,184,089` to `1,178,818` shrunk bytes on `minimal` and from `1,282,070` to `1,265,115` shrunk bytes on `one_simple` while keeping the SQL feature set unchanged.
 - `0.64.1` trims more SQL canister wasm by collapsing duplicated predicate canonicalization, compare-list normalization, map-entry ordering, and framed sort-key encoding paths onto shared owners, cutting raw `wasm-release` size from `1,190,526` to `1,184,089` shrunk bytes on `minimal` and from `1,288,385` to `1,282,070` shrunk bytes on `one_simple` while keeping the SQL feature set unchanged.
 - `0.64.0` adds one public mode-driven structural mutation API (`Insert`, `Update`, `Replace`) that still reuses the existing typed validation and commit pipeline, and it also isolates normal IcyDB cargo workflows into repo-local cargo state so sibling repos stop contending on the same filesystem.
 

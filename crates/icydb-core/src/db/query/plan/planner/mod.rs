@@ -29,7 +29,9 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
-pub(in crate::db::query::plan) use index_select::{index_literal_matches_schema, sorted_indexes};
+pub(in crate::db::query::plan) use index_select::{
+    index_literal_matches_schema, sorted_indexes, sorted_model_indexes,
+};
 
 ///
 /// PlannerError

@@ -6,18 +6,13 @@
 use crate::{
     db::{
         Db,
-        commit::{
-            CommitRowOp, PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
-            decode_data_key, decode_index_entry, decode_index_key,
-        },
+        commit::{CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp, decode_data_key},
         data::{
             DataKey, DataStore, RawDataKey, RawRow, SlotReader, StorageKey, StructuralSlotReader,
         },
         index::{
             IndexEntryReader, IndexMutationPlan, IndexStore, PrimaryRowReader, RawIndexEntry,
             RawIndexKey, StructuralIndexEntryReader, StructuralPrimaryRowReader,
-            compile_index_membership_predicate_structural,
-            index_key_for_slot_reader_with_membership_structural,
             plan_index_mutation_for_slot_reader_structural,
         },
         relation::{
@@ -30,7 +25,7 @@ use crate::{
     traits::{EntityKind, EntityValue, Path},
     types::EntityTag,
 };
-use std::{cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey};
+use std::{cell::RefCell, marker::PhantomData, thread::LocalKey};
 
 ///
 /// CommitPrepareAuthority
@@ -72,7 +67,6 @@ impl CommitPrepareAuthority {
 
 struct ForwardIndexCommitPreparation {
     index_plan: IndexMutationPlan,
-    index_delta_kind_by_key: BTreeMap<RawIndexKey, PreparedIndexDeltaKind>,
 }
 
 ///
@@ -110,9 +104,7 @@ impl StructuralCommitInputs {
 ///
 
 struct PreparedRowCommitMaterialization {
-    entity_path: &'static str,
     index_plan: IndexMutationPlan,
-    index_delta_kind_by_key: BTreeMap<RawIndexKey, PreparedIndexDeltaKind>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_store: &'static LocalKey<RefCell<DataStore>>,
     data_key: RawDataKey,
@@ -151,7 +143,7 @@ where
     E: EntityKind + EntityValue,
 {
     fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
-        self.reader.read_primary_row_structural(key)
+        StructuralPrimaryRowReader::read_primary_row_structural(self, key)
     }
 }
 
@@ -187,7 +179,6 @@ struct StructuralCommitPrepareIndexReaderAdapter<'a, E>
 where
     E: EntityKind + EntityValue,
 {
-    entity_path: &'static str,
     reader: &'a dyn StructuralIndexEntryReader,
     _marker: PhantomData<E>,
 }
@@ -196,9 +187,8 @@ impl<'a, E> StructuralCommitPrepareIndexReaderAdapter<'a, E>
 where
     E: EntityKind + EntityValue,
 {
-    const fn new(entity_path: &'static str, reader: &'a dyn StructuralIndexEntryReader) -> Self {
+    const fn new(reader: &'a dyn StructuralIndexEntryReader) -> Self {
         Self {
-            entity_path,
             reader,
             _marker: PhantomData,
         }
@@ -214,7 +204,7 @@ where
         store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        self.reader.read_index_entry_structural(store, key)
+        StructuralIndexEntryReader::read_index_entry_structural(self, store, key)
     }
 
     fn read_index_keys_in_raw_range(
@@ -224,8 +214,9 @@ where
         bounds: (&std::ops::Bound<RawIndexKey>, &std::ops::Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        self.reader.read_index_keys_in_raw_range_structural(
-            self.entity_path,
+        StructuralIndexEntryReader::read_index_keys_in_raw_range_structural(
+            self,
+            E::PATH,
             E::ENTITY_TAG,
             store,
             index,
@@ -292,7 +283,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
 ) -> Result<PreparedRowCommitOp, InternalError> {
     let authority = CommitPrepareAuthority::for_type::<E>();
     let row_reader = StructuralPrimaryRowReaderAdapter::<E>::new(row_reader);
-    let index_reader = StructuralCommitPrepareIndexReaderAdapter::<E>::new(E::PATH, index_reader);
+    let index_reader = StructuralCommitPrepareIndexReaderAdapter::<E>::new(index_reader);
 
     prepare_row_commit_for_entity_impl(db, op, authority, &row_reader, &index_reader)
 }
@@ -368,10 +359,8 @@ where
 const fn empty_forward_index_commit_preparation() -> ForwardIndexCommitPreparation {
     ForwardIndexCommitPreparation {
         index_plan: IndexMutationPlan {
-            apply: Vec::new(),
             commit_ops: Vec::new(),
         },
-        index_delta_kind_by_key: BTreeMap::new(),
     }
 }
 
@@ -409,20 +398,7 @@ where
         new_row.map(|_| storage_key),
         new_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
     )?;
-    let index_delta_kind_by_key = annotate_forward_index_delta_kinds_from_slots(
-        authority.entity_tag,
-        authority.entity_path,
-        authority.model,
-        old_row.map(|_| storage_key),
-        old_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
-        new_row.map(|_| storage_key),
-        new_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
-    )?;
-
-    Ok(ForwardIndexCommitPreparation {
-        index_plan,
-        index_delta_kind_by_key,
-    })
+    Ok(ForwardIndexCommitPreparation { index_plan })
 }
 
 // Decode one commit-marker row into one validated slot reader so forward-index
@@ -516,130 +492,36 @@ where
     )?;
     let data_store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
 
-    materialize_prepared_row_commit(PreparedRowCommitMaterialization {
-        entity_path: authority.entity_path,
-        index_plan: forward_index.index_plan,
-        index_delta_kind_by_key: forward_index.index_delta_kind_by_key,
-        reverse_index_ops,
-        data_store: data_store.data_store(),
-        data_key: structural.raw_key,
-        data_value: structural.new_row,
-    })
-}
-
-// Derive the forward-index delta-kind annotations needed by commit-window
-// observability from slot-reader projections only.
-fn annotate_forward_index_delta_kinds_from_slots(
-    entity_tag: EntityTag,
-    entity_path: &'static str,
-    model: &'static EntityModel,
-    old_storage_key: Option<crate::value::StorageKey>,
-    mut old_slots: Option<&mut dyn SlotReader>,
-    new_storage_key: Option<crate::value::StorageKey>,
-    mut new_slots: Option<&mut dyn SlotReader>,
-) -> Result<BTreeMap<RawIndexKey, PreparedIndexDeltaKind>, InternalError> {
-    let mut index_delta_kind_by_key = BTreeMap::new();
-    for index in model.indexes() {
-        let membership_program =
-            compile_index_membership_predicate_structural(entity_path, model, index)?;
-        let old_key = match old_slots.as_deref_mut() {
-            Some(slots) => old_storage_key
-                .map(|storage_key| {
-                    index_key_for_slot_reader_with_membership_structural(
-                        entity_tag,
-                        index,
-                        membership_program.as_ref(),
-                        storage_key,
-                        slots,
-                    )
-                })
-                .transpose()?
-                .flatten()
-                .map(|key| key.to_raw()),
-            None => None,
-        };
-        let new_key = match new_slots.as_deref_mut() {
-            Some(slots) => new_storage_key
-                .map(|storage_key| {
-                    index_key_for_slot_reader_with_membership_structural(
-                        entity_tag,
-                        index,
-                        membership_program.as_ref(),
-                        storage_key,
-                        slots,
-                    )
-                })
-                .transpose()?
-                .flatten()
-                .map(|key| key.to_raw()),
-            None => None,
-        };
-
-        if old_key != new_key {
-            if let Some(old_key) = old_key {
-                let previous =
-                    index_delta_kind_by_key.insert(old_key, PreparedIndexDeltaKind::IndexRemove);
-                debug_assert!(
-                    previous.is_none(),
-                    "duplicate forward-index remove delta annotation for one key",
-                );
-            }
-            if let Some(new_key) = new_key {
-                let previous =
-                    index_delta_kind_by_key.insert(new_key, PreparedIndexDeltaKind::IndexInsert);
-                debug_assert!(
-                    previous.is_none(),
-                    "duplicate forward-index insert delta annotation for one key",
-                );
-            }
-        }
-    }
-
-    Ok(index_delta_kind_by_key)
+    Ok(materialize_prepared_row_commit(
+        PreparedRowCommitMaterialization {
+            index_plan: forward_index.index_plan,
+            reverse_index_ops,
+            data_store: data_store.data_store(),
+            data_key: structural.raw_key,
+            data_value: structural.new_row,
+        },
+    ))
 }
 
 // Materialize one prepared row commit entirely from structural planning outputs.
 fn materialize_prepared_row_commit(
     prepared: PreparedRowCommitMaterialization,
-) -> Result<PreparedRowCommitOp, InternalError> {
+) -> PreparedRowCommitOp {
     let PreparedRowCommitMaterialization {
-        entity_path,
         index_plan,
-        index_delta_kind_by_key,
         reverse_index_ops,
         data_store,
         data_key,
         data_value,
     } = prepared;
 
-    // Phase 1: resolve index-store handles once from the already-planned apply targets.
-    let mut index_stores = BTreeMap::new();
-    for apply in &index_plan.apply {
-        index_stores.insert(apply.index.store(), apply.store);
-    }
-
-    // Phase 2: decode planned commit-op payloads into mechanical index mutations.
+    // Phase 1: lower planned commit ops into mechanical index mutations.
     let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len() + reverse_index_ops.len());
     for index_op in index_plan.commit_ops {
-        let store = index_stores
-            .get(index_op.store.as_str())
-            .copied()
-            .ok_or_else(|| {
-                InternalError::executor_invariant(format!(
-                    "commit prepare missing index store mapping: store='{}' entity='{entity_path}'",
-                    index_op.store,
-                ))
-            })?;
-        let key = decode_index_key(&index_op.key)?;
-        let value = index_op
-            .value
-            .as_ref()
-            .map(|bytes| decode_index_entry(bytes))
-            .transpose()?;
-        let delta_kind = index_delta_kind_by_key
-            .get(&key)
-            .copied()
-            .unwrap_or(PreparedIndexDeltaKind::None);
+        let store = index_op.store;
+        let key = index_op.key;
+        let value = index_op.value;
+        let delta_kind = index_op.delta_kind;
 
         index_ops.push(PreparedIndexMutation {
             store,
@@ -649,13 +531,13 @@ fn materialize_prepared_row_commit(
         });
     }
 
-    // Phase 3: append the already-prepared reverse-index mutations unchanged.
+    // Phase 2: append the already-prepared reverse-index mutations unchanged.
     index_ops.extend(reverse_index_ops);
 
-    Ok(PreparedRowCommitOp {
+    PreparedRowCommitOp {
         index_ops,
         data_store,
         data_key,
         data_value,
-    })
+    }
 }

@@ -6,14 +6,16 @@
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
+        commit::prepared_op::PreparedIndexDeltaKind,
         data::{DataKey, RawDataKey},
-        index::{IndexKey, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey},
+        index::{IndexStore, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
     types::Ulid,
 };
 use canic_cdk::structures::Storable;
 use std::borrow::Cow;
+use std::{cell::RefCell, thread::LocalKey};
 
 // Commit-marker durability invariant:
 // - Persist one marker before any stable mutation.
@@ -77,9 +79,10 @@ impl CommitRowOp {
 
 #[derive(Clone, Debug)]
 pub(crate) struct CommitIndexOp {
-    pub(crate) store: String,
-    pub(crate) key: Vec<u8>,
-    pub(crate) value: Option<Vec<u8>>,
+    pub(crate) store: &'static LocalKey<RefCell<IndexStore>>,
+    pub(crate) key: RawIndexKey,
+    pub(crate) value: Option<RawIndexEntry>,
+    pub(crate) delta_kind: PreparedIndexDeltaKind,
 }
 
 ///
@@ -364,49 +367,6 @@ fn read_len_prefixed_bytes<'a>(
     *cursor = cursor.saturating_add(len);
 
     Ok(payload)
-}
-
-/// Decode a raw index key and validate its structural invariants.
-pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
-    // Phase 1: enforce raw-size contract for encoded index keys.
-    let len = bytes.len();
-    let min = IndexKey::MIN_STORED_SIZE_USIZE;
-    let max = IndexKey::STORED_SIZE_USIZE;
-    if len < min || len > max {
-        return Err(InternalError::commit_component_length_invalid(
-            "index key",
-            len,
-            format!("{min}..={max}"),
-        ));
-    }
-
-    // Phase 2: decode and enforce index-key semantic shape.
-    let raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(bytes));
-    IndexKey::try_from_raw(&raw)
-        .map_err(|err| InternalError::commit_component_corruption("index key", err))?;
-
-    Ok(raw)
-}
-
-/// Decode a raw index entry and validate its structural invariants.
-pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, InternalError> {
-    // Phase 1: enforce entry-size upper bound.
-    let len = bytes.len();
-    let max = MAX_INDEX_ENTRY_BYTES as usize;
-    if len > max {
-        return Err(InternalError::commit_component_length_invalid(
-            "index entry",
-            len,
-            format!("<= {max}"),
-        ));
-    }
-
-    // Phase 2: decode and validate entry envelope.
-    let raw = <RawIndexEntry as Storable>::from_bytes(Cow::Borrowed(bytes));
-    raw.validate()
-        .map_err(|err| InternalError::commit_component_corruption("index entry", err))?;
-
-    Ok(raw)
 }
 
 /// Decode a raw data key and validate its structural invariants.

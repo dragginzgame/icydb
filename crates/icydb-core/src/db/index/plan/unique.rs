@@ -14,16 +14,12 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    model::{
-        entity::{EntityModel, resolve_primary_key_slot},
-        index::IndexModel,
-    },
+    model::{entity::EntityModel, index::IndexModel},
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
 /// Validate one unique index constraint using structural entity authority only.
-#[expect(clippy::too_many_lines)]
 #[expect(clippy::too_many_arguments)]
 pub(super) fn validate_unique_constraint_structural(
     entity_path: &'static str,
@@ -52,26 +48,15 @@ pub(super) fn validate_unique_constraint_structural(
 
     let index_fields = index.fields().join(", ");
 
-    let mut encoded_prefix = Vec::with_capacity(new_index_key.component_count());
-    for component_index in 0..new_index_key.component_count() {
-        let Some(component) = new_index_key.component(component_index) else {
-            return Err(
-                InternalError::index_unique_validation_key_component_missing(
-                    component_index,
-                    entity_path,
-                    &index_fields,
-                ),
-            );
-        };
-        encoded_prefix.push(component.to_vec());
-    }
-
     let index_id = IndexId::new(entity_tag, index.ordinal());
-    let (lower, upper) = IndexKey::bounds_for_prefix(
-        &index_id,
-        new_index_key.component_count(),
-        encoded_prefix.as_slice(),
-    );
+    if new_index_key.index_id() != &index_id {
+        return Err(InternalError::index_unique_validation_corruption(
+            entity_path,
+            &index_fields,
+            "mismatched unique key index id",
+        ));
+    }
+    let (lower, upper) = new_index_key.bounds_for_all_components();
     let lower = Bound::Included(lower.to_raw());
     let upper = Bound::Included(upper.to_raw());
 
@@ -111,7 +96,7 @@ pub(super) fn validate_unique_constraint_structural(
         .read_primary_row_structural(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
     let row_fields = decode_unique_row_fields(&data_key, &row, model)?;
-    let stored_key = decode_unique_row_storage_key(entity_path, model, &data_key, &row_fields)?;
+    let stored_key = decode_unique_row_storage_key(&data_key, &row_fields)?;
     if stored_key != existing_key {
         // Stored row decoded successfully but key disagreement is a cross-component invariant
         // failure, not a structural decode/persistence corruption.
@@ -140,39 +125,12 @@ pub(super) fn validate_unique_constraint_structural(
             "stored entity is not indexable for unique key",
         ));
     };
-    if stored_index_key.component_count() != new_index_key.component_count() {
+    if !stored_index_key.has_same_components(new_index_key) {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
             &index_fields,
-            "mismatched unique key component count",
+            "index canonical collision",
         ));
-    }
-
-    for component_index in 0..new_index_key.component_count() {
-        let Some(expected) = new_index_key.component(component_index) else {
-            return Err(
-                InternalError::index_unique_validation_expected_component_missing(
-                    component_index,
-                    entity_path,
-                    &index_fields,
-                ),
-            );
-        };
-        let Some(actual) = stored_index_key.component(component_index) else {
-            return Err(InternalError::index_unique_validation_corruption(
-                entity_path,
-                &index_fields,
-                format_args!("stored entity missing component {component_index}"),
-            ));
-        };
-
-        if expected != actual {
-            return Err(InternalError::index_unique_validation_corruption(
-                entity_path,
-                &index_fields,
-                "index canonical collision",
-            ));
-        }
     }
 
     record(MetricsEvent::UniqueViolation { entity_path });
@@ -195,18 +153,9 @@ fn decode_unique_row_fields<'a>(
 // Decode the authoritative primary-key slot structurally and verify that it
 // still matches the row storage key carried by the unique index entry.
 fn decode_unique_row_storage_key(
-    entity_path: &'static str,
-    model: &'static EntityModel,
     data_key: &DataKey,
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<StorageKey, InternalError> {
-    let primary_key_name = model.primary_key().name();
-    let _ = resolve_primary_key_slot(model).ok_or_else(|| {
-        InternalError::index_unique_validation_primary_key_field_missing(
-            entity_path,
-            primary_key_name,
-        )
-    })?;
     row_fields
         .validate_storage_key(data_key)
         .map_err(|source| {

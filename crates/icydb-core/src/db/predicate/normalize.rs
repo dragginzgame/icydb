@@ -489,13 +489,19 @@ const fn predicate_eval_cost_rank(predicate: &Predicate) -> u8 {
 // Canonicalize predicate child ordering for deterministic normalization and
 // cheap-first short-circuit behavior.
 fn canonicalize_predicate_children_for_eval(out: &mut Vec<Predicate>) {
-    out.sort_by_cached_key(predicate_eval_sort_key);
+    out.sort_by(canonical_cmp_predicate_for_eval);
     out.dedup();
 }
 
-// Build the shared cached sort key used across AND/OR normalization passes.
-fn predicate_eval_sort_key(predicate: &Predicate) -> (u8, Vec<u8>) {
-    (predicate_eval_cost_rank(predicate), sort_key(predicate))
+// Compare predicate children with the same deterministic rank-first ordering
+// used by normalization, without routing through the cached-key tuple surface.
+fn canonical_cmp_predicate_for_eval(left: &Predicate, right: &Predicate) -> std::cmp::Ordering {
+    let rank = predicate_eval_cost_rank(left).cmp(&predicate_eval_cost_rank(right));
+    if rank != std::cmp::Ordering::Equal {
+        return rank;
+    }
+
+    sort_key(left).cmp(&sort_key(right))
 }
 
 ///

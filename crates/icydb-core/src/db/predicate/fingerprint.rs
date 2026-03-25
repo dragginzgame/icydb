@@ -3,8 +3,8 @@
 //! Does not own: predicate normalization or runtime execution.
 //! Boundary: used by planner/continuation fingerprinting.
 
-use crate::db::predicate::{Predicate, encoding::hash_predicate_fingerprint, normalize};
-use sha2::Sha256;
+use crate::db::predicate::{Predicate, encoding::encode_predicate_sort_key, normalize};
+use sha2::{Digest, Sha256};
 
 /// Hash canonical predicate structure into the plan hash stream.
 pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) {
@@ -14,10 +14,11 @@ pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) 
 
 // Hash structural predicate bytes without running normalization.
 //
-// This helper exists for local invariant tests that need to prove canonical
-// hashing is order-insensitive specifically because normalization runs first.
+// Predicate sort-key encoding already owns the canonical structural traversal
+// for deterministic ordering. Reuse that same byte surface for hashing so the
+// predicate subsystem does not carry a second recursive encoding tree.
 fn hash_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
-    hash_predicate_fingerprint(hasher, predicate);
+    hasher.update(encode_predicate_sort_key(predicate));
 }
 
 ///

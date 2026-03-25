@@ -121,6 +121,32 @@ struct FingerprintVisitor<'a> {
     hasher: &'a mut Sha256,
 }
 
+fn write_access_fields(hasher: &mut Sha256, tag: u8, name: &'static str, fields: &[&'static str]) {
+    write_tag(hasher, tag);
+    write_str(hasher, name);
+    write_u32(hasher, fields.len() as u32);
+    for field in fields {
+        write_str(hasher, field);
+    }
+}
+
+fn write_values(hasher: &mut Sha256, values: &[Value]) {
+    write_u32(hasher, values.len() as u32);
+    for value in values {
+        write_value(hasher, value);
+    }
+}
+
+fn write_field_values<K>(hasher: &mut Sha256, values: &[K])
+where
+    K: FieldValue,
+{
+    write_u32(hasher, values.len() as u32);
+    for value in values {
+        write_value(hasher, &value.to_value());
+    }
+}
+
 impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
     type Output = ();
 
@@ -150,17 +176,9 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INDEX_PREFIX);
-        write_str(self.hasher, name);
-        write_u32(self.hasher, fields.len() as u32);
-        for field in fields {
-            write_str(self.hasher, field);
-        }
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_PREFIX, name, fields);
         write_u32(self.hasher, prefix_len as u32);
-        write_u32(self.hasher, values.len() as u32);
-        for value in values {
-            write_value(self.hasher, value);
-        }
+        write_values(self.hasher, values);
     }
 
     fn index_multi_lookup(
@@ -169,16 +187,8 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
         fields: &[&'static str],
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP);
-        write_str(self.hasher, name);
-        write_u32(self.hasher, fields.len() as u32);
-        for field in fields {
-            write_str(self.hasher, field);
-        }
-        write_u32(self.hasher, values.len() as u32);
-        for value in values {
-            write_value(self.hasher, value);
-        }
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
+        write_values(self.hasher, values);
     }
 
     fn index_range(
@@ -190,17 +200,9 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INDEX_RANGE);
-        write_str(self.hasher, name);
-        write_u32(self.hasher, fields.len() as u32);
-        for field in fields {
-            write_str(self.hasher, field);
-        }
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_RANGE, name, fields);
         write_u32(self.hasher, prefix_len as u32);
-        write_u32(self.hasher, prefix.len() as u32);
-        for value in prefix {
-            write_value(self.hasher, value);
-        }
+        write_values(self.hasher, prefix);
         write_value_bound(self.hasher, lower);
         write_value_bound(self.hasher, upper);
     }
@@ -244,10 +246,7 @@ where
 
     fn by_keys(&mut self, keys: &[K]) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
-        write_u32(self.hasher, keys.len() as u32);
-        for key in keys {
-            write_value(self.hasher, &key.to_value());
-        }
+        write_field_values(self.hasher, keys);
     }
 
     fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
@@ -263,17 +262,9 @@ where
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INDEX_PREFIX);
-        write_str(self.hasher, name);
-        write_u32(self.hasher, fields.len() as u32);
-        for field in fields {
-            write_str(self.hasher, field);
-        }
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_PREFIX, name, fields);
         write_u32(self.hasher, prefix_len as u32);
-        write_u32(self.hasher, values.len() as u32);
-        for value in values {
-            write_value(self.hasher, value);
-        }
+        write_values(self.hasher, values);
     }
 
     fn index_multi_lookup(
@@ -282,16 +273,8 @@ where
         fields: &[&'static str],
         values: &[Value],
     ) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP);
-        write_str(self.hasher, name);
-        write_u32(self.hasher, fields.len() as u32);
-        for field in fields {
-            write_str(self.hasher, field);
-        }
-        write_u32(self.hasher, values.len() as u32);
-        for value in values {
-            write_value(self.hasher, value);
-        }
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
+        write_values(self.hasher, values);
     }
 
     fn index_range(
@@ -303,17 +286,9 @@ where
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INDEX_RANGE);
-        write_str(self.hasher, name);
-        write_u32(self.hasher, fields.len() as u32);
-        for field in fields {
-            write_str(self.hasher, field);
-        }
+        write_access_fields(self.hasher, ACCESS_TAG_INDEX_RANGE, name, fields);
         write_u32(self.hasher, prefix_len as u32);
-        write_u32(self.hasher, prefix.len() as u32);
-        for value in prefix {
-            write_value(self.hasher, value);
-        }
+        write_values(self.hasher, prefix);
         write_value_bound(self.hasher, lower);
         write_value_bound(self.hasher, upper);
     }

@@ -34,24 +34,12 @@ pub(in crate::db) use private::{
 };
 
 ///
-/// IndexApplyPlan
-/// Planned apply target for one index store mutation group.
-///
-
-#[derive(Debug)]
-pub(in crate::db) struct IndexApplyPlan {
-    pub(in crate::db) index: &'static IndexModel,
-    pub(in crate::db) store: &'static LocalKey<RefCell<IndexStore>>,
-}
-
-///
 /// IndexMutationPlan
-/// Deterministic mutation plan containing apply targets and commit ops.
+/// Deterministic mutation plan containing mechanical commit ops.
 ///
 
 #[derive(Debug)]
 pub(in crate::db) struct IndexMutationPlan {
-    pub(in crate::db) apply: Vec<IndexApplyPlan>,
     pub(in crate::db) commit_ops: Vec<CommitIndexOp>,
 }
 
@@ -186,23 +174,7 @@ where
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        let data_keys = store.with_borrow(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited(
-                E::ENTITY_TAG,
-                index,
-                bounds,
-                IndexScanContinuationInput::new(None, Direction::Asc),
-                limit,
-                None,
-            )
-        })?;
-
-        let mut out = Vec::with_capacity(data_keys.len());
-        for data_key in data_keys {
-            out.push(data_key.storage_key());
-        }
-
-        Ok(out)
+        read_index_storage_keys_in_raw_range(E::ENTITY_TAG, store, index, bounds, limit)
     }
 }
 
@@ -229,23 +201,7 @@ where
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        let data_keys = store.with_borrow(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited(
-                entity_tag,
-                index,
-                bounds,
-                IndexScanContinuationInput::new(None, Direction::Asc),
-                limit,
-                None,
-            )
-        })?;
-
-        let mut out = Vec::with_capacity(data_keys.len());
-        for data_key in data_keys {
-            out.push(data_key.storage_key());
-        }
-
-        Ok(out)
+        read_index_storage_keys_in_raw_range(entity_tag, store, index, bounds, limit)
     }
 }
 
@@ -295,6 +251,34 @@ impl<E> SealedStructuralIndexEntryReader for dyn IndexEntryReader<E> + '_ where
 {
 }
 
+// Resolve structural storage keys from one raw index range using the shared
+// context-backed index-store reader path.
+fn read_index_storage_keys_in_raw_range(
+    entity_tag: EntityTag,
+    store: &'static LocalKey<RefCell<IndexStore>>,
+    index: &IndexModel,
+    bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+    limit: usize,
+) -> Result<Vec<StorageKey>, InternalError> {
+    let data_keys = store.with_borrow(|index_store| {
+        index_store.resolve_data_values_in_raw_range_limited(
+            entity_tag,
+            index,
+            bounds,
+            IndexScanContinuationInput::new(None, Direction::Asc),
+            limit,
+            None,
+        )
+    })?;
+
+    let mut out = Vec::with_capacity(data_keys.len());
+    for data_key in data_keys {
+        out.push(data_key.storage_key());
+    }
+
+    Ok(out)
+}
+
 /// Compile the optional conditional-index predicate from structural entity
 /// authority only.
 pub(in crate::db) fn compile_index_membership_predicate_structural(
@@ -320,7 +304,7 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
-    slots: &mut dyn SlotReader,
+    slots: &dyn SlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     if let Some(predicate_program) = predicate_program {
         let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
@@ -354,7 +338,6 @@ where
     C: CanisterKind,
 {
     let indexes = model.indexes();
-    let mut apply = Vec::with_capacity(indexes.len());
     let mut commit_ops = Vec::new();
 
     // Phase 1: per-index load, validate, and synthesize commit ops from
@@ -469,6 +452,7 @@ where
 
         commit_ops::build_commit_ops_for_index(
             &mut commit_ops,
+            store,
             index,
             entity_path,
             old_key,
@@ -478,11 +462,9 @@ where
             old_storage_key,
             new_storage_key,
         )?;
-
-        apply.push(IndexApplyPlan { index, store });
     }
 
-    Ok(IndexMutationPlan { apply, commit_ops })
+    Ok(IndexMutationPlan { commit_ops })
 }
 
 pub(super) fn load_existing_entry_structural(

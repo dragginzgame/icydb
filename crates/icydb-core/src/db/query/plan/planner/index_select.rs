@@ -19,12 +19,16 @@ pub(in crate::db::query::plan) fn sorted_indexes(
     model: &EntityModel,
     query_predicate: &Predicate,
 ) -> Vec<&'static IndexModel> {
-    let mut indexes = model
-        .indexes
-        .iter()
-        .copied()
+    sorted_model_indexes(model)
+        .into_iter()
         .filter(|index| index_predicate_implied_by_query(index, query_predicate))
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+pub(in crate::db::query::plan) fn sorted_model_indexes(
+    model: &EntityModel,
+) -> Vec<&'static IndexModel> {
+    let mut indexes = model.indexes.to_vec();
     indexes.sort_by(|left, right| left.name().cmp(right.name()));
 
     indexes
@@ -117,6 +121,18 @@ enum RequiredCompareClauses<'a> {
     Unsatisfiable,
 }
 
+#[derive(Clone, Copy)]
+enum CompareClauseMode {
+    Query,
+    Required,
+}
+
+enum CompareClauseCollect {
+    Known,
+    Unsatisfiable,
+    Unknown,
+}
+
 fn query_compare_clauses(predicate: &Predicate) -> QueryCompareClauses<'_> {
     match predicate {
         Predicate::False => QueryCompareClauses::Unsatisfiable,
@@ -131,11 +147,11 @@ fn query_compare_clauses(predicate: &Predicate) -> QueryCompareClauses<'_> {
         Predicate::And(children) => {
             let mut clauses = Vec::new();
             for child in children {
-                match collect_query_compare_clauses(child, &mut clauses) {
-                    QueryClauseCollect::Unsatisfiable => {
+                match collect_compare_clauses(child, &mut clauses, CompareClauseMode::Query) {
+                    CompareClauseCollect::Unsatisfiable => {
                         return QueryCompareClauses::Unsatisfiable;
                     }
-                    QueryClauseCollect::Known | QueryClauseCollect::Unknown => {}
+                    CompareClauseCollect::Known | CompareClauseCollect::Unknown => {}
                 }
             }
 
@@ -159,77 +175,53 @@ fn required_compare_clauses(predicate: &Predicate) -> Option<RequiredCompareClau
         Predicate::False => Some(RequiredCompareClauses::Unsatisfiable),
         _ => {
             let mut clauses = Vec::new();
-            collect_required_compare_clauses(predicate, &mut clauses)?;
+            match collect_compare_clauses(predicate, &mut clauses, CompareClauseMode::Required) {
+                CompareClauseCollect::Known => {}
+                CompareClauseCollect::Unsatisfiable => {
+                    return Some(RequiredCompareClauses::Unsatisfiable);
+                }
+                CompareClauseCollect::Unknown => return None,
+            }
             Some(RequiredCompareClauses::Clauses(clauses))
         }
     }
 }
 
-fn collect_required_compare_clauses<'a>(
+fn collect_compare_clauses<'a>(
     predicate: &'a Predicate,
     out: &mut Vec<&'a ComparePredicate>,
-) -> Option<()> {
+    mode: CompareClauseMode,
+) -> CompareClauseCollect {
     match predicate {
         Predicate::And(children) => {
             for child in children {
-                collect_required_compare_clauses(child, out)?;
-            }
-
-            Some(())
-        }
-        Predicate::Compare(cmp) => {
-            if !compare_clause_supported(cmp) {
-                return None;
-            }
-            out.push(cmp);
-            Some(())
-        }
-        Predicate::True => Some(()),
-        Predicate::False
-        | Predicate::Or(_)
-        | Predicate::Not(_)
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => None,
-    }
-}
-
-enum QueryClauseCollect {
-    Known,
-    Unsatisfiable,
-    Unknown,
-}
-
-fn collect_query_compare_clauses<'a>(
-    predicate: &'a Predicate,
-    out: &mut Vec<&'a ComparePredicate>,
-) -> QueryClauseCollect {
-    match predicate {
-        Predicate::False => QueryClauseCollect::Unsatisfiable,
-        Predicate::True => QueryClauseCollect::Known,
-        Predicate::And(children) => {
-            for child in children {
-                if matches!(
-                    collect_query_compare_clauses(child, out),
-                    QueryClauseCollect::Unsatisfiable
-                ) {
-                    return QueryClauseCollect::Unsatisfiable;
+                match collect_compare_clauses(child, out, mode) {
+                    CompareClauseCollect::Known => {}
+                    CompareClauseCollect::Unsatisfiable => {
+                        return CompareClauseCollect::Unsatisfiable;
+                    }
+                    CompareClauseCollect::Unknown => {
+                        if matches!(mode, CompareClauseMode::Required) {
+                            return CompareClauseCollect::Unknown;
+                        }
+                    }
                 }
             }
 
-            QueryClauseCollect::Known
+            CompareClauseCollect::Known
         }
         Predicate::Compare(cmp) => {
             if !compare_clause_supported(cmp) {
-                return QueryClauseCollect::Unknown;
+                return CompareClauseCollect::Unknown;
             }
             out.push(cmp);
-            QueryClauseCollect::Known
+            CompareClauseCollect::Known
         }
+        Predicate::True => CompareClauseCollect::Known,
+        Predicate::False => match mode {
+            CompareClauseMode::Query => CompareClauseCollect::Unsatisfiable,
+            CompareClauseMode::Required => CompareClauseCollect::Unknown,
+        },
         Predicate::Or(_)
         | Predicate::Not(_)
         | Predicate::IsNull { .. }
@@ -238,7 +230,7 @@ fn collect_query_compare_clauses<'a>(
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => QueryClauseCollect::Unknown,
+        | Predicate::TextContainsCi { .. } => CompareClauseCollect::Unknown,
     }
 }
 

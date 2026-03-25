@@ -22,7 +22,7 @@ use crate::{
                     key_item_matches_field_and_coercion, leading_index_key_item,
                     starts_with_lookup_value_for_key_item,
                 },
-                planner::index_literal_matches_schema,
+                planner::{index_literal_matches_schema, sorted_model_indexes},
             },
         },
         schema::SchemaInfo,
@@ -238,7 +238,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
 
     // Phase 2: evaluate planner-compatible candidates across deterministic index order.
     let predicate = plan.scalar_plan().predicate.as_ref();
-    let mut evaluations = sorted_indexes(model)
+    let mut evaluations = sorted_model_indexes(model)
         .into_iter()
         .map(|index| {
             (
@@ -967,11 +967,4 @@ const fn ranked_rejection_reason(
     }
 
     AccessChoiceRejectedReason::LexicographicTiebreak
-}
-
-fn sorted_indexes(model: &EntityModel) -> Vec<&'static IndexModel> {
-    let mut indexes = model.indexes.to_vec();
-    indexes.sort_by(|left, right| left.name().cmp(right.name()));
-
-    indexes
 }

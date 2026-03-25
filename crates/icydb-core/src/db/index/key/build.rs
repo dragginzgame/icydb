@@ -79,71 +79,9 @@ impl IndexKey {
         slots: &dyn SlotReader,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
-        // Phase 1: validate declared index shape and collect encoded components.
-        let index_component_count = match index.key_items() {
-            IndexKeyItemsRef::Fields(fields) => fields.len(),
-            IndexKeyItemsRef::Items(items) => items.len(),
-        };
-        if index_component_count > MAX_INDEX_FIELDS {
-            return Err(InternalError::index_key_field_count_exceeds_max(
-                index.name(),
-                index_component_count,
-                MAX_INDEX_FIELDS,
-            ));
-        }
-
-        let mut components = Vec::with_capacity(index_component_count);
-
-        // Phase 2: materialize canonical field/expression key item values.
-        match index.key_items() {
-            IndexKeyItemsRef::Fields(fields) => {
-                for &field in fields {
-                    let key_item = IndexKeyItem::Field(field);
-                    let Some(component) = index_component_bytes_from_slots(slots, index, key_item)?
-                    else {
-                        return Ok(None);
-                    };
-
-                    if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_component_exceeds_max_size(
-                            key_item.canonical_text(),
-                            component.len(),
-                            Self::MAX_COMPONENT_SIZE,
-                        ));
-                    }
-
-                    components.push(component);
-                }
-            }
-            IndexKeyItemsRef::Items(items) => {
-                for &key_item in items {
-                    let Some(component) = index_component_bytes_from_slots(slots, index, key_item)?
-                    else {
-                        return Ok(None);
-                    };
-
-                    if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_component_exceeds_max_size(
-                            key_item.canonical_text(),
-                            component.len(),
-                            Self::MAX_COMPONENT_SIZE,
-                        ));
-                    }
-
-                    components.push(component);
-                }
-            }
-        }
-
-        // Phase 3: encode the already-materialized primary key and assemble the full key.
-        let primary_key = storage_key.to_bytes()?.to_vec();
-
-        Ok(Some(Self {
-            key_kind: IndexKeyKind::User,
-            index_id: IndexId::new(entity_tag, index.ordinal()),
-            components,
-            primary_key,
-        }))
+        build_index_key(entity_tag, storage_key, index, |key_item| {
+            index_component_bytes_from_slots(slots, index, key_item)
+        })
     }
 
     /// Build an index key from one structural row slot reader plus runtime identity.
@@ -158,103 +96,15 @@ impl IndexKey {
     where
         F: FnMut(usize) -> Option<Value>,
     {
-        // Phase 1: validate declared index shape and collect encoded components.
-        let index_component_count = match index.key_items() {
-            IndexKeyItemsRef::Fields(fields) => fields.len(),
-            IndexKeyItemsRef::Items(items) => items.len(),
-        };
-        if index_component_count > MAX_INDEX_FIELDS {
-            return Err(InternalError::index_key_field_count_exceeds_max(
-                index.name(),
-                index_component_count,
-                MAX_INDEX_FIELDS,
-            ));
-        }
+        build_index_key(entity_tag, storage_key, index, |key_item| {
+            let Some(value) =
+                index_component_value_from_slot_reader(entity_model, index, key_item, read_slot)?
+            else {
+                return Ok(None);
+            };
 
-        let mut components = Vec::with_capacity(index_component_count);
-
-        // Phase 2: materialize canonical field/expression key item values.
-        match index.key_items() {
-            IndexKeyItemsRef::Fields(fields) => {
-                for &field in fields {
-                    let key_item = IndexKeyItem::Field(field);
-                    let Some(value) = index_component_value_from_slot_reader(
-                        entity_model,
-                        index,
-                        key_item,
-                        read_slot,
-                    )?
-                    else {
-                        return Ok(None);
-                    };
-                    let encoded = match EncodedValue::try_from_ref(&value) {
-                        Ok(encoded) => encoded,
-                        Err(
-                            OrderedValueEncodeError::NullNotIndexable
-                            | OrderedValueEncodeError::UnsupportedValueKind { .. },
-                        ) => {
-                            return Ok(None);
-                        }
-                        Err(err) => return Err(err.into()),
-                    };
-                    let component = encoded.encoded().to_vec();
-
-                    if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_component_exceeds_max_size(
-                            key_item.canonical_text(),
-                            component.len(),
-                            Self::MAX_COMPONENT_SIZE,
-                        ));
-                    }
-
-                    components.push(component);
-                }
-            }
-            IndexKeyItemsRef::Items(items) => {
-                for &key_item in items {
-                    let Some(value) = index_component_value_from_slot_reader(
-                        entity_model,
-                        index,
-                        key_item,
-                        read_slot,
-                    )?
-                    else {
-                        return Ok(None);
-                    };
-                    let encoded = match EncodedValue::try_from_ref(&value) {
-                        Ok(encoded) => encoded,
-                        Err(
-                            OrderedValueEncodeError::NullNotIndexable
-                            | OrderedValueEncodeError::UnsupportedValueKind { .. },
-                        ) => {
-                            return Ok(None);
-                        }
-                        Err(err) => return Err(err.into()),
-                    };
-                    let component = encoded.encoded().to_vec();
-
-                    if component.len() > Self::MAX_COMPONENT_SIZE {
-                        return Err(InternalError::index_component_exceeds_max_size(
-                            key_item.canonical_text(),
-                            component.len(),
-                            Self::MAX_COMPONENT_SIZE,
-                        ));
-                    }
-
-                    components.push(component);
-                }
-            }
-        }
-
-        // Phase 3: encode the already-materialized primary key and assemble the full key.
-        let primary_key = storage_key.to_bytes()?.to_vec();
-
-        Ok(Some(Self {
-            key_kind: IndexKeyKind::User,
-            index_id: IndexId::new(entity_tag, index.ordinal()),
-            components,
-            primary_key,
-        }))
+            encode_value_index_component(value)
+        })
     }
 
     /// Build an index key from a typed entity for test-only parity checks.
@@ -288,6 +138,7 @@ impl IndexKey {
         }
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::index) fn bounds_for_prefix<C: AsRef<[u8]>>(
         index_id: &IndexId,
@@ -357,6 +208,29 @@ impl IndexKey {
                 primary_key: Self::wildcard_high_pk(),
             },
         )
+    }
+
+    #[must_use]
+    pub(in crate::db) fn bounds_for_all_components(&self) -> (Self, Self) {
+        (
+            Self {
+                key_kind: self.key_kind,
+                index_id: self.index_id,
+                components: self.components.clone(),
+                primary_key: Self::wildcard_low_pk(),
+            },
+            Self {
+                key_kind: self.key_kind,
+                index_id: self.index_id,
+                components: self.components.clone(),
+                primary_key: Self::wildcard_high_pk(),
+            },
+        )
+    }
+
+    #[must_use]
+    pub(in crate::db) fn has_same_components(&self, other: &Self) -> bool {
+        self.components == other.components
     }
 
     /// Build lexicographic key-space bounds for one ranged index component after an equality prefix.
@@ -501,6 +375,84 @@ impl IndexKey {
 
         (lower_bound, upper_bound)
     }
+}
+
+// Build one user-facing index key by sharing the canonical component walk
+// across structural slot readers and typed slot-reader adapters.
+fn build_index_key<F>(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    index: &IndexModel,
+    mut component_bytes: F,
+) -> Result<Option<IndexKey>, InternalError>
+where
+    F: FnMut(IndexKeyItem) -> Result<Option<Vec<u8>>, InternalError>,
+{
+    // Phase 1: validate declared index shape and pre-size the component buffer.
+    let index_component_count = match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => fields.len(),
+        IndexKeyItemsRef::Items(items) => items.len(),
+    };
+    if index_component_count > MAX_INDEX_FIELDS {
+        return Err(InternalError::index_key_field_count_exceeds_max(
+            index.name(),
+            index_component_count,
+            MAX_INDEX_FIELDS,
+        ));
+    }
+
+    let mut components = Vec::with_capacity(index_component_count);
+
+    // Phase 2: materialize canonical key-item bytes in declaration order.
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => {
+            for &field in fields {
+                let key_item = IndexKeyItem::Field(field);
+                let Some(component) = component_bytes(key_item)? else {
+                    return Ok(None);
+                };
+
+                push_index_key_component(&mut components, key_item, component)?;
+            }
+        }
+        IndexKeyItemsRef::Items(items) => {
+            for &key_item in items {
+                let Some(component) = component_bytes(key_item)? else {
+                    return Ok(None);
+                };
+
+                push_index_key_component(&mut components, key_item, component)?;
+            }
+        }
+    }
+
+    // Phase 3: encode the primary key once and assemble the final user key.
+    let primary_key = storage_key.to_bytes()?.to_vec();
+
+    Ok(Some(IndexKey {
+        key_kind: IndexKeyKind::User,
+        index_id: IndexId::new(entity_tag, index.ordinal()),
+        components,
+        primary_key,
+    }))
+}
+
+// Push one canonical component after enforcing the shared size contract.
+fn push_index_key_component(
+    components: &mut Vec<Vec<u8>>,
+    key_item: IndexKeyItem,
+    component: Vec<u8>,
+) -> Result<(), InternalError> {
+    if component.len() > IndexKey::MAX_COMPONENT_SIZE {
+        return Err(InternalError::index_component_exceeds_max_size(
+            key_item.canonical_text(),
+            component.len(),
+            IndexKey::MAX_COMPONENT_SIZE,
+        ));
+    }
+
+    components.push(component);
+    Ok(())
 }
 
 // Build one canonical index component directly from one slot reader.

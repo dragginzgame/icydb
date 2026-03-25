@@ -13,9 +13,7 @@ mod range;
 mod scan;
 mod store;
 
-pub(in crate::db) use entry::{
-    IndexEntry, IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
-};
+pub(in crate::db) use entry::{IndexEntry, IndexEntryCorruption, RawIndexEntry};
 pub(in crate::db) use envelope::{
     KeyEnvelope, continuation_advanced, envelope_is_empty, key_within_envelope,
     resume_bounds_from_refs, validate_index_scan_continuation_advancement,
@@ -30,8 +28,6 @@ pub(in crate::db) use plan::{
     IndexEntryReader, IndexMutationPlan, PrimaryRowReader, SealedIndexEntryReader,
     SealedPrimaryRowReader, SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
     StructuralIndexEntryReader, StructuralPrimaryRowReader,
-    compile_index_membership_predicate_structural,
-    index_key_for_slot_reader_with_membership_structural,
     plan_index_mutation_for_slot_reader_structural,
 };
 pub(in crate::db) use predicate::{

@@ -929,38 +929,6 @@ impl InternalError {
         Self::index_invariant("missing entity key during unique validation")
     }
 
-    /// Construct the canonical missing key-component invariant during unique validation.
-    pub(crate) fn index_unique_validation_key_component_missing(
-        component_index: usize,
-        entity_path: &str,
-        fields: &str,
-    ) -> Self {
-        Self::index_invariant(format!(
-            "index key missing component {component_index} during unique validation: {entity_path} ({fields})",
-        ))
-    }
-
-    /// Construct the canonical missing expected key-component invariant during unique validation.
-    pub(crate) fn index_unique_validation_expected_component_missing(
-        component_index: usize,
-        entity_path: &str,
-        fields: &str,
-    ) -> Self {
-        Self::index_invariant(format!(
-            "index key missing expected component {component_index} during unique validation: {entity_path} ({fields})",
-        ))
-    }
-
-    /// Construct the canonical missing primary-key field invariant during unique validation.
-    pub(crate) fn index_unique_validation_primary_key_field_missing(
-        entity_path: &str,
-        primary_key_name: &str,
-    ) -> Self {
-        Self::index_invariant(format!(
-            "entity primary key field missing during unique validation: {entity_path} field={primary_key_name}",
-        ))
-    }
-
     /// Construct the canonical unique-validation structural row-decode corruption error.
     pub(crate) fn index_unique_validation_row_deserialize_failed(
         data_key: impl fmt::Display,
