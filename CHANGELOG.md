@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
 
+- `0.63.11` cleans up several public SQL, describe, query-expression, diagnostics, metrics, and error payload types by removing unused `serde::Serialize` derives where Candid decoding is the real contract, while keeping the runtime feature set and measured wasm size effectively unchanged.
 - `0.63.10` keeps the full SQL feature set but cuts canister wasm size by making generated SQL query exports truly select-only, trimming retained explain/snapshot payloads, and restoring clean `sql-off` builds so SQL-on vs SQL-off footprint checks stay trustworthy.
 - `0.63.9` closes this phase of the `0.63` line by running the crosscutting audit suite again, restoring the canonical wasm audit report layout to one top-level summary plus artifact-local per-canister details, and making the route feature budget guard an actually executed test instead of a dead source-only check.
 - `0.63.8` keeps the `0.63` cleanup moving in the canister and test harness layer by deduplicating more quickstart SQL parity checks, sharing the repeated wasm-audit SQL stability test shell across the audit canisters, and simplifying the remaining Pocket-IC metadata-lane assertions, without changing SQL or runtime behavior.

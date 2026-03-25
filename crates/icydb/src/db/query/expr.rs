@@ -7,7 +7,7 @@ use icydb_core::db::{
     CoercionId, CompareOp, ComparePredicate, FilterExpr as CoreFilterExpr,
     OrderDirection as CoreOrderDirection, Predicate, QueryError, SortExpr as CoreSortExpr,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 ///
 /// FilterExpr
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// Any new Predicate variant must be explicitly reviewed for exposure here.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum FilterExpr {
     /// Always true.
@@ -510,7 +510,7 @@ impl FilterExpr {
 /// SortExpr
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SortExpr {
     fields: Vec<(String, OrderDirection)>,
@@ -552,7 +552,7 @@ impl SortExpr {
 /// OrderDirection
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OrderDirection {
     Asc,
@@ -566,114 +566,133 @@ pub enum OrderDirection {
 #[cfg(test)]
 mod tests {
     use super::{FilterExpr, OrderDirection, SortExpr};
-    use serde::Serialize;
-    use serde_cbor::Value as CborValue;
-    use std::collections::BTreeMap;
+    use candid::types::{CandidType, Label, Type, TypeInner};
 
-    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
-        let bytes =
-            serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
-        serde_cbor::from_slice::<CborValue>(&bytes)
-            .expect("test fixtures must deserialize into CBOR value trees")
-    }
-
-    fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
-        match value {
-            CborValue::Map(map) => map,
-            other => panic!("expected CBOR map, got {other:?}"),
+    fn expect_record_fields(ty: Type) -> Vec<String> {
+        match ty.as_ref() {
+            TypeInner::Record(fields) => fields
+                .iter()
+                .map(|field| match field.id.as_ref() {
+                    Label::Named(name) => name.clone(),
+                    other => panic!("expected named record field, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected candid record, got {other:?}"),
         }
     }
 
-    fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
-        map.get(&CborValue::Text(key.to_string()))
+    fn expect_variant_labels(ty: Type) -> Vec<String> {
+        match ty.as_ref() {
+            TypeInner::Variant(fields) => fields
+                .iter()
+                .map(|field| match field.id.as_ref() {
+                    Label::Named(name) => name.clone(),
+                    other => panic!("expected named variant label, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected candid variant, got {other:?}"),
+        }
     }
 
-    #[test]
-    fn filter_expr_eq_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&FilterExpr::eq("rank", 42_u64));
-        let root = expect_cbor_map(&encoded);
-        let eq_payload = map_field(root, "Eq").expect("expected external enum variant key");
-        let payload = expect_cbor_map(eq_payload);
-
-        assert!(
-            map_field(payload, "field").is_some(),
-            "Eq payload must keep `field` key in serialized shape",
-        );
-        assert!(
-            map_field(payload, "value").is_some(),
-            "Eq payload must keep `value` key in serialized shape",
-        );
-    }
-
-    #[test]
-    fn filter_expr_and_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&FilterExpr::and(vec![
-            FilterExpr::is_null("deleted_at"),
-            FilterExpr::not(FilterExpr::is_missing("name")),
-        ]));
-        let root = expect_cbor_map(&encoded);
-        let and_payload = map_field(root, "And").expect("expected external enum variant key");
-        match and_payload {
-            CborValue::Array(items) => {
-                assert_eq!(items.len(), 2, "And payload must remain an array payload");
-            }
-            other => panic!("expected And payload array, got {other:?}"),
+    fn expect_variant_field_type(ty: Type, variant_name: &str) -> Type {
+        match ty.as_ref() {
+            TypeInner::Variant(fields) => fields
+                .iter()
+                .find_map(|field| match field.id.as_ref() {
+                    Label::Named(name) if name == variant_name => Some(field.ty.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("expected variant label `{variant_name}`")),
+            other => panic!("expected candid variant, got {other:?}"),
         }
     }
 
     #[test]
-    fn sort_expr_serialization_field_name_is_stable() {
-        let encoded = to_cbor_value(&SortExpr::new(vec![(
-            "created_at".to_string(),
-            OrderDirection::Desc,
-        )]));
-        let root = expect_cbor_map(&encoded);
+    fn filter_expr_eq_candid_payload_shape_is_stable() {
+        let fields = expect_record_fields(expect_variant_field_type(FilterExpr::ty(), "Eq"));
+
+        for field in ["field", "value"] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "Eq payload must keep `{field}` field key in Candid shape",
+            );
+        }
+    }
+
+    #[test]
+    fn filter_expr_and_candid_payload_shape_is_stable() {
+        match expect_variant_field_type(FilterExpr::ty(), "And").as_ref() {
+            TypeInner::Vec(_) => {}
+            other => panic!("And payload must remain a Candid vec payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sort_expr_candid_field_name_is_stable() {
+        let fields = expect_record_fields(SortExpr::ty());
+
         assert!(
-            map_field(root, "fields").is_some(),
-            "SortExpr must keep `fields` as serialized field key",
+            fields.iter().any(|candidate| candidate == "fields"),
+            "SortExpr must keep `fields` as Candid field key",
         );
     }
 
     #[test]
     fn order_direction_variant_labels_are_stable() {
-        assert_eq!(
-            to_cbor_value(&OrderDirection::Asc),
-            CborValue::Text("Asc".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&OrderDirection::Desc),
-            CborValue::Text("Desc".to_string())
-        );
+        let mut labels = expect_variant_labels(OrderDirection::ty());
+        labels.sort_unstable();
+        assert_eq!(labels, vec!["Asc".to_string(), "Desc".to_string()]);
     }
 
     #[test]
-    fn filter_expr_text_contains_ci_payload_shape_is_stable() {
-        let encoded = to_cbor_value(&FilterExpr::text_contains_ci("name", "Ada"));
-        let root = expect_cbor_map(&encoded);
-        let payload = map_field(root, "TextContainsCi")
-            .expect("expected TextContainsCi external variant key");
-        let payload_map = expect_cbor_map(payload);
+    fn filter_expr_text_contains_ci_candid_payload_shape_is_stable() {
+        let fields = expect_record_fields(expect_variant_field_type(
+            FilterExpr::ty(),
+            "TextContainsCi",
+        ));
 
-        assert!(
-            map_field(payload_map, "field").is_some(),
-            "TextContainsCi payload must keep `field` key in serialized shape",
-        );
-        assert!(
-            map_field(payload_map, "value").is_some(),
-            "TextContainsCi payload must keep `value` key in serialized shape",
-        );
+        for field in ["field", "value"] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "TextContainsCi payload must keep `{field}` field key in Candid shape",
+            );
+        }
     }
 
     #[test]
     fn filter_expr_not_payload_shape_is_stable() {
-        let encoded = to_cbor_value(&FilterExpr::not(FilterExpr::eq("rank", 7_u64)));
-        let root = expect_cbor_map(&encoded);
-        let not_payload = map_field(root, "Not").expect("expected Not external variant key");
-        let inner = expect_cbor_map(not_payload);
+        match expect_variant_field_type(FilterExpr::ty(), "Not").as_ref() {
+            TypeInner::Var(_) | TypeInner::Knot(_) | TypeInner::Variant(_) => {}
+            other => panic!("Not payload must keep nested predicate payload, got {other:?}"),
+        }
+    }
 
-        assert!(
-            map_field(inner, "Eq").is_some(),
-            "Not payload must keep nested externally-tagged predicate payload",
-        );
+    #[test]
+    fn filter_expr_variant_labels_are_stable() {
+        let labels = expect_variant_labels(FilterExpr::ty());
+
+        for label in ["Eq", "And", "Not", "TextContainsCi", "IsMissing"] {
+            assert!(
+                labels.iter().any(|candidate| candidate == label),
+                "FilterExpr must keep `{label}` variant label",
+            );
+        }
+    }
+
+    #[test]
+    fn query_expr_fixture_constructors_stay_usable() {
+        let expr = FilterExpr::and(vec![
+            FilterExpr::is_null("deleted_at"),
+            FilterExpr::not(FilterExpr::is_missing("name")),
+        ]);
+        let sort = SortExpr::new(vec![("created_at".to_string(), OrderDirection::Desc)]);
+
+        match expr {
+            FilterExpr::And(items) => assert_eq!(items.len(), 2),
+            other => panic!("expected And fixture, got {other:?}"),
+        }
+
+        assert_eq!(sort.fields().len(), 1);
+        assert!(matches!(sort.fields()[0].1, OrderDirection::Desc));
     }
 }

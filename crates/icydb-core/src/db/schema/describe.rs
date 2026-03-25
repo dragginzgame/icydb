@@ -8,7 +8,7 @@ use crate::model::{
     field::{FieldKind, RelationStrength},
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 ///
 /// EntitySchemaDescription
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// This mirrors SQL-style `DESCRIBE` intent for fields, indexes, and relations.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntitySchemaDescription {
     pub(crate) entity_path: String,
     pub(crate) entity_name: String,
@@ -92,7 +92,7 @@ impl EntitySchemaDescription {
 /// Keeps field type and queryability metadata explicit for diagnostics.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityFieldDescription {
     pub(crate) name: String,
     pub(crate) kind: String,
@@ -144,7 +144,7 @@ impl EntityFieldDescription {
 /// Includes uniqueness and ordered field list.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityIndexDescription {
     pub(crate) name: String,
     pub(crate) unique: bool,
@@ -188,7 +188,7 @@ impl EntityIndexDescription {
 /// Captures relation target identity plus strength/cardinality metadata.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityRelationDescription {
     pub(crate) field: String,
     pub(crate) target_path: String,
@@ -262,7 +262,7 @@ impl EntityRelationDescription {
 /// Describe-surface relation strength projection.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum EntityRelationStrength {
     Strong,
     Weak,
@@ -274,7 +274,7 @@ pub enum EntityRelationStrength {
 /// Describe-surface relation cardinality projection.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum EntityRelationCardinality {
     Single,
     List,
@@ -478,30 +478,115 @@ mod tests {
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
         EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
     };
-    use serde::Serialize;
-    use serde_cbor::Value as CborValue;
-    use std::collections::BTreeMap;
+    use candid::types::{CandidType, Label, Type, TypeInner};
 
-    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
-        let bytes =
-            serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
-        serde_cbor::from_slice::<CborValue>(&bytes)
-            .expect("test fixtures must deserialize into CBOR value trees")
-    }
-
-    fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
-        match value {
-            CborValue::Map(map) => map,
-            other => panic!("expected CBOR map, got {other:?}"),
+    fn expect_record_fields(ty: Type) -> Vec<String> {
+        match ty.as_ref() {
+            TypeInner::Record(fields) => fields
+                .iter()
+                .map(|field| match field.id.as_ref() {
+                    Label::Named(name) => name.clone(),
+                    other => panic!("expected named record field, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected candid record, got {other:?}"),
         }
     }
 
-    fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
-        map.get(&CborValue::Text(key.to_string()))
+    fn expect_variant_labels(ty: Type) -> Vec<String> {
+        match ty.as_ref() {
+            TypeInner::Variant(fields) => fields
+                .iter()
+                .map(|field| match field.id.as_ref() {
+                    Label::Named(name) => name.clone(),
+                    other => panic!("expected named variant label, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected candid variant, got {other:?}"),
+        }
     }
 
     #[test]
-    fn entity_schema_description_serialization_shape_is_stable() {
+    fn entity_schema_description_candid_shape_is_stable() {
+        let fields = expect_record_fields(EntitySchemaDescription::ty());
+
+        for field in [
+            "entity_path",
+            "entity_name",
+            "primary_key",
+            "fields",
+            "indexes",
+            "relations",
+        ] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "EntitySchemaDescription must keep `{field}` field key",
+            );
+        }
+    }
+
+    #[test]
+    fn entity_field_description_candid_shape_is_stable() {
+        let fields = expect_record_fields(EntityFieldDescription::ty());
+
+        for field in ["name", "kind", "primary_key", "queryable"] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "EntityFieldDescription must keep `{field}` field key",
+            );
+        }
+    }
+
+    #[test]
+    fn entity_index_description_candid_shape_is_stable() {
+        let fields = expect_record_fields(EntityIndexDescription::ty());
+
+        for field in ["name", "unique", "fields"] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "EntityIndexDescription must keep `{field}` field key",
+            );
+        }
+    }
+
+    #[test]
+    fn entity_relation_description_candid_shape_is_stable() {
+        let fields = expect_record_fields(EntityRelationDescription::ty());
+
+        for field in [
+            "field",
+            "target_path",
+            "target_entity_name",
+            "target_store_path",
+            "strength",
+            "cardinality",
+        ] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "EntityRelationDescription must keep `{field}` field key",
+            );
+        }
+    }
+
+    #[test]
+    fn relation_enum_variant_labels_are_stable() {
+        let mut strength_labels = expect_variant_labels(EntityRelationStrength::ty());
+        strength_labels.sort_unstable();
+        assert_eq!(
+            strength_labels,
+            vec!["Strong".to_string(), "Weak".to_string()]
+        );
+
+        let mut cardinality_labels = expect_variant_labels(EntityRelationCardinality::ty());
+        cardinality_labels.sort_unstable();
+        assert_eq!(
+            cardinality_labels,
+            vec!["List".to_string(), "Set".to_string(), "Single".to_string()],
+        );
+    }
+
+    #[test]
+    fn describe_fixture_constructors_stay_usable() {
         let payload = EntitySchemaDescription::new(
             "entities::User".to_string(),
             "User".to_string(),
@@ -526,145 +611,10 @@ mod tests {
                 EntityRelationCardinality::Single,
             )],
         );
-        let encoded = to_cbor_value(&payload);
-        let root = expect_cbor_map(&encoded);
 
-        assert!(
-            map_field(root, "entity_path").is_some(),
-            "EntitySchemaDescription must keep `entity_path` field key",
-        );
-        assert!(
-            map_field(root, "entity_name").is_some(),
-            "EntitySchemaDescription must keep `entity_name` field key",
-        );
-        assert!(
-            map_field(root, "primary_key").is_some(),
-            "EntitySchemaDescription must keep `primary_key` field key",
-        );
-        assert!(
-            map_field(root, "fields").is_some(),
-            "EntitySchemaDescription must keep `fields` field key",
-        );
-        assert!(
-            map_field(root, "indexes").is_some(),
-            "EntitySchemaDescription must keep `indexes` field key",
-        );
-        assert!(
-            map_field(root, "relations").is_some(),
-            "EntitySchemaDescription must keep `relations` field key",
-        );
-    }
-
-    #[test]
-    fn entity_field_description_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&EntityFieldDescription::new(
-            "created_at".to_string(),
-            "timestamp".to_string(),
-            false,
-            true,
-        ));
-        let root = expect_cbor_map(&encoded);
-
-        assert!(
-            map_field(root, "name").is_some(),
-            "EntityFieldDescription must keep `name` field key",
-        );
-        assert!(
-            map_field(root, "kind").is_some(),
-            "EntityFieldDescription must keep `kind` field key",
-        );
-        assert!(
-            map_field(root, "primary_key").is_some(),
-            "EntityFieldDescription must keep `primary_key` field key",
-        );
-        assert!(
-            map_field(root, "queryable").is_some(),
-            "EntityFieldDescription must keep `queryable` field key",
-        );
-    }
-
-    #[test]
-    fn entity_index_description_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&EntityIndexDescription::new(
-            "idx_created_at".to_string(),
-            false,
-            vec!["created_at".to_string()],
-        ));
-        let root = expect_cbor_map(&encoded);
-
-        assert!(
-            map_field(root, "name").is_some(),
-            "EntityIndexDescription must keep `name` field key",
-        );
-        assert!(
-            map_field(root, "unique").is_some(),
-            "EntityIndexDescription must keep `unique` field key",
-        );
-        assert!(
-            map_field(root, "fields").is_some(),
-            "EntityIndexDescription must keep `fields` field key",
-        );
-    }
-
-    #[test]
-    fn entity_relation_description_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&EntityRelationDescription::new(
-            "owner_id".to_string(),
-            "entities::User".to_string(),
-            "User".to_string(),
-            "users".to_string(),
-            EntityRelationStrength::Weak,
-            EntityRelationCardinality::Set,
-        ));
-        let root = expect_cbor_map(&encoded);
-
-        assert!(
-            map_field(root, "field").is_some(),
-            "EntityRelationDescription must keep `field` field key",
-        );
-        assert!(
-            map_field(root, "target_path").is_some(),
-            "EntityRelationDescription must keep `target_path` field key",
-        );
-        assert!(
-            map_field(root, "target_entity_name").is_some(),
-            "EntityRelationDescription must keep `target_entity_name` field key",
-        );
-        assert!(
-            map_field(root, "target_store_path").is_some(),
-            "EntityRelationDescription must keep `target_store_path` field key",
-        );
-        assert!(
-            map_field(root, "strength").is_some(),
-            "EntityRelationDescription must keep `strength` field key",
-        );
-        assert!(
-            map_field(root, "cardinality").is_some(),
-            "EntityRelationDescription must keep `cardinality` field key",
-        );
-    }
-
-    #[test]
-    fn relation_enum_variant_labels_are_stable() {
-        assert_eq!(
-            to_cbor_value(&EntityRelationStrength::Strong),
-            CborValue::Text("Strong".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&EntityRelationStrength::Weak),
-            CborValue::Text("Weak".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&EntityRelationCardinality::Single),
-            CborValue::Text("Single".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&EntityRelationCardinality::List),
-            CborValue::Text("List".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&EntityRelationCardinality::Set),
-            CborValue::Text("Set".to_string())
-        );
+        assert_eq!(payload.entity_name(), "User");
+        assert_eq!(payload.fields().len(), 1);
+        assert_eq!(payload.indexes().len(), 1);
+        assert_eq!(payload.relations().len(), 1);
     }
 }

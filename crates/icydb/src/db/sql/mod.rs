@@ -6,7 +6,7 @@
 
 use candid::CandidType;
 use icydb_core::db::SqlParsedStatement as CoreSqlParsedStatement;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::{
     db::{
@@ -76,7 +76,7 @@ impl SqlProjectionRows {
 /// `columns` and each row vector are positionally aligned.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryRowsOutput {
     pub entity: String,
     pub columns: Vec<String>,
@@ -111,7 +111,7 @@ impl SqlQueryRowsOutput {
 /// Carries projection, explain, describe, index-listing, and entity-listing
 /// payloads behind one canister-friendly return type.
 ///
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
     Projection(SqlQueryRowsOutput),
     Explain {

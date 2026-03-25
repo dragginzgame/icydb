@@ -7,6 +7,7 @@ use super::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
     IntegrityTotals, StorageReport, integrity_report, storage_report,
 };
+use candid::types::{CandidType, Label, Type, TypeInner};
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
@@ -29,8 +30,7 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use serde_cbor::Value as CborValue;
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
+use std::{borrow::Cow, cell::RefCell};
 
 crate::test_canister! {
     ident = DiagnosticsCanister,
@@ -360,21 +360,17 @@ fn entity_store_paths(report: &StorageReport) -> Vec<(&str, &str)> {
         .collect()
 }
 
-fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
-    let bytes = serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
-    serde_cbor::from_slice::<CborValue>(&bytes)
-        .expect("test fixtures must deserialize into CBOR value trees")
-}
-
-fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
-    match value {
-        CborValue::Map(map) => map,
-        other => panic!("expected CBOR map, got {other:?}"),
+fn expect_record_fields(ty: Type) -> Vec<String> {
+    match ty.as_ref() {
+        TypeInner::Record(fields) => fields
+            .iter()
+            .map(|field| match field.id.as_ref() {
+                Label::Named(name) => name.clone(),
+                other => panic!("expected named record field, got {other:?}"),
+            })
+            .collect(),
+        other => panic!("expected candid record, got {other:?}"),
     }
-}
-
-fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
-    map.get(&CborValue::Text(key.to_string()))
 }
 
 #[test]
@@ -639,205 +635,116 @@ fn integrity_report_classifies_incompatible_row_formats() {
 }
 
 #[test]
-fn storage_report_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&StorageReport::new(
-        vec![DataStoreSnapshot::new("store_a".to_string(), 2, 64)],
-        vec![IndexStoreSnapshot::new("store_a".to_string(), 3, 2, 1, 96)],
-        vec![EntitySnapshot::new(
-            "store_a".to_string(),
-            "entity_a".to_string(),
-            2,
-            64,
-            Some(StorageKey::Int(1)),
-            Some(StorageKey::Int(9)),
-        )],
-        5,
-        6,
-    ));
-    let root = expect_cbor_map(&encoded);
+fn storage_report_candid_shape_is_stable() {
+    let fields = expect_record_fields(StorageReport::ty());
 
-    assert!(
-        map_field(root, "storage_data").is_some(),
-        "StorageReport must keep `storage_data` as serialized field key",
-    );
-    assert!(
-        map_field(root, "storage_index").is_some(),
-        "StorageReport must keep `storage_index` as serialized field key",
-    );
-    assert!(
-        map_field(root, "entity_storage").is_some(),
-        "StorageReport must keep `entity_storage` as serialized field key",
-    );
-    assert!(
-        map_field(root, "corrupted_keys").is_some(),
-        "StorageReport must keep `corrupted_keys` as serialized field key",
-    );
-    assert!(
-        map_field(root, "corrupted_entries").is_some(),
-        "StorageReport must keep `corrupted_entries` as serialized field key",
-    );
+    for field in [
+        "storage_data",
+        "storage_index",
+        "entity_storage",
+        "corrupted_keys",
+        "corrupted_entries",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "StorageReport must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
-fn data_store_snapshot_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&DataStoreSnapshot::new("store_a".to_string(), 2, 64));
-    let root = expect_cbor_map(&encoded);
+fn data_store_snapshot_candid_shape_is_stable() {
+    let fields = expect_record_fields(DataStoreSnapshot::ty());
 
-    assert!(
-        map_field(root, "path").is_some(),
-        "DataStoreSnapshot must keep `path` as serialized field key",
-    );
-    assert!(
-        map_field(root, "entries").is_some(),
-        "DataStoreSnapshot must keep `entries` as serialized field key",
-    );
-    assert!(
-        map_field(root, "memory_bytes").is_some(),
-        "DataStoreSnapshot must keep `memory_bytes` as serialized field key",
-    );
+    for field in ["path", "entries", "memory_bytes"] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "DataStoreSnapshot must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
-fn index_store_snapshot_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&IndexStoreSnapshot::new("store_a".to_string(), 3, 2, 1, 96));
-    let root = expect_cbor_map(&encoded);
+fn index_store_snapshot_candid_shape_is_stable() {
+    let fields = expect_record_fields(IndexStoreSnapshot::ty());
 
-    assert!(
-        map_field(root, "path").is_some(),
-        "IndexStoreSnapshot must keep `path` as serialized field key",
-    );
-    assert!(
-        map_field(root, "entries").is_some(),
-        "IndexStoreSnapshot must keep `entries` as serialized field key",
-    );
-    assert!(
-        map_field(root, "user_entries").is_some(),
-        "IndexStoreSnapshot must keep `user_entries` as serialized field key",
-    );
-    assert!(
-        map_field(root, "system_entries").is_some(),
-        "IndexStoreSnapshot must keep `system_entries` as serialized field key",
-    );
-    assert!(
-        map_field(root, "memory_bytes").is_some(),
-        "IndexStoreSnapshot must keep `memory_bytes` as serialized field key",
-    );
+    for field in ["path", "entries", "user_entries", "system_entries", "memory_bytes"] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "IndexStoreSnapshot must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
-fn entity_snapshot_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&EntitySnapshot::new(
-        "store_a".to_string(),
-        "entity_a".to_string(),
-        2,
-        64,
-        Some(StorageKey::Int(1)),
-        Some(StorageKey::Int(9)),
-    ));
-    let root = expect_cbor_map(&encoded);
+fn entity_snapshot_candid_shape_is_stable() {
+    let fields = expect_record_fields(EntitySnapshot::ty());
 
-    assert!(
-        map_field(root, "store").is_some(),
-        "EntitySnapshot must keep `store` as serialized field key",
-    );
-    assert!(
-        map_field(root, "path").is_some(),
-        "EntitySnapshot must keep `path` as serialized field key",
-    );
-    assert!(
-        map_field(root, "entries").is_some(),
-        "EntitySnapshot must keep `entries` as serialized field key",
-    );
-    assert!(
-        map_field(root, "memory_bytes").is_some(),
-        "EntitySnapshot must keep `memory_bytes` as serialized field key",
-    );
-    assert!(
-        map_field(root, "min_key").is_some(),
-        "EntitySnapshot must keep `min_key` as serialized field key",
-    );
-    assert!(
-        map_field(root, "max_key").is_some(),
-        "EntitySnapshot must keep `max_key` as serialized field key",
-    );
+    for field in ["store", "path", "entries", "memory_bytes", "min_key", "max_key"] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "EntitySnapshot must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
-fn integrity_totals_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&IntegrityTotals {
-        data_rows_scanned: 1,
-        index_entries_scanned: 2,
-        corrupted_data_keys: 3,
-        corrupted_data_rows: 4,
-        corrupted_index_keys: 5,
-        corrupted_index_entries: 6,
-        missing_index_entries: 7,
-        divergent_index_entries: 8,
-        orphan_index_references: 9,
-        compatibility_findings: 10,
-        misuse_findings: 11,
-    });
-    let root = expect_cbor_map(&encoded);
+fn integrity_totals_candid_shape_is_stable() {
+    let fields = expect_record_fields(IntegrityTotals::ty());
 
-    assert!(map_field(root, "data_rows_scanned").is_some());
-    assert!(map_field(root, "index_entries_scanned").is_some());
-    assert!(map_field(root, "corrupted_data_keys").is_some());
-    assert!(map_field(root, "corrupted_data_rows").is_some());
-    assert!(map_field(root, "corrupted_index_keys").is_some());
-    assert!(map_field(root, "corrupted_index_entries").is_some());
-    assert!(map_field(root, "missing_index_entries").is_some());
-    assert!(map_field(root, "divergent_index_entries").is_some());
-    assert!(map_field(root, "orphan_index_references").is_some());
-    assert!(map_field(root, "compatibility_findings").is_some());
-    assert!(map_field(root, "misuse_findings").is_some());
+    for field in [
+        "data_rows_scanned",
+        "index_entries_scanned",
+        "corrupted_data_keys",
+        "corrupted_data_rows",
+        "corrupted_index_keys",
+        "corrupted_index_entries",
+        "missing_index_entries",
+        "divergent_index_entries",
+        "orphan_index_references",
+        "compatibility_findings",
+        "misuse_findings",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "IntegrityTotals must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
-fn integrity_store_snapshot_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&IntegrityStoreSnapshot {
-        path: "store_a".to_string(),
-        data_rows_scanned: 1,
-        index_entries_scanned: 2,
-        corrupted_data_keys: 3,
-        corrupted_data_rows: 4,
-        corrupted_index_keys: 5,
-        corrupted_index_entries: 6,
-        missing_index_entries: 7,
-        divergent_index_entries: 8,
-        orphan_index_references: 9,
-        compatibility_findings: 10,
-        misuse_findings: 11,
-    });
-    let root = expect_cbor_map(&encoded);
+fn integrity_store_snapshot_candid_shape_is_stable() {
+    let fields = expect_record_fields(IntegrityStoreSnapshot::ty());
 
-    assert!(map_field(root, "path").is_some());
-    assert!(map_field(root, "data_rows_scanned").is_some());
-    assert!(map_field(root, "index_entries_scanned").is_some());
-    assert!(map_field(root, "corrupted_data_keys").is_some());
-    assert!(map_field(root, "corrupted_data_rows").is_some());
-    assert!(map_field(root, "corrupted_index_keys").is_some());
-    assert!(map_field(root, "corrupted_index_entries").is_some());
-    assert!(map_field(root, "missing_index_entries").is_some());
-    assert!(map_field(root, "divergent_index_entries").is_some());
-    assert!(map_field(root, "orphan_index_references").is_some());
-    assert!(map_field(root, "compatibility_findings").is_some());
-    assert!(map_field(root, "misuse_findings").is_some());
+    for field in [
+        "path",
+        "data_rows_scanned",
+        "index_entries_scanned",
+        "corrupted_data_keys",
+        "corrupted_data_rows",
+        "corrupted_index_keys",
+        "corrupted_index_entries",
+        "missing_index_entries",
+        "divergent_index_entries",
+        "orphan_index_references",
+        "compatibility_findings",
+        "misuse_findings",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "IntegrityStoreSnapshot must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
-fn integrity_report_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&IntegrityReport::new(
-        vec![IntegrityStoreSnapshot::new("store_a".to_string())],
-        IntegrityTotals::default(),
-    ));
-    let root = expect_cbor_map(&encoded);
+fn integrity_report_candid_shape_is_stable() {
+    let fields = expect_record_fields(IntegrityReport::ty());
 
-    assert!(
-        map_field(root, "stores").is_some(),
-        "IntegrityReport must keep `stores` as serialized field key",
-    );
-    assert!(
-        map_field(root, "totals").is_some(),
-        "IntegrityReport must keep `totals` as serialized field key",
-    );
+    for field in ["stores", "totals"] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "IntegrityReport must keep `{field}` as Candid field key",
+        );
+    }
 }

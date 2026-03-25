@@ -4,7 +4,7 @@ use icydb_core::{
     db::{QueryError, QueryExecutionError, ResponseError},
     error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error as ThisError;
 
 ///
@@ -12,7 +12,7 @@ use thiserror::Error as ThisError;
 /// Public error type with a stable class + origin taxonomy.
 ///
 
-#[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
+#[derive(CandidType, Debug, Deserialize, ThisError)]
 #[error("{message}")]
 #[serde(rename_all = "snake_case")]
 pub struct Error {
@@ -137,7 +137,7 @@ impl From<ResponseError> for Error {
 /// Public error taxonomy for callers and canister interfaces.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ErrorKind {
     Query(QueryErrorKind),
@@ -151,7 +151,7 @@ pub enum ErrorKind {
 /// Public runtime class taxonomy mirrored from `icydb-core::ErrorClass`.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum RuntimeErrorKind {
     Corruption,
@@ -167,7 +167,7 @@ pub enum RuntimeErrorKind {
 /// QueryErrorKind
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum QueryErrorKind {
     /// Predicate/model validation failed.
@@ -196,7 +196,7 @@ pub enum QueryErrorKind {
 /// Public origin taxonomy for callers and canister interfaces.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ErrorOrigin {
     Cursor,
@@ -237,28 +237,34 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use candid::types::{CandidType, Label, Type, TypeInner};
     use icydb_core::db::{IntentError, PlanError, ValidateError};
     use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
-    use serde::Serialize;
-    use serde_cbor::Value as CborValue;
-    use std::collections::BTreeMap;
 
-    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
-        let bytes =
-            serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
-        serde_cbor::from_slice::<CborValue>(&bytes)
-            .expect("test fixtures must deserialize into CBOR value trees")
-    }
-
-    fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
-        match value {
-            CborValue::Map(map) => map,
-            other => panic!("expected CBOR map, got {other:?}"),
+    fn expect_record_fields(ty: Type) -> Vec<String> {
+        match ty.as_ref() {
+            TypeInner::Record(fields) => fields
+                .iter()
+                .map(|field| match field.id.as_ref() {
+                    Label::Named(name) => name.clone(),
+                    other => panic!("expected named record field, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected candid record, got {other:?}"),
         }
     }
 
-    fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
-        map.get(&CborValue::Text(key.to_string()))
+    fn expect_variant_labels(ty: Type) -> Vec<String> {
+        match ty.as_ref() {
+            TypeInner::Variant(fields) => fields
+                .iter()
+                .map(|field| match field.id.as_ref() {
+                    Label::Named(name) => name.clone(),
+                    other => panic!("expected named variant label, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected candid variant, got {other:?}"),
+        }
     }
 
     #[test]
@@ -435,79 +441,62 @@ mod tests {
     }
 
     #[test]
-    fn error_struct_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&Error::new(
-            ErrorKind::Runtime(RuntimeErrorKind::Internal),
-            ErrorOrigin::Executor,
-            "runtime failure",
-        ));
-        let root = expect_cbor_map(&encoded);
+    fn error_struct_candid_shape_is_stable() {
+        let fields = expect_record_fields(Error::ty());
 
-        assert!(
-            map_field(root, "kind").is_some(),
-            "Error must keep `kind` as serialized field key",
-        );
-        assert!(
-            map_field(root, "origin").is_some(),
-            "Error must keep `origin` as serialized field key",
-        );
-        assert!(
-            map_field(root, "message").is_some(),
-            "Error must keep `message` as serialized field key",
-        );
+        for field in ["kind", "origin", "message"] {
+            assert!(
+                fields.iter().any(|candidate| candidate == field),
+                "Error must keep `{field}` as Candid field key",
+            );
+        }
     }
 
     #[test]
-    fn error_kind_serialization_shape_is_stable() {
-        let encoded = to_cbor_value(&ErrorKind::Runtime(RuntimeErrorKind::Internal));
-        let root = expect_cbor_map(&encoded);
+    fn error_kind_candid_shape_is_stable() {
+        let labels = expect_variant_labels(ErrorKind::ty());
         assert!(
-            map_field(root, "Runtime").is_some(),
-            "ErrorKind must keep `Runtime` variant key",
+            labels.iter().any(|candidate| candidate == "Runtime"),
+            "ErrorKind must keep `Runtime` variant label",
         );
     }
 
     #[test]
     fn runtime_error_and_origin_variant_labels_are_stable() {
-        assert_eq!(
-            to_cbor_value(&RuntimeErrorKind::InvariantViolation),
-            CborValue::Text("InvariantViolation".to_string())
+        let runtime_labels = expect_variant_labels(RuntimeErrorKind::ty());
+        assert!(
+            runtime_labels
+                .iter()
+                .any(|candidate| candidate == "InvariantViolation"),
+            "RuntimeErrorKind must keep `InvariantViolation` variant label",
         );
-        assert_eq!(
-            to_cbor_value(&ErrorOrigin::Serialize),
-            CborValue::Text("Serialize".to_string())
+
+        let origin_labels = expect_variant_labels(ErrorOrigin::ty());
+        assert!(
+            origin_labels
+                .iter()
+                .any(|candidate| candidate == "Serialize"),
+            "ErrorOrigin must keep `Serialize` variant label",
         );
     }
 
     #[test]
     fn query_error_kind_variant_labels_are_stable() {
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::Validate),
-            CborValue::Text("Validate".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::Intent),
-            CborValue::Text("Intent".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::Plan),
-            CborValue::Text("Plan".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::UnorderedPagination),
-            CborValue::Text("UnorderedPagination".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::InvalidContinuationCursor),
-            CborValue::Text("InvalidContinuationCursor".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::NotFound),
-            CborValue::Text("NotFound".to_string())
-        );
-        assert_eq!(
-            to_cbor_value(&QueryErrorKind::NotUnique),
-            CborValue::Text("NotUnique".to_string())
-        );
+        let labels = expect_variant_labels(QueryErrorKind::ty());
+
+        for label in [
+            "Validate",
+            "Intent",
+            "Plan",
+            "UnorderedPagination",
+            "InvalidContinuationCursor",
+            "NotFound",
+            "NotUnique",
+        ] {
+            assert!(
+                labels.iter().any(|candidate| candidate == label),
+                "QueryErrorKind must keep `{label}` variant label",
+            );
+        }
     }
 }

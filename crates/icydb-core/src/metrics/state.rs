@@ -9,14 +9,14 @@
 
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
 /// EventState
 /// Mutable runtime counters and rolling perf state for the current window.
 /// Stored in thread-local memory for update-only instrumentation.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize)]
 pub struct EventState {
     pub(crate) ops: EventOps,
     pub(crate) perf: EventPerf,
@@ -77,7 +77,7 @@ impl Default for EventState {
 /// Values are monotonic within a metrics window.
 /// Call counters are execution attempts; errors still increment them.
 /// Row counters reflect rows touched after execution, not requested rows.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventOps {
     // Executor entrypoints
     pub(crate) load_calls: u64,
@@ -238,7 +238,7 @@ impl EventOps {
 /// Per-entity counters mirroring `EventOps` categories.
 /// Used to compute report-level per-entity summaries.
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntityCounters {
     pub(crate) load_calls: u64,
     pub(crate) save_calls: u64,
@@ -357,7 +357,7 @@ impl EntityCounters {
 /// Captures execution pressure, not wall-clock latency.
 /// Instruction deltas are pressure indicators (validation + planning + execution),
 /// not latency measurements.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventPerf {
     // Instruction totals per executor (ic_cdk::api::performance_counter(1))
     pub(crate) load_inst_total: u128,
@@ -457,7 +457,7 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
 /// Event/counter report for runtime metrics query endpoints.
 /// Storage snapshot types live in snapshot/storage modules.
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventReport {
     /// Ephemeral runtime counters since `window_start_ms`.
     counters: Option<EventState>,
@@ -502,7 +502,7 @@ impl EventReport {
 /// Derived per-entity metrics for report consumers.
 /// Includes absolute counters and simple averages.
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntitySummary {
     path: String,
     load_calls: u64,

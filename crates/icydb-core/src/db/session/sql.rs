@@ -119,6 +119,7 @@ impl SqlParsedStatement {
     }
 
     /// Lower this parsed statement into one shared query-lane shape.
+    #[inline(never)]
     pub fn lower_query_lane_for_entity(
         &self,
         expected_entity: &'static str,
@@ -626,6 +627,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one lowered SQL SELECT command entirely through the shared
     // structural projection path.
+    #[inline(never)]
     fn execute_lowered_sql_dispatch_select_core(
         &self,
         select: &LoweredSelectShape,

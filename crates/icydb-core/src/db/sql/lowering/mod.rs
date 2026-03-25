@@ -320,6 +320,7 @@ pub(crate) fn compile_sql_command_from_prepared_statement<E: EntityKind>(
 }
 
 /// Lower one prepared SQL statement into one shared generic-free command shape.
+#[inline(never)]
 pub(crate) fn lower_sql_command_from_prepared_statement(
     prepared: PreparedSqlStatement,
     primary_key_field: &str,
@@ -414,6 +415,7 @@ pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
 }
 
 /// Prepare one parsed SQL statement for one expected entity route.
+#[inline(never)]
 pub(crate) fn prepare_sql_statement(
     statement: SqlStatement,
     expected_entity: &'static str,
@@ -447,6 +449,7 @@ fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
     ))
 }
 
+#[inline(never)]
 fn prepare_statement(
     statement: SqlStatement,
     expected_entity: &'static str,
@@ -534,6 +537,7 @@ fn prepare_delete_statement(
     Ok(statement)
 }
 
+#[inline(never)]
 fn lower_prepared_statement(
     statement: SqlStatement,
     primary_key_field: &str,
@@ -693,6 +697,7 @@ pub(crate) struct LoweredBaseQueryShape {
     offset: Option<u32>,
 }
 
+#[inline(never)]
 fn lower_select_shape(
     statement: SqlSelectStatement,
     primary_key_field: &str,
@@ -843,6 +848,7 @@ fn lower_having_clauses(
     Ok(lowered)
 }
 
+#[inline(never)]
 pub(in crate::db) fn apply_lowered_select_shape(
     mut query: StructuralQuery,
     lowered: LoweredSelectShape,

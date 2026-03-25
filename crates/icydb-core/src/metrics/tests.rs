@@ -6,25 +6,19 @@
 use crate::metrics::state::{
     EntityCounters, report_window_start, reset_all, with_state, with_state_mut,
 };
-use serde::Serialize;
-use serde_cbor::Value as CborValue;
-use std::collections::BTreeMap;
+use candid::types::{CandidType, Label, Type, TypeInner};
 
-fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
-    let bytes = serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
-    serde_cbor::from_slice::<CborValue>(&bytes)
-        .expect("test fixtures must deserialize into CBOR value trees")
-}
-
-fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
-    match value {
-        CborValue::Map(map) => map,
-        other => panic!("expected CBOR map, got {other:?}"),
+fn expect_record_fields(ty: Type) -> Vec<String> {
+    match ty.as_ref() {
+        TypeInner::Record(fields) => fields
+            .iter()
+            .map(|field| match field.id.as_ref() {
+                Label::Named(name) => name.clone(),
+                other => panic!("expected named record field, got {other:?}"),
+            })
+            .collect(),
+        other => panic!("expected candid record, got {other:?}"),
     }
-}
-
-fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
-    map.get(&CborValue::Text(key.to_string()))
 }
 
 #[test]
@@ -97,7 +91,7 @@ fn report_sorts_entities_by_average_rows() {
 }
 
 #[test]
-fn event_report_serialization_shape_is_stable() {
+fn event_report_candid_shape_is_stable() {
     reset_all();
     with_state_mut(|state| {
         state.ops.load_calls = 1;
@@ -118,39 +112,30 @@ fn event_report_serialization_shape_is_stable() {
     });
     let report = report_window_start(None);
 
-    let encoded = to_cbor_value(&report);
-    let root = expect_cbor_map(&encoded);
-    assert!(
-        map_field(root, "counters").is_some(),
-        "EventReport must keep `counters` as serialized field key",
-    );
-    assert!(
-        map_field(root, "entity_counters").is_some(),
-        "EventReport must keep `entity_counters` as serialized field key",
-    );
+    let report_fields = expect_record_fields(crate::metrics::state::EventReport::ty());
+    for field in ["counters", "entity_counters"] {
+        assert!(
+            report_fields.iter().any(|candidate| candidate == field),
+            "EventReport must keep `{field}` as Candid field key",
+        );
+    }
 
-    let counters = map_field(root, "counters").expect("counters payload should exist");
-    let counters_map = expect_cbor_map(counters);
+    let state_fields = expect_record_fields(crate::metrics::state::EventState::ty());
+    for field in ["ops", "perf", "entities", "window_start_ms"] {
+        assert!(
+            state_fields.iter().any(|candidate| candidate == field),
+            "EventState must keep `{field}` as Candid field key",
+        );
+    }
+
     assert!(
-        map_field(counters_map, "ops").is_some(),
-        "EventState must keep `ops` as serialized field key",
-    );
-    assert!(
-        map_field(counters_map, "perf").is_some(),
-        "EventState must keep `perf` as serialized field key",
-    );
-    assert!(
-        map_field(counters_map, "entities").is_some(),
-        "EventState must keep `entities` as serialized field key",
-    );
-    assert!(
-        map_field(counters_map, "window_start_ms").is_some(),
-        "EventState must keep `window_start_ms` as serialized field key",
+        report.counters().is_some(),
+        "event report fixture should retain counters for populated state",
     );
 }
 
 #[test]
-fn entity_summary_serialization_shape_is_stable() {
+fn entity_summary_candid_shape_is_stable() {
     reset_all();
     with_state_mut(|state| {
         state.entities.insert(
@@ -182,35 +167,22 @@ fn entity_summary_serialization_shape_is_stable() {
         .entity_counters()
         .first()
         .expect("entity summary should exist for populated state");
-    let encoded = to_cbor_value(summary);
+    let fields = expect_record_fields(crate::metrics::state::EntitySummary::ty());
 
-    let root = expect_cbor_map(&encoded);
-    assert!(
-        map_field(root, "path").is_some(),
-        "EntitySummary must keep `path` as serialized field key",
-    );
-    assert!(
-        map_field(root, "avg_rows_per_load").is_some(),
-        "EntitySummary must keep `avg_rows_per_load` as serialized field key",
-    );
-    assert!(
-        map_field(root, "rows_filtered").is_some(),
-        "EntitySummary must keep `rows_filtered` as serialized field key",
-    );
-    assert!(
-        map_field(root, "rows_aggregated").is_some(),
-        "EntitySummary must keep `rows_aggregated` as serialized field key",
-    );
-    assert!(
-        map_field(root, "rows_emitted").is_some(),
-        "EntitySummary must keep `rows_emitted` as serialized field key",
-    );
-    assert!(
-        map_field(root, "relation_delete_blocks").is_some(),
-        "EntitySummary must keep `relation_delete_blocks` as serialized field key",
-    );
-    assert!(
-        map_field(root, "non_atomic_partial_rows_committed").is_some(),
-        "EntitySummary must keep `non_atomic_partial_rows_committed` as serialized field key",
-    );
+    for field in [
+        "path",
+        "avg_rows_per_load",
+        "rows_filtered",
+        "rows_aggregated",
+        "rows_emitted",
+        "relation_delete_blocks",
+        "non_atomic_partial_rows_committed",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "EntitySummary must keep `{field}` as Candid field key",
+        );
+    }
+
+    assert_eq!(summary.path(), "alpha");
 }

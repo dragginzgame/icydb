@@ -18,7 +18,7 @@ use crate::{
     types::EntityTag,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use execution_trace::{
@@ -30,7 +30,7 @@ pub use execution_trace::{
 /// Live storage snapshot report
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct StorageReport {
     pub(crate) storage_data: Vec<DataStoreSnapshot>,
     pub(crate) storage_index: Vec<IndexStoreSnapshot>,
@@ -44,7 +44,7 @@ pub struct StorageReport {
 /// Aggregated integrity-scan counters across all stores.
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IntegrityTotals {
     pub(crate) data_rows_scanned: u64,
     pub(crate) index_entries_scanned: u64,
@@ -166,7 +166,7 @@ impl IntegrityTotals {
 /// Per-store integrity findings and scan counters.
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IntegrityStoreSnapshot {
     pub(crate) path: String,
     pub(crate) data_rows_scanned: u64,
@@ -270,7 +270,7 @@ impl IntegrityStoreSnapshot {
 /// Full integrity-scan output across all registered stores.
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IntegrityReport {
     pub(crate) stores: Vec<IntegrityStoreSnapshot>,
     pub(crate) totals: IntegrityTotals,
@@ -351,7 +351,7 @@ impl StorageReport {
 /// Store-level snapshot metrics.
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
     pub(crate) entries: u64,
@@ -393,7 +393,7 @@ impl DataStoreSnapshot {
 /// Index-store snapshot metrics
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
     pub(crate) entries: u64,
@@ -457,7 +457,7 @@ impl IndexStoreSnapshot {
 /// Per-entity storage breakdown across stores
 ///
 
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntitySnapshot {
     /// Store path (e.g., icydb_schema_tests::schema::TestDataStore)
     pub(crate) store: String,
