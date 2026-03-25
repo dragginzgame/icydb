@@ -7,16 +7,18 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, PersistedRow, RawRow, decode_raw_row_for_entity_key},
+        data::{DataKey, PersistedRow, RawRow, UpdatePatch, decode_raw_row_for_entity_key},
         executor::{
             Context, ExecutorError,
-            mutation::{commit_save_row_ops_with_window, mutation_write_context},
+            mutation::{
+                StructuralMutationInput, commit_save_row_ops_with_window, mutation_write_context,
+            },
         },
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    traits::EntityValue,
+    traits::{EntityValue, FieldValue},
 };
 use candid::CandidType;
 use derive_more::Display;
@@ -73,6 +75,36 @@ impl SaveRule {
     }
 }
 
+///
+/// StructuralMutationMode
+///
+/// StructuralMutationMode
+///
+/// StructuralMutationMode makes the structural patch path spell out the same
+/// row-existence contract the typed save surface already owns.
+/// This keeps future structural callers from smuggling write-mode meaning
+/// through ad hoc helper choice once the seam moves beyond `icydb-core`.
+///
+
+#[derive(Clone, Copy)]
+pub enum StructuralMutationMode {
+    #[allow(dead_code)]
+    Insert,
+    #[allow(dead_code)]
+    Replace,
+    Update,
+}
+
+impl StructuralMutationMode {
+    const fn save_rule(self) -> SaveRule {
+        match self {
+            Self::Insert => SaveRule::RequireAbsent,
+            Self::Replace => SaveRule::AllowAny,
+            Self::Update => SaveRule::RequirePresent,
+        }
+    }
+}
+
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // ======================================================================
     // Construction & configuration
@@ -96,6 +128,45 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Update an existing entity (errors if it does not exist).
     pub(crate) fn update(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Update, entity)
+    }
+
+    /// Apply one structural field patch to an existing entity row.
+    ///
+    /// This entrypoint is intentionally staged ahead of the higher-level API
+    /// layer so the executor boundary can lock its invariants first.
+    #[allow(dead_code)]
+    pub(in crate::db) fn insert_structural(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError> {
+        self.apply_structural_mutation(StructuralMutationMode::Insert, key, patch)
+    }
+
+    /// Apply one structural full-row replacement, inserting if missing.
+    ///
+    /// Replace semantics deliberately rebuild the after-image from an empty row
+    /// layout so absent fields do not inherit old-row values implicitly.
+    #[allow(dead_code)]
+    pub(in crate::db) fn replace_structural(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError> {
+        self.apply_structural_mutation(StructuralMutationMode::Replace, key, patch)
+    }
+
+    /// Apply one structural field patch to an existing entity row.
+    ///
+    /// This entrypoint is intentionally staged ahead of the higher-level API
+    /// layer so the executor boundary can lock its invariants first.
+    #[allow(dead_code)]
+    pub(in crate::db) fn update_structural(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError> {
+        self.apply_structural_mutation(StructuralMutationMode::Update, key, patch)
     }
 
     /// Replace an entity, inserting if missing.
@@ -232,8 +303,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Validate and stage all row ops before opening the commit window.
         for mut entity in entities {
             self.preflight_entity(&mut entity)?;
+            let mutation = StructuralMutationInput::from_entity(&entity)?;
 
-            let (marker_row_op, data_key) = Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
+            let (marker_row_op, data_key) =
+                Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
             if !seen_row_keys.insert(marker_row_op.key.clone()) {
                 return Err(InternalError::mutation_atomic_save_duplicate_key(
                     E::PATH,
@@ -258,17 +331,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn prepare_logical_row_op(
         ctx: &Context<'_, E>,
         save_rule: SaveRule,
-        entity: &E,
+        mutation: &StructuralMutationInput,
     ) -> Result<(CommitRowOp, DataKey), InternalError> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
-        let key = entity.id().key();
-        let data_key = DataKey::try_new::<E>(key)?;
+        let data_key = mutation.data_key().clone();
         let raw_key = data_key.to_raw()?;
         let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, save_rule)?;
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
 
-        // Phase 2: encode the after-image and build a marker row op.
-        let row = RawRow::from_entity(entity)?;
+        // Phase 2: build the after-image through the structural row boundary.
+        let row = Self::build_after_image_row(mutation, old_raw.as_ref())?;
         let row_op = CommitRowOp::new(
             E::PATH,
             raw_key.as_bytes().to_vec(),
@@ -278,6 +350,41 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         );
 
         Ok((row_op, data_key))
+    }
+
+    // Build the persisted after-image under one explicit structural mode.
+    fn build_after_image_row(
+        mutation: &StructuralMutationInput,
+        old_row: Option<&RawRow>,
+    ) -> Result<RawRow, InternalError> {
+        let Some(old_row) = old_row else {
+            return RawRow::from_serialized_update_patch(E::MODEL, mutation.serialized_patch());
+        };
+
+        old_row.apply_serialized_update_patch(E::MODEL, mutation.serialized_patch())
+    }
+
+    // Build the persisted after-image under one explicit structural mode.
+    fn build_structural_after_image_row(
+        mode: StructuralMutationMode,
+        mutation: &StructuralMutationInput,
+        old_row: Option<&RawRow>,
+    ) -> Result<RawRow, InternalError> {
+        match mode {
+            StructuralMutationMode::Update => {
+                let Some(old_row) = old_row else {
+                    return RawRow::from_serialized_update_patch(
+                        E::MODEL,
+                        mutation.serialized_patch(),
+                    );
+                };
+
+                old_row.apply_serialized_update_patch(E::MODEL, mutation.serialized_patch())
+            }
+            StructuralMutationMode::Insert | StructuralMutationMode::Replace => {
+                RawRow::from_serialized_update_patch(E::MODEL, mutation.serialized_patch())
+            }
+        }
     }
 
     // Resolve the "before" row according to one canonical save rule.
@@ -341,9 +448,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
             // Run the canonical save preflight before key extraction.
             self.preflight_entity(&mut entity)?;
+            let mutation = StructuralMutationInput::from_entity(&entity)?;
 
             let (marker_row_op, _data_key) =
-                Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
+                Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
 
             // Preflight data store availability before index mutations.
             ctx.with_store(|_| ())?;
@@ -357,6 +465,85 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
             Ok(entity)
         })()
+    }
+
+    // Run one structural key + patch mutation under one explicit save-mode contract.
+    #[allow(dead_code)]
+    pub(in crate::db) fn apply_structural_mutation(
+        &self,
+        mode: StructuralMutationMode,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError> {
+        let mutation = StructuralMutationInput::from_update_patch::<E>(key, &patch)?;
+
+        self.save_structural_mutation(mode, mutation)
+    }
+
+    #[allow(dead_code)]
+    fn save_structural_mutation(
+        &self,
+        mode: StructuralMutationMode,
+        mutation: StructuralMutationInput,
+    ) -> Result<E, InternalError> {
+        let mut span = Span::<E>::new(ExecKind::Save);
+        let ctx = mutation_write_context::<E>(&self.db)?;
+        let data_key = mutation.data_key().clone();
+        let old_raw = Self::resolve_existing_row_for_rule(&ctx, &data_key, mode.save_rule())?;
+        let raw_after_image =
+            Self::build_structural_after_image_row(mode, &mutation, old_raw.as_ref())?;
+        let entity = self.validate_structural_after_image(&data_key, &raw_after_image)?;
+        let normalized_mutation = StructuralMutationInput::from_entity(&entity)?;
+        let row =
+            Self::build_structural_after_image_row(mode, &normalized_mutation, old_raw.as_ref())?;
+        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+        let marker_row_op = CommitRowOp::new(
+            E::PATH,
+            data_key.to_raw()?.as_bytes().to_vec(),
+            old_raw.as_ref().map(|item| item.as_bytes().to_vec()),
+            Some(row.as_bytes().to_vec()),
+            schema_fingerprint,
+        );
+
+        ctx.with_store(|_| ())?;
+        Self::commit_single_row(&self.db, marker_row_op, &mut span)?;
+
+        Ok(entity)
+    }
+
+    // Validate one structurally patched after-image by decoding it against the
+    // target key and reusing the existing typed save preflight rules.
+    #[allow(dead_code)]
+    fn validate_structural_after_image(
+        &self,
+        data_key: &DataKey,
+        row: &RawRow,
+    ) -> Result<E, InternalError> {
+        let expected_key = data_key.try_key::<E>()?;
+        let mut entity = row.try_decode::<E>().map_err(|err| {
+            InternalError::mutation_structural_after_image_invalid(
+                E::PATH,
+                data_key,
+                err.to_string(),
+            )
+        })?;
+        let identity_key = entity.id().key();
+        if identity_key != expected_key {
+            let field_name = E::MODEL.primary_key().name();
+            let field_value = FieldValue::to_value(&identity_key);
+            let identity_value = FieldValue::to_value(&expected_key);
+
+            return Err(InternalError::mutation_entity_primary_key_mismatch(
+                E::PATH,
+                field_name,
+                &field_value,
+                &identity_value,
+            ));
+        }
+
+        self.preflight_entity(&mut entity)?;
+
+        Ok(entity)
     }
 
     // Open + apply commit mechanics for one logical row operation.

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+
+# Keep hook cargo state repo-local so local hooks do not contend with sibling repos.
+source "$ROOT/scripts/env/cargo-local.sh"
+
 echo "Running pre-push checks (clippy all-targets)..."
 
 # Keep architecture invariants in sync with local and CI checks.

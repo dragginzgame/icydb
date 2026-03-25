@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 WORKFLOW_FILE="${1:-$ROOT/.github/workflows/ci.yml}"
 
+source "$ROOT/scripts/env/cargo-local.sh"
+
 if [[ ! -f "$WORKFLOW_FILE" ]]; then
   echo "[ERROR] Workflow file not found: $WORKFLOW_FILE" >&2
   exit 1

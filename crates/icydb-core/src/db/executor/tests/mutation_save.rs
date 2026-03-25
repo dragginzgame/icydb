@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        Db,
+        Db, DbSession,
         commit::{
             CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
         },
-        data::{DataKey, DataStore, RawRow},
+        data::{DataKey, DataStore, RawRow, UpdatePatch},
         executor::{
             DeleteExecutor, SaveExecutor,
             mutation::commit_window::{
@@ -117,7 +117,9 @@ fn reset_store() {
 /// TargetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct TargetEntity {
     id: Ulid,
 }
@@ -139,7 +141,9 @@ crate::test_entity_schema! {
 /// SourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct SourceEntity {
     id: Ulid,
     target: Ulid,
@@ -176,7 +180,9 @@ crate::test_entity_schema! {
 /// InvalidRelationMetadataEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct InvalidRelationMetadataEntity {
     id: Ulid,
     target: Ulid,
@@ -212,7 +218,9 @@ crate::test_entity_schema! {
 /// SourceSetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct SourceSetEntity {
     id: Ulid,
     targets: Vec<Ulid>,
@@ -247,7 +255,9 @@ crate::test_entity_schema! {
 /// UniqueEmailEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct UniqueEmailEntity {
     id: Ulid,
     email: String,
@@ -288,6 +298,18 @@ fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
     })
 }
 
+fn unique_email_patch(id: Ulid, email: &str) -> UpdatePatch {
+    UpdatePatch::new()
+        .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
+        .expect("resolve id slot")
+        .set_field(
+            UniqueEmailEntity::MODEL,
+            "email",
+            Value::Text(email.to_string()),
+        )
+        .expect("resolve email slot")
+}
+
 fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
     let data_key = DataKey::try_new::<SourceSetEntity>(id)
         .expect("source-set data key should build")
@@ -306,7 +328,9 @@ fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
 /// MismatchedPkEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct MismatchedPkEntity {
     id: Ulid,
     actual_id: Ulid,
@@ -329,7 +353,9 @@ crate::test_entity_schema! {
 /// DecimalScaleEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct DecimalScaleEntity {
     id: Ulid,
     amount: Decimal,
@@ -1517,12 +1543,432 @@ fn unique_index_violation_rejected_on_update() {
 }
 
 #[test]
+fn structural_update_applies_patch_to_existing_row() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let id = Ulid::from_u128(22);
+    save.insert(UniqueEmailEntity {
+        id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let patched = session
+        .update_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "email",
+                    Value::Text("grace@example.com".to_string()),
+                )
+                .expect("resolve email slot"),
+        )
+        .expect("structural update should succeed");
+
+    assert_eq!(patched.id, id);
+    assert_eq!(patched.email, "grace@example.com");
+
+    let persisted = load_unique_email_entity(id).expect("row should remain after patch update");
+    assert_eq!(persisted.email, "grace@example.com");
+}
+
+#[test]
+fn structural_update_rejects_primary_key_mismatch() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let id = Ulid::from_u128(23);
+    save.insert(UniqueEmailEntity {
+        id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let err = session
+        .update_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "id",
+                    Value::Ulid(Ulid::from_u128(24)),
+                )
+                .expect("resolve id slot"),
+        )
+        .expect_err("primary key mismatch patch must fail");
+
+    assert_eq!(err.class, ErrorClass::Internal);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        err.message.contains("entity primary key mismatch"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn structural_update_builder_rejects_unknown_field_names() {
+    let err = UpdatePatch::new()
+        .set_field(
+            UniqueEmailEntity::MODEL,
+            "missing_email",
+            Value::Text("grace@example.com".to_string()),
+        )
+        .expect_err("unknown structural field names must fail");
+
+    assert_eq!(err.class, ErrorClass::Internal);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        err.message
+            .contains("unknown field for structural mutation"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn structural_insert_requires_full_after_image_fields() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(24);
+    let err = session
+        .insert_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
+                .expect("resolve id slot"),
+        )
+        .expect_err("structural insert without all required fields must fail");
+
+    assert_eq!(err.class, ErrorClass::Internal);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        err.message.contains("missing required field"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn structural_update_reuses_typed_unique_index_conflicts() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let first_id = Ulid::from_u128(25);
+    let second_id = Ulid::from_u128(26);
+    save.insert(UniqueEmailEntity {
+        id: first_id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("first unique row should save");
+    save.insert(UniqueEmailEntity {
+        id: second_id,
+        email: "bob@example.com".to_string(),
+    })
+    .expect("second unique row should save");
+
+    let err = session
+        .update_structural(
+            first_id,
+            UpdatePatch::new()
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "email",
+                    Value::Text("bob@example.com".to_string()),
+                )
+                .expect("resolve email slot"),
+        )
+        .expect_err("structural update that collides with unique index must fail");
+
+    assert_eq!(err.class, ErrorClass::Conflict);
+    assert_eq!(err.origin, ErrorOrigin::Index);
+    assert!(
+        err.message.contains("index constraint violation"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn structural_replace_requires_full_after_image_fields() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let id = Ulid::from_u128(27);
+    save.insert(UniqueEmailEntity {
+        id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let err = session
+        .replace_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
+                .expect("resolve id slot"),
+        )
+        .expect_err("structural replace without all required fields must fail");
+
+    assert_eq!(err.class, ErrorClass::Internal);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        err.message.contains("missing required field"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn structural_insert_matches_typed_insert_outcome() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(28);
+    let inserted = session
+        .insert_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
+                .expect("resolve id slot")
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "email",
+                    Value::Text("grace@example.com".to_string()),
+                )
+                .expect("resolve email slot"),
+        )
+        .expect("structural insert should succeed");
+
+    assert_eq!(
+        inserted,
+        UniqueEmailEntity {
+            id,
+            email: "grace@example.com".to_string(),
+        }
+    );
+
+    let persisted = load_unique_email_entity(id).expect("inserted row should persist");
+    assert_eq!(persisted, inserted);
+}
+
+#[test]
+fn structural_insert_matches_typed_insert_parity() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let typed_id = Ulid::from_u128(280);
+    let structural_id = Ulid::from_u128(281);
+
+    let typed = SaveExecutor::<UniqueEmailEntity>::new(DB, false)
+        .insert(UniqueEmailEntity {
+            id: typed_id,
+            email: "grace@example.com".to_string(),
+        })
+        .expect("typed insert should succeed");
+    let structural = session
+        .insert_structural(
+            structural_id,
+            unique_email_patch(structural_id, "grace@example.com"),
+        )
+        .expect("structural insert should succeed");
+
+    assert_eq!(typed.email, structural.email);
+    assert_eq!(
+        load_unique_email_entity(typed_id)
+            .expect("typed row should persist")
+            .email,
+        load_unique_email_entity(structural_id)
+            .expect("structural row should persist")
+            .email
+    );
+}
+
+#[test]
+fn structural_replace_matches_typed_replace_for_existing_rows() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let id = Ulid::from_u128(29);
+    save.insert(UniqueEmailEntity {
+        id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let replaced = session
+        .replace_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
+                .expect("resolve id slot")
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "email",
+                    Value::Text("grace@example.com".to_string()),
+                )
+                .expect("resolve email slot"),
+        )
+        .expect("structural replace should succeed");
+
+    assert_eq!(
+        replaced,
+        UniqueEmailEntity {
+            id,
+            email: "grace@example.com".to_string(),
+        }
+    );
+
+    let persisted = load_unique_email_entity(id).expect("replaced row should persist");
+    assert_eq!(persisted, replaced);
+}
+
+#[test]
+fn structural_update_matches_typed_update_parity() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let typed_id = Ulid::from_u128(290);
+    let structural_id = Ulid::from_u128(291);
+    save.insert(UniqueEmailEntity {
+        id: typed_id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("typed seed row should save");
+    save.insert(UniqueEmailEntity {
+        id: structural_id,
+        email: "bob@example.com".to_string(),
+    })
+    .expect("structural seed row should save");
+
+    let typed = save
+        .update(UniqueEmailEntity {
+            id: typed_id,
+            email: "grace@example.com".to_string(),
+        })
+        .expect("typed update should succeed");
+    let structural = session
+        .update_structural(
+            structural_id,
+            UpdatePatch::new()
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "email",
+                    Value::Text("grace@example.com".to_string()),
+                )
+                .expect("resolve email slot"),
+        )
+        .expect("structural update should succeed");
+
+    assert_eq!(typed.email, structural.email);
+    assert_eq!(
+        load_unique_email_entity(typed_id)
+            .expect("typed row should persist")
+            .email,
+        load_unique_email_entity(structural_id)
+            .expect("structural row should persist")
+            .email
+    );
+}
+
+#[test]
+fn structural_replace_matches_typed_replace_parity() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let typed_id = Ulid::from_u128(292);
+    let structural_id = Ulid::from_u128(293);
+    save.insert(UniqueEmailEntity {
+        id: typed_id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("typed seed row should save");
+    save.insert(UniqueEmailEntity {
+        id: structural_id,
+        email: "bob@example.com".to_string(),
+    })
+    .expect("structural seed row should save");
+
+    let typed = save
+        .replace(UniqueEmailEntity {
+            id: typed_id,
+            email: "grace@example.com".to_string(),
+        })
+        .expect("typed replace should succeed");
+    let structural = session
+        .replace_structural(
+            structural_id,
+            unique_email_patch(structural_id, "grace@example.com"),
+        )
+        .expect("structural replace should succeed");
+
+    assert_eq!(typed.email, structural.email);
+    assert_eq!(
+        load_unique_email_entity(typed_id)
+            .expect("typed row should persist")
+            .email,
+        load_unique_email_entity(structural_id)
+            .expect("structural row should persist")
+            .email
+    );
+}
+
+#[test]
+fn structural_replace_inserts_missing_rows_with_full_after_image() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(30);
+    let replaced = session
+        .replace_structural(
+            id,
+            UpdatePatch::new()
+                .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
+                .expect("resolve id slot")
+                .set_field(
+                    UniqueEmailEntity::MODEL,
+                    "email",
+                    Value::Text("grace@example.com".to_string()),
+                )
+                .expect("resolve email slot"),
+        )
+        .expect("structural replace should insert missing rows");
+
+    assert_eq!(
+        replaced,
+        UniqueEmailEntity {
+            id,
+            email: "grace@example.com".to_string(),
+        }
+    );
+
+    let persisted = load_unique_email_entity(id).expect("replaced row should persist");
+    assert_eq!(persisted, replaced);
+}
+
+#[test]
 fn unique_index_update_same_pk_same_components_is_allowed() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
     let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
-    let id = Ulid::from_u128(30);
+    let id = Ulid::from_u128(31);
     save.insert(UniqueEmailEntity {
         id,
         email: "alice@example.com".to_string(),

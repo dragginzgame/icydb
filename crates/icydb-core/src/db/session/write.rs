@@ -1,7 +1,10 @@
 #[cfg(test)]
 use crate::db::{DataStore, IndexStore};
 use crate::{
-    db::{DbSession, PersistedRow, WriteBatchResponse},
+    db::{
+        DbSession, PersistedRow, WriteBatchResponse, data::UpdatePatch,
+        executor::StructuralMutationMode,
+    },
     error::InternalError,
     traits::{CanisterKind, EntityValue},
 };
@@ -51,6 +54,39 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_entity(|save| save.replace(entity))
     }
 
+    /// Apply one structural mutation under one explicit write-mode contract.
+    ///
+    /// This is the public core session boundary for structural writes:
+    /// callers provide the key, field patch, and intended mutation mode, and
+    /// the session routes that through the shared structural mutation pipeline.
+    pub fn mutate_structural<E>(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+        mode: StructuralMutationMode,
+    ) -> Result<E, InternalError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_save_entity(|save| save.apply_structural_mutation(mode, key, patch))
+    }
+
+    /// Apply one structural full-row replacement, inserting if missing.
+    ///
+    /// Replace semantics rebuild the after-image from an empty row layout, so
+    /// omitted fields do not inherit old-row values implicitly.
+    #[allow(dead_code)]
+    pub(in crate::db) fn replace_structural<E>(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.mutate_structural(key, patch, StructuralMutationMode::Replace)
+    }
+
     /// Replace a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
@@ -85,6 +121,39 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_save_entity(|save| save.update(entity))
+    }
+
+    /// Apply one structural insert from a patch-defined full after-image.
+    ///
+    /// Insert semantics require the patch to describe the full row payload
+    /// because no old-row baseline exists to fill missing fields.
+    #[allow(dead_code)]
+    pub(in crate::db) fn insert_structural<E>(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.mutate_structural(key, patch, StructuralMutationMode::Insert)
+    }
+
+    /// Apply one structural field patch to an existing entity row.
+    ///
+    /// This session-owned boundary keeps structural mutation out of the raw
+    /// executor surface while still routing through the same typed save
+    /// preflight before commit staging.
+    #[allow(dead_code)]
+    pub(in crate::db) fn update_structural<E>(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+    ) -> Result<E, InternalError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.mutate_structural(key, patch, StructuralMutationMode::Update)
     }
 
     /// Update a single-entity-type batch atomically in one commit window.

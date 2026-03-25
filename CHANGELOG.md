@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.64.x] - 2026-03-25 - Structural Mutation API
+
+- `0.64.0` adds one public mode-driven structural mutation API (`Insert`, `Update`, `Replace`) that still reuses the existing typed validation and commit pipeline, and it also isolates normal IcyDB cargo workflows into repo-local cargo state so sibling repos stop contending on the same filesystem.
+
+See detailed breakdown:
+[docs/changelog/0.64.md](docs/changelog/0.64.md)
+
+---
+
 ## [0.63.x] - 2026-03-23 - Post-De-Monomorphization Consolidation Audit
 
 - `0.63.12` keeps the full SQL feature set but trims more canister wasm by narrowing the generated query path’s initial route and cursor setup, and it also fixes a flaky `make patch` clean-tree check that could fail once and pass on a second run without any real file change.

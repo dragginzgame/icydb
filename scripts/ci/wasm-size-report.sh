@@ -6,6 +6,8 @@ OUT_DIR="$ROOT/artifacts/wasm-size"
 PROFILE="${WASM_PROFILE:-wasm-release}"
 SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
 
+source "$ROOT/scripts/env/cargo-local.sh"
+
 if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
     for canister_name in minimal one_simple one_complex ten_simple ten_complex; do
         WASM_CANISTER_NAME="$canister_name" \

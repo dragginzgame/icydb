@@ -6,14 +6,21 @@
 use crate::{
     db::{
         codec::{MAX_ROW_BYTES, serialize_row_payload},
-        data::{DataKey, PersistedRow, StructuralSlotReader, encode_persisted_row},
+        data::{
+            DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader, UpdatePatch,
+            apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
+        },
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
 use thiserror::Error as ThisError;
+
+#[cfg(test)]
+use crate::db::data::serialize_entity_slots_as_update_patch;
 
 ///
 /// DataRow
@@ -76,12 +83,49 @@ impl RawRow {
     }
 
     /// Encode one entity into the canonical persisted row envelope.
+    #[cfg(test)]
     pub(crate) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
     where
         E: PersistedRow,
     {
-        let payload = encode_persisted_row(entity)?;
-        let encoded = serialize_row_payload(payload)?;
+        let serialized_patch = serialize_entity_slots_as_update_patch(entity)?;
+        Self::from_serialized_update_patch(E::MODEL, &serialized_patch)
+    }
+
+    /// Build one raw row from one serialized structural patch over an empty row layout.
+    pub(in crate::db) fn from_serialized_update_patch(
+        model: &'static EntityModel,
+        patch: &SerializedUpdatePatch,
+    ) -> Result<Self, InternalError> {
+        let empty_row = Self::empty_for_model(model)?;
+
+        empty_row.apply_serialized_update_patch(model, patch)
+    }
+
+    /// Apply one ordered structural patch through the persisted-row boundary.
+    #[allow(dead_code)]
+    pub(in crate::db) fn apply_update_patch(
+        &self,
+        model: &'static EntityModel,
+        patch: &UpdatePatch,
+    ) -> Result<Self, InternalError> {
+        apply_update_patch_to_raw_row(model, self, patch)
+    }
+
+    /// Apply one pre-serialized structural patch through the persisted-row boundary.
+    #[allow(dead_code)]
+    pub(in crate::db) fn apply_serialized_update_patch(
+        &self,
+        model: &'static EntityModel,
+        patch: &SerializedUpdatePatch,
+    ) -> Result<Self, InternalError> {
+        apply_serialized_update_patch_to_raw_row(model, self, patch)
+    }
+
+    // Build one empty raw row for the current structural slot layout.
+    fn empty_for_model(model: &'static EntityModel) -> Result<Self, InternalError> {
+        let empty_payload = vec![0_u8; 2 + model.fields().len() * 8];
+        let encoded = serialize_row_payload(empty_payload)?;
 
         Self::try_new(encoded).map_err(InternalError::from)
     }

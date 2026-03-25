@@ -5,22 +5,28 @@
 //! consume the canonical slot-oriented persisted-row boundary here.
 
 use crate::{
-    db::data::{
-        DataKey, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes,
-        decode_storage_key_field_bytes, decode_structural_field_by_kind_bytes,
-        decode_structural_value_storage_bytes,
+    db::{
+        codec::serialize_row_payload,
+        data::{
+            DataKey, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes,
+            decode_storage_key_field_bytes, decode_structural_field_by_kind_bytes,
+            decode_structural_value_storage_bytes,
+        },
+        scalar_expr::compile_scalar_literal_expr_value,
+        schema::{field_type_from_model_kind, literal_matches_type},
     },
     error::InternalError,
     model::{
-        entity::{EntityModel, resolve_primary_key_slot},
-        field::{FieldModel, LeafCodec, ScalarCodec},
+        entity::{EntityModel, resolve_field_slot, resolve_primary_key_slot},
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
     },
     serialize::{deserialize, serialize},
     traits::EntityKind,
     types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
-    value::{StorageKey, Value},
+    value::{StorageKey, Value, ValueEnum},
 };
-use std::str;
+use serde_cbor::{Value as CborValue, value::to_value as to_cbor_value};
+use std::{cmp::Ordering, collections::BTreeMap, str};
 
 const SCALAR_SLOT_PREFIX: u8 = 0xFF;
 const SCALAR_SLOT_TAG_NULL: u8 = 0;
@@ -34,6 +40,227 @@ const SCALAR_SUBACCOUNT_PAYLOAD_LEN: usize = 32;
 
 const SCALAR_BOOL_FALSE_TAG: u8 = 0;
 const SCALAR_BOOL_TRUE_TAG: u8 = 1;
+
+///
+/// FieldSlot
+///
+/// FieldSlot
+///
+/// FieldSlot is the structural stable slot reference used by the `0.64`
+/// patching path.
+/// It intentionally carries only the model-local slot index so field-level
+/// mutation stays structural instead of reintroducing typed entity helpers.
+///
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct FieldSlot {
+    index: usize,
+}
+
+#[allow(dead_code)]
+impl FieldSlot {
+    /// Resolve one stable field slot by runtime field name.
+    #[must_use]
+    pub(in crate::db) fn resolve(model: &'static EntityModel, field_name: &str) -> Option<Self> {
+        resolve_field_slot(model, field_name).map(|index| Self { index })
+    }
+
+    /// Build one stable field slot from an already validated index.
+    pub(in crate::db) fn from_index(
+        model: &'static EntityModel,
+        index: usize,
+    ) -> Result<Self, InternalError> {
+        field_model_for_slot(model, index)?;
+
+        Ok(Self { index })
+    }
+
+    /// Return the stable slot index inside `EntityModel::fields`.
+    #[must_use]
+    pub(in crate::db) const fn index(self) -> usize {
+        self.index
+    }
+}
+
+///
+/// FieldUpdate
+///
+/// FieldUpdate
+///
+/// FieldUpdate carries one ordered field-level mutation over the structural
+/// persisted-row boundary.
+/// `UpdatePatch` applies these entries in order and last write wins for the
+/// same slot.
+///
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct FieldUpdate {
+    slot: FieldSlot,
+    value: Value,
+}
+
+#[allow(dead_code)]
+impl FieldUpdate {
+    /// Build one field-level structural update.
+    #[must_use]
+    pub(in crate::db) const fn new(slot: FieldSlot, value: Value) -> Self {
+        Self { slot, value }
+    }
+
+    /// Return the stable target slot.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> FieldSlot {
+        self.slot
+    }
+
+    /// Return the runtime value payload for this update.
+    #[must_use]
+    pub(in crate::db) const fn value(&self) -> &Value {
+        &self.value
+    }
+}
+
+///
+/// UpdatePatch
+///
+/// UpdatePatch
+///
+/// UpdatePatch is the ordered structural mutation program applied to one
+/// persisted row.
+/// This is the phase-1 `0.64` patch container: it updates slot values
+/// structurally and then re-encodes the full row.
+///
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct UpdatePatch {
+    entries: Vec<FieldUpdate>,
+}
+
+impl UpdatePatch {
+    /// Build one empty patch.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    /// Append one structural field update in declaration order.
+    #[must_use]
+    pub(in crate::db) fn set(mut self, slot: FieldSlot, value: Value) -> Self {
+        self.entries.push(FieldUpdate::new(slot, value));
+        self
+    }
+
+    /// Resolve one field name and append its structural update.
+    pub fn set_field(
+        self,
+        model: &'static EntityModel,
+        field_name: &str,
+        value: Value,
+    ) -> Result<Self, InternalError> {
+        let Some(slot) = FieldSlot::resolve(model, field_name) else {
+            return Err(InternalError::mutation_structural_field_unknown(
+                model.path(),
+                field_name,
+            ));
+        };
+
+        Ok(self.set(slot, value))
+    }
+
+    /// Borrow the ordered field updates carried by this patch.
+    #[must_use]
+    pub(in crate::db) const fn entries(&self) -> &[FieldUpdate] {
+        self.entries.as_slice()
+    }
+
+    /// Return whether this patch carries no field updates.
+    #[must_use]
+    pub(in crate::db) const fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+///
+/// SerializedFieldUpdate
+///
+/// SerializedFieldUpdate
+///
+/// SerializedFieldUpdate carries one ordered field-level mutation after the
+/// owning persisted-row field codec has already lowered the runtime `Value`
+/// into canonical slot payload bytes.
+/// This lets later patch-application stages consume one mechanical slot-patch
+/// artifact instead of rebuilding per-field encode dispatch.
+///
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SerializedFieldUpdate {
+    slot: FieldSlot,
+    payload: Option<Vec<u8>>,
+}
+
+#[allow(dead_code)]
+impl SerializedFieldUpdate {
+    /// Build one serialized structural field update.
+    #[must_use]
+    pub(in crate::db) const fn new(slot: FieldSlot, payload: Option<Vec<u8>>) -> Self {
+        Self { slot, payload }
+    }
+
+    /// Return the stable target slot.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> FieldSlot {
+        self.slot
+    }
+
+    /// Borrow the canonical slot payload bytes for this update when present.
+    #[must_use]
+    pub(in crate::db) fn payload(&self) -> Option<&[u8]> {
+        self.payload.as_deref()
+    }
+}
+
+///
+/// SerializedUpdatePatch
+///
+/// SerializedUpdatePatch
+///
+/// SerializedUpdatePatch is the canonical serialized form of `UpdatePatch`
+/// over persisted-row slot payload bytes.
+/// This is the structural patch artifact later write-path stages can stage or
+/// replay without re-entering field-contract encode logic.
+///
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct SerializedUpdatePatch {
+    entries: Vec<SerializedFieldUpdate>,
+}
+
+#[allow(dead_code)]
+impl SerializedUpdatePatch {
+    /// Build one serialized patch from already encoded slot payloads.
+    #[must_use]
+    pub(in crate::db) const fn new(entries: Vec<SerializedFieldUpdate>) -> Self {
+        Self { entries }
+    }
+
+    /// Borrow the ordered serialized field updates carried by this patch.
+    #[must_use]
+    pub(in crate::db) const fn entries(&self) -> &[SerializedFieldUpdate] {
+        self.entries.as_slice()
+    }
+
+    /// Return whether this serialized patch carries no field updates.
+    #[must_use]
+    pub(in crate::db) const fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
 
 ///
 /// SlotReader
@@ -116,23 +343,182 @@ pub(in crate::db) fn decode_slot_value_by_contract(
     slots: &dyn SlotReader,
     slot: usize,
 ) -> Result<Option<Value>, InternalError> {
-    let field = slots.model().fields().get(slot).ok_or_else(|| {
-        InternalError::persisted_row_slot_lookup_out_of_bounds(slots.model().path(), slot)
-    })?;
+    let Some(raw_value) = slots.get_bytes(slot) else {
+        return Ok(None);
+    };
 
-    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-        && let Some(value) = slots.get_scalar(slot)?
-    {
-        return Ok(Some(match value {
-            ScalarSlotValueRef::Null => Value::Null,
-            ScalarSlotValueRef::Value(value) => value.into_value(),
-        }));
+    decode_slot_value_from_bytes(slots.model(), slot, raw_value).map(Some)
+}
+
+/// Decode one structural slot payload using the owning model field contract.
+///
+/// This is the canonical field-level decode boundary for persisted-row bytes.
+/// Higher-level row readers may still cache decoded values, but they should not
+/// rebuild scalar-vs-CBOR field dispatch themselves.
+pub(in crate::db) fn decode_slot_value_from_bytes(
+    model: &'static EntityModel,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
+    let field = field_model_for_slot(model, slot)?;
+
+    match field.leaf_codec() {
+        LeafCodec::Scalar(codec) => match decode_scalar_slot_value(raw_value, codec, field.name())?
+        {
+            ScalarSlotValueRef::Null => Ok(Value::Null),
+            ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
+        },
+        LeafCodec::CborFallback => decode_non_scalar_slot_value(raw_value, field),
+    }
+}
+
+/// Encode one structural slot value using the owning model field contract.
+///
+/// This is the initial `0.64` write-side field-codec boundary. It currently
+/// covers:
+/// - scalar leaf slots
+/// - `FieldStorageDecode::Value` slots
+///
+/// Composite `ByKind` field encoding remains a follow-up slice so the runtime
+/// can add one structural encoder owner instead of quietly rebuilding typed
+/// per-field branches.
+#[allow(dead_code)]
+pub(in crate::db) fn encode_slot_value_from_value(
+    model: &'static EntityModel,
+    slot: usize,
+    value: &Value,
+) -> Result<Vec<u8>, InternalError> {
+    let field = field_model_for_slot(model, slot)?;
+    ensure_slot_value_matches_field_contract(field, value)?;
+
+    match field.storage_decode() {
+        FieldStorageDecode::Value => serialize(value)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field.name(), err)),
+        FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::Scalar(_) => {
+                let scalar = compile_scalar_literal_expr_value(value).ok_or_else(|| {
+                    InternalError::persisted_row_field_encode_failed(
+                        field.name(),
+                        format!(
+                            "field kind {:?} requires a scalar runtime value, found {value:?}",
+                            field.kind()
+                        ),
+                    )
+                })?;
+
+                Ok(encode_scalar_slot_value(scalar.as_slot_value_ref()))
+            }
+            LeafCodec::CborFallback => {
+                encode_structural_field_bytes_by_kind(field.kind(), value, field.name())
+            }
+        },
+    }
+}
+
+/// Apply one ordered structural patch to one raw row using the current
+/// persisted-row field codec authority.
+#[allow(dead_code)]
+pub(in crate::db) fn apply_update_patch_to_raw_row(
+    model: &'static EntityModel,
+    raw_row: &RawRow,
+    patch: &UpdatePatch,
+) -> Result<RawRow, InternalError> {
+    let serialized_patch = serialize_update_patch_fields(model, patch)?;
+
+    apply_serialized_update_patch_to_raw_row(model, raw_row, &serialized_patch)
+}
+
+/// Serialize one ordered structural patch into canonical slot payload bytes.
+///
+/// This is the phase-1 partial-serialization seam for `0.64`: later mutation
+/// stages can stage or replay one field patch without rebuilding the runtime
+/// value-to-bytes contract per consumer.
+#[allow(dead_code)]
+pub(in crate::db) fn serialize_update_patch_fields(
+    model: &'static EntityModel,
+    patch: &UpdatePatch,
+) -> Result<SerializedUpdatePatch, InternalError> {
+    if patch.is_empty() {
+        return Ok(SerializedUpdatePatch::default());
     }
 
-    match slots.get_bytes(slot) {
-        Some(raw_value) => decode_non_scalar_slot_value(raw_value, field).map(Some),
-        None => Ok(None),
+    let mut entries = Vec::with_capacity(patch.entries().len());
+
+    // Phase 1: validate and encode each ordered field update through the
+    // canonical slot codec owner.
+    for entry in patch.entries() {
+        let slot = entry.slot();
+        let payload = encode_slot_value_from_value(model, slot.index(), entry.value())?;
+        entries.push(SerializedFieldUpdate::new(slot, Some(payload)));
     }
+
+    Ok(SerializedUpdatePatch::new(entries))
+}
+
+/// Serialize one full typed entity image into the canonical serialized patch
+/// artifact used by row-boundary patch replay.
+///
+/// This keeps typed save/update APIs on the existing surface while moving the
+/// actual after-image staging onto the structural slot-patch boundary.
+#[allow(dead_code)]
+pub(in crate::db) fn serialize_entity_slots_as_update_patch<E>(
+    entity: &E,
+) -> Result<SerializedUpdatePatch, InternalError>
+where
+    E: PersistedRow,
+{
+    let mut writer = SerializedPatchWriter::for_model(E::MODEL);
+
+    // Phase 1: let the derive-owned persisted-row writer emit the complete
+    // structural slot image for this entity.
+    entity.write_slots(&mut writer)?;
+
+    // Phase 2: require a dense slot image so save/update replay remains
+    // equivalent to the existing full-row write semantics.
+    writer.finish_complete()
+}
+
+/// Apply one serialized structural patch to one raw row.
+///
+/// This mechanical replay step no longer owns any `Value -> bytes` dispatch.
+/// It only replays already encoded slot payloads over the current row layout.
+#[allow(dead_code)]
+pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
+    model: &'static EntityModel,
+    raw_row: &RawRow,
+    patch: &SerializedUpdatePatch,
+) -> Result<RawRow, InternalError> {
+    if patch.is_empty() {
+        return Ok(raw_row.clone());
+    }
+
+    let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
+        .map_err(StructuralRowDecodeError::into_internal_error)?;
+    let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
+    let mut writer = SlotBufferWriter::for_model(model);
+
+    // Phase 1: replay the current row layout slot-by-slot, overriding only the
+    // patched fields with their already serialized payload bytes.
+    for (slot, patch_payload) in patch_payloads.iter().enumerate() {
+        match patch_payload {
+            Some(SerializedSlotPatchRef::Set(payload)) => {
+                writer.write_slot(slot, Some(payload))?;
+            }
+            Some(SerializedSlotPatchRef::Clear) => {
+                writer.write_slot(slot, None)?;
+            }
+            None => {
+                writer.write_slot(slot, field_bytes.field(slot))?;
+            }
+        }
+    }
+
+    // Phase 2: wrap the new slot payload bytes back into the canonical row
+    // envelope.
+    let payload = writer.finish()?;
+    let encoded = serialize_row_payload(payload)?;
+
+    RawRow::try_new(encoded).map_err(InternalError::from)
 }
 
 // Decode one non-scalar slot through the exact persisted contract declared by
@@ -153,6 +539,332 @@ fn decode_non_scalar_slot_value(
     decoded.map_err(|err| {
         InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
     })
+}
+
+// Validate one runtime value against the persisted field contract before field-
+// level structural encoding writes bytes into a row slot.
+#[allow(dead_code)]
+fn ensure_slot_value_matches_field_contract(
+    field: &FieldModel,
+    value: &Value,
+) -> Result<(), InternalError> {
+    if matches!(value, Value::Null) {
+        return Ok(());
+    }
+
+    if matches!(field.kind(), FieldKind::Structured { queryable: false })
+        && matches!(field.storage_decode(), FieldStorageDecode::Value)
+    {
+        return ensure_value_is_deterministic_for_storage(field.name(), field.kind(), value);
+    }
+
+    let field_type = field_type_from_model_kind(&field.kind());
+    if !literal_matches_type(value, &field_type) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field.name(),
+            format!(
+                "field kind {:?} does not accept runtime value {value:?}",
+                field.kind()
+            ),
+        ));
+    }
+
+    ensure_decimal_scale_matches(field.name(), field.kind(), value)?;
+    ensure_value_is_deterministic_for_storage(field.name(), field.kind(), value)
+}
+
+// Enforce fixed decimal scales through nested collection/map shapes before a
+// field-level patch value is persisted.
+#[allow(dead_code)]
+fn ensure_decimal_scale_matches(
+    field_name: &str,
+    kind: FieldKind,
+    value: &Value,
+) -> Result<(), InternalError> {
+    if matches!(value, Value::Null) {
+        return Ok(());
+    }
+
+    match (kind, value) {
+        (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+            if decimal.scale() != scale {
+                return Err(InternalError::persisted_row_field_encode_failed(
+                    field_name,
+                    format!(
+                        "decimal scale mismatch: expected {scale}, found {}",
+                        decimal.scale()
+                    ),
+                ));
+            }
+
+            Ok(())
+        }
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            ensure_decimal_scale_matches(field_name, *key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+            for item in items {
+                ensure_decimal_scale_matches(field_name, *inner, item)?;
+            }
+
+            Ok(())
+        }
+        (
+            FieldKind::Map {
+                key,
+                value: map_value,
+            },
+            Value::Map(entries),
+        ) => {
+            for (entry_key, entry_value) in entries {
+                ensure_decimal_scale_matches(field_name, *key, entry_key)?;
+                ensure_decimal_scale_matches(field_name, *map_value, entry_value)?;
+            }
+
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+// Enforce the canonical persisted ordering rules for set/map shapes before one
+// field-level patch value becomes row bytes.
+#[allow(dead_code)]
+fn ensure_value_is_deterministic_for_storage(
+    field_name: &str,
+    kind: FieldKind,
+    value: &Value,
+) -> Result<(), InternalError> {
+    match (kind, value) {
+        (FieldKind::Set(_), Value::List(items)) => {
+            for pair in items.windows(2) {
+                let [left, right] = pair else {
+                    continue;
+                };
+                if Value::canonical_cmp(left, right) != Ordering::Less {
+                    return Err(InternalError::persisted_row_field_encode_failed(
+                        field_name,
+                        "set payload must already be canonical and deduplicated",
+                    ));
+                }
+            }
+
+            Ok(())
+        }
+        (FieldKind::Map { .. }, Value::Map(entries)) => {
+            Value::validate_map_entries(entries.as_slice())
+                .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))?;
+
+            if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
+                return Err(InternalError::persisted_row_field_encode_failed(
+                    field_name,
+                    "map payload must already be canonical and deduplicated",
+                ));
+            }
+
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+// Materialize the last-write-wins serialized patch view indexed by stable slot.
+fn serialized_patch_payload_by_slot<'a>(
+    model: &'static EntityModel,
+    patch: &'a SerializedUpdatePatch,
+) -> Result<Vec<Option<SerializedSlotPatchRef<'a>>>, InternalError> {
+    let mut payloads = vec![None; model.fields().len()];
+
+    for entry in patch.entries() {
+        let slot = entry.slot().index();
+        field_model_for_slot(model, slot)?;
+        payloads[slot] = Some(match entry.payload() {
+            Some(payload) => SerializedSlotPatchRef::Set(payload),
+            None => SerializedSlotPatchRef::Clear,
+        });
+    }
+
+    Ok(payloads)
+}
+
+///
+/// SerializedSlotPatchRef
+///
+/// SerializedSlotPatchRef
+///
+/// SerializedSlotPatchRef is the borrowed replay view used while applying one
+/// serialized patch over an existing row layout.
+/// It preserves the distinction between "set these bytes" and "clear this
+/// slot" without forcing row replay to reason about runtime `Value`s.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SerializedSlotPatchRef<'a> {
+    Clear,
+    Set(&'a [u8]),
+}
+
+// Encode one `ByKind` field payload into the raw CBOR shape expected by the
+// structural field decoder.
+fn encode_structural_field_bytes_by_kind(
+    kind: FieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    let cbor_value = encode_structural_field_cbor_by_kind(kind, value, field_name)?;
+
+    serialize(&cbor_value)
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
+}
+
+// Encode one `ByKind` field payload into its raw CBOR value form.
+fn encode_structural_field_cbor_by_kind(
+    kind: FieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<CborValue, InternalError> {
+    match (kind, value) {
+        (_, Value::Null) => Ok(CborValue::Null),
+        (FieldKind::Blob, Value::Blob(value)) => Ok(CborValue::Bytes(value.clone())),
+        (FieldKind::Bool, Value::Bool(value)) => Ok(CborValue::Bool(*value)),
+        (FieldKind::Text, Value::Text(value)) => Ok(CborValue::Text(value.clone())),
+        (FieldKind::Int, Value::Int(value)) => Ok(CborValue::Integer(i128::from(*value))),
+        (FieldKind::Uint, Value::Uint(value)) => Ok(CborValue::Integer(i128::from(*value))),
+        (FieldKind::Float32, Value::Float32(value)) => to_cbor_value(value)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
+        (FieldKind::Float64, Value::Float64(value)) => to_cbor_value(value)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
+        (FieldKind::Int128, Value::Int128(value)) => to_cbor_value(value)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
+        (FieldKind::Uint128, Value::Uint128(value)) => to_cbor_value(value)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
+        (FieldKind::Ulid, Value::Ulid(value)) => Ok(CborValue::Text(value.to_string())),
+        (FieldKind::Account, Value::Account(value)) => encode_leaf_cbor_value(value, field_name),
+        (FieldKind::Date, Value::Date(value)) => encode_leaf_cbor_value(value, field_name),
+        (FieldKind::Decimal { .. }, Value::Decimal(value)) => {
+            encode_leaf_cbor_value(value, field_name)
+        }
+        (FieldKind::Duration, Value::Duration(value)) => encode_leaf_cbor_value(value, field_name),
+        (FieldKind::IntBig, Value::IntBig(value)) => encode_leaf_cbor_value(value, field_name),
+        (FieldKind::Principal, Value::Principal(value)) => {
+            encode_leaf_cbor_value(value, field_name)
+        }
+        (FieldKind::Subaccount, Value::Subaccount(value)) => {
+            encode_leaf_cbor_value(value, field_name)
+        }
+        (FieldKind::Timestamp, Value::Timestamp(value)) => {
+            encode_leaf_cbor_value(value, field_name)
+        }
+        (FieldKind::UintBig, Value::UintBig(value)) => encode_leaf_cbor_value(value, field_name),
+        (FieldKind::Unit, Value::Unit) => encode_leaf_cbor_value(&(), field_name),
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            encode_structural_field_cbor_by_kind(*key_kind, value, field_name)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+            Ok(CborValue::Array(
+                items
+                    .iter()
+                    .map(|item| encode_structural_field_cbor_by_kind(*inner, item, field_name))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ))
+        }
+        (FieldKind::Map { key, value }, Value::Map(entries)) => {
+            let mut encoded = BTreeMap::new();
+            for (entry_key, entry_value) in entries {
+                encoded.insert(
+                    encode_structural_field_cbor_by_kind(*key, entry_key, field_name)?,
+                    encode_structural_field_cbor_by_kind(*value, entry_value, field_name)?,
+                );
+            }
+
+            Ok(CborValue::Map(encoded))
+        }
+        (FieldKind::Enum { path, variants }, Value::Enum(value)) => {
+            encode_enum_cbor_value(path, variants, value, field_name)
+        }
+        (FieldKind::Structured { .. }, _) => Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            "structured ByKind field encoding is unsupported",
+        )),
+        _ => Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept runtime value {value:?}"),
+        )),
+    }
+}
+
+// Encode one typed leaf wrapper into its raw CBOR value form.
+fn encode_leaf_cbor_value<T>(value: &T, field_name: &str) -> Result<CborValue, InternalError>
+where
+    T: serde::Serialize,
+{
+    to_cbor_value(value)
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
+}
+
+// Encode one enum field using the same unit-vs-one-entry-map envelope expected
+// by structural enum decode.
+fn encode_enum_cbor_value(
+    path: &'static str,
+    variants: &'static [crate::model::field::EnumVariantModel],
+    value: &ValueEnum,
+    field_name: &str,
+) -> Result<CborValue, InternalError> {
+    if let Some(actual_path) = value.path()
+        && actual_path != path
+    {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("enum path mismatch: expected '{path}', found '{actual_path}'"),
+        ));
+    }
+
+    let Some(payload) = value.payload() else {
+        return Ok(CborValue::Text(value.variant().to_string()));
+    };
+
+    let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!(
+                "unknown enum variant '{}' for path '{path}'",
+                value.variant()
+            ),
+        ));
+    };
+    let Some(payload_kind) = variant_model.payload_kind() else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!(
+                "enum variant '{}' does not accept a payload",
+                value.variant()
+            ),
+        ));
+    };
+
+    let payload_value = match variant_model.payload_storage_decode() {
+        FieldStorageDecode::ByKind => {
+            encode_structural_field_cbor_by_kind(*payload_kind, payload, field_name)?
+        }
+        FieldStorageDecode::Value => to_cbor_value(payload)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))?,
+    };
+
+    let mut encoded = BTreeMap::new();
+    encoded.insert(CborValue::Text(value.variant().to_string()), payload_value);
+
+    Ok(CborValue::Map(encoded))
+}
+
+// Resolve one field model entry by stable slot index.
+fn field_model_for_slot(
+    model: &'static EntityModel,
+    slot: usize,
+) -> Result<&'static FieldModel, InternalError> {
+    model
+        .fields()
+        .get(slot)
+        .ok_or_else(|| InternalError::persisted_row_slot_lookup_out_of_bounds(model.path(), slot))
 }
 
 ///
@@ -415,14 +1127,92 @@ impl SlotWriter for SlotBufferWriter {
     }
 }
 
-/// Encode one entity into the canonical slot-container payload.
-pub(in crate::db) fn encode_persisted_row<E>(entity: &E) -> Result<Vec<u8>, InternalError>
-where
-    E: PersistedRow,
-{
-    let mut writer = SlotBufferWriter::for_model(E::MODEL);
-    entity.write_slots(&mut writer)?;
-    writer.finish()
+///
+/// SerializedPatchWriter
+///
+/// SerializedPatchWriter
+///
+/// SerializedPatchWriter captures a dense typed entity slot image into the
+/// serialized patch artifact used by `0.64` mutation staging.
+/// Unlike `SlotBufferWriter`, this writer does not flatten into one row payload;
+/// it preserves slot-level ownership so later stages can replay the row through
+/// the structural patch boundary.
+///
+
+struct SerializedPatchWriter {
+    model: &'static EntityModel,
+    slots: Vec<PatchWriterSlot>,
+}
+
+impl SerializedPatchWriter {
+    /// Build one empty serialized patch writer for one entity model.
+    fn for_model(model: &'static EntityModel) -> Self {
+        Self {
+            model,
+            slots: vec![PatchWriterSlot::Missing; model.fields().len()],
+        }
+    }
+
+    /// Materialize one dense serialized patch, erroring if the writer failed
+    /// to emit any declared slot.
+    fn finish_complete(self) -> Result<SerializedUpdatePatch, InternalError> {
+        let mut entries = Vec::with_capacity(self.slots.len());
+
+        // Phase 1: require a complete slot image so typed save/update staging
+        // stays equivalent to the existing full-row encoder.
+        for (slot, payload) in self.slots.into_iter().enumerate() {
+            let field_slot = FieldSlot::from_index(self.model, slot)?;
+            let serialized = match payload {
+                PatchWriterSlot::Set(payload) => {
+                    SerializedFieldUpdate::new(field_slot, Some(payload))
+                }
+                PatchWriterSlot::Clear => SerializedFieldUpdate::new(field_slot, None),
+                PatchWriterSlot::Missing => {
+                    return Err(InternalError::persisted_row_encode_failed(format!(
+                        "serialized patch writer did not emit slot {slot} for entity '{}'",
+                        self.model.path()
+                    )));
+                }
+            };
+            entries.push(serialized);
+        }
+
+        Ok(SerializedUpdatePatch::new(entries))
+    }
+}
+
+impl SlotWriter for SerializedPatchWriter {
+    fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
+        let entry = self.slots.get_mut(slot).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is outside the row layout",
+            ))
+        })?;
+        *entry = match payload {
+            Some(payload) => PatchWriterSlot::Set(payload.to_vec()),
+            None => PatchWriterSlot::Clear,
+        };
+
+        Ok(())
+    }
+}
+
+///
+/// PatchWriterSlot
+///
+/// PatchWriterSlot
+///
+/// PatchWriterSlot tracks whether one dense slot-image writer has emitted a
+/// payload, emitted an explicit clear, or failed to visit the slot at all.
+/// That lets the typed save/update bridge reject incomplete writers instead of
+/// silently leaving stale bytes in the baseline row.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PatchWriterSlot {
+    Missing,
+    Clear,
+    Set(Vec<u8>),
 }
 
 ///
@@ -503,9 +1293,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Resolve one field model entry by stable slot index.
     fn field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        self.model.fields().get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(self.model.path(), slot)
-        })
+        field_model_for_slot(self.model, slot)
     }
 }
 
@@ -559,14 +1347,9 @@ impl SlotReader for StructuralSlotReader<'_> {
             return Ok(value.clone());
         }
 
-        let field = self.field_model(slot)?;
-        let value = match self.get_scalar(slot)? {
-            Some(ScalarSlotValueRef::Null) => Some(Value::Null),
-            Some(ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
-            None => match self.field_bytes.field(slot) {
-                Some(raw_value) => Some(decode_non_scalar_slot_value(raw_value, field)?),
-                None => None,
-            },
+        let value = match self.field_bytes.field(slot) {
+            Some(raw_value) => Some(decode_slot_value_from_bytes(self.model, slot, raw_value)?),
+            None => None,
         };
         self.cached_values[slot] = CachedSlotValue::Decoded(value.clone());
 
@@ -1166,5 +1949,481 @@ impl PersistedScalar for () {
         }
 
         Ok(())
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        FieldSlot, ScalarSlotValueRef, ScalarValueRef, SlotBufferWriter, SlotReader, SlotWriter,
+        UpdatePatch, apply_update_patch_to_raw_row, decode_slot_value_by_contract,
+        decode_slot_value_from_bytes, encode_scalar_slot_value, encode_slot_value_from_value,
+        serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+    };
+    use crate::{
+        db::{
+            codec::serialize_row_payload,
+            data::{RawRow, StructuralSlotReader},
+        },
+        model::{
+            EntityModel,
+            field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
+        },
+        testing::SIMPLE_ENTITY_TAG,
+        traits::EntitySchema,
+        types::{Account, Principal, Subaccount},
+        value::{Value, ValueEnum},
+    };
+    use icydb_derive::{FieldProjection, PersistedRow};
+    use serde::{Deserialize, Serialize};
+
+    crate::test_canister! {
+        ident = PersistedRowPatchBridgeCanister,
+        commit_memory_id = crate::testing::test_commit_memory_id(),
+    }
+
+    crate::test_store! {
+        ident = PersistedRowPatchBridgeStore,
+        canister = PersistedRowPatchBridgeCanister,
+    }
+
+    ///
+    /// PersistedRowPatchBridgeEntity
+    ///
+    /// PersistedRowPatchBridgeEntity
+    ///
+    /// PersistedRowPatchBridgeEntity is the smallest derive-owned entity used
+    /// to validate the typed-entity -> serialized-patch bridge.
+    /// It lets the persisted-row tests exercise the same dense slot writer the
+    /// save/update path now uses.
+    ///
+
+    #[derive(
+        Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+    )]
+    struct PersistedRowPatchBridgeEntity {
+        id: crate::types::Ulid,
+        name: String,
+    }
+
+    crate::test_entity_schema! {
+        ident = PersistedRowPatchBridgeEntity,
+        id = crate::types::Ulid,
+        id_field = id,
+        entity_name = "PersistedRowPatchBridgeEntity",
+        entity_tag = SIMPLE_ENTITY_TAG,
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("name", FieldKind::Text),
+        ],
+        indexes = [],
+        store = PersistedRowPatchBridgeStore,
+        canister = PersistedRowPatchBridgeCanister,
+    }
+
+    static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
+        "Loaded",
+        Some(&FieldKind::Uint),
+        FieldStorageDecode::ByKind,
+    )];
+    static FIELD_MODELS: [FieldModel; 2] = [
+        FieldModel::new("name", FieldKind::Text),
+        FieldModel::new_with_storage_decode("payload", FieldKind::Text, FieldStorageDecode::Value),
+    ];
+    static LIST_FIELD_MODELS: [FieldModel; 1] =
+        [FieldModel::new("tags", FieldKind::List(&FieldKind::Text))];
+    static MAP_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
+        "props",
+        FieldKind::Map {
+            key: &FieldKind::Text,
+            value: &FieldKind::Uint,
+        },
+    )];
+    static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
+        "state",
+        FieldKind::Enum {
+            path: "tests::State",
+            variants: STATE_VARIANTS,
+        },
+    )];
+    static ACCOUNT_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new("owner", FieldKind::Account)];
+    static INDEX_MODELS: [&crate::model::index::IndexModel; 0] = [];
+    static TEST_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowFieldCodecEntity",
+        "persisted_row_field_codec_entity",
+        &FIELD_MODELS[0],
+        &FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static LIST_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowListFieldCodecEntity",
+        "persisted_row_list_field_codec_entity",
+        &LIST_FIELD_MODELS[0],
+        &LIST_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static MAP_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowMapFieldCodecEntity",
+        "persisted_row_map_field_codec_entity",
+        &MAP_FIELD_MODELS[0],
+        &MAP_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static ENUM_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowEnumFieldCodecEntity",
+        "persisted_row_enum_field_codec_entity",
+        &ENUM_FIELD_MODELS[0],
+        &ENUM_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static ACCOUNT_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowAccountFieldCodecEntity",
+        "persisted_row_account_field_codec_entity",
+        &ACCOUNT_FIELD_MODELS[0],
+        &ACCOUNT_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+
+    #[test]
+    fn decode_slot_value_from_bytes_decodes_scalar_slots_through_one_owner() {
+        let payload =
+            encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+        let value =
+            decode_slot_value_from_bytes(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(value, Value::Text("Ada".to_string()));
+    }
+
+    #[test]
+    fn decode_slot_value_from_bytes_respects_value_storage_decode_contract() {
+        let payload = crate::serialize::serialize(&Value::Text("Ada".to_string()))
+            .expect("encode value-storage payload");
+
+        let value =
+            decode_slot_value_from_bytes(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(value, Value::Text("Ada".to_string()));
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_roundtrips_scalar_slots() {
+        let payload = encode_slot_value_from_value(&TEST_MODEL, 0, &Value::Text("Ada".to_string()))
+            .expect("encode slot");
+        let decoded =
+            decode_slot_value_from_bytes(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(decoded, Value::Text("Ada".to_string()));
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_roundtrips_value_storage_slots() {
+        let payload = encode_slot_value_from_value(&TEST_MODEL, 1, &Value::Text("Ada".to_string()))
+            .expect("encode slot");
+        let decoded =
+            decode_slot_value_from_bytes(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(decoded, Value::Text("Ada".to_string()));
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_roundtrips_list_by_kind_slots() {
+        let payload = encode_slot_value_from_value(
+            &LIST_MODEL,
+            0,
+            &Value::List(vec![Value::Text("alpha".to_string())]),
+        )
+        .expect("encode list slot");
+        let decoded =
+            decode_slot_value_from_bytes(&LIST_MODEL, 0, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(decoded, Value::List(vec![Value::Text("alpha".to_string())]),);
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_roundtrips_map_by_kind_slots() {
+        let payload = encode_slot_value_from_value(
+            &MAP_MODEL,
+            0,
+            &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Uint(7))]),
+        )
+        .expect("encode map slot");
+        let decoded =
+            decode_slot_value_from_bytes(&MAP_MODEL, 0, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(
+            decoded,
+            Value::Map(vec![(Value::Text("alpha".to_string()), Value::Uint(7))]),
+        );
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_roundtrips_enum_by_kind_slots() {
+        let payload = encode_slot_value_from_value(
+            &ENUM_MODEL,
+            0,
+            &Value::Enum(
+                ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7)),
+            ),
+        )
+        .expect("encode enum slot");
+        let decoded =
+            decode_slot_value_from_bytes(&ENUM_MODEL, 0, payload.as_slice()).expect("decode slot");
+
+        assert_eq!(
+            decoded,
+            Value::Enum(
+                ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7,))
+            ),
+        );
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_roundtrips_leaf_by_kind_wrapper_slots() {
+        let account = Account::from_parts(Principal::dummy(7), Some(Subaccount::from([7_u8; 32])));
+        let payload = encode_slot_value_from_value(&ACCOUNT_MODEL, 0, &Value::Account(account))
+            .expect("encode account slot");
+        let decoded = decode_slot_value_from_bytes(&ACCOUNT_MODEL, 0, payload.as_slice())
+            .expect("decode slot");
+
+        assert_eq!(decoded, Value::Account(account));
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_rejects_unknown_enum_payload_variants() {
+        let err = encode_slot_value_from_value(
+            &ENUM_MODEL,
+            0,
+            &Value::Enum(
+                ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Uint(7)),
+            ),
+        )
+        .expect_err("unknown enum payload should fail closed");
+
+        assert!(err.message.contains("unknown enum variant"));
+    }
+
+    #[test]
+    fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode value-storage payload");
+        writer
+            .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
+            .expect("write scalar slot");
+        writer
+            .write_slot(1, Some(payload.as_slice()))
+            .expect("write value-storage slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+
+        let direct_slots =
+            StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL).expect("decode row");
+        let mut cached_slots =
+            StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL).expect("decode row");
+
+        let direct_name = decode_slot_value_by_contract(&direct_slots, 0).expect("decode name");
+        let direct_payload =
+            decode_slot_value_by_contract(&direct_slots, 1).expect("decode payload");
+        let cached_name = cached_slots.get_value(0).expect("cached name");
+        let cached_payload = cached_slots.get_value(1).expect("cached payload");
+
+        assert_eq!(direct_name, cached_name);
+        assert_eq!(direct_payload, cached_payload);
+    }
+
+    #[test]
+    fn apply_update_patch_to_raw_row_updates_only_targeted_slots() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode value-storage payload");
+        writer
+            .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
+            .expect("write scalar slot");
+        writer
+            .write_slot(1, Some(payload.as_slice()))
+            .expect("write value-storage slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+        let patch = UpdatePatch::new().set(
+            FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
+            Value::Text("Grace".to_string()),
+        );
+
+        let patched =
+            apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch).expect("apply patch");
+        let mut reader =
+            StructuralSlotReader::from_raw_row(&patched, &TEST_MODEL).expect("decode row");
+
+        assert_eq!(
+            reader.get_value(0).expect("decode slot"),
+            Some(Value::Text("Grace".to_string()))
+        );
+        assert_eq!(
+            reader.get_value(1).expect("decode slot"),
+            Some(Value::Text("payload".to_string()))
+        );
+    }
+
+    #[test]
+    fn serialize_update_patch_fields_encodes_canonical_slot_payloads() {
+        let patch = UpdatePatch::new()
+            .set(
+                FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
+                Value::Text("Grace".to_string()),
+            )
+            .set(
+                FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
+                Value::Text("payload".to_string()),
+            );
+
+        let serialized =
+            serialize_update_patch_fields(&TEST_MODEL, &patch).expect("serialize patch");
+
+        assert_eq!(serialized.entries().len(), 2);
+        assert_eq!(
+            decode_slot_value_from_bytes(
+                &TEST_MODEL,
+                serialized.entries()[0].slot().index(),
+                serialized.entries()[0]
+                    .payload()
+                    .expect("serialized field update should carry payload"),
+            )
+            .expect("decode slot payload"),
+            Value::Text("Grace".to_string())
+        );
+        assert_eq!(
+            decode_slot_value_from_bytes(
+                &TEST_MODEL,
+                serialized.entries()[1].slot().index(),
+                serialized.entries()[1]
+                    .payload()
+                    .expect("serialized field update should carry payload"),
+            )
+            .expect("decode slot payload"),
+            Value::Text("payload".to_string())
+        );
+    }
+
+    #[test]
+    fn apply_update_patch_to_raw_row_uses_last_write_wins() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        writer
+            .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
+            .expect("write scalar slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+        let slot = FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot");
+        let patch = UpdatePatch::new()
+            .set(slot, Value::Text("Grace".to_string()))
+            .set(slot, Value::Text("Lin".to_string()));
+
+        let patched =
+            apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch).expect("apply patch");
+        let mut reader =
+            StructuralSlotReader::from_raw_row(&patched, &TEST_MODEL).expect("decode row");
+
+        assert_eq!(
+            reader.get_value(0).expect("decode slot"),
+            Some(Value::Text("Lin".to_string()))
+        );
+    }
+
+    #[test]
+    fn apply_update_patch_to_raw_row_can_fill_previously_absent_slot() {
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(
+                SlotBufferWriter::for_model(&TEST_MODEL)
+                    .finish()
+                    .expect("finish slot payload"),
+            )
+            .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+        let patch = UpdatePatch::new().set(
+            FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
+            Value::Text("payload".to_string()),
+        );
+
+        let patched =
+            apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch).expect("apply patch");
+        let mut reader =
+            StructuralSlotReader::from_raw_row(&patched, &TEST_MODEL).expect("decode row");
+
+        assert_eq!(
+            reader.get_value(1).expect("decode slot"),
+            Some(Value::Text("payload".to_string()))
+        );
+    }
+
+    #[test]
+    fn apply_serialized_update_patch_to_raw_row_replays_preencoded_slots() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        writer
+            .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
+            .expect("write scalar slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+        let patch = UpdatePatch::new().set(
+            FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
+            Value::Text("Grace".to_string()),
+        );
+        let serialized =
+            serialize_update_patch_fields(&TEST_MODEL, &patch).expect("serialize patch");
+
+        let patched = raw_row
+            .apply_serialized_update_patch(&TEST_MODEL, &serialized)
+            .expect("apply serialized patch");
+        let mut reader =
+            StructuralSlotReader::from_raw_row(&patched, &TEST_MODEL).expect("decode row");
+
+        assert_eq!(
+            reader.get_value(0).expect("decode slot"),
+            Some(Value::Text("Grace".to_string()))
+        );
+    }
+
+    #[test]
+    fn serialize_entity_slots_as_update_patch_replays_full_typed_after_image() {
+        let old_entity = PersistedRowPatchBridgeEntity {
+            id: crate::types::Ulid::from_u128(7),
+            name: "Ada".to_string(),
+        };
+        let new_entity = PersistedRowPatchBridgeEntity {
+            id: crate::types::Ulid::from_u128(7),
+            name: "Grace".to_string(),
+        };
+        let raw_row = RawRow::from_entity(&old_entity).expect("encode old row");
+        let old_decoded = raw_row
+            .try_decode::<PersistedRowPatchBridgeEntity>()
+            .expect("decode old entity");
+        let serialized =
+            serialize_entity_slots_as_update_patch(&new_entity).expect("serialize entity patch");
+
+        let patched = raw_row
+            .apply_serialized_update_patch(PersistedRowPatchBridgeEntity::MODEL, &serialized)
+            .expect("apply serialized patch");
+        let decoded = patched
+            .try_decode::<PersistedRowPatchBridgeEntity>()
+            .expect("decode patched entity");
+
+        assert_eq!(old_decoded, old_entity);
+        assert_eq!(decoded, new_entity);
     }
 }

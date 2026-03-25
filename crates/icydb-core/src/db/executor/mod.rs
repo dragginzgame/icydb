@@ -61,6 +61,7 @@ pub(in crate::db) use explain::{
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
+pub use mutation::save::StructuralMutationMode;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order, apply_structural_order_bounded,
     compare_orderable_row_with_boundary, resolve_structural_order,

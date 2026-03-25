@@ -5,8 +5,9 @@
         wasm-size-report wasm-audit-report \
         check-architecture-text-scan-invariants check-invariants
 
-# in case we need this
-CARGO_ENV :=
+# Keep workspace cargo state repo-local so sibling repos compiling on the same
+# filesystem do not contend on a shared cargo home or target directory.
+CARGO_WORK_ENV := CARGO_HOME="$(CURDIR)/.cache/cargo/icydb" CARGO_TARGET_DIR="$(CURDIR)/target/icydb"
 
 # Check for clean git state
 ensure-clean:
@@ -66,15 +67,15 @@ install-all: install-dev install-canister-deps install-hooks
 
 # Install Rust development tooling
 install-dev:
-	$(CARGO_ENV) cargo install cargo-watch --locked || true
-	$(CARGO_ENV) cargo install cargo-edit --locked || true
-	$(CARGO_ENV) cargo install cargo-get cargo-sort cargo-sort-derives ripgrep --locked || true
+	cargo install cargo-watch --locked || true
+	cargo install cargo-edit --locked || true
+	cargo install cargo-get cargo-sort cargo-sort-derives ripgrep --locked || true
 
 # Install wasm target + candid tools
 install-canister-deps:
 	rustup toolchain install 1.94.0 || true
 	rustup target add wasm32-unknown-unknown
-	$(CARGO_ENV) cargo install candid-extractor ic-wasm twiggy --locked || true
+	cargo install candid-extractor ic-wasm twiggy --locked || true
 
 # Optional explicit install target (idempotent)
 install-hooks ensure-hooks:
@@ -92,19 +93,19 @@ install-hooks ensure-hooks:
 #
 
 version:
-	@$(CARGO_ENV) cargo get workspace.package.version
+	@$(CARGO_WORK_ENV) cargo get workspace.package.version
 
 tags:
 	@git tag --sort=-version:refname | head -10
 
 patch: ensure-clean fmt test
-	@scripts/ci/bump-version.sh patch
+	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch
 
 minor: ensure-clean fmt test
-	@scripts/ci/bump-version.sh minor
+	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor
 
 major: ensure-clean fmt test
-	@scripts/ci/bump-version.sh major
+	@$(CARGO_WORK_ENV) scripts/ci/bump-version.sh major
 
 release: ensure-clean
 	@echo "Release handled by CI on tag push"
@@ -117,44 +118,44 @@ release: ensure-clean
 test: clippy test-unit
 
 test-unit:
-	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_ENV) cargo test --workspace --all-targets --verbose
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --verbose
 
 test-canisters:
 	@echo "Skipping canister tests (disabled)"
 
 wasm-size-report:
-	bash scripts/ci/wasm-size-report.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh
 
 wasm-audit-report:
-	bash scripts/ci/wasm-audit-report.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh
 
 #
 # Development commands
 #
 
 build: ensure-clean ensure-hooks
-	$(CARGO_ENV) cargo build --release --workspace
+	$(CARGO_WORK_ENV) cargo build --release --workspace
 
 check: ensure-hooks fmt-check
 	$(MAKE) check-invariants
-	$(CARGO_ENV) cargo check --workspace
+	$(CARGO_WORK_ENV) cargo check --workspace
 
 clippy: ensure-hooks
 	$(MAKE) check-invariants
-	$(CARGO_ENV) cargo clippy --workspace --all-targets -- -D warnings
+	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 fmt: ensure-hooks
-	$(CARGO_ENV) cargo sort --workspace
-	$(CARGO_ENV) cargo sort-derives
-	$(CARGO_ENV) cargo fmt --all
+	$(CARGO_WORK_ENV) cargo sort --workspace
+	$(CARGO_WORK_ENV) cargo sort-derives
+	$(CARGO_WORK_ENV) cargo fmt --all
 
 fmt-check: ensure-hooks
-	$(CARGO_ENV) cargo sort --workspace --check
-	$(CARGO_ENV) cargo sort-derives --check
-	$(CARGO_ENV) cargo fmt --all -- --check
+	$(CARGO_WORK_ENV) cargo sort --workspace --check
+	$(CARGO_WORK_ENV) cargo sort-derives --check
+	$(CARGO_WORK_ENV) cargo fmt --all -- --check
 
 clean:
-	$(CARGO_ENV) cargo clean
+	$(CARGO_WORK_ENV) cargo clean
 
 
 # Security and versioning checks
@@ -186,7 +187,7 @@ check-invariants:
 
 # Run tests in watch mode
 test-watch:
-	$(CARGO_ENV) cargo watch -x test
+	$(CARGO_WORK_ENV) cargo watch -x test
 
 # Build and test everything
 all: ensure-clean ensure-hooks clean fmt-check clippy check test build

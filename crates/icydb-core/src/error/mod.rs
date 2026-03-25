@@ -397,6 +397,29 @@ impl InternalError {
         ))
     }
 
+    /// Construct an executor-origin structural mutation after-image invariant.
+    ///
+    /// This constructor lands ahead of the public structural mutation surface,
+    /// so the library target may not route through it until that caller exists.
+    #[allow(dead_code)]
+    pub(crate) fn mutation_structural_after_image_invalid(
+        entity_path: &str,
+        data_key: impl fmt::Display,
+        detail: impl AsRef<str>,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "structural mutation produced an invalid entity: {entity_path} key={data_key} ({})",
+            detail.as_ref(),
+        ))
+    }
+
+    /// Construct an executor-origin structural mutation unknown-field invariant.
+    pub(crate) fn mutation_structural_field_unknown(entity_path: &str, field_name: &str) -> Self {
+        Self::executor_invariant(format!(
+            "unknown field for structural mutation: {entity_path} field={field_name}",
+        ))
+    }
+
     /// Construct an executor-origin save-preflight decimal-scale unsupported error.
     pub(crate) fn mutation_decimal_scale_mismatch(
         entity_path: &str,

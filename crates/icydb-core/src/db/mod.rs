@@ -51,9 +51,10 @@ pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::{
     DataStore, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader,
-    SlotWriter, decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
+    SlotWriter, UpdatePatch, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload,
 };
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
@@ -61,6 +62,7 @@ pub use diagnostics::{
 };
 #[doc(hidden)]
 pub use executor::EntityAuthority;
+pub use executor::StructuralMutationMode;
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use migration::{

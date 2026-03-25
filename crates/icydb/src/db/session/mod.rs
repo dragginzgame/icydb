@@ -17,12 +17,86 @@ use crate::{
     metrics::MetricsSink,
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue},
+    value::Value,
 };
 use icydb_core as core;
 
 // re-exports
 pub use delete::SessionDeleteQuery;
 pub use load::{FluentLoadQuery, PagedLoadQuery};
+
+///
+/// StructuralMutationMode
+///
+/// StructuralMutationMode
+///
+/// Public write-mode contract for structural session mutations.
+/// This keeps insert, update, and replace under one API surface instead of
+/// freezing separate partial helpers with divergent semantics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StructuralMutationMode {
+    Insert,
+    Replace,
+    Update,
+}
+
+impl StructuralMutationMode {
+    const fn into_core(self) -> core::db::StructuralMutationMode {
+        match self {
+            Self::Insert => core::db::StructuralMutationMode::Insert,
+            Self::Replace => core::db::StructuralMutationMode::Replace,
+            Self::Update => core::db::StructuralMutationMode::Update,
+        }
+    }
+}
+
+///
+/// UpdatePatch
+///
+/// UpdatePatch
+///
+/// Public structural mutation patch builder.
+/// Callers address fields by model field name and provide runtime `Value`
+/// payloads; validation remains model-owned and occurs both at patch
+/// construction and again during session mutation execution.
+///
+
+#[derive(Default)]
+pub struct UpdatePatch {
+    inner: core::db::UpdatePatch,
+}
+
+impl UpdatePatch {
+    /// Build one empty structural patch.
+    ///
+    /// Callers then append field updates through `set_field(...)` so model
+    /// field-name validation stays at the patch boundary instead of leaking
+    /// internal slot indices into the public API.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            inner: core::db::UpdatePatch::new(),
+        }
+    }
+
+    /// Resolve one model field name and append its structural field update.
+    ///
+    /// This keeps the public patch surface field-name-driven while still
+    /// lowering immediately into the internal structural slot patch owned by
+    /// `icydb-core`.
+    pub fn set_field(
+        mut self,
+        model: &'static EntityModel,
+        field_name: &str,
+        value: Value,
+    ) -> Result<Self, Error> {
+        self.inner = self.inner.set_field(model, field_name, value)?;
+
+        Ok(self)
+    }
+}
 
 ///
 /// SqlParsedStatement
@@ -453,6 +527,34 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok(WriteResponse::new(self.inner.update(entity)?))
+    }
+
+    /// Apply one structural mutation under one explicit write-mode contract.
+    ///
+    /// Structural mutation is a dynamic ingress, not a weaker write path:
+    /// the session still routes through the shared structural mutation input,
+    /// decodes the after-image back into `E`, and reuses the normal typed save
+    /// validation line before commit staging.
+    ///
+    /// `mode` semantics are explicit:
+    /// - `Insert`: patch must describe a full after-image; fails if the row already exists.
+    /// - `Update`: patch applies over the existing row; fails if the row is missing.
+    /// - `Replace`: patch must describe a full after-image; rebuilds from an empty
+    ///   row image and inserts if the row is missing.
+    pub fn mutate_structural<E>(
+        &self,
+        key: E::Key,
+        patch: UpdatePatch,
+        mode: StructuralMutationMode,
+    ) -> Result<WriteResponse<E>, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        Ok(WriteResponse::new(self.inner.mutate_structural::<E>(
+            key,
+            patch.inner,
+            mode.into_core(),
+        )?))
     }
 
     /// Update a single-entity-type batch atomically in one commit window.

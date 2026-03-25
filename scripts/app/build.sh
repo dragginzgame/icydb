@@ -5,6 +5,7 @@ set -e
 
 # Set up environment
 source "$(dirname "$0")/../env.sh"
+source "$(dirname "$0")/../env/cargo-local.sh"
 cd "$SCRIPTS"
 
 # Check if required arguments were provided
@@ -23,7 +24,7 @@ mkdir -p "$ROOT/.dfx/local/canisters/$CAN"
 WASM_TARGET="$ROOT/.dfx/local/canisters/$CAN/$CAN.wasm"
 
 cargo build --target wasm32-unknown-unknown -p "$PKG"
-cp -f "$ROOT/target/wasm32-unknown-unknown/debug/$PKG.wasm" "$WASM_TARGET"
+cp -f "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/$PKG.wasm" "$WASM_TARGET"
 
 # extract candid
 candid-extractor "$WASM_TARGET" \

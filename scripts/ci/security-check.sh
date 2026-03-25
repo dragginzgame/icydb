@@ -32,6 +32,8 @@ CARGO_TOML="$ROOT/Cargo.toml"
 CHANGELOG="$ROOT/CHANGELOG.md"
 MAKEFILE="$ROOT/Makefile"
 
+source "$ROOT/scripts/env/cargo-local.sh"
+
 echo "🔍 Checking versioning system setup..."
 echo ""
 

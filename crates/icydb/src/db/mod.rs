@@ -26,4 +26,7 @@ pub use response::{
 };
 #[cfg(feature = "sql")]
 pub use session::SqlParsedStatement;
-pub use session::{DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery};
+pub use session::{
+    DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery, StructuralMutationMode,
+    UpdatePatch,
+};

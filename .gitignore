@@ -35,6 +35,7 @@ perf.data.old
 target
 /artifacts/
 generated
+/.cache/cargo/
 /.cache/pocket-ic-server-*
 
 # Remove Cargo.lock from gitignore if creating an executable, leave it for libraries

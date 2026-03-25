@@ -19,12 +19,14 @@ pub(in crate::db) use entity_decode::{
 pub(crate) use key::{DataKey, RawDataKey};
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
+    UpdatePatch, decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
     decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
 };
 pub(in crate::db) use persisted_row::{
-    StructuralSlotReader, decode_slot_value_by_contract, encode_persisted_row,
+    SerializedUpdatePatch, StructuralSlotReader, apply_serialized_update_patch_to_raw_row,
+    apply_update_patch_to_raw_row, decode_slot_value_by_contract,
+    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
 };
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
