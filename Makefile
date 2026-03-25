@@ -10,7 +10,7 @@ CARGO_ENV :=
 
 # Check for clean git state
 ensure-clean:
-	@if ! git diff-index --quiet HEAD --; then \
+	@if ! git diff --quiet --ignore-submodules HEAD --; then \
 		echo "🚨 Working directory not clean! Please commit or stash your changes."; \
 		exit 1; \
 	fi

@@ -7,9 +7,9 @@ use crate::{
     db::{
         Db,
         data::{DataRow, StructuralSlotReader, decode_slot_value_by_contract},
-        executor::pipeline::entrypoints::execute_prepared_scalar_rows_for_canister,
         executor::{
-            EntityAuthority, PreparedLoadPlan,
+            EntityAuthority,
+            pipeline::entrypoints::execute_initial_scalar_rows_for_canister,
             projection::{
                 eval::{
                     ProjectionEvalError, ScalarProjectionEvalError, ScalarProjectionExpr,
@@ -70,10 +70,9 @@ where
     // Phase 1: derive projection semantics before moving the plan into the
     // shared scalar execution path.
     let projection = plan.projection_spec(authority.model());
-    let prepared = PreparedLoadPlan::from_plan(authority, plan);
 
     // Phase 2: execute the scalar rows path once for the whole canister.
-    let page = execute_prepared_scalar_rows_for_canister(db, debug, prepared)?;
+    let page = execute_initial_scalar_rows_for_canister(db, debug, authority, plan)?;
 
     // Phase 3: decode rows structurally and discard ids because SQL projection
     // rendering only needs ordered cell values.

@@ -13,13 +13,12 @@ use crate::{
         executor::{
             ExecutionPreparation,
             aggregate::AggregateFoldMode,
-            continuation::ScalarContinuationContext,
             preparation::slot_map_for_model_plan,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
                 FastPathOrder, TopNSeekSpec,
                 build_execution_route_plan_for_aggregate_spec_with_model,
-                build_execution_route_plan_for_load_with_model,
+                build_initial_execution_route_plan_for_load_with_model,
             },
         },
         predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
@@ -53,9 +52,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let continuation = ScalarContinuationContext::initial();
-    let route_plan =
-        build_execution_route_plan_for_load_with_model(model, plan, &continuation, None)?;
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
     let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
@@ -170,9 +167,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     // Phase 1: build canonical route authority inputs for load mode.
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let continuation = ScalarContinuationContext::initial();
-    let route_plan =
-        build_execution_route_plan_for_load_with_model(model, plan, &continuation, None)?;
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
     let strict_predicate_compatible =
         execution_preparation_predicate_index_capability(&execution_preparation)
             == Some(IndexPredicateCapability::FullyIndexable);

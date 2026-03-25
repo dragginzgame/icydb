@@ -15,10 +15,10 @@ use crate::{
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
             AccessStreamBindings, ContinuationEngine, EntityAuthority, ExecutionKernel,
-            ExecutionPlan, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
-            PreparedLoadCursor, PreparedLoadPlan, RequestedLoadExecutionShape,
-            ResolvedScalarContinuationContext, ScalarRouteContinuationInvariantProjection,
-            StructuralStoreResolver, StructuralTraversalRuntime,
+            ExecutionPlan, ExecutionPreparation, ExecutionTrace, ExecutorPlanError,
+            PreparedLoadPlan, ResolvedScalarContinuationContext,
+            ScalarRouteContinuationInvariantProjection, StructuralStoreResolver,
+            StructuralTraversalRuntime,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
                 ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
@@ -357,6 +357,50 @@ where
     })
 }
 
+// Prepare one initial scalar runtime bundle for unpaged canister rows without
+// retaining the resumed load-route builder.
+fn prepare_initial_scalar_route_runtime_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+) -> Result<PreparedScalarRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let authority = plan.authority();
+    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+    let index_range_specs = plan.index_range_specs()?.to_vec();
+    let logical_plan = plan.into_plan();
+
+    // Phase 1: resolve structural store authority once at the canister
+    // boundary.
+    validate_executor_plan_for_authority(authority, &logical_plan)?;
+    let store = db.recovered_store(authority.store_path())?;
+    let route_plan =
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
+            authority.model(),
+            &logical_plan,
+            None,
+        )?;
+
+    // Phase 2: keep the unpaged rows lane on the fixed initial continuation contract.
+    Ok(PreparedScalarRouteRuntime {
+        store,
+        authority,
+        plan: logical_plan,
+        route_plan,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation: ContinuationEngine::resolve_scalar_context(
+            PlannedCursor::none(),
+            continuation_signature,
+        ),
+        unpaged_rows_mode: true,
+        debug,
+    })
+}
+
 // Execute one unpaged scalar rows path once per canister and return the
 // structural page at the typed boundary.
 pub(in crate::db::executor) fn execute_prepared_scalar_rows_for_canister<C>(
@@ -367,23 +411,70 @@ pub(in crate::db::executor) fn execute_prepared_scalar_rows_for_canister<C>(
 where
     C: CanisterKind,
 {
-    // Phase 1: resolve the fixed scalar rows cursor contract.
-    let resolved_cursor = ContinuationEngine::resolve_load_cursor_context(
-        &plan,
-        LoadCursorInput::scalar(PlannedCursor::none()),
-        RequestedLoadExecutionShape::Scalar,
-    )?;
-    let PreparedLoadCursor::Scalar(resolved_continuation) = resolved_cursor.into_cursor() else {
-        return Err(InternalError::query_executor_invariant(
-            "scalar rows execution requires scalar continuation resolution",
-        ));
+    // Phase 1: build one dedicated initial scalar runtime bundle for the
+    // query-only canister rows surface.
+    let prepared = prepare_initial_scalar_route_runtime_for_canister(db, debug, plan)?;
+
+    // Phase 2: execute the shared scalar runtime and return the structural page.
+    let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
+
+    Ok(page)
+}
+
+/// Execute one initial scalar rows path directly from one structural load plan.
+///
+/// This SQL-only helper avoids rebuilding the broader prepared-load wrapper
+/// when the canister query surface already has a fixed initial continuation.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_initial_scalar_rows_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> Result<StructuralCursorPage, InternalError>
+where
+    C: CanisterKind,
+{
+    let continuation_contract = plan
+        .continuation_contract(authority.entity_path())
+        .ok_or_else(|| {
+            ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
+        })?;
+    let index_prefix_specs =
+        crate::db::access::lower_index_prefix_specs(authority.entity_tag(), &plan.access).map_err(
+            |_| ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error(),
+        )?;
+    let index_range_specs =
+        crate::db::access::lower_index_range_specs(authority.entity_tag(), &plan.access).map_err(
+            |_| ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error(),
+        )?;
+
+    // Phase 1: resolve structural store authority once at the canister
+    // boundary.
+    validate_executor_plan_for_authority(authority, &plan)?;
+    let store = db.recovered_store(authority.store_path())?;
+    let route_plan =
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
+            authority.model(),
+            &plan,
+            None,
+        )?;
+
+    // Phase 2: execute the shared scalar runtime on the fixed initial continuation contract.
+    let prepared = PreparedScalarRouteRuntime {
+        store,
+        authority,
+        plan,
+        route_plan,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation: ContinuationEngine::resolve_scalar_context(
+            PlannedCursor::none(),
+            continuation_contract.continuation_signature(),
+        ),
+        unpaged_rows_mode: true,
+        debug,
     };
-
-    // Phase 2: build one shared scalar runtime bundle for this canister.
-    let prepared =
-        prepare_scalar_route_runtime_for_canister(db, debug, plan, *resolved_continuation, true)?;
-
-    // Phase 3: execute the shared scalar runtime and return the structural page.
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
@@ -428,10 +519,9 @@ where
         runtime.slot_map().map(<[usize]>::to_vec),
     );
     let mut route_plan =
-        crate::db::executor::route::build_execution_route_plan_for_load_with_model(
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
             authority.model(),
             &logical_plan,
-            resolved_continuation.route_context(),
             None,
         )?;
 

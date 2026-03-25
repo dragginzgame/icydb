@@ -52,6 +52,31 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_load_with_model(
     ))
 }
 
+/// Build canonical execution routing for one initial load execution.
+///
+/// This narrower entrypoint exists for surfaces that never carry an inbound
+/// cursor boundary. Keeping the initial-continuation path separate lets those
+/// callers avoid retaining PK cursor-boundary validation in their route setup.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "keeps initial and resumed load-route call sites on the same fallible boundary"
+)]
+pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_model(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    probe_fetch_hint: Option<usize>,
+) -> Result<ExecutionPlan, InternalError> {
+    let continuation = ScalarContinuationContext::initial();
+
+    Ok(build_execution_route_plan_for_model(
+        model,
+        plan,
+        &continuation,
+        probe_fetch_hint,
+        RouteIntent::Load,
+    ))
+}
+
 /// Build canonical execution routing for mutation execution from structural model authority.
 pub(in crate::db::executor) fn build_execution_route_plan_for_mutation_with_model(
     model: &'static EntityModel,
