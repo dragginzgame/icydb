@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::canonical::canonicalize_value_set,
         codec::{
             write_hash_len_u32 as write_len_u32, write_hash_str_u32 as write_str_u32,
             write_hash_tag_u8 as write_tag_u8,
@@ -65,28 +66,26 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
             out.push(SORT_PRED_AND);
             push_len_u64(out, children.len());
             for child in children {
-                push_framed(out, |buf| encode_predicate_sort_key_into(buf, child));
+                push_predicate_sort_key_framed(out, child);
             }
         }
         Predicate::Or(children) => {
             out.push(SORT_PRED_OR);
             push_len_u64(out, children.len());
             for child in children {
-                push_framed(out, |buf| encode_predicate_sort_key_into(buf, child));
+                push_predicate_sort_key_framed(out, child);
             }
         }
         Predicate::Not(inner) => {
             out.push(SORT_PRED_NOT);
-            push_framed(out, |buf| encode_predicate_sort_key_into(buf, inner));
+            push_predicate_sort_key_framed(out, inner);
         }
         Predicate::Compare(cmp) => {
             out.push(SORT_PRED_COMPARE);
             push_str_u64(out, &cmp.field);
             out.push(cmp.op.tag());
-            push_framed(out, |buf| {
-                encode_compare_value_sort_key_into(buf, cmp.op, cmp.coercion.id, &cmp.value);
-            });
-            push_framed(out, |buf| encode_coercion_sort_key_into(buf, &cmp.coercion));
+            push_compare_value_sort_key_framed(out, cmp.op, cmp.coercion.id, &cmp.value);
+            push_coercion_sort_key_framed(out, &cmp.coercion);
         }
         Predicate::IsNull { field } => {
             out.push(SORT_PRED_IS_NULL);
@@ -111,12 +110,12 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
         Predicate::TextContains { field, value } => {
             out.push(SORT_PRED_TEXT_CONTAINS);
             push_str_u64(out, field);
-            push_framed(out, |buf| encode_value_sort_key_into(buf, value));
+            push_value_sort_key_framed(out, value);
         }
         Predicate::TextContainsCi { field, value } => {
             out.push(SORT_PRED_TEXT_CONTAINS_CI);
             push_str_u64(out, field);
-            push_framed(out, |buf| encode_value_sort_key_into(buf, value));
+            push_value_sort_key_framed(out, value);
         }
     }
 }
@@ -154,22 +153,19 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::List(items) => {
             push_len_u64(out, items.len());
             for item in items {
-                push_framed(out, |buf| encode_value_sort_key_into(buf, item));
+                push_value_sort_key_framed(out, item);
             }
         }
         Value::Map(entries) => {
             // Normalize map entry order at encode time so callers that build
             // `Value::Map` directly in non-canonical order cannot perturb
             // predicate sort-key determinism.
-            let mut ordered = entries.iter().collect::<Vec<_>>();
-            ordered.sort_by(|(left_key, left_value), (right_key, right_value)| {
-                Value::canonical_cmp_map_entry(left_key, left_value, right_key, right_value)
-            });
+            let ordered = Value::ordered_map_entries(entries);
 
             push_len_u64(out, ordered.len());
             for (key, value) in ordered {
-                push_framed(out, |buf| encode_value_sort_key_into(buf, key));
-                push_framed(out, |buf| encode_value_sort_key_into(buf, value));
+                push_value_sort_key_framed(out, key);
+                push_value_sort_key_framed(out, value);
             }
         }
         Value::Null | Value::Unit => {}
@@ -194,16 +190,11 @@ fn encode_compare_value_sort_key_into(
         && let Value::List(items) = value
     {
         out.push(value.canonical_tag().to_u8());
-        let mut ordered = items
-            .iter()
-            .map(|item| canonicalize_compare_literal_for_coercion(coercion, item))
-            .collect::<Vec<_>>();
-        ordered.sort_by(Value::canonical_cmp);
-        ordered.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
+        let ordered = canonicalize_compare_literal_list_for_coercion(coercion, items);
 
         push_len_u64(out, ordered.len());
         for item in &ordered {
-            push_framed(out, |buf| encode_value_sort_key_into(buf, item));
+            push_value_sort_key_framed(out, item);
         }
         return;
     }
@@ -252,7 +243,7 @@ fn encode_enum_sort_key_into(out: &mut Vec<u8>, value: &ValueEnum) {
     match value.payload() {
         Some(payload) => {
             out.push(1);
-            push_framed(out, |buf| encode_value_sort_key_into(buf, payload));
+            push_value_sort_key_framed(out, payload);
         }
         None => out.push(0),
     }
@@ -379,12 +370,7 @@ fn hash_compare_value_fingerprint(
     if matches!(op, CompareOp::In | CompareOp::NotIn)
         && let Value::List(items) = value
     {
-        let mut ordered = items
-            .iter()
-            .map(|item| canonicalize_compare_literal_for_coercion(coercion, item))
-            .collect::<Vec<_>>();
-        ordered.sort_by(Value::canonical_cmp);
-        ordered.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
+        let ordered = canonicalize_compare_literal_list_for_coercion(coercion, items);
         hash_value_fingerprint(hasher, &Value::List(ordered));
         return;
     }
@@ -393,24 +379,70 @@ fn hash_compare_value_fingerprint(
     hash_value_fingerprint(hasher, &canonical);
 }
 
+// Canonicalize compare-list literals once so sort-key and fingerprint encoding
+// share the same deterministic IN/NOT IN normalization boundary.
+fn canonicalize_compare_literal_list_for_coercion(
+    coercion: CoercionId,
+    items: &[Value],
+) -> Vec<Value> {
+    let mut ordered = items
+        .iter()
+        .map(|item| canonicalize_compare_literal_for_coercion(coercion, item))
+        .collect::<Vec<_>>();
+    canonicalize_value_set(&mut ordered);
+
+    ordered
+}
+
 fn push_len_u64(out: &mut Vec<u8>, len: usize) {
     // Sort keys are diagnostics-only; overflow saturates for determinism.
     let len = u64::try_from(len).unwrap_or(u64::MAX);
     out.extend_from_slice(&len.to_be_bytes());
 }
 
-// Write one nested deterministic payload as [len:u64be][payload] without
-// allocating an intermediate buffer.
-fn push_framed(out: &mut Vec<u8>, encode: impl FnOnce(&mut Vec<u8>)) {
+// Reserve one `[len:u64be]` header and return the payload start offset.
+fn begin_framed(out: &mut Vec<u8>) -> (usize, usize) {
     let len_pos = out.len();
     out.extend_from_slice(&0u64.to_be_bytes());
     let payload_start = out.len();
 
-    encode(out);
+    (len_pos, payload_start)
+}
 
+// Finalize one `[len:u64be][payload]` frame after the payload bytes have been written.
+fn finish_framed(out: &mut [u8], len_pos: usize, payload_start: usize) {
     let payload_len = out.len().saturating_sub(payload_start);
     let payload_len = u64::try_from(payload_len).unwrap_or(u64::MAX);
     out[len_pos..len_pos + std::mem::size_of::<u64>()].copy_from_slice(&payload_len.to_be_bytes());
+}
+
+fn push_predicate_sort_key_framed(out: &mut Vec<u8>, predicate: &Predicate) {
+    let (len_pos, payload_start) = begin_framed(out);
+    encode_predicate_sort_key_into(out, predicate);
+    finish_framed(out, len_pos, payload_start);
+}
+
+fn push_value_sort_key_framed(out: &mut Vec<u8>, value: &Value) {
+    let (len_pos, payload_start) = begin_framed(out);
+    encode_value_sort_key_into(out, value);
+    finish_framed(out, len_pos, payload_start);
+}
+
+fn push_compare_value_sort_key_framed(
+    out: &mut Vec<u8>,
+    op: CompareOp,
+    coercion: CoercionId,
+    value: &Value,
+) {
+    let (len_pos, payload_start) = begin_framed(out);
+    encode_compare_value_sort_key_into(out, op, coercion, value);
+    finish_framed(out, len_pos, payload_start);
+}
+
+fn push_coercion_sort_key_framed(out: &mut Vec<u8>, spec: &CoercionSpec) {
+    let (len_pos, payload_start) = begin_framed(out);
+    encode_coercion_sort_key_into(out, spec);
+    finish_framed(out, len_pos, payload_start);
 }
 
 fn push_bytes_u64(out: &mut Vec<u8>, bytes: &[u8]) {

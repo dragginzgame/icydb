@@ -75,10 +75,7 @@ fn write_map_entries_to_hasher(
     entries: &[(Value, Value)],
     h: &mut Xxh3,
 ) -> Result<(), InternalError> {
-    let mut ordered = entries.iter().collect::<Vec<_>>();
-    ordered.sort_by(|(left_key, left_value), (right_key, right_value)| {
-        Value::canonical_cmp_map_entry(left_key, left_value, right_key, right_value)
-    });
+    let ordered = Value::ordered_map_entries(entries);
 
     feed_u32(h, ordered.len() as u32);
     for (key, value) in ordered {

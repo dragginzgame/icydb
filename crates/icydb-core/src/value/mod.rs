@@ -455,6 +455,18 @@ impl Value {
             .then_with(|| Self::canonical_cmp(left_value, right_value))
     }
 
+    /// Build one borrowed canonical map-entry order for hashing and
+    /// fingerprint-adjacent encoding surfaces.
+    #[must_use]
+    pub(crate) fn ordered_map_entries(entries: &[(Self, Self)]) -> Vec<&(Self, Self)> {
+        let mut ordered = entries.iter().collect::<Vec<_>>();
+        ordered.sort_by(|left, right| {
+            Self::canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1)
+        });
+
+        ordered
+    }
+
     /// Strict comparator for identical orderable variants.
     ///
     /// Returns `None` for mismatched or non-orderable variants.

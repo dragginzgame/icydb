@@ -80,18 +80,18 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.58.3`
-- Latest tagged release in this repo: `v0.58.3`
+- Workspace version on `main`: `0.64.0`
+- Latest tagged release in this repo: `v0.64.0`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.58.x` notes: `docs/changelog/0.58.md`
+- Detailed `0.64.x` notes: `docs/changelog/0.64.md`
 
 ---
 
-## 0.58 Highlights
+## 0.64 Highlights
 
-- SQL is now a default-on Cargo feature. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
-- Unified SQL dispatch now covers row-producing `SELECT` and `DELETE`, plus `EXPLAIN`, `DESCRIBE`, `SHOW INDEXES`, `SHOW COLUMNS`, and `SHOW ENTITIES` / `SHOW TABLES` through one `SqlQueryResult` envelope.
-- Reduced SQL supports bounded case-insensitive prefix matching with `LOWER(field) LIKE 'prefix%'` while broader `LIKE` shapes remain fail-closed.
+- Public structural mutation is now mode-driven: callers build an `UpdatePatch`, choose `Insert` / `Update` / `Replace`, and still reuse the same typed validation and commit pipeline underneath.
+- SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
+- Repo-managed cargo flows now use IcyDB-local cargo state, which helps keep local build/test/check runs from contending with sibling repositories on the same filesystem.
 
 ---
 
@@ -121,14 +121,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.58.3" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.64.0" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.58.3", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.64.0", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*`, SQL session helpers, and generated
@@ -159,18 +159,41 @@ pub struct User;
 ```rust
 use icydb::prelude::*;
 
-pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
-    let views = db!()
+pub fn users_named_ann() -> Result<Vec<User>, icydb::Error> {
+    let users = db!()
         .load::<User>()
         .filter_expr(FilterExpr::eq(User::NAME, "ann"))?
         .order_by("name")
         .offset(100)
         .limit(50)
-        .views()?;
+        .entities()?;
 
-    Ok(views)
+    Ok(users)
 }
 ```
+
+### Apply one structural mutation
+
+```rust
+use icydb::prelude::*;
+use icydb::db::{StructuralMutationMode, UpdatePatch};
+
+pub fn rename_user(user_id: Ulid, new_name: String) -> Result<(), icydb::Error> {
+    let patch = UpdatePatch::new()
+        .set_field(User::MODEL, "id", Value::Ulid(user_id))?
+        .set_field(User::MODEL, "name", Value::Text(new_name))?;
+
+    db!().mutate_structural::<User>(user_id, patch, StructuralMutationMode::Update)?;
+
+    Ok(())
+}
+```
+
+Mode semantics:
+
+- `Insert` requires one full after-image patch and fails if the row already exists.
+- `Update` applies one patch over one existing row and fails if the row is missing.
+- `Replace` requires one full after-image patch, rebuilds from an empty row image, and inserts if the row is missing.
 
 ### Explain one query before execution
 
@@ -326,7 +349,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.58 Line)
+## Reduced SQL Scope (Current 0.64 Line)
 
 Executable SQL entrypoints:
 

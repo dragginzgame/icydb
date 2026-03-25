@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::canonical::canonicalize_value_set,
         predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate,
             encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
@@ -226,10 +227,9 @@ fn normalize_value_for_kind(
                 normalized.push(normalize_value_for_kind(field, item, inner)?);
             }
 
-            // Canonicalize set literals to match persisted set encoding:
-            // deterministic order + deduplicated members.
-            normalized.sort_by(Value::canonical_cmp);
-            normalized.dedup();
+            // Canonical set literal normalization must match the same
+            // deterministic sort + dedup rule used by access planning.
+            canonicalize_value_set(&mut normalized);
 
             Ok(Value::List(normalized))
         }
@@ -344,15 +344,15 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
         return Predicate::True;
     }
 
-    // Evaluate cheaper predicates first to reduce average short-circuit work
-    // while keeping deterministic ordering under the canonical sort key.
-    out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
-    out.dedup();
+    // Compare-pair simplification scans all conjunction children directly, so
+    // it does not require a pre-sorted shape to preserve semantics.
     let Some(mut out) = simplify_and_compare_constraints(out) else {
         return Predicate::False;
     };
-    out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
-    out.dedup();
+
+    // Canonicalize after simplification because compare folding can replace or
+    // remove children and therefore change deterministic evaluation order.
+    canonicalize_predicate_children_for_eval(&mut out);
 
     if out.len() == 1 {
         return out.remove(0);
@@ -390,10 +390,9 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
         return Predicate::False;
     }
 
-    // Evaluate cheaper predicates first to reduce average short-circuit work
-    // while keeping deterministic ordering under the canonical sort key.
-    out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
-    out.dedup();
+    // Canonicalize disjunction children once before OR-specific rewrites so the
+    // collapse-to-IN check sees one deterministic shape.
+    canonicalize_predicate_children_for_eval(&mut out);
 
     // Collapse canonical same-field equality disjunctions into one IN compare
     // at the predicate authority boundary.
@@ -485,6 +484,18 @@ const fn predicate_eval_cost_rank(predicate: &Predicate) -> u8 {
         Predicate::TextContains { .. } | Predicate::TextContainsCi { .. } => 3,
         Predicate::And(_) | Predicate::Or(_) => 4,
     }
+}
+
+// Canonicalize predicate child ordering for deterministic normalization and
+// cheap-first short-circuit behavior.
+fn canonicalize_predicate_children_for_eval(out: &mut Vec<Predicate>) {
+    out.sort_by_cached_key(predicate_eval_sort_key);
+    out.dedup();
+}
+
+// Build the shared cached sort key used across AND/OR normalization passes.
+fn predicate_eval_sort_key(predicate: &Predicate) -> (u8, Vec<u8>) {
+    (predicate_eval_cost_rank(predicate), sort_key(predicate))
 }
 
 ///
