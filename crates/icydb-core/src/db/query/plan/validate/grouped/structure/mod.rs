@@ -18,7 +18,6 @@ use crate::{
     },
     model::entity::EntityModel,
 };
-use std::collections::BTreeSet;
 
 // Validate grouped structural invariants before policy/cursor gates.
 pub(in crate::db::query::plan::validate) fn validate_group_structure(
@@ -118,17 +117,26 @@ fn validate_group_spec_structure(
         .then_some(())
         .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
 
-    let mut seen_group_slots = BTreeSet::<usize>::new();
+    let mut seen_group_slots = Vec::<usize>::with_capacity(group.group_fields.len());
     for field_slot in &group.group_fields {
         model.fields.get(field_slot.index()).ok_or_else(|| {
             PlanError::from(GroupPlanError::unknown_group_field(field_slot.field()))
         })?;
         seen_group_slots
-            .insert(field_slot.index())
+            .iter()
+            .any(|seen| *seen == field_slot.index())
             .then_some(())
-            .ok_or_else(|| {
-                PlanError::from(GroupPlanError::duplicate_group_field(field_slot.field()))
-            })?;
+            .map_or_else(
+                || {
+                    seen_group_slots.push(field_slot.index());
+                    Ok(())
+                },
+                |()| {
+                    Err(PlanError::from(GroupPlanError::duplicate_group_field(
+                        field_slot.field(),
+                    )))
+                },
+            )?;
     }
 
     for (index, aggregate) in group.aggregates.iter().enumerate() {

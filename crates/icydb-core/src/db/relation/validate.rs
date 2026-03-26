@@ -175,7 +175,7 @@ where
                     source_info,
                     *relation,
                 )?;
-                if source_targets.contains(target_raw_key) {
+                if source_targets.binary_search(target_raw_key).is_ok() {
                     record(MetricsEvent::RelationValidation {
                         entity_path: source_path,
                         reverse_lookups: 0,

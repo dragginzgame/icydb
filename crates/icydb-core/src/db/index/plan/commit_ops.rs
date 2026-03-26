@@ -7,7 +7,9 @@ use crate::{
     db::{
         commit::{CommitIndexOp, PreparedIndexDeltaKind},
         data::StorageKey,
-        index::{IndexEntry, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
+        index::{
+            IndexEntry, IndexKey, IndexStore, RawIndexEntry, RawIndexKey, plan::index_fields_csv,
+        },
     },
     error::InternalError,
     model::index::IndexModel,
@@ -35,7 +37,7 @@ pub(super) fn build_commit_ops_for_index(
     old_entity_key: Option<StorageKey>,
     new_entity_key: Option<StorageKey>,
 ) -> Result<(), InternalError> {
-    let fields = index.fields().join(", ");
+    let fields = index_fields_csv(index);
 
     // Phase 1: same-key transitions collapse into one entry mutation.
     if old_key == new_key {

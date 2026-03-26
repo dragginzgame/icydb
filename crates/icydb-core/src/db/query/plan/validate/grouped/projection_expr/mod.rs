@@ -14,7 +14,6 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
-use std::collections::HashSet;
 
 // Validate GROUP BY expression compatibility over canonical projection semantics.
 pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
@@ -27,7 +26,7 @@ pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
                 .group_fields
                 .iter()
                 .map(FieldSlot::field)
-                .collect::<HashSet<_>>();
+                .collect::<Vec<_>>();
 
             for (index, field) in projection.fields().enumerate() {
                 match field {

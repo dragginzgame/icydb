@@ -79,37 +79,29 @@ pub(in crate::db::executor) fn resolve_structural_order(
     ResolvedStructuralOrder { fields }
 }
 
-/// Apply canonical in-memory ordering over structural rows.
-pub(in crate::db::executor) fn apply_structural_order<R>(
-    rows: &mut [R],
-    resolved_order: &ResolvedStructuralOrder,
-) where
-    R: OrderReadableRow,
-{
-    rows.sort_by(|left, right| compare_orderable_rows(left, right, resolved_order));
-}
-
-/// Apply bounded canonical ordering for first-page and top-k paths.
-pub(in crate::db::executor) fn apply_structural_order_bounded<R>(
+/// Apply canonical in-memory ordering with an optional bounded top-k window.
+pub(in crate::db::executor) fn apply_structural_order_window<R>(
     rows: &mut Vec<R>,
     resolved_order: &ResolvedStructuralOrder,
-    keep_count: usize,
+    keep_count: Option<usize>,
 ) where
     R: OrderReadableRow,
 {
-    if keep_count == 0 {
-        rows.clear();
-        return;
+    if let Some(keep_count) = keep_count {
+        if keep_count == 0 {
+            rows.clear();
+            return;
+        }
+
+        if rows.len() > keep_count {
+            rows.select_nth_unstable_by(keep_count - 1, |left, right| {
+                compare_orderable_rows(left, right, resolved_order)
+            });
+            rows.truncate(keep_count);
+        }
     }
 
-    if rows.len() > keep_count {
-        rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-            compare_orderable_rows(left, right, resolved_order)
-        });
-        rows.truncate(keep_count);
-    }
-
-    rows.sort_by(|left, right| compare_orderable_rows(left, right, resolved_order));
+    sort_structural_rows(rows.as_mut_slice(), resolved_order);
 }
 
 /// Compare one structural row against one cursor boundary under the canonical order contract.
@@ -142,9 +134,32 @@ fn compare_orderable_rows(
     right: &dyn OrderReadableRow,
     resolved_order: &ResolvedStructuralOrder,
 ) -> Ordering {
+    compare_structural_order_slots(resolved_order, |field_index| {
+        (
+            boundary_slot_from_row(left, field_index),
+            boundary_slot_from_row(right, field_index),
+        )
+    })
+}
+
+// Apply the canonical shared in-memory sort contract over one structural row slice.
+fn sort_structural_rows<R>(rows: &mut [R], resolved_order: &ResolvedStructuralOrder)
+where
+    R: OrderReadableRow,
+{
+    rows.sort_by(|left, right| compare_orderable_rows(left, right, resolved_order));
+}
+
+// Compare one structural ordering tuple by resolving slot pairs lazily in canonical field order.
+fn compare_structural_order_slots<F>(
+    resolved_order: &ResolvedStructuralOrder,
+    mut read_pair: F,
+) -> Ordering
+where
+    F: FnMut(Option<usize>) -> (CursorBoundarySlot, CursorBoundarySlot),
+{
     for slot in resolved_order.iter() {
-        let left_slot = boundary_slot_from_row(left, slot.field_index);
-        let right_slot = boundary_slot_from_row(right, slot.field_index);
+        let (left_slot, right_slot) = read_pair(slot.field_index);
         let ordering = apply_order_direction(
             compare_boundary_slots(&left_slot, &right_slot),
             slot.direction,
@@ -168,5 +183,108 @@ fn boundary_slot_from_row(
     match value {
         Some(value) => CursorBoundarySlot::Present(value),
         None => CursorBoundarySlot::Missing,
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestRow {
+        slots: Vec<Option<Value>>,
+    }
+
+    impl TestRow {
+        fn new(slots: Vec<Option<Value>>) -> Self {
+            Self { slots }
+        }
+    }
+
+    impl OrderReadableRow for TestRow {
+        fn read_order_slot(&self, slot: usize) -> Option<Value> {
+            self.slots.get(slot).cloned().flatten()
+        }
+    }
+
+    fn resolved_order(fields: &[(Option<usize>, OrderDirection)]) -> ResolvedStructuralOrder {
+        ResolvedStructuralOrder {
+            fields: fields
+                .iter()
+                .map(|(field_index, direction)| ResolvedStructuralOrderField {
+                    field_index: *field_index,
+                    direction: *direction,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn apply_structural_order_sorts_rows_by_resolved_slots() {
+        let mut rows = vec![
+            TestRow::new(vec![Some(Value::Uint(3))]),
+            TestRow::new(vec![Some(Value::Uint(1))]),
+            TestRow::new(vec![Some(Value::Uint(2))]),
+        ];
+
+        apply_structural_order_window(
+            &mut rows,
+            &resolved_order(&[(Some(0), OrderDirection::Asc)]),
+            None,
+        );
+
+        let ordered = rows
+            .into_iter()
+            .map(|row| row.read_order_slot(0))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ordered,
+            vec![
+                Some(Value::Uint(1)),
+                Some(Value::Uint(2)),
+                Some(Value::Uint(3))
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_structural_order_bounded_keeps_smallest_rows_in_canonical_order() {
+        let mut rows = vec![
+            TestRow::new(vec![Some(Value::Uint(4))]),
+            TestRow::new(vec![Some(Value::Uint(2))]),
+            TestRow::new(vec![Some(Value::Uint(3))]),
+            TestRow::new(vec![Some(Value::Uint(1))]),
+        ];
+
+        apply_structural_order_window(
+            &mut rows,
+            &resolved_order(&[(Some(0), OrderDirection::Asc)]),
+            Some(2),
+        );
+
+        let ordered = rows
+            .into_iter()
+            .map(|row| row.read_order_slot(0))
+            .collect::<Vec<_>>();
+        assert_eq!(ordered, vec![Some(Value::Uint(1)), Some(Value::Uint(2))]);
+    }
+
+    #[test]
+    fn compare_orderable_row_with_boundary_respects_desc_direction() {
+        let row = TestRow::new(vec![Some(Value::Uint(7))]);
+        let boundary = CursorBoundary {
+            slots: vec![CursorBoundarySlot::Present(Value::Uint(5))],
+        };
+
+        let ordering = compare_orderable_row_with_boundary(
+            &row,
+            &resolved_order(&[(Some(0), OrderDirection::Desc)]),
+            &boundary,
+        );
+
+        assert_eq!(ordering, Ordering::Less);
     }
 }

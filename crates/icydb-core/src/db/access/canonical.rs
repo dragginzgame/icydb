@@ -24,6 +24,28 @@ fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
     plans.sort_by(canonical_cmp_access_plan_value);
 }
 
+// Deduplicate already-canonicalized access plans without retaining the generic
+// `Vec::dedup` / `PartialEq` path for this domain-specific ordering contract.
+fn dedup_sorted_access_plans(plans: &mut Vec<AccessPlan<Value>>) {
+    if plans.len() < 2 {
+        return;
+    }
+
+    let mut write = 1usize;
+    for read in 1..plans.len() {
+        if canonical_cmp_access_plan_value(&plans[write - 1], &plans[read]) == Ordering::Equal {
+            continue;
+        }
+
+        if write != read {
+            plans.swap(write, read);
+        }
+        write += 1;
+    }
+
+    plans.truncate(write);
+}
+
 /// Canonicalize a list of key values for deterministic ByKeys plans.
 fn canonicalize_key_values(keys: &mut Vec<Value>) {
     canonicalize_value_set(keys);
@@ -156,7 +178,7 @@ impl AccessPlan<Value> {
         }
 
         canonicalize_access_plans_value(&mut out);
-        out.dedup();
+        dedup_sorted_access_plans(&mut out);
         if out.len() == 1 {
             return out.pop().expect("single composite child");
         }

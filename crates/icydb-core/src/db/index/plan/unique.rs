@@ -9,7 +9,7 @@ use crate::{
         data::{DataKey, StorageKey, StructuralSlotReader},
         index::{
             IndexEntryCorruption, IndexId, IndexKey, IndexStore, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader,
+            StructuralPrimaryRowReader, plan::index_fields_csv,
         },
     },
     error::InternalError,
@@ -45,8 +45,7 @@ pub(super) fn validate_unique_constraint_structural(
     let Some(new_storage_key) = new_storage_key else {
         return Err(InternalError::index_unique_validation_entity_key_required());
     };
-
-    let index_fields = index.fields().join(", ");
+    let index_fields = index_fields_csv(index);
 
     let index_id = IndexId::new(entity_tag, index.ordinal());
     if new_index_key.index_id() != &index_id {
@@ -56,9 +55,9 @@ pub(super) fn validate_unique_constraint_structural(
             "mismatched unique key index id",
         ));
     }
-    let (lower, upper) = new_index_key.bounds_for_all_components();
-    let lower = Bound::Included(lower.to_raw());
-    let upper = Bound::Included(upper.to_raw());
+    let (lower, upper) = new_index_key.raw_bounds_for_all_components();
+    let lower = Bound::Included(lower);
+    let upper = Bound::Included(upper);
 
     // Unique validation only needs to distinguish 0, 1, or "more than 1".
     // Capping this probe avoids scanning large corrupted buckets.

@@ -211,24 +211,6 @@ impl IndexKey {
     }
 
     #[must_use]
-    pub(in crate::db) fn bounds_for_all_components(&self) -> (Self, Self) {
-        (
-            Self {
-                key_kind: self.key_kind,
-                index_id: self.index_id,
-                components: self.components.clone(),
-                primary_key: Self::wildcard_low_pk(),
-            },
-            Self {
-                key_kind: self.key_kind,
-                index_id: self.index_id,
-                components: self.components.clone(),
-                primary_key: Self::wildcard_high_pk(),
-            },
-        )
-    }
-
-    #[must_use]
     pub(in crate::db) fn has_same_components(&self, other: &Self) -> bool {
         self.components == other.components
     }

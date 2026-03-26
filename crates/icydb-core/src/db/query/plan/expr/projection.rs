@@ -3,8 +3,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::collections::HashSet;
-
 use crate::db::query::plan::expr::ast::{Alias, Expr, FieldId};
 
 ///
@@ -91,9 +89,9 @@ impl ProjectionSpec {
 /// - alias and unary wrappers recurse into inner expression
 /// - binary expressions require both sides to be admissible
 #[must_use]
-pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &HashSet<&str>) -> bool {
+pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool {
     match expr {
-        Expr::Field(field) => allowed.contains(field.as_str()),
+        Expr::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
         Expr::Literal(_) | Expr::Aggregate(_) => true,
         Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => {
             expr_references_only_fields(expr.as_ref(), allowed)

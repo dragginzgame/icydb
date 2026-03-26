@@ -5,22 +5,19 @@
 
 use crate::{
     db::{
-        executor::{
-            OrderReadableRow, apply_structural_order, apply_structural_order_bounded,
-            resolve_structural_order,
-        },
+        executor::{OrderReadableRow, apply_structural_order_window, resolve_structural_order},
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,
 };
 
 /// Apply canonical structural ordering to post-access rows.
-pub(super) fn apply_order_spec<R>(rows: &mut [R], model: &EntityModel, order: &OrderSpec)
+pub(super) fn apply_order_spec<R>(rows: &mut Vec<R>, model: &EntityModel, order: &OrderSpec)
 where
     R: OrderReadableRow,
 {
     let resolved_order = resolve_structural_order(model, order);
-    apply_structural_order(rows, &resolved_order);
+    apply_structural_order_window(rows, &resolved_order, None);
 }
 
 /// Apply bounded canonical structural ordering for first-page optimization paths.
@@ -33,5 +30,5 @@ pub(super) fn apply_order_spec_bounded<R>(
     R: OrderReadableRow,
 {
     let resolved_order = resolve_structural_order(model, order);
-    apply_structural_order_bounded(rows, &resolved_order, keep_count);
+    apply_structural_order_window(rows, &resolved_order, Some(keep_count));
 }

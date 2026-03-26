@@ -9,7 +9,7 @@ use crate::{
         data::{DataKey, DataRow},
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderReadableRow, OrderedKeyStream,
-            ScalarContinuationBindings, apply_structural_order, apply_structural_order_bounded,
+            ScalarContinuationBindings, apply_structural_order_window,
             compare_orderable_row_with_boundary, compute_page_keep_count,
             pipeline::contracts::{PageCursor, StructuralCursorPage},
             projection::validate_projection_over_slot_rows,
@@ -326,11 +326,11 @@ fn apply_post_access_to_kernel_rows_dyn(
             let ordered_total = rows.len();
 
             if rows.len() > 1 {
-                if let Some(keep_count) = ExecutionKernel::bounded_order_keep_count(plan, cursor) {
-                    apply_structural_order_bounded(rows, &resolved_order, keep_count);
-                } else {
-                    apply_structural_order(rows, &resolved_order);
-                }
+                apply_structural_order_window(
+                    rows,
+                    &resolved_order,
+                    ExecutionKernel::bounded_order_keep_count(plan, cursor),
+                );
             }
             rows_after_order = ordered_total;
         }

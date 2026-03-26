@@ -1424,7 +1424,9 @@ fn decode_scalar_slot_payload_body<'a>(
     if prefix != SCALAR_SLOT_PREFIX {
         return Err(InternalError::persisted_row_field_decode_failed(
             field_name,
-            "scalar payload prefix mismatch",
+            format!(
+                "scalar payload prefix mismatch: expected slot envelope prefix byte 0x{SCALAR_SLOT_PREFIX:02X}, found 0x{prefix:02X}",
+            ),
         ));
     }
     let Some((&tag, payload)) = rest.split_first() else {
@@ -2097,6 +2099,18 @@ mod tests {
             decode_slot_value_from_bytes(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
 
         assert_eq!(value, Value::Text("Ada".to_string()));
+    }
+
+    #[test]
+    fn decode_slot_value_from_bytes_reports_scalar_prefix_bytes() {
+        let err = decode_slot_value_from_bytes(&TEST_MODEL, 0, &[0x00, 1])
+            .expect_err("invalid scalar slot prefix should fail closed");
+
+        assert!(
+            err.message
+                .contains("expected slot envelope prefix byte 0xFF, found 0x00"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

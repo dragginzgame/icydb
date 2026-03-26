@@ -63,8 +63,8 @@ pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
 pub use mutation::save::StructuralMutationMode;
 pub(in crate::db::executor) use order::{
-    OrderReadableRow, apply_structural_order, apply_structural_order_bounded,
-    compare_orderable_row_with_boundary, resolve_structural_order,
+    OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
+    resolve_structural_order,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;

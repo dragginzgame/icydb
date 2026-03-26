@@ -262,6 +262,35 @@ fn index_key_prefix_bounds_are_isolated_between_user_and_system_kinds() {
 }
 
 #[test]
+fn raw_bounds_for_all_components_match_canonical_wildcard_primary_key_bounds() {
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![make_component(0x11), make_component(0x22)],
+        make_pk(0x33),
+    );
+
+    let (lower, upper) = key.raw_bounds_for_all_components();
+    let expected_lower = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![make_component(0x11), make_component(0x22)],
+        IndexKey::wildcard_low_pk(),
+    )
+    .to_raw();
+    let expected_upper = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![make_component(0x11), make_component(0x22)],
+        IndexKey::wildcard_high_pk(),
+    )
+    .to_raw();
+
+    assert_eq!(lower.as_bytes(), expected_lower.as_bytes());
+    assert_eq!(upper.as_bytes(), expected_upper.as_bytes());
+}
+
+#[test]
 fn index_key_ordering_is_stable_across_cardinality_transitions() {
     let first = vec![7u8, 7u8, 7u8];
 

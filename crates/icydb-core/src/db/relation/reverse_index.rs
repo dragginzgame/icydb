@@ -26,7 +26,7 @@ use crate::{
     traits::{CanisterKind, EntityKind},
     types::EntityTag,
 };
-use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
+use std::{cell::RefCell, thread::LocalKey};
 
 ///
 /// ReverseRelationSourceInfo
@@ -154,7 +154,7 @@ pub(super) fn relation_target_keys_for_source_row(
     source_model: &'static EntityModel,
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<BTreeSet<RawDataKey>, InternalError> {
+) -> Result<Vec<RawDataKey>, InternalError> {
     let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
 
     // Phase 1: keep single relation slots on the scalar fast path when the
@@ -166,6 +166,12 @@ pub(super) fn relation_target_keys_for_source_row(
     // Phase 2: decode the declared relation field payload directly into target
     // storage keys without rebuilding a runtime `Value` container.
     relation_target_keys_from_field_bytes(&row_fields, source_info, relation)
+}
+
+// Canonicalize reverse-index target keys into deterministic sorted-unique order.
+fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataKey>) {
+    keys.sort_unstable();
+    keys.dedup();
 }
 
 /// Decode a reverse-index entry into source-key membership.
@@ -267,7 +273,7 @@ fn relation_target_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<BTreeSet<RawDataKey>, InternalError> {
+) -> Result<Vec<RawDataKey>, InternalError> {
     validate_relation_field_kind(relation.field_kind)?;
 
     let Some(bytes) = row_fields.get_bytes(relation.field_index) else {
@@ -287,9 +293,13 @@ fn relation_target_keys_from_field_bytes(
             )
         })?;
 
-    keys.into_iter()
+    let mut keys = keys
+        .into_iter()
         .map(|value| raw_relation_target_key_from_storage_key(source, relation, value))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    canonicalize_relation_target_keys(&mut keys);
+
+    Ok(keys)
 }
 
 // Decode one singular strong relation directly from the scalar slot codec when
@@ -298,13 +308,13 @@ fn relation_target_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<Option<BTreeSet<RawDataKey>>, InternalError> {
+) -> Result<Option<Vec<RawDataKey>>, InternalError> {
     let FieldKind::Relation { .. } = relation.field_kind else {
         return Ok(None);
     };
 
     match row_fields.get_scalar(relation.field_index)? {
-        Some(ScalarSlotValueRef::Null) => Ok(Some(BTreeSet::new())),
+        Some(ScalarSlotValueRef::Null) => Ok(Some(Vec::new())),
         Some(ScalarSlotValueRef::Value(value)) => {
             let storage_key = storage_key_from_relation_scalar(value).ok_or_else(|| {
                 InternalError::relation_source_row_unsupported_scalar_relation_key(
@@ -315,7 +325,7 @@ fn relation_target_keys_from_scalar_slot(
             })?;
             let key = raw_relation_target_key_from_storage_key(source, relation, storage_key)?;
 
-            Ok(Some(BTreeSet::from([key])))
+            Ok(Some(vec![key]))
         }
         None if row_fields.has(relation.field_index) => Ok(None),
         None => Err(InternalError::relation_source_row_missing_field(
@@ -485,18 +495,21 @@ where
     for relation in relations {
         let old_targets = match old_row {
             Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
-            None => BTreeSet::new(),
+            None => Vec::new(),
         };
         let new_targets = match new_row {
             Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
-            None => BTreeSet::new(),
+            None => Vec::new(),
         };
+        let mut target_keys = old_targets.clone();
+        target_keys.extend(new_targets.iter().copied());
+        canonicalize_relation_target_keys(&mut target_keys);
 
         let target_store = relation_target_store(db, source, relation)?;
 
-        for target_raw_key in old_targets.union(&new_targets) {
-            let old_contains = old_targets.contains(target_raw_key);
-            let new_contains = new_targets.contains(target_raw_key);
+        for target_raw_key in &target_keys {
+            let old_contains = old_targets.binary_search(target_raw_key).is_ok();
+            let new_contains = new_targets.binary_search(target_raw_key).is_ok();
 
             let Some(target_data_key) = decode_relation_target_data_key_for_relation(
                 source,

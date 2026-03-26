@@ -33,6 +33,29 @@ pub(in crate::db) use private::{
     SealedStructuralPrimaryRowReader,
 };
 
+// Distinguish the two structural key-build lanes so planner diagnostics can
+// preserve the existing insertion-vs-removal error taxonomy.
+#[derive(Clone, Copy)]
+enum StructuralIndexKeyLane {
+    Old,
+    New,
+}
+
+impl StructuralIndexKeyLane {
+    // Map one missing entity-key case back onto the planner-owned internal error.
+    fn missing_entity_key_error(self) -> InternalError {
+        match self {
+            Self::Old => InternalError::structural_index_removal_entity_key_required(),
+            Self::New => InternalError::structural_index_insertion_entity_key_required(),
+        }
+    }
+}
+
+// Format the canonical human-readable index field list once at the plan boundary.
+pub(super) fn index_fields_csv(index: &IndexModel) -> String {
+    index.fields().join(", ")
+}
+
 ///
 /// IndexMutationPlan
 /// Deterministic mutation plan containing mechanical commit ops.
@@ -318,9 +341,75 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
     Ok(index_key)
 }
 
+// Build one optional structural index key for the requested planner lane.
+fn load_structural_index_key(
+    lane: StructuralIndexKeyLane,
+    entity_tag: EntityTag,
+    index: &IndexModel,
+    predicate_program: Option<&PredicateProgram>,
+    storage_key: Option<StorageKey>,
+    slots: &dyn SlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    let Some(storage_key) = storage_key else {
+        return Err(lane.missing_entity_key_error());
+    };
+
+    index_key_for_slot_reader_with_membership_structural(
+        entity_tag,
+        index,
+        predicate_program,
+        storage_key,
+        slots,
+    )
+}
+
+// Prove that the pre-existing old index entry still contains the expected row
+// membership before commit planning becomes purely mechanical.
+fn validate_existing_old_index_membership(
+    entity_path: &'static str,
+    index: &'static IndexModel,
+    old_storage_key: Option<StorageKey>,
+    old_key: Option<&IndexKey>,
+    old_entry: Option<&IndexEntry>,
+) -> Result<(), InternalError> {
+    let Some(old_key) = old_key else {
+        return Ok(());
+    };
+
+    let index_fields = index_fields_csv(index);
+    let Some(old_storage_key) = old_storage_key else {
+        return Err(InternalError::structural_index_removal_entity_key_required());
+    };
+
+    let entry = old_entry.as_ref().ok_or_else(|| {
+        InternalError::structural_index_entry_corruption(
+            entity_path,
+            &index_fields,
+            IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
+        )
+    })?;
+
+    if index.is_unique() && entry.len() > 1 {
+        return Err(InternalError::structural_index_entry_corruption(
+            entity_path,
+            &index_fields,
+            IndexEntryCorruption::NonUniqueEntry { keys: entry.len() },
+        ));
+    }
+
+    if !entry.contains(old_storage_key) {
+        return Err(InternalError::structural_index_entry_corruption(
+            entity_path,
+            &index_fields,
+            IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Plan all index mutations for one persisted-row transition using structural
 /// entity authority only.
-#[expect(clippy::too_many_lines)]
 #[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural<C>(
     db: &Db<C>,
@@ -350,33 +439,25 @@ where
             compile_index_membership_predicate_structural(entity_path, model, index)?;
 
         let old_key = match old_slots.as_deref_mut() {
-            Some(slots) => {
-                let Some(storage_key) = old_storage_key else {
-                    return Err(InternalError::structural_index_removal_entity_key_required());
-                };
-                index_key_for_slot_reader_with_membership_structural(
-                    entity_tag,
-                    index,
-                    membership_program.as_ref(),
-                    storage_key,
-                    slots,
-                )?
-            }
+            Some(slots) => load_structural_index_key(
+                StructuralIndexKeyLane::Old,
+                entity_tag,
+                index,
+                membership_program.as_ref(),
+                old_storage_key,
+                slots,
+            )?,
             None => None,
         };
         let new_key = match new_slots.as_deref_mut() {
-            Some(slots) => {
-                let Some(storage_key) = new_storage_key else {
-                    return Err(InternalError::structural_index_insertion_entity_key_required());
-                };
-                index_key_for_slot_reader_with_membership_structural(
-                    entity_tag,
-                    index,
-                    membership_program.as_ref(),
-                    storage_key,
-                    slots,
-                )?
-            }
+            Some(slots) => load_structural_index_key(
+                StructuralIndexKeyLane::New,
+                entity_tag,
+                index,
+                membership_program.as_ref(),
+                new_storage_key,
+                slots,
+            )?,
             None => None,
         };
 
@@ -390,37 +471,13 @@ where
 
         // Phase 2: ensure any existing old membership is still present before
         // commit-phase mutations become mechanical.
-        if let Some(old_key) = &old_key {
-            let index_fields = index.fields().join(", ");
-
-            let Some(old_storage_key) = old_storage_key else {
-                return Err(InternalError::structural_index_removal_entity_key_required());
-            };
-
-            let entry = old_entry.as_ref().ok_or_else(|| {
-                InternalError::structural_index_entry_corruption(
-                    entity_path,
-                    &index_fields,
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
-                )
-            })?;
-
-            if index.is_unique() && entry.len() > 1 {
-                return Err(InternalError::structural_index_entry_corruption(
-                    entity_path,
-                    &index_fields,
-                    IndexEntryCorruption::NonUniqueEntry { keys: entry.len() },
-                ));
-            }
-
-            if !entry.contains(old_storage_key) {
-                return Err(InternalError::structural_index_entry_corruption(
-                    entity_path,
-                    &index_fields,
-                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
-                ));
-            }
-        }
+        validate_existing_old_index_membership(
+            entity_path,
+            index,
+            old_storage_key,
+            old_key.as_ref(),
+            old_entry.as_ref(),
+        )?;
 
         let new_entry = if old_key == new_key {
             None
@@ -484,7 +541,7 @@ pub(super) fn load_existing_entry_structural(
     index_reader
         .read_index_entry_structural(store, &raw_key)?
         .map(|raw_entry| {
-            let index_fields = index.fields().join(", ");
+            let index_fields = index_fields_csv(index);
             raw_entry.try_decode().map_err(|err| {
                 InternalError::structural_index_entry_corruption(entity_path, &index_fields, err)
             })

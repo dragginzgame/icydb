@@ -63,16 +63,15 @@ impl PartialOrd for IndexKey {
 }
 
 impl IndexKey {
-    #[must_use]
-    pub(crate) fn to_raw(&self) -> RawIndexKey {
+    fn to_raw_with_primary_key(&self, primary_key: &[u8]) -> RawIndexKey {
         // Phase 1: precompute capacity and validate in-memory invariants.
         let component_count = self.components.len();
         debug_assert!(component_count <= MAX_INDEX_FIELDS);
         debug_assert!(u8::try_from(component_count).is_ok());
-        debug_assert!(!self.primary_key.is_empty());
-        debug_assert!(self.primary_key.len() <= Self::MAX_PK_SIZE);
+        debug_assert!(!primary_key.is_empty());
+        debug_assert!(primary_key.len() <= Self::MAX_PK_SIZE);
 
-        let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + self.primary_key.len();
+        let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + primary_key.len();
         for component in &self.components {
             debug_assert!(!component.is_empty());
             debug_assert!(component.len() <= Self::MAX_COMPONENT_SIZE);
@@ -94,9 +93,22 @@ impl IndexKey {
             push_segment(&mut bytes, component);
         }
 
-        push_segment(&mut bytes, &self.primary_key);
+        push_segment(&mut bytes, primary_key);
 
         RawIndexKey(bytes)
+    }
+
+    #[must_use]
+    pub(crate) fn to_raw(&self) -> RawIndexKey {
+        self.to_raw_with_primary_key(&self.primary_key)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn raw_bounds_for_all_components(&self) -> (RawIndexKey, RawIndexKey) {
+        (
+            self.to_raw_with_primary_key(&Self::wildcard_low_pk()),
+            self.to_raw_with_primary_key(&Self::wildcard_high_pk()),
+        )
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
