@@ -129,85 +129,25 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     })
 }
 
-// Extract an index-range candidate for one concrete index.
+// Extract an index-range candidate for one concrete index by walking index
+// fields directly instead of materializing a temporary per-field constraint
+// vector that is only consumed once.
 fn index_range_candidate_for_index(
     index: &'static IndexModel,
     compares: &[CachedCompare<'_>],
-) -> Option<(usize, Vec<Value>, RangeConstraint)> {
-    // Phase 1: classify each index field as Eq/Range/None for this compare set.
-    let constraints = classify_index_field_constraints(index, compares)?;
-
-    // Phase 2: materialize deterministic prefix+range shape from constraints.
-    select_prefix_and_range(index.fields().len(), &constraints)
-}
-
-// Build per-field constraint classes for one index from compare predicates.
-fn classify_index_field_constraints(
-    index: &'static IndexModel,
-    compares: &[CachedCompare<'_>],
-) -> Option<Vec<IndexFieldConstraint>> {
-    let mut constraints = vec![IndexFieldConstraint::None; index.fields().len()];
-
-    for cached in compares {
-        let cmp = cached.cmp;
-        let Some(position) = index
-            .fields()
-            .iter()
-            .position(|field| *field == cmp.field.as_str())
-        else {
-            continue;
-        };
-
-        if !cached.literal_compatible || !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-            return None;
-        }
-
-        match cmp.op {
-            CompareOp::Eq => match &mut constraints[position] {
-                IndexFieldConstraint::None => {
-                    constraints[position] = IndexFieldConstraint::Eq(cmp.value.clone());
-                }
-                IndexFieldConstraint::Eq(existing) => {
-                    if existing != &cmp.value {
-                        return None;
-                    }
-                }
-                IndexFieldConstraint::Range(_) => return None,
-            },
-            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-                let mut range = match &constraints[position] {
-                    IndexFieldConstraint::None => RangeConstraint::default(),
-                    IndexFieldConstraint::Eq(_) => return None,
-                    IndexFieldConstraint::Range(existing) => existing.clone(),
-                };
-                if !merge_range_constraint(&mut range, cmp.op, &cmp.value) {
-                    return None;
-                }
-                constraints[position] = IndexFieldConstraint::Range(range);
-            }
-            _ => return None,
-        }
-    }
-
-    Some(constraints)
-}
-
-// Convert classified constraints into one valid prefix+range candidate shape.
-fn select_prefix_and_range(
-    field_count: usize,
-    constraints: &[IndexFieldConstraint],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
     let mut prefix = Vec::new();
     let mut range: Option<RangeConstraint> = None;
     let mut range_position = None;
 
-    for (position, constraint) in constraints.iter().enumerate() {
+    for (position, field_name) in index.fields().iter().enumerate() {
+        let constraint = field_constraint_for_index_field(index, field_name, compares)?;
         match constraint {
             IndexFieldConstraint::Eq(value) if range.is_none() => {
-                prefix.push(value.clone());
+                prefix.push(value);
             }
             IndexFieldConstraint::Range(candidate) if range.is_none() => {
-                range = Some(candidate.clone());
+                range = Some(candidate);
                 range_position = Some(position);
             }
             IndexFieldConstraint::None if range.is_none() => return None,
@@ -219,14 +159,59 @@ fn select_prefix_and_range(
     let (Some(range_position), Some(range)) = (range_position, range) else {
         return None;
     };
-    if range_position >= field_count {
-        return None;
-    }
-    if prefix.len() >= field_count {
+    if prefix.len() >= index.fields().len() {
         return None;
     }
 
     Some((range_position, prefix, range))
+}
+
+// Build the effective constraint class for one concrete index field from the
+// compare predicates that target it.
+fn field_constraint_for_index_field(
+    index: &'static IndexModel,
+    field_name: &&'static str,
+    compares: &[CachedCompare<'_>],
+) -> Option<IndexFieldConstraint> {
+    let mut constraint = IndexFieldConstraint::None;
+
+    for cached in compares {
+        let cmp = cached.cmp;
+        if cmp.field.as_str() != *field_name {
+            continue;
+        }
+        if !cached.literal_compatible || !index.is_field_indexable(field_name, cmp.op) {
+            return None;
+        }
+
+        match cmp.op {
+            CompareOp::Eq => match &constraint {
+                IndexFieldConstraint::None => {
+                    constraint = IndexFieldConstraint::Eq(cmp.value.clone());
+                }
+                IndexFieldConstraint::Eq(existing) => {
+                    if existing != &cmp.value {
+                        return None;
+                    }
+                }
+                IndexFieldConstraint::Range(_) => return None,
+            },
+            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+                let mut range = match &constraint {
+                    IndexFieldConstraint::None => RangeConstraint::default(),
+                    IndexFieldConstraint::Eq(_) => return None,
+                    IndexFieldConstraint::Range(existing) => existing.clone(),
+                };
+                if !merge_range_constraint(&mut range, cmp.op, &cmp.value) {
+                    return None;
+                }
+                constraint = IndexFieldConstraint::Range(range);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(constraint)
 }
 
 // Merge one comparison operator into one bounded range under shared numeric

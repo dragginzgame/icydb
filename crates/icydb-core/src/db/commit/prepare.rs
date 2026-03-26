@@ -179,21 +179,9 @@ fn validate_commit_marker_row_for_entity(
             "commit marker {label} row decode failed: {err}",
         ))
     })?;
-    let mut slots = StructuralSlotReader::from_raw_row(&raw_row, model).map_err(|err| {
-        let message = format!("commit marker {label} row decode failed: {err}");
-        if err.class() == ErrorClass::IncompatiblePersistedFormat {
-            InternalError::serialize_incompatible_persisted_format(message)
-        } else {
-            InternalError::serialize_corruption(message)
-        }
-    })?;
+    let mut slots = decode_commit_marker_structural_slots(data_key, &raw_row, label, model)?;
 
-    // Phase 1: validate the authoritative primary-key slot against the row-op key.
-    slots.validate_storage_key(data_key).map_err(|err| {
-        InternalError::store_corruption(format!("commit marker {label} row key mismatch: {err}",))
-    })?;
-
-    // Phase 2: decode every declared slot through the field contract so
+    // Phase 1: decode every declared slot through the field contract so
     // malformed non-indexed fields cannot bypass commit preparation.
     for slot in 0..model.fields().len() {
         slots.get_value(slot).map_err(|err| {
@@ -289,13 +277,13 @@ fn decode_optional_commit_marker_row_slots<'a>(
     label: &str,
     model: &'static EntityModel,
 ) -> Result<Option<StructuralSlotReader<'a>>, InternalError> {
-    row.map(|row| decode_commit_marker_row_slots(data_key, row, label, model))
+    row.map(|row| decode_commit_marker_structural_slots(data_key, row, label, model))
         .transpose()
 }
 
-// Decode one commit-marker row into one validated slot reader so forward-index
-// planning can stay entirely on structural persisted-row access.
-fn decode_commit_marker_row_slots<'a>(
+// Decode one commit-marker row into one validated slot reader so both
+// hardening and forward-index planning share the same structural row boundary.
+fn decode_commit_marker_structural_slots<'a>(
     data_key: &DataKey,
     row: &'a RawRow,
     label: &str,
@@ -403,19 +391,12 @@ fn materialize_prepared_row_commit(
 ) -> PreparedRowCommitOp {
     // Phase 1: lower planned commit ops into mechanical index mutations.
     let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len() + reverse_index_ops.len());
-    for index_op in index_plan.commit_ops {
-        let store = index_op.store;
-        let key = index_op.key;
-        let value = index_op.value;
-        let delta_kind = index_op.delta_kind;
-
-        index_ops.push(PreparedIndexMutation {
-            store,
-            key,
-            value,
-            delta_kind,
-        });
-    }
+    index_ops.extend(
+        index_plan
+            .commit_ops
+            .into_iter()
+            .map(PreparedIndexMutation::from),
+    );
 
     // Phase 2: append the already-prepared reverse-index mutations unchanged.
     index_ops.extend(reverse_index_ops);

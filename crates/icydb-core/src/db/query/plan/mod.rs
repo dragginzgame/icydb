@@ -26,7 +26,9 @@ mod semantics;
 mod tests;
 pub(crate) mod validate;
 
-pub(in crate::db) use access_choice::project_access_choice_explain_snapshot;
+pub(in crate::db) use access_choice::{
+    AccessChoiceExplainSnapshot, project_access_choice_explain_snapshot,
+};
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,

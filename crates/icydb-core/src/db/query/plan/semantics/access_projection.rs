@@ -6,10 +6,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        query::{
-            access::{AccessPathVisitor, visit_explain_access_path},
-            explain::ExplainAccessPath,
-        },
+        query::explain::ExplainAccessPath,
     },
     value::Value,
 };
@@ -125,85 +122,45 @@ pub(crate) fn project_explain_access_path<P>(
 where
     P: AccessPlanProjection<Value>,
 {
-    // Bridge explain-access visitor dispatch back to AccessPlanProjection.
-    struct ExplainProjectionVisitor<'a, P> {
-        projection: &'a mut P,
-    }
-
-    impl<P> AccessPathVisitor<P::Output> for ExplainProjectionVisitor<'_, P>
-    where
-        P: AccessPlanProjection<Value>,
-    {
-        fn visit_by_key(&mut self, key: &Value) -> P::Output {
-            self.projection.by_key(key)
-        }
-
-        fn visit_by_keys(&mut self, keys: &[Value]) -> P::Output {
-            self.projection.by_keys(keys)
-        }
-
-        fn visit_key_range(&mut self, start: &Value, end: &Value) -> P::Output {
-            self.projection.key_range(start, end)
-        }
-
-        fn visit_index_prefix(
-            &mut self,
-            name: &'static str,
-            fields: &[&'static str],
-            prefix_len: usize,
-            values: &[Value],
-        ) -> P::Output {
-            self.projection
-                .index_prefix(name, fields, prefix_len, values)
-        }
-
-        fn visit_index_multi_lookup(
-            &mut self,
-            name: &'static str,
-            fields: &[&'static str],
-            values: &[Value],
-        ) -> P::Output {
-            self.projection.index_multi_lookup(name, fields, values)
-        }
-
-        fn visit_index_range(
-            &mut self,
-            name: &'static str,
-            fields: &[&'static str],
-            prefix_len: usize,
-            prefix: &[Value],
-            lower: &Bound<Value>,
-            upper: &Bound<Value>,
-        ) -> P::Output {
-            self.projection
-                .index_range(name, fields, prefix_len, prefix, lower, upper)
-        }
-
-        fn visit_full_scan(&mut self) -> P::Output {
-            self.projection.full_scan()
-        }
-
-        fn visit_union(&mut self, children: &[ExplainAccessPath]) -> P::Output {
+    match access {
+        ExplainAccessPath::ByKey { key } => projection.by_key(key),
+        ExplainAccessPath::ByKeys { keys } => projection.by_keys(keys),
+        ExplainAccessPath::KeyRange { start, end } => projection.key_range(start, end),
+        ExplainAccessPath::IndexPrefix {
+            name,
+            fields,
+            prefix_len,
+            values,
+        } => projection.index_prefix(name, fields, *prefix_len, values),
+        ExplainAccessPath::IndexMultiLookup {
+            name,
+            fields,
+            values,
+        } => projection.index_multi_lookup(name, fields, values),
+        ExplainAccessPath::IndexRange {
+            name,
+            fields,
+            prefix_len,
+            prefix,
+            lower,
+            upper,
+        } => projection.index_range(name, fields, *prefix_len, prefix, lower, upper),
+        ExplainAccessPath::FullScan => projection.full_scan(),
+        ExplainAccessPath::Union(children) => {
             let children = children
                 .iter()
-                .map(|child| visit_explain_access_path(child, self))
+                .map(|child| project_explain_access_path(child, projection))
                 .collect();
-
-            self.projection.union(children)
+            projection.union(children)
         }
-
-        fn visit_intersection(&mut self, children: &[ExplainAccessPath]) -> P::Output {
+        ExplainAccessPath::Intersection(children) => {
             let children = children
                 .iter()
-                .map(|child| visit_explain_access_path(child, self))
+                .map(|child| project_explain_access_path(child, projection))
                 .collect();
-
-            self.projection.intersection(children)
+            projection.intersection(children)
         }
     }
-
-    let mut visitor = ExplainProjectionVisitor { projection };
-    visit_explain_access_path(access, &mut visitor)
 }
 
 ///

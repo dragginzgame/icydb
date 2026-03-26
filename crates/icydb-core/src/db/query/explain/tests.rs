@@ -918,7 +918,7 @@ fn explain_execution_node_type_vocabulary_is_frozen() {
 #[test]
 fn execution_descriptor_verbose_text_renders_all_optional_fields() {
     let mut node_properties = BTreeMap::new();
-    node_properties.insert("fetch".to_string(), Value::from(7_u64));
+    node_properties.insert("fetch", Value::from(7_u64));
     let descriptor = ExplainExecutionNodeDescriptor {
         node_type: ExplainExecutionNodeType::TopNSeek,
         execution_mode: ExplainExecutionMode::Streaming,
@@ -1350,11 +1350,11 @@ fn assert_execution_additive_metadata_parity(
 fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_shapes() {
     let mut fast_path_properties = BTreeMap::new();
     fast_path_properties.insert(
-        "fast_path_selected".to_string(),
+        "fast_path_selected",
         Value::Text("secondary_index".to_string()),
     );
     fast_path_properties.insert(
-        "fast_path_selected_reason".to_string(),
+        "fast_path_selected_reason",
         Value::Text("topn_eligible".to_string()),
     );
 
@@ -1550,7 +1550,7 @@ fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
 
     // Phase 2: build one seek-route execution descriptor and snapshot the whole payload.
     let mut node_properties = BTreeMap::new();
-    node_properties.insert("fetch".to_string(), Value::from(1_u64));
+    node_properties.insert("fetch", Value::from(1_u64));
     let terminal_plan = ExplainAggregateTerminalPlan::new(
         query_explain,
         AggregateKind::Min,

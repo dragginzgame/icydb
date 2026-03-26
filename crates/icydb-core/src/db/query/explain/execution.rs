@@ -85,7 +85,7 @@ pub struct ExplainExecutionDescriptor {
     pub(crate) ordering_source: ExplainExecutionOrderingSource,
     pub(crate) limit: Option<u32>,
     pub(crate) cursor: bool,
-    pub(crate) node_properties: BTreeMap<String, Value>,
+    pub(crate) node_properties: BTreeMap<&'static str, Value>,
 }
 
 ///
@@ -152,7 +152,7 @@ pub struct ExplainExecutionNodeDescriptor {
     pub(crate) covering_scan: Option<bool>,
     pub(crate) rows_expected: Option<u64>,
     pub(crate) children: Vec<Self>,
-    pub(crate) node_properties: BTreeMap<String, Value>,
+    pub(crate) node_properties: BTreeMap<&'static str, Value>,
 }
 
 impl ExplainAggregateTerminalPlan {
@@ -242,7 +242,7 @@ impl ExplainExecutionDescriptor {
 
     /// Borrow projected execution node properties.
     #[must_use]
-    pub const fn node_properties(&self) -> &BTreeMap<String, Value> {
+    pub const fn node_properties(&self) -> &BTreeMap<&'static str, Value> {
         &self.node_properties
     }
 
@@ -432,7 +432,7 @@ impl ExplainExecutionNodeDescriptor {
 
     /// Borrow node properties.
     #[must_use]
-    pub const fn node_properties(&self) -> &BTreeMap<String, Value> {
+    pub const fn node_properties(&self) -> &BTreeMap<&'static str, Value> {
         &self.node_properties
     }
 }

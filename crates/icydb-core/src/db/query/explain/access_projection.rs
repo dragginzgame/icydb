@@ -7,7 +7,6 @@ use crate::{
     db::{
         access::AccessPlan,
         query::{
-            access::{AccessPathVisitor, visit_explain_access_path},
             explain::{ExplainAccessPath, writer::JsonWriter},
             plan::{AccessPlanProjection, project_access_plan},
         },
@@ -15,202 +14,139 @@ use crate::{
     traits::FieldValue,
     value::Value,
 };
-use std::ops::Bound;
-
-///
-/// ExplainJsonVisitor
-///
-/// Visitor that renders one `ExplainAccessPath` subtree into stable JSON.
-///
-
-struct ExplainJsonVisitor<'a> {
-    out: &'a mut String,
-}
-
-impl AccessPathVisitor<()> for ExplainJsonVisitor<'_> {
-    fn visit_by_key(&mut self, key: &Value) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "ByKey");
-        object.field_value_debug("key", key);
-        object.finish();
-    }
-
-    fn visit_by_keys(&mut self, keys: &[Value]) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "ByKeys");
-        object.field_debug_slice("keys", keys);
-        object.finish();
-    }
-
-    fn visit_key_range(&mut self, start: &Value, end: &Value) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "KeyRange");
-        object.field_value_debug("start", start);
-        object.field_value_debug("end", end);
-        object.finish();
-    }
-
-    fn visit_index_prefix(
-        &mut self,
-        name: &'static str,
-        fields: &[&'static str],
-        prefix_len: usize,
-        values: &[Value],
-    ) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "IndexPrefix");
-        object.field_str("name", name);
-        object.field_str_slice("fields", fields);
-        object.field_u64("prefix_len", prefix_len as u64);
-        object.field_debug_slice("values", values);
-        object.finish();
-    }
-
-    fn visit_index_multi_lookup(
-        &mut self,
-        name: &'static str,
-        fields: &[&'static str],
-        values: &[Value],
-    ) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "IndexMultiLookup");
-        object.field_str("name", name);
-        object.field_str_slice("fields", fields);
-        object.field_debug_slice("values", values);
-        object.finish();
-    }
-
-    fn visit_index_range(
-        &mut self,
-        name: &'static str,
-        fields: &[&'static str],
-        prefix_len: usize,
-        prefix: &[Value],
-        lower: &Bound<Value>,
-        upper: &Bound<Value>,
-    ) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "IndexRange");
-        object.field_str("name", name);
-        object.field_str_slice("fields", fields);
-        object.field_u64("prefix_len", prefix_len as u64);
-        object.field_debug_slice("prefix", prefix);
-        object.field_value_debug("lower", lower);
-        object.field_value_debug("upper", upper);
-        object.finish();
-    }
-
-    fn visit_full_scan(&mut self) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "FullScan");
-        object.finish();
-    }
-
-    fn visit_union(&mut self, children: &[ExplainAccessPath]) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "Union");
-        object.field_with("children", |out| {
-            out.push('[');
-            for (index, child) in children.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                let mut visitor = ExplainJsonVisitor { out };
-                visit_explain_access_path(child, &mut visitor);
-            }
-            out.push(']');
-        });
-        object.finish();
-    }
-
-    fn visit_intersection(&mut self, children: &[ExplainAccessPath]) {
-        let mut object = JsonWriter::begin_object(self.out);
-        object.field_str("type", "Intersection");
-        object.field_with("children", |out| {
-            out.push('[');
-            for (index, child) in children.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                let mut visitor = ExplainJsonVisitor { out };
-                visit_explain_access_path(child, &mut visitor);
-            }
-            out.push(']');
-        });
-        object.finish();
-    }
-}
+use std::{fmt::Write, ops::Bound};
 
 pub(in crate::db::query::explain) fn write_access_json(
     access: &ExplainAccessPath,
     out: &mut String,
 ) {
-    let mut visitor = ExplainJsonVisitor { out };
-    visit_explain_access_path(access, &mut visitor);
+    write_access_json_inner(access, out);
 }
 
-pub(in crate::db::query::explain) fn access_strategy_label(access: &ExplainAccessPath) -> String {
-    struct ExplainLabelVisitor;
-
-    impl AccessPathVisitor<String> for ExplainLabelVisitor {
-        fn visit_by_key(&mut self, _key: &Value) -> String {
-            "ByKey".to_string()
+// Render the stable explain-access JSON payload directly from the final DTO
+// shape instead of routing back through the generic access visitor.
+fn write_access_json_inner(access: &ExplainAccessPath, out: &mut String) {
+    match access {
+        ExplainAccessPath::ByKey { key } => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "ByKey");
+            object.field_value_debug("key", key);
+            object.finish();
         }
-
-        fn visit_by_keys(&mut self, _keys: &[Value]) -> String {
-            "ByKeys".to_string()
+        ExplainAccessPath::ByKeys { keys } => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "ByKeys");
+            object.field_debug_slice("keys", keys);
+            object.finish();
         }
-
-        fn visit_key_range(&mut self, _start: &Value, _end: &Value) -> String {
-            "KeyRange".to_string()
+        ExplainAccessPath::KeyRange { start, end } => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "KeyRange");
+            object.field_value_debug("start", start);
+            object.field_value_debug("end", end);
+            object.finish();
         }
-
-        fn visit_index_prefix(
-            &mut self,
-            name: &'static str,
-            _fields: &[&'static str],
-            _prefix_len: usize,
-            _values: &[Value],
-        ) -> String {
-            format!("IndexPrefix({name})")
+        ExplainAccessPath::IndexPrefix {
+            name,
+            fields,
+            prefix_len,
+            values,
+        } => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "IndexPrefix");
+            object.field_str("name", name);
+            object.field_str_slice("fields", fields);
+            object.field_u64("prefix_len", *prefix_len as u64);
+            object.field_debug_slice("values", values);
+            object.finish();
         }
-
-        fn visit_index_multi_lookup(
-            &mut self,
-            name: &'static str,
-            _fields: &[&'static str],
-            _values: &[Value],
-        ) -> String {
-            format!("IndexMultiLookup({name})")
+        ExplainAccessPath::IndexMultiLookup {
+            name,
+            fields,
+            values,
+        } => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "IndexMultiLookup");
+            object.field_str("name", name);
+            object.field_str_slice("fields", fields);
+            object.field_debug_slice("values", values);
+            object.finish();
         }
-
-        fn visit_index_range(
-            &mut self,
-            name: &'static str,
-            _fields: &[&'static str],
-            _prefix_len: usize,
-            _prefix: &[Value],
-            _lower: &Bound<Value>,
-            _upper: &Bound<Value>,
-        ) -> String {
-            format!("IndexRange({name})")
+        ExplainAccessPath::IndexRange {
+            name,
+            fields,
+            prefix_len,
+            prefix,
+            lower,
+            upper,
+        } => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "IndexRange");
+            object.field_str("name", name);
+            object.field_str_slice("fields", fields);
+            object.field_u64("prefix_len", *prefix_len as u64);
+            object.field_debug_slice("prefix", prefix);
+            object.field_value_debug("lower", lower);
+            object.field_value_debug("upper", upper);
+            object.finish();
         }
-
-        fn visit_full_scan(&mut self) -> String {
-            "FullScan".to_string()
+        ExplainAccessPath::FullScan => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "FullScan");
+            object.finish();
         }
-
-        fn visit_union(&mut self, children: &[ExplainAccessPath]) -> String {
-            format!("Union({})", children.len())
+        ExplainAccessPath::Union(children) => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "Union");
+            object.field_with("children", |out| write_access_json_children(children, out));
+            object.finish();
         }
-
-        fn visit_intersection(&mut self, children: &[ExplainAccessPath]) -> String {
-            format!("Intersection({})", children.len())
+        ExplainAccessPath::Intersection(children) => {
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("type", "Intersection");
+            object.field_with("children", |out| write_access_json_children(children, out));
+            object.finish();
         }
     }
+}
 
-    let mut visitor = ExplainLabelVisitor;
-    visit_explain_access_path(access, &mut visitor)
+// Render one explain-access child list with deterministic ordering and punctuation.
+fn write_access_json_children(children: &[ExplainAccessPath], out: &mut String) {
+    out.push('[');
+    for (index, child) in children.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_access_json_inner(child, out);
+    }
+    out.push(']');
+}
+
+pub(in crate::db::query::explain) fn write_access_strategy_label(
+    out: &mut String,
+    access: &ExplainAccessPath,
+) {
+    match access {
+        ExplainAccessPath::ByKey { .. } => out.push_str("ByKey"),
+        ExplainAccessPath::ByKeys { .. } => out.push_str("ByKeys"),
+        ExplainAccessPath::KeyRange { .. } => out.push_str("KeyRange"),
+        ExplainAccessPath::IndexPrefix { name, .. } => {
+            let _ = write!(out, "IndexPrefix({name})");
+        }
+        ExplainAccessPath::IndexMultiLookup { name, .. } => {
+            let _ = write!(out, "IndexMultiLookup({name})");
+        }
+        ExplainAccessPath::IndexRange { name, .. } => {
+            let _ = write!(out, "IndexRange({name})");
+        }
+        ExplainAccessPath::FullScan => out.push_str("FullScan"),
+        ExplainAccessPath::Union(children) => {
+            let _ = write!(out, "Union({})", children.len());
+        }
+        ExplainAccessPath::Intersection(children) => {
+            let _ = write!(out, "Intersection({})", children.len());
+        }
+    }
 }
 
 struct ExplainAccessProjection;

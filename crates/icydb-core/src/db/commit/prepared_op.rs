@@ -3,6 +3,7 @@
 //! Does not own: mutation planning, store apply sequencing, or recovery orchestration.
 //! Boundary: commit::{prepare,relation,executor} -> commit::prepared_op -> commit::apply.
 
+use crate::db::commit::marker::CommitIndexOp;
 use crate::db::{
     data::{DataStore, RawDataKey, RawRow},
     index::{IndexStore, RawIndexEntry, RawIndexKey},
@@ -22,6 +23,17 @@ pub(crate) struct PreparedIndexMutation {
     pub(crate) key: RawIndexKey,
     pub(crate) value: Option<RawIndexEntry>,
     pub(crate) delta_kind: PreparedIndexDeltaKind,
+}
+
+impl From<CommitIndexOp> for PreparedIndexMutation {
+    fn from(value: CommitIndexOp) -> Self {
+        Self {
+            store: value.store,
+            key: value.key,
+            value: value.value,
+            delta_kind: value.delta_kind,
+        }
+    }
 }
 
 ///

@@ -159,13 +159,17 @@ pub(super) fn relation_target_keys_for_source_row(
 
     // Phase 1: keep single relation slots on the scalar fast path when the
     // persisted field already uses a storage-key-compatible leaf codec.
-    if let Some(keys) = relation_target_keys_from_scalar_slot(&row_fields, source_info, relation)? {
-        return Ok(keys);
+    if let Some(keys) =
+        relation_target_storage_keys_from_scalar_slot(&row_fields, source_info, relation)?
+    {
+        return relation_target_raw_keys_from_storage_keys(source_info, relation, keys);
     }
 
     // Phase 2: decode the declared relation field payload directly into target
     // storage keys without rebuilding a runtime `Value` container.
-    relation_target_keys_from_field_bytes(&row_fields, source_info, relation)
+    let keys = relation_target_storage_keys_from_field_bytes(&row_fields, source_info, relation)?;
+
+    relation_target_raw_keys_from_storage_keys(source_info, relation, keys)
 }
 
 // Canonicalize reverse-index target keys into deterministic sorted-unique order.
@@ -267,13 +271,29 @@ pub(in crate::db::relation) fn decode_relation_target_data_key_for_relation(
     Ok(Some(target_data_key))
 }
 
+// Convert decoded relation target storage keys into canonical sorted raw keys.
+fn relation_target_raw_keys_from_storage_keys(
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+    keys: Vec<StorageKey>,
+) -> Result<Vec<RawDataKey>, InternalError> {
+    let mut keys = keys
+        .into_iter()
+        .map(|value| raw_relation_target_key_from_storage_key(source, relation, value))
+        .collect::<Result<Vec<_>, _>>()?;
+    canonicalize_relation_target_keys(&mut keys);
+
+    Ok(keys)
+}
+
 // Decode the one strong-relation field payload needed by structural delete
-// validation directly into raw target keys from the encoded field bytes.
-fn relation_target_keys_from_field_bytes(
+// validation directly into relation target storage keys from the encoded field
+// bytes.
+fn relation_target_storage_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<Vec<RawDataKey>, InternalError> {
+) -> Result<Vec<StorageKey>, InternalError> {
     validate_relation_field_kind(relation.field_kind)?;
 
     let Some(bytes) = row_fields.get_bytes(relation.field_index) else {
@@ -293,22 +313,16 @@ fn relation_target_keys_from_field_bytes(
             )
         })?;
 
-    let mut keys = keys
-        .into_iter()
-        .map(|value| raw_relation_target_key_from_storage_key(source, relation, value))
-        .collect::<Result<Vec<_>, _>>()?;
-    canonicalize_relation_target_keys(&mut keys);
-
     Ok(keys)
 }
 
 // Decode one singular strong relation directly from the scalar slot codec when
 // the relation key kind is already storage-key-compatible on the persisted row.
-fn relation_target_keys_from_scalar_slot(
+fn relation_target_storage_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
-) -> Result<Option<Vec<RawDataKey>>, InternalError> {
+) -> Result<Option<Vec<StorageKey>>, InternalError> {
     let FieldKind::Relation { .. } = relation.field_kind else {
         return Ok(None);
     };
@@ -323,9 +337,8 @@ fn relation_target_keys_from_scalar_slot(
                     relation.target_path,
                 )
             })?;
-            let key = raw_relation_target_key_from_storage_key(source, relation, storage_key)?;
 
-            Ok(Some(vec![key]))
+            Ok(Some(vec![storage_key]))
         }
         None if row_fields.has(relation.field_index) => Ok(None),
         None => Err(InternalError::relation_source_row_missing_field(
@@ -411,8 +424,7 @@ fn prepare_reverse_relation_index_mutation_for_target(
     relation: StrongRelationInfo,
     target: ReverseRelationMutationTarget,
     existing: Option<&RawIndexEntry>,
-    old_source_storage_key: Option<&StorageKey>,
-    new_source_storage_key: Option<&StorageKey>,
+    source_storage_key: StorageKey,
 ) -> Result<Option<PreparedIndexMutation>, InternalError> {
     if target.old_contains == target.new_contains {
         return Ok(None);
@@ -427,19 +439,21 @@ fn prepare_reverse_relation_index_mutation_for_target(
         target.new_contains,
     );
 
-    if target.old_contains {
-        if let Some(source_key) = old_source_storage_key
-            && let Some(current) = entry.as_mut()
-        {
-            current.remove(*source_key);
-        }
-    } else if target.new_contains
-        && let Some(source_key) = new_source_storage_key
+    // Phase 1: mutate the stored reverse-index membership directly from the
+    // old/new target-membership booleans. The authoritative source key is the
+    // already-validated commit key, so the old/new lanes do not need separate
+    // optional key plumbing here.
+    if target.old_contains
+        && let Some(current) = entry.as_mut()
     {
+        current.remove(source_storage_key);
+    }
+
+    if target.new_contains {
         if let Some(current) = entry.as_mut() {
-            current.insert(*source_key);
+            current.insert(source_storage_key);
         } else {
-            entry = Some(IndexEntry::new(*source_key));
+            entry = Some(IndexEntry::new(source_storage_key));
         }
     }
 
@@ -485,9 +499,6 @@ where
 
     // Phase 2: derive the single source storage key once from the already-validated
     // commit marker key instead of recomputing it through typed entity ids.
-    let old_source_key = old_row.map(|_| source_storage_key);
-    let new_source_key = new_row.map(|_| source_storage_key);
-
     let mut ops = Vec::new();
 
     // Phase 3: evaluate each strong relation independently and derive index deltas
@@ -501,20 +512,46 @@ where
             Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
             None => Vec::new(),
         };
-        let mut target_keys = old_targets.clone();
-        target_keys.extend(new_targets.iter().copied());
-        canonicalize_relation_target_keys(&mut target_keys);
-
         let target_store = relation_target_store(db, source, relation)?;
+        let mut old_index = 0usize;
+        let mut new_index = 0usize;
 
-        for target_raw_key in &target_keys {
-            let old_contains = old_targets.binary_search(target_raw_key).is_ok();
-            let new_contains = new_targets.binary_search(target_raw_key).is_ok();
+        // Phase 4: walk the canonical union of old/new targets directly
+        // instead of cloning, re-sorting, and then binary-searching both
+        // source vectors again for each touched target.
+        while old_index < old_targets.len() || new_index < new_targets.len() {
+            let (target_raw_key, old_contains, new_contains) =
+                match (old_targets.get(old_index), new_targets.get(new_index)) {
+                    (Some(old_key), Some(new_key)) => match old_key.cmp(new_key) {
+                        std::cmp::Ordering::Less => {
+                            old_index += 1;
+                            (*old_key, true, false)
+                        }
+                        std::cmp::Ordering::Greater => {
+                            new_index += 1;
+                            (*new_key, false, true)
+                        }
+                        std::cmp::Ordering::Equal => {
+                            old_index += 1;
+                            new_index += 1;
+                            (*old_key, true, true)
+                        }
+                    },
+                    (Some(old_key), None) => {
+                        old_index += 1;
+                        (*old_key, true, false)
+                    }
+                    (None, Some(new_key)) => {
+                        new_index += 1;
+                        (*new_key, false, true)
+                    }
+                    (None, None) => break,
+                };
 
             let Some(target_data_key) = decode_relation_target_data_key_for_relation(
                 source,
                 relation,
-                target_raw_key,
+                &target_raw_key,
                 RelationTargetDecodeContext::ReverseIndexPrepare,
                 RelationTargetMismatchPolicy::Reject,
             )?
@@ -549,8 +586,7 @@ where
                 relation,
                 target,
                 existing.as_ref(),
-                old_source_key.as_ref(),
-                new_source_key.as_ref(),
+                source_storage_key,
             )?
             else {
                 continue;

@@ -6,7 +6,7 @@
 use crate::{
     db::query::explain::{
         ExplainExecutionNodeDescriptor,
-        access_projection::access_strategy_label,
+        access_projection::write_access_strategy_label,
         execution::{execution_mode_label, ordering_source_label},
         nodes::{
             execution_mode_detail_label, fast_path_reason, fast_path_selected,
@@ -69,7 +69,8 @@ impl ExplainExecutionNodeDescriptor {
         }
 
         if let Some(access_strategy) = self.access_strategy.as_ref() {
-            let _ = write!(line, " access={}", access_strategy_label(access_strategy));
+            line.push_str(" access=");
+            write_access_strategy_label(&mut line, access_strategy);
         }
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             let _ = write!(line, " predicate_pushdown={predicate_pushdown}");
@@ -206,7 +207,7 @@ impl ExplainExecutionNodeDescriptor {
     }
 }
 
-fn render_node_properties(node_properties: &BTreeMap<String, Value>) -> String {
+fn render_node_properties(node_properties: &BTreeMap<&'static str, Value>) -> String {
     let mut rendered = String::new();
     let mut first = true;
     for (key, value) in node_properties {

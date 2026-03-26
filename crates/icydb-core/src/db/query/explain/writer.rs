@@ -85,7 +85,7 @@ impl<'a> JsonWriter<'a> {
     pub(in crate::db::query::explain) fn field_debug_map<T: Debug>(
         &mut self,
         key: &str,
-        values: &BTreeMap<String, T>,
+        values: &BTreeMap<&'static str, T>,
     ) {
         self.field_with(key, |out| {
             let mut object = JsonWriter::begin_object(out);

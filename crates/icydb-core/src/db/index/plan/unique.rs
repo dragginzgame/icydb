@@ -93,8 +93,7 @@ pub(super) fn validate_unique_constraint_structural(
     let row = row_reader
         .read_primary_row_structural(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
-    let row_fields = decode_unique_row_fields(&data_key, &row, model)?;
-    validate_unique_row_storage_key(&data_key, &row_fields)?;
+    let row_fields = decode_unique_row_slots(&data_key, &row, model)?;
 
     let Some(stored_index_key) = build_unique_index_key_from_row_slots(
         entity_tag,
@@ -125,26 +124,22 @@ pub(super) fn validate_unique_constraint_structural(
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner
-// for unique validation.
-fn decode_unique_row_fields<'a>(
+// and validate its authoritative primary-key slot for unique validation.
+fn decode_unique_row_slots<'a>(
     data_key: &DataKey,
     row: &'a crate::db::data::RawRow,
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    StructuralSlotReader::from_raw_row(row, model).map_err(|source| {
+    let row_fields = StructuralSlotReader::from_raw_row(row, model).map_err(|source| {
         InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
-    })
-}
+    })?;
+    row_fields
+        .validate_storage_key(data_key)
+        .map_err(|source| {
+            InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
+        })?;
 
-// Validate the authoritative primary-key slot structurally so unique
-// validation only proceeds from the row proven at `data_key`.
-fn validate_unique_row_storage_key(
-    data_key: &DataKey,
-    row_fields: &StructuralSlotReader<'_>,
-) -> Result<(), InternalError> {
-    row_fields.validate_storage_key(data_key).map_err(|source| {
-        InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
-    })
+    Ok(row_fields)
 }
 
 // Build the canonical stored unique index key from one structural row slot

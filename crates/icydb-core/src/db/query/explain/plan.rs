@@ -659,7 +659,7 @@ impl From<PushdownSurfaceEligibility<'_>> for ExplainOrderPushdown {
 }
 
 impl ExplainPredicate {
-    fn from_predicate(predicate: &Predicate) -> Self {
+    pub(in crate::db) fn from_predicate(predicate: &Predicate) -> Self {
         match predicate {
             Predicate::True => Self::True,
             Predicate::False => Self::False,

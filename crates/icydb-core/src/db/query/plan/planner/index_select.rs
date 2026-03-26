@@ -29,7 +29,9 @@ pub(in crate::db::query::plan) fn sorted_model_indexes(
     model: &EntityModel,
 ) -> Vec<&'static IndexModel> {
     let mut indexes = model.indexes.to_vec();
-    indexes.sort_by(|left, right| left.name().cmp(right.name()));
+    // Schema validation rejects duplicate index names, so deterministic
+    // lexicographic ordering does not require a stable sort here.
+    indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));
 
     indexes
 }

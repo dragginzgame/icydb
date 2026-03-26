@@ -800,17 +800,16 @@ impl<E: EntityKind> Query<E> {
 
         descriptor
             .node_properties
-            .insert("terminal".to_string(), Value::from("bytes_by"));
+            .insert("terminal", Value::from("bytes_by"));
+        descriptor
+            .node_properties
+            .insert("terminal_field", Value::from(target_field.to_string()));
         descriptor.node_properties.insert(
-            "terminal_field".to_string(),
-            Value::from(target_field.to_string()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_projection_mode".to_string(),
+            "terminal_projection_mode",
             Value::from(projection_mode_label),
         );
         descriptor.node_properties.insert(
-            "terminal_index_only".to_string(),
+            "terminal_index_only",
             Value::from(matches!(
                 projection_mode,
                 BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
