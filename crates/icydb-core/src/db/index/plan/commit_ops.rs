@@ -7,12 +7,9 @@ use crate::{
     db::{
         commit::{CommitIndexOp, PreparedIndexDeltaKind},
         data::StorageKey,
-        index::{
-            IndexEntry, IndexKey, IndexStore, RawIndexEntry, RawIndexKey, plan::index_fields_csv,
-        },
+        index::{IndexEntry, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
-    model::index::IndexModel,
 };
 use std::{cell::RefCell, thread::LocalKey};
 
@@ -28,8 +25,8 @@ use std::{cell::RefCell, thread::LocalKey};
 pub(super) fn build_commit_ops_for_index(
     commit_ops: &mut Vec<CommitIndexOp>,
     store: &'static LocalKey<RefCell<IndexStore>>,
-    index: &'static IndexModel,
     entity_path: &str,
+    fields: &str,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
     old_entry: Option<IndexEntry>,
@@ -37,8 +34,6 @@ pub(super) fn build_commit_ops_for_index(
     old_entity_key: Option<StorageKey>,
     new_entity_key: Option<StorageKey>,
 ) -> Result<(), InternalError> {
-    let fields = index_fields_csv(index);
-
     // Phase 1: same-key transitions collapse into one entry mutation.
     if old_key == new_key {
         if let Some(key) = old_key {
@@ -56,7 +51,7 @@ pub(super) fn build_commit_ops_for_index(
                 commit_ops,
                 store,
                 entity_path,
-                &fields,
+                fields,
                 key.to_raw(),
                 Some(entry),
                 PreparedIndexDeltaKind::None,
@@ -111,7 +106,7 @@ pub(super) fn build_commit_ops_for_index(
             commit_ops,
             store,
             entity_path,
-            &fields,
+            fields,
             raw_key,
             entry,
             delta_kind,
@@ -122,7 +117,7 @@ pub(super) fn build_commit_ops_for_index(
             commit_ops,
             store,
             entity_path,
-            &fields,
+            fields,
             raw_key,
             entry,
             delta_kind,

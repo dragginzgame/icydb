@@ -3801,7 +3801,10 @@ fn recovery_replays_reverse_relation_index_mutations() {
         .expect("source data key should build")
         .to_raw()
         .expect("source data key should encode");
-    let row_bytes = crate::serialize::serialize(&source).expect("source row should serialize");
+    let row_bytes = crate::db::data::RawRow::from_entity(&source)
+        .expect("source row should serialize")
+        .as_bytes()
+        .to_vec();
 
     let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,

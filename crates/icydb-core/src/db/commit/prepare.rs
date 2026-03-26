@@ -91,6 +91,8 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError> {
+    validate_commit_marker_rows_for_entity::<E>(op)?;
+
     prepare_row_commit_for_entity_impl(
         db,
         op,
@@ -112,6 +114,8 @@ where
     R: PrimaryRowReader<E> + StructuralPrimaryRowReader,
     I: IndexEntryReader<E> + StructuralIndexEntryReader,
 {
+    validate_commit_marker_rows_for_entity::<E>(op)?;
+
     prepare_row_commit_for_entity_impl(
         db,
         op,
@@ -126,6 +130,8 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
+    validate_commit_marker_rows_for_entity::<E>(op)?;
+
     let context = db.context::<E>();
     prepare_row_commit_for_entity_impl(
         db,
@@ -134,6 +140,73 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         &context,
         &context,
     )
+}
+
+// Fully decode commit-marker row payloads before structural planning runs so
+// malformed non-indexed fields cannot slip through commit/recovery preparation
+// and fail later only when a query endpoint touches them.
+fn validate_commit_marker_rows_for_entity<E>(op: &CommitRowOp) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    let (_, data_key) = decode_data_key(&op.key)?;
+
+    // Phase 1: validate the optional "before" row against the structural slot
+    // contract for the current entity model when the marker carries one.
+    if let Some(before) = op.before.as_ref() {
+        validate_commit_marker_row_for_entity(&data_key, before, "before", E::MODEL)?;
+    }
+
+    // Phase 2: validate the optional "after" row the same way so commit apply
+    // never persists a row image that queries cannot later decode.
+    if let Some(after) = op.after.as_ref() {
+        validate_commit_marker_row_for_entity(&data_key, after, "after", E::MODEL)?;
+    }
+
+    Ok(())
+}
+
+// Decode one commit-marker row image against the structural row contract and
+// annotate failures with the row-op phase label.
+fn validate_commit_marker_row_for_entity(
+    data_key: &DataKey,
+    bytes: &[u8],
+    label: &'static str,
+    model: &'static EntityModel,
+) -> Result<(), InternalError> {
+    let raw_row = RawRow::try_new(bytes.to_vec()).map_err(|err| {
+        InternalError::serialize_corruption(format!(
+            "commit marker {label} row decode failed: {err}",
+        ))
+    })?;
+    let mut slots = StructuralSlotReader::from_raw_row(&raw_row, model).map_err(|err| {
+        let message = format!("commit marker {label} row decode failed: {err}");
+        if err.class() == ErrorClass::IncompatiblePersistedFormat {
+            InternalError::serialize_incompatible_persisted_format(message)
+        } else {
+            InternalError::serialize_corruption(message)
+        }
+    })?;
+
+    // Phase 1: validate the authoritative primary-key slot against the row-op key.
+    slots.validate_storage_key(data_key).map_err(|err| {
+        InternalError::store_corruption(format!("commit marker {label} row key mismatch: {err}",))
+    })?;
+
+    // Phase 2: decode every declared slot through the field contract so
+    // malformed non-indexed fields cannot bypass commit preparation.
+    for slot in 0..model.fields().len() {
+        slots.get_value(slot).map_err(|err| {
+            let message = format!("commit marker {label} row decode failed: {err}");
+            if err.class() == ErrorClass::IncompatiblePersistedFormat {
+                InternalError::serialize_incompatible_persisted_format(message)
+            } else {
+                InternalError::serialize_corruption(message)
+            }
+        })?;
+    }
+
+    Ok(())
 }
 
 // Keep the full commit-preparation body out of the thin wrapper entrypoints so

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        codec::ROW_FORMAT_VERSION_CURRENT,
+        codec::{ROW_FORMAT_VERSION_CURRENT, serialize_row_payload},
         commit::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
             commit_marker_present, encode_commit_marker_payload, ensure_recovered, finish_commit,
@@ -14,7 +14,10 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers,
             rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
-        data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
+        data::{
+            DataKey, DataStore, RawDataKey, RawRow, StorageKey,
+            encode_persisted_scalar_slot_payload,
+        },
         executor::SaveExecutor,
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
@@ -75,6 +78,27 @@ crate::test_entity_schema! {
     entity_tag = crate::testing::RECOVERY_TEST_ENTITY_TAG,
     pk_index = 0,
     fields = [("id", FieldKind::Ulid)],
+    indexes = [],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct RecoveryPayloadEntity {
+    id: Ulid,
+    name: String,
+}
+
+crate::test_entity_schema! {
+    ident = RecoveryPayloadEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryPayloadEntity",
+    entity_tag = crate::testing::RECOVERY_PAYLOAD_ENTITY_TAG,
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid), ("name", FieldKind::Text)],
     indexes = [],
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
@@ -770,6 +794,28 @@ fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
         .expect("canonical row encoding should succeed")
         .as_bytes()
         .to_vec()
+}
+
+fn malformed_scalar_row_bytes_for_payload_entity(id: Ulid, name: &str) -> Vec<u8> {
+    let id_bytes =
+        encode_persisted_scalar_slot_payload(&id, "id").expect("payload-entity id should encode");
+    let name_bytes = serialize(&name.to_string()).expect("raw text payload should encode");
+    let id_len = u32::try_from(id_bytes.len()).expect("id slot length should fit u32");
+    let name_len = u32::try_from(name_bytes.len()).expect("name slot length should fit u32");
+    let name_start = id_len;
+    let mut payload = Vec::new();
+
+    // Phase 1: build one canonical two-slot row image whose non-indexed text
+    // slot intentionally bypasses the scalar envelope contract.
+    payload.extend_from_slice(&2_u16.to_be_bytes());
+    payload.extend_from_slice(&0_u32.to_be_bytes());
+    payload.extend_from_slice(&id_len.to_be_bytes());
+    payload.extend_from_slice(&name_start.to_be_bytes());
+    payload.extend_from_slice(&name_len.to_be_bytes());
+    payload.extend_from_slice(id_bytes.as_slice());
+    payload.extend_from_slice(name_bytes.as_slice());
+
+    serialize_row_payload(payload).expect("payload-entity row envelope should encode")
 }
 
 const RECOVERY_STATUS_ENUM_PATH: &str = "db::commit::tests::RecoveryConditionalStatus";
@@ -3232,4 +3278,49 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn prepare_row_commit_rejects_malformed_nonindexed_scalar_field() {
+    reset_recovery_state();
+
+    let entity = RecoveryPayloadEntity {
+        id: Ulid::from_u128(9_500),
+        name: "borova".to_string(),
+    };
+    let raw_key = DataKey::try_new::<RecoveryPayloadEntity>(entity.id)
+        .expect("payload-entity key should build")
+        .to_raw()
+        .expect("payload-entity key should encode");
+    let row_op = CommitRowOp::new(
+        RecoveryPayloadEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        None,
+        Some(malformed_scalar_row_bytes_for_payload_entity(
+            entity.id,
+            entity.name.as_str(),
+        )),
+        commit_schema_fingerprint_for_entity::<RecoveryPayloadEntity>(),
+    );
+
+    let Err(err) = prepare_row_commit_for_entity::<RecoveryPayloadEntity>(&DB, &row_op) else {
+        panic!("commit prepare must reject malformed non-indexed scalar payloads");
+    };
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert!(
+        err.message
+            .contains("commit marker after row decode failed"),
+        "unexpected error: {err:?}",
+    );
+    assert!(
+        err.message.contains("field 'name'"),
+        "unexpected error: {err:?}",
+    );
+    assert!(
+        err.message
+            .contains("expected slot envelope prefix byte 0xFF, found 0x66"),
+        "unexpected error: {err:?}",
+    );
 }

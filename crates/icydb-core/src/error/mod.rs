@@ -965,17 +965,6 @@ impl InternalError {
         Self::index_plan_store_corruption(format!("missing row: {data_key}"))
     }
 
-    /// Construct the canonical unique-validation row-key invariant error.
-    pub(crate) fn index_unique_validation_row_key_mismatch(
-        entity_path: &str,
-        fields: &str,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::index_plan_store_invariant(format!(
-            "index invariant violated: {entity_path} ({fields}) -> {detail}",
-        ))
-    }
-
     /// Construct the canonical structural index-predicate parse invariant.
     pub(crate) fn index_predicate_parse_failed(
         entity_path: &str,
@@ -1569,6 +1558,7 @@ impl InternalError {
     }
 
     /// Construct the canonical duplicate-key invariant during commit entry encoding.
+    #[cfg(test)]
     pub(crate) fn index_entry_duplicate_keys_unexpected(entity_path: &str, fields: &str) -> Self {
         Self::index_invariant(format!(
             "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
@@ -1721,6 +1711,7 @@ impl InternalError {
     }
 
     /// Construct an index-plan invariant violation error with a canonical prefix.
+    #[cfg(test)]
     pub(crate) fn index_plan_invariant(origin: ErrorOrigin, message: impl Into<String>) -> Self {
         let message = message.into();
         Self::new(
@@ -1731,6 +1722,7 @@ impl InternalError {
     }
 
     /// Construct an index-plan invariant violation error for store-origin failures.
+    #[cfg(test)]
     pub(crate) fn index_plan_store_invariant(message: impl Into<String>) -> Self {
         Self::index_plan_invariant(ErrorOrigin::Store, message)
     }

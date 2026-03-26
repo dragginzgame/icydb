@@ -62,12 +62,6 @@ pub(crate) enum IndexEntryCorruption {
         index_key: Box<RawIndexKey>,
         entity_key: Value,
     },
-
-    #[error("index entry points at key {indexed_key:?} but stored row key is {row_key:?}")]
-    RowKeyMismatch {
-        indexed_key: Box<Value>,
-        row_key: Box<Value>,
-    },
 }
 
 impl IndexEntryCorruption {
@@ -89,6 +83,7 @@ pub(crate) enum IndexEntryEncodeError {
     #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
     TooManyKeys { keys: usize },
 
+    #[cfg(test)]
     #[error("index entry contains duplicate key")]
     DuplicateKey,
 
@@ -107,6 +102,7 @@ impl IndexEntryEncodeError {
             Self::TooManyKeys { keys } => {
                 InternalError::index_entry_exceeds_max_keys(entity_path, fields, keys)
             }
+            #[cfg(test)]
             Self::DuplicateKey => {
                 InternalError::index_entry_duplicate_keys_unexpected(entity_path, fields)
             }
@@ -171,16 +167,30 @@ pub(crate) struct RawIndexEntry(Vec<u8>);
 
 impl RawIndexEntry {
     pub(crate) fn try_from_entry(entry: &IndexEntry) -> Result<Self, IndexEntryEncodeError> {
-        let mut keys = Vec::with_capacity(entry.ids.len());
-        for id in &entry.ids {
-            keys.push(*id);
+        // `IndexEntry` already owns the canonical sorted-unique membership set,
+        // so commit-time re-encoding can stream it directly without rebuilding
+        // another temporary vector or duplicate-check set.
+        let count = entry.ids.len();
+        if count > MAX_INDEX_ENTRY_KEYS {
+            return Err(IndexEntryEncodeError::TooManyKeys { keys: count });
         }
 
-        Self::try_from_keys(keys)
+        let mut out =
+            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * StorageKey::STORED_SIZE_USIZE);
+
+        let count_u32 =
+            u32::try_from(count).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys: count })?;
+        out.extend_from_slice(&count_u32.to_be_bytes());
+
+        for id in &entry.ids {
+            out.extend_from_slice(&id.to_bytes()?);
+        }
+
+        Ok(Self(out))
     }
 
     pub(crate) fn try_decode(&self) -> Result<IndexEntry, IndexEntryCorruption> {
-        let storage_keys = self.decode_keys()?;
+        let storage_keys = self.decode_keys_checked()?;
         let mut ids = BTreeSet::new();
 
         for key in storage_keys {
@@ -194,6 +204,7 @@ impl RawIndexEntry {
         Ok(IndexEntry { ids })
     }
 
+    #[cfg(test)]
     pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
     where
         I: IntoIterator<Item = StorageKey>,
@@ -231,23 +242,31 @@ impl RawIndexEntry {
     }
 
     pub(crate) fn decode_keys(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
+        self.decode_keys_checked()
+    }
+
+    // Decode the canonical storage-key payload while validating the raw entry
+    // shape and duplicate-key invariants in the same pass.
+    fn decode_keys_checked(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
         // Phase 1: validate frame shape before any key decode.
-        self.validate()?;
+        let count = self.validate_frame()?;
 
         let bytes = self.0.as_slice();
 
-        let mut len_buf = [0u8; INDEX_ENTRY_LEN_BYTES];
-        len_buf.copy_from_slice(&bytes[..INDEX_ENTRY_LEN_BYTES]);
-        let count = u32::from_be_bytes(len_buf) as usize;
-
         let mut keys = Vec::with_capacity(count);
+        let mut unique = BTreeSet::new();
         let mut offset = INDEX_ENTRY_LEN_BYTES;
 
-        // Phase 2: decode each fixed-width storage key segment.
+        // Phase 2: decode each fixed-width storage key segment and reject
+        // duplicate memberships before any planner or commit path consumes it.
         for _ in 0..count {
             let end = offset + StorageKey::STORED_SIZE_USIZE;
             let sk = StorageKey::try_from(&bytes[offset..end])
                 .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+
+            if !unique.insert(sk) {
+                return Err(IndexEntryCorruption::DuplicateKey);
+            }
 
             keys.push(sk);
             offset = end;
@@ -258,6 +277,12 @@ impl RawIndexEntry {
 
     /// Validate the raw index entry structure without binding to an entity.
     pub(crate) fn validate(&self) -> Result<(), IndexEntryCorruption> {
+        self.decode_keys_checked().map(|_| ())
+    }
+
+    // Validate the raw index-entry frame and return the declared key count for
+    // the checked decode pass.
+    fn validate_frame(&self) -> Result<usize, IndexEntryCorruption> {
         let bytes = self.0.as_slice();
 
         // Phase 1: frame-level checks (size, header, declared count).
@@ -288,24 +313,7 @@ impl RawIndexEntry {
             return Err(IndexEntryCorruption::LengthMismatch);
         }
 
-        // Phase 2: validate each StorageKey and reject duplicates.
-        let mut keys = BTreeSet::new();
-        let mut offset = INDEX_ENTRY_LEN_BYTES;
-
-        for _ in 0..count {
-            let end = offset + StorageKey::STORED_SIZE_USIZE;
-
-            let sk = StorageKey::try_from(&bytes[offset..end])
-                .map_err(|_| IndexEntryCorruption::InvalidKey)?;
-
-            if !keys.insert(sk) {
-                return Err(IndexEntryCorruption::DuplicateKey);
-            }
-
-            offset = end;
-        }
-
-        Ok(())
+        Ok(count)
     }
 
     #[must_use]

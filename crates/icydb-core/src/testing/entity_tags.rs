@@ -58,6 +58,7 @@ pub(crate) const MISMATCHED_PK_ENTITY_TAG: EntityTag = EntityTag::new(0x102E);
 pub(crate) const INVALID_RELATION_METADATA_ENTITY_TAG: EntityTag = EntityTag::new(0x102F);
 pub(crate) const DECIMAL_SCALE_ENTITY_TAG: EntityTag = EntityTag::new(0x1030);
 pub(crate) const SQL_LOWER_ENTITY_TAG: EntityTag = EntityTag::new(0x1031);
+pub(crate) const RECOVERY_PAYLOAD_ENTITY_TAG: EntityTag = EntityTag::new(0x1032);
 pub(crate) const DIAGNOSTICS_UNKNOWN_ENTITY_TAG: EntityTag = EntityTag::new(0x1FFF);
 
 const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
@@ -111,6 +112,7 @@ const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
     INVALID_RELATION_METADATA_ENTITY_TAG,
     DECIMAL_SCALE_ENTITY_TAG,
     SQL_LOWER_ENTITY_TAG,
+    RECOVERY_PAYLOAD_ENTITY_TAG,
     DIAGNOSTICS_UNKNOWN_ENTITY_TAG,
 ];
 

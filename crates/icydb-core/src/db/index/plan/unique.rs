@@ -8,8 +8,7 @@ use crate::{
     db::{
         data::{DataKey, StorageKey, StructuralSlotReader},
         index::{
-            IndexEntryCorruption, IndexId, IndexKey, IndexStore, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader, plan::index_fields_csv,
+            IndexId, IndexKey, IndexStore, StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
     },
     error::InternalError,
@@ -28,6 +27,7 @@ pub(super) fn validate_unique_constraint_structural(
     row_reader: &(impl StructuralPrimaryRowReader + ?Sized),
     index_reader: &(impl StructuralIndexEntryReader + ?Sized),
     index: &IndexModel,
+    index_fields: &str,
     store: &'static LocalKey<RefCell<IndexStore>>,
     new_storage_key: Option<StorageKey>,
     new_index_key: Option<&IndexKey>,
@@ -45,13 +45,12 @@ pub(super) fn validate_unique_constraint_structural(
     let Some(new_storage_key) = new_storage_key else {
         return Err(InternalError::index_unique_validation_entity_key_required());
     };
-    let index_fields = index_fields_csv(index);
 
     let index_id = IndexId::new(entity_tag, index.ordinal());
     if new_index_key.index_id() != &index_id {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             "mismatched unique key index id",
         ));
     }
@@ -78,7 +77,7 @@ pub(super) fn validate_unique_constraint_structural(
     if matching_storage_keys.len() > 1 {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             format_args!("{} keys", matching_storage_keys.len()),
         ));
     }
@@ -95,19 +94,7 @@ pub(super) fn validate_unique_constraint_structural(
         .read_primary_row_structural(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
     let row_fields = decode_unique_row_fields(&data_key, &row, model)?;
-    let stored_key = decode_unique_row_storage_key(&data_key, &row_fields)?;
-    if stored_key != existing_key {
-        // Stored row decoded successfully but key disagreement is a cross-component invariant
-        // failure, not a structural decode/persistence corruption.
-        return Err(InternalError::index_unique_validation_row_key_mismatch(
-            entity_path,
-            &index_fields,
-            IndexEntryCorruption::RowKeyMismatch {
-                indexed_key: Box::new(existing_key.as_value()),
-                row_key: Box::new(stored_key.as_value()),
-            },
-        ));
-    }
+    validate_unique_row_storage_key(&data_key, &row_fields)?;
 
     let Some(stored_index_key) = build_unique_index_key_from_row_slots(
         entity_tag,
@@ -120,14 +107,14 @@ pub(super) fn validate_unique_constraint_structural(
     else {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             "stored entity is not indexable for unique key",
         ));
     };
     if !stored_index_key.has_same_components(new_index_key) {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             "index canonical collision",
         ));
     }
@@ -149,19 +136,15 @@ fn decode_unique_row_fields<'a>(
     })
 }
 
-// Decode the authoritative primary-key slot structurally and verify that it
-// still matches the row storage key carried by the unique index entry.
-fn decode_unique_row_storage_key(
+// Validate the authoritative primary-key slot structurally so unique
+// validation only proceeds from the row proven at `data_key`.
+fn validate_unique_row_storage_key(
     data_key: &DataKey,
     row_fields: &StructuralSlotReader<'_>,
-) -> Result<StorageKey, InternalError> {
-    row_fields
-        .validate_storage_key(data_key)
-        .map_err(|source| {
-            InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
-        })?;
-
-    Ok(data_key.storage_key())
+) -> Result<(), InternalError> {
+    row_fields.validate_storage_key(data_key).map_err(|source| {
+        InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
+    })
 }
 
 // Build the canonical stored unique index key from one structural row slot

@@ -367,7 +367,8 @@ fn load_structural_index_key(
 // membership before commit planning becomes purely mechanical.
 fn validate_existing_old_index_membership(
     entity_path: &'static str,
-    index: &'static IndexModel,
+    index_fields: &str,
+    index_is_unique: bool,
     old_storage_key: Option<StorageKey>,
     old_key: Option<&IndexKey>,
     old_entry: Option<&IndexEntry>,
@@ -376,7 +377,6 @@ fn validate_existing_old_index_membership(
         return Ok(());
     };
 
-    let index_fields = index_fields_csv(index);
     let Some(old_storage_key) = old_storage_key else {
         return Err(InternalError::structural_index_removal_entity_key_required());
     };
@@ -384,15 +384,15 @@ fn validate_existing_old_index_membership(
     let entry = old_entry.as_ref().ok_or_else(|| {
         InternalError::structural_index_entry_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
         )
     })?;
 
-    if index.is_unique() && entry.len() > 1 {
+    if index_is_unique && entry.len() > 1 {
         return Err(InternalError::structural_index_entry_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             IndexEntryCorruption::NonUniqueEntry { keys: entry.len() },
         ));
     }
@@ -400,7 +400,7 @@ fn validate_existing_old_index_membership(
     if !entry.contains(old_storage_key) {
         return Err(InternalError::structural_index_entry_corruption(
             entity_path,
-            &index_fields,
+            index_fields,
             IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
         ));
     }
@@ -435,6 +435,7 @@ where
         let store = db
             .with_store_registry(|registry| registry.try_get_store(index.store()))?
             .index_store();
+        let index_fields = index_fields_csv(index);
         let membership_program =
             compile_index_membership_predicate_structural(entity_path, model, index)?;
 
@@ -464,7 +465,7 @@ where
         let old_entry = load_existing_entry_structural(
             index_reader,
             store,
-            index,
+            &index_fields,
             old_key.as_ref(),
             entity_path,
         )?;
@@ -473,7 +474,8 @@ where
         // commit-phase mutations become mechanical.
         validate_existing_old_index_membership(
             entity_path,
-            index,
+            &index_fields,
+            index.is_unique(),
             old_storage_key,
             old_key.as_ref(),
             old_entry.as_ref(),
@@ -485,7 +487,7 @@ where
             load_existing_entry_structural(
                 index_reader,
                 store,
-                index,
+                &index_fields,
                 new_key.as_ref(),
                 entity_path,
             )?
@@ -498,6 +500,7 @@ where
             row_reader,
             index_reader,
             index,
+            &index_fields,
             store,
             if new_key.is_some() {
                 new_storage_key
@@ -510,8 +513,8 @@ where
         commit_ops::build_commit_ops_for_index(
             &mut commit_ops,
             store,
-            index,
             entity_path,
+            &index_fields,
             old_key,
             new_key,
             old_entry,
@@ -527,7 +530,7 @@ where
 pub(super) fn load_existing_entry_structural(
     index_reader: &dyn StructuralIndexEntryReader,
     store: &'static LocalKey<RefCell<IndexStore>>,
-    index: &'static IndexModel,
+    index_fields: &str,
     key: Option<&IndexKey>,
     entity_path: &'static str,
 ) -> Result<Option<IndexEntry>, InternalError> {
@@ -541,9 +544,8 @@ pub(super) fn load_existing_entry_structural(
     index_reader
         .read_index_entry_structural(store, &raw_key)?
         .map(|raw_entry| {
-            let index_fields = index_fields_csv(index);
             raw_entry.try_decode().map_err(|err| {
-                InternalError::structural_index_entry_corruption(entity_path, &index_fields, err)
+                InternalError::structural_index_entry_corruption(entity_path, index_fields, err)
             })
         })
         .transpose()

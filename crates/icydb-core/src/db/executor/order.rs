@@ -113,19 +113,15 @@ pub(in crate::db::executor) fn compare_orderable_row_with_boundary<R>(
 where
     R: OrderReadableRow,
 {
-    for (slot, boundary_slot) in resolved_order.iter().zip(boundary.slots.iter()) {
-        let row_slot = boundary_slot_from_row(row, slot.field_index);
-        let ordering = apply_order_direction(
-            compare_boundary_slots(&row_slot, boundary_slot),
-            slot.direction,
-        );
+    compare_structural_order_slots(resolved_order, |slot_index, field_index, direction| {
+        let row_slot = boundary_slot_from_row(row, field_index);
+        let boundary_slot = boundary
+            .slots
+            .get(slot_index)
+            .expect("cursor boundary must align with resolved order");
 
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
+        apply_order_direction(compare_boundary_slots(&row_slot, boundary_slot), direction)
+    })
 }
 
 // Compare two structural rows according to the resolved canonical order.
@@ -134,11 +130,11 @@ fn compare_orderable_rows(
     right: &dyn OrderReadableRow,
     resolved_order: &ResolvedStructuralOrder,
 ) -> Ordering {
-    compare_structural_order_slots(resolved_order, |field_index| {
-        (
-            boundary_slot_from_row(left, field_index),
-            boundary_slot_from_row(right, field_index),
-        )
+    compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
+        let left_slot = boundary_slot_from_row(left, field_index);
+        let right_slot = boundary_slot_from_row(right, field_index);
+
+        apply_order_direction(compare_boundary_slots(&left_slot, &right_slot), direction)
     })
 }
 
@@ -153,18 +149,13 @@ where
 // Compare one structural ordering tuple by resolving slot pairs lazily in canonical field order.
 fn compare_structural_order_slots<F>(
     resolved_order: &ResolvedStructuralOrder,
-    mut read_pair: F,
+    mut compare_slot: F,
 ) -> Ordering
 where
-    F: FnMut(Option<usize>) -> (CursorBoundarySlot, CursorBoundarySlot),
+    F: FnMut(usize, Option<usize>, OrderDirection) -> Ordering,
 {
-    for slot in resolved_order.iter() {
-        let (left_slot, right_slot) = read_pair(slot.field_index);
-        let ordering = apply_order_direction(
-            compare_boundary_slots(&left_slot, &right_slot),
-            slot.direction,
-        );
-
+    for (slot_index, slot) in resolved_order.iter().enumerate() {
+        let ordering = compare_slot(slot_index, slot.field_index, slot.direction);
         if ordering != Ordering::Equal {
             return ordering;
         }

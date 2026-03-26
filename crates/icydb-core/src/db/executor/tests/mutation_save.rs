@@ -673,10 +673,7 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
         .expect("data key should build for preflight test")
         .to_raw()
         .expect("data key should encode for preflight test");
-    let row = RawRow::try_new(
-        serialize(&entity).expect("entity serialization should succeed for preflight test"),
-    )
-    .expect("row encoding should succeed for preflight test");
+    let row = RawRow::from_entity(&entity).expect("row encoding should succeed for preflight test");
     let row_op = CommitRowOp::new(
         UniqueEmailEntity::PATH,
         data_key.as_bytes().to_vec(),
@@ -749,10 +746,8 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         .expect("data key should build for generation guard test")
         .to_raw()
         .expect("data key should encode for generation guard test");
-    let row = RawRow::try_new(
-        serialize(&entity).expect("entity serialization should succeed for guard test"),
-    )
-    .expect("row encoding should succeed for generation guard test");
+    let row =
+        RawRow::from_entity(&entity).expect("row encoding should succeed for generation guard test");
     let row_op = CommitRowOp::new(
         UniqueEmailEntity::PATH,
         data_key.as_bytes().to_vec(),
