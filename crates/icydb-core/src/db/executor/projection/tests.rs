@@ -6,7 +6,6 @@
 #[cfg(feature = "sql")]
 use crate::db::response::ProjectedRow;
 use crate::{
-    db::data::{CanonicalSlotReader, RawRow, SlotReader, StructuralSlotReader},
     db::query::{
         builder::aggregate::{count, sum},
         plan::{
@@ -14,8 +13,16 @@ use crate::{
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
         },
     },
+    db::{
+        codec::serialize_row_payload,
+        data::{
+            CanonicalSlotReader, RawRow, SlotReader, StructuralSlotReader,
+            encode_persisted_scalar_slot_payload,
+        },
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{field::FieldKind, index::IndexModel},
+    serialize::serialize,
     traits::{EntitySchema, EntityValue, FieldProjection as _},
     types::Ulid,
     value::Value,
@@ -218,6 +225,62 @@ fn canonical_scalar_projection_preserves_missing_declared_slot_corruption() {
 
     assert_eq!(err.class(), ErrorClass::Corruption);
     assert_eq!(err.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn structural_row_boundary_rejects_malformed_unprojected_scalar_slot_before_projection() {
+    let (_, entity) = row(77, 9, true);
+    let _compiled = compile_scalar_projection_expr(
+        ProjectionEvalEntity::MODEL,
+        &Expr::Field(FieldId::new("rank")),
+    )
+    .expect("rank field should compile onto scalar seam");
+    let id_bytes =
+        encode_persisted_scalar_slot_payload(&entity.id, "id").expect("id payload should encode");
+    let rank_bytes = encode_persisted_scalar_slot_payload(&entity.rank, "rank")
+        .expect("rank payload should encode");
+    let flag_bytes = encode_persisted_scalar_slot_payload(&entity.flag, "flag")
+        .expect("flag payload should encode");
+    let raw_label = serialize(&entity.label).expect("raw scalar label should encode");
+    let slot_payloads = [
+        id_bytes.as_slice(),
+        rank_bytes.as_slice(),
+        flag_bytes.as_slice(),
+        raw_label.as_slice(),
+    ];
+    let mut payload = Vec::new();
+    let mut offset = 0_u32;
+
+    // Build one row whose projected `rank` slot remains canonical while an
+    // unrelated scalar slot intentionally bypasses the `0xFF` envelope.
+    payload.extend_from_slice(&4_u16.to_be_bytes());
+    for bytes in slot_payloads {
+        let len = u32::try_from(bytes.len()).expect("slot length should fit u32");
+        payload.extend_from_slice(&offset.to_be_bytes());
+        payload.extend_from_slice(&len.to_be_bytes());
+        offset = offset.saturating_add(len);
+    }
+    for bytes in slot_payloads {
+        payload.extend_from_slice(bytes);
+    }
+    let raw_row = RawRow::try_new(serialize_row_payload(payload).expect("serialize row payload"))
+        .expect("build raw row");
+
+    let Err(err) = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL) else {
+        panic!("structural read boundary must reject malformed unprojected scalar slots");
+    };
+
+    assert_eq!(err.class(), ErrorClass::Corruption);
+    assert_eq!(err.origin(), ErrorOrigin::Serialize);
+    assert!(
+        err.message.contains("field 'label'"),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        err.message
+            .contains("expected slot envelope prefix byte 0xFF"),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]

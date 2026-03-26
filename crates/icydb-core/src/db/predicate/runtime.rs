@@ -340,12 +340,12 @@ fn eval_scalar_executable_predicate(
         ExecutablePredicate::Not(inner) => Ok(!eval_scalar_executable_predicate(inner, slots)?),
         ExecutablePredicate::Compare(cmp) => eval_scalar_executable_compare_predicate(cmp, slots),
         ExecutablePredicate::IsNull { field_slot } => Ok(matches!(
-            slots.get_scalar(field_slot.expect("scalar fast path validated field slot"))?,
-            Some(ScalarSlotValueRef::Null)
+            slots.required_scalar(field_slot.expect("scalar fast path validated field slot"))?,
+            ScalarSlotValueRef::Null
         )),
         ExecutablePredicate::IsNotNull { field_slot } => Ok(matches!(
-            slots.get_scalar(field_slot.expect("scalar fast path validated field slot"))?,
-            Some(ScalarSlotValueRef::Value(_))
+            slots.required_scalar(field_slot.expect("scalar fast path validated field slot"))?,
+            ScalarSlotValueRef::Value(_)
         )),
         ExecutablePredicate::IsMissing { field_slot } => Ok(field_slot.is_none()),
         ExecutablePredicate::IsEmpty { field_slot } => eval_scalar_is_empty(

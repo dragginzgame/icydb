@@ -1234,8 +1234,9 @@ enum PatchWriterSlot {
 ///
 /// StructuralSlotReader adapts the current persisted-row bytes into the
 /// canonical slot-reader seam.
-/// It caches decoded field values lazily so repeated index/predicate reads do
-/// not re-run the same field decoder within one row planning pass.
+/// It validates row shape and fully decodes every declared field before any
+/// consumer can observe the row, then keeps those decoded values cached so
+/// later index/predicate reads do not re-run field decoders.
 ///
 
 pub(in crate::db) struct StructuralSlotReader<'a> {
@@ -1255,12 +1256,18 @@ impl<'a> StructuralSlotReader<'a> {
         let cached_values = std::iter::repeat_with(|| CachedSlotValue::Pending)
             .take(model.fields().len())
             .collect();
-
-        Ok(Self {
+        let mut reader = Self {
             model,
             field_bytes,
             cached_values,
-        })
+        };
+
+        // Phase 1: force every declared slot through the owned field decode
+        // contract once so malformed but unreferenced payloads cannot stay
+        // latent behind consumer-specific partial decode paths.
+        reader.decode_all_declared_slots()?;
+
+        Ok(reader)
     }
 
     /// Validate the decoded primary-key slot against the authoritative row key.
@@ -1307,6 +1314,16 @@ impl<'a> StructuralSlotReader<'a> {
     // Resolve one field model entry by stable slot index.
     fn field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         field_model_for_slot(self.model, slot)
+    }
+
+    // Decode every declared slot exactly once at the structural row boundary so
+    // later consumers inherit one globally enforced canonical-row contract.
+    fn decode_all_declared_slots(&mut self) -> Result<(), InternalError> {
+        for slot in 0..self.model.fields().len() {
+            let _ = self.get_value(slot)?;
+        }
+
+        Ok(())
     }
 
     // Borrow one declared slot payload, treating absence as a persisted-row
@@ -2455,6 +2472,36 @@ mod tests {
         assert_eq!(
             err.message,
             "row decode failed: slot count mismatch: expected 2, found 1"
+        );
+    }
+
+    #[test]
+    fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode payload");
+        writer
+            .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
+            .expect("write scalar slot");
+        writer
+            .write_slot(1, Some(payload.as_slice()))
+            .expect("write payload slot");
+        let mut payload = writer.finish().expect("finish slot payload");
+
+        // Corrupt the second slot span so the payload table points past the
+        // available data section.
+        payload[14..18].copy_from_slice(&u32::MAX.to_be_bytes());
+        let raw_row =
+            RawRow::try_new(serialize_row_payload(payload).expect("serialize row payload"))
+                .expect("build raw row");
+
+        let err = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+            .err()
+            .expect("slot span drift must fail closed");
+
+        assert_eq!(
+            err.message,
+            "row decode failed: slot span exceeds payload length"
         );
     }
 
