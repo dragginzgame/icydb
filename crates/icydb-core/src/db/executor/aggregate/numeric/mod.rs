@@ -19,7 +19,7 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, PreparedAggregatePlan,
-            StructuralTraversalRuntime,
+            TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_numeric_field_decimal_with_slot_reader,
@@ -323,8 +323,8 @@ where
             None,
             index_predicate_execution,
         );
-        let runtime = StructuralTraversalRuntime::new(store, authority.entity_tag());
-        let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
+        let runtime = TraversalRuntime::new(store, authority.entity_tag());
+        let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
 
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;

@@ -31,23 +31,23 @@ pub(super) use commit_window::{
 };
 
 ///
-/// StructuralMutationInput
+/// MutationInput
 ///
-/// StructuralMutationInput
+/// MutationInput
 ///
-/// StructuralMutationInput is the shared internal mutation payload staged above
+/// MutationInput is the shared internal mutation payload staged above
 /// the persisted-row patch boundary.
 /// It carries only the structural row key and the already serialized slot patch
 /// so later write-path stages do not need to keep full typed entities alive
 /// once save/update preflight has completed.
 ///
 
-pub(in crate::db::executor) struct StructuralMutationInput {
+pub(in crate::db::executor) struct MutationInput {
     data_key: DataKey,
     serialized_patch: SerializedUpdatePatch,
 }
 
-impl StructuralMutationInput {
+impl MutationInput {
     /// Build one structural mutation input from already lowered key + patch data.
     #[must_use]
     pub(in crate::db::executor) const fn new(
@@ -115,7 +115,7 @@ where
     Ok(db.context::<E>())
 }
 
-/// Validate mutation-plan executor contracts using structural authority only.
+/// Validate mutation-plan executor contracts using authority only.
 pub(in crate::db::executor) fn preflight_mutation_plan_for_authority(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,

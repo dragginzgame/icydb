@@ -11,6 +11,7 @@ mod plan;
 mod render;
 mod writer;
 
+pub(in crate::db) use access_projection::write_access_strategy_label;
 pub use execution::*;
 pub use plan::*;
 

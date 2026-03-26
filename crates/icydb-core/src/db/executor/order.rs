@@ -29,7 +29,7 @@ pub(in crate::db::executor) trait OrderReadableRow {
 }
 
 ///
-/// ResolvedStructuralOrderField
+/// ResolvedOrderField
 ///
 /// One order slot resolved from field name to model slot index.
 /// Shared structural ordering keeps this resolved shape outside comparator
@@ -37,13 +37,13 @@ pub(in crate::db::executor) trait OrderReadableRow {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ResolvedStructuralOrderField {
+struct ResolvedOrderField {
     field_index: Option<usize>,
     direction: OrderDirection,
 }
 
 ///
-/// ResolvedStructuralOrder
+/// ResolvedOrder
 ///
 /// Slot-resolved canonical ordering shape shared by executor row paths.
 /// This keeps sorting and cursor-boundary comparisons structural once the
@@ -51,12 +51,12 @@ struct ResolvedStructuralOrderField {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ResolvedStructuralOrder {
-    fields: Vec<ResolvedStructuralOrderField>,
+pub(in crate::db::executor) struct ResolvedOrder {
+    fields: Vec<ResolvedOrderField>,
 }
 
-impl ResolvedStructuralOrder {
-    fn iter(&self) -> impl Iterator<Item = ResolvedStructuralOrderField> + '_ {
+impl ResolvedOrder {
+    fn iter(&self) -> impl Iterator<Item = ResolvedOrderField> + '_ {
         self.fields.iter().copied()
     }
 }
@@ -66,23 +66,23 @@ impl ResolvedStructuralOrder {
 pub(in crate::db::executor) fn resolve_structural_order(
     model: &EntityModel,
     order: &OrderSpec,
-) -> ResolvedStructuralOrder {
+) -> ResolvedOrder {
     let fields = order
         .fields
         .iter()
-        .map(|(field, direction)| ResolvedStructuralOrderField {
+        .map(|(field, direction)| ResolvedOrderField {
             field_index: resolve_field_slot(model, field),
             direction: *direction,
         })
         .collect();
 
-    ResolvedStructuralOrder { fields }
+    ResolvedOrder { fields }
 }
 
 /// Apply canonical in-memory ordering with an optional bounded top-k window.
 pub(in crate::db::executor) fn apply_structural_order_window<R>(
     rows: &mut Vec<R>,
-    resolved_order: &ResolvedStructuralOrder,
+    resolved_order: &ResolvedOrder,
     keep_count: Option<usize>,
 ) where
     R: OrderReadableRow,
@@ -107,7 +107,7 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
 /// Compare one structural row against one cursor boundary under the canonical order contract.
 pub(in crate::db::executor) fn compare_orderable_row_with_boundary<R>(
     row: &R,
-    resolved_order: &ResolvedStructuralOrder,
+    resolved_order: &ResolvedOrder,
     boundary: &CursorBoundary,
 ) -> Ordering
 where
@@ -128,7 +128,7 @@ where
 fn compare_orderable_rows(
     left: &dyn OrderReadableRow,
     right: &dyn OrderReadableRow,
-    resolved_order: &ResolvedStructuralOrder,
+    resolved_order: &ResolvedOrder,
 ) -> Ordering {
     compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
         let left_slot = boundary_slot_from_row(left, field_index);
@@ -139,7 +139,7 @@ fn compare_orderable_rows(
 }
 
 // Apply the canonical shared in-memory sort contract over one structural row slice.
-fn sort_structural_rows<R>(rows: &mut [R], resolved_order: &ResolvedStructuralOrder)
+fn sort_structural_rows<R>(rows: &mut [R], resolved_order: &ResolvedOrder)
 where
     R: OrderReadableRow,
 {
@@ -148,7 +148,7 @@ where
 
 // Compare one structural ordering tuple by resolving slot pairs lazily in canonical field order.
 fn compare_structural_order_slots<F>(
-    resolved_order: &ResolvedStructuralOrder,
+    resolved_order: &ResolvedOrder,
     mut compare_slot: F,
 ) -> Ordering
 where
@@ -201,11 +201,11 @@ mod tests {
         }
     }
 
-    fn resolved_order(fields: &[(Option<usize>, OrderDirection)]) -> ResolvedStructuralOrder {
-        ResolvedStructuralOrder {
+    fn resolved_order(fields: &[(Option<usize>, OrderDirection)]) -> ResolvedOrder {
+        ResolvedOrder {
             fields: fields
                 .iter()
-                .map(|(field_index, direction)| ResolvedStructuralOrderField {
+                .map(|(field_index, direction)| ResolvedOrderField {
                     field_index: *field_index,
                     direction: *direction,
                 })

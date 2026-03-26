@@ -233,7 +233,7 @@ impl ExecutionKernel {
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan_for_authority(authority, &logical_plan)?;
         let store = executor.db.recovered_store(authority.store_path())?;
-        let store_resolver = executor.db.structural_store_resolver();
+        let store_resolver = executor.db.store_resolver();
         record_plan_metrics(&logical_plan.access);
 
         Ok(PreparedAggregateStreamingInputs {
@@ -368,7 +368,7 @@ impl ExecutionKernel {
         // path exactly to preserve ordering and DISTINCT behavior.
         let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
             &prepared.logical_plan.access,
-            crate::db::executor::StructuralTraversalRuntime::new(
+            crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),
             ),

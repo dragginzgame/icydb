@@ -31,7 +31,7 @@ use std::{cell::RefCell, thread::LocalKey};
 ///
 /// ReverseRelationSourceInfo
 ///
-/// Structural authority used while preparing reverse-index mutations.
+/// Resolved authority used while preparing reverse-index mutations.
 /// Carries only the source entity path and tag required for diagnostics and
 /// reverse-index identity, so the heavy mutation loop does not need `S`.
 ///
@@ -43,7 +43,7 @@ pub(crate) struct ReverseRelationSourceInfo {
 }
 
 impl ReverseRelationSourceInfo {
-    /// Lower one typed source entity into the structural authority used by reverse-index prep.
+    /// Lower one typed source entity into the resolved authority used by reverse-index prep.
     pub(crate) const fn for_type<S>() -> Self
     where
         S: EntityKind,
@@ -491,6 +491,35 @@ pub(crate) fn prepare_reverse_relation_index_mutations_for_source_rows<C>(
 where
     C: CanisterKind,
 {
+    let mut target_store = |relation| relation_target_store(db, source, relation);
+
+    prepare_reverse_relation_index_mutations_for_source_rows_impl(
+        &mut target_store,
+        index_reader,
+        source,
+        source_model,
+        source_storage_key,
+        old_row,
+        new_row,
+    )
+}
+
+// Keep the reverse-index mutation loop nongeneric once the source entity has
+// already been lowered onto one structural target-store lookup callback.
+fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
+    target_store_for_relation: &mut dyn FnMut(
+        StrongRelationInfo,
+    ) -> Result<
+        &'static LocalKey<RefCell<IndexStore>>,
+        InternalError,
+    >,
+    index_reader: &dyn StructuralIndexEntryReader,
+    source: ReverseRelationSourceInfo,
+    source_model: &'static EntityModel,
+    source_storage_key: StorageKey,
+    old_row: Option<&RawRow>,
+    new_row: Option<&RawRow>,
+) -> Result<Vec<PreparedIndexMutation>, InternalError> {
     // Phase 1: short-circuit when the source entity has no strong relations.
     let relations = strong_relations_for_model(source_model, None);
     if relations.is_empty() {
@@ -512,7 +541,7 @@ where
             Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
             None => Vec::new(),
         };
-        let target_store = relation_target_store(db, source, relation)?;
+        let target_store = target_store_for_relation(relation)?;
         let mut old_index = 0usize;
         let mut new_index = 0usize;
 

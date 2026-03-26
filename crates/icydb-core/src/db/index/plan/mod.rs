@@ -33,15 +33,20 @@ pub(in crate::db) use private::{
     SealedStructuralPrimaryRowReader,
 };
 
+// Narrow store-lookup callback used to keep the structural planner body
+// nongeneric after the `Db<C>` wrapper has resolved registry access.
+type IndexStoreLookup<'a> =
+    dyn FnMut(&IndexModel) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError> + 'a;
+
 // Distinguish the two structural key-build lanes so planner diagnostics can
 // preserve the existing insertion-vs-removal error taxonomy.
 #[derive(Clone, Copy)]
-enum StructuralIndexKeyLane {
+enum IndexKeyLane {
     Old,
     New,
 }
 
-impl StructuralIndexKeyLane {
+impl IndexKeyLane {
     // Map one missing entity-key case back onto the planner-owned internal error.
     fn missing_entity_key_error(self) -> InternalError {
         match self {
@@ -343,7 +348,7 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
 
 // Build one optional structural index key for the requested planner lane.
 fn load_structural_index_key(
-    lane: StructuralIndexKeyLane,
+    lane: IndexKeyLane,
     entity_tag: EntityTag,
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
@@ -419,29 +424,61 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural<C>(
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
     old_storage_key: Option<StorageKey>,
-    mut old_slots: Option<&mut dyn SlotReader>,
+    old_slots: Option<&mut dyn SlotReader>,
     new_storage_key: Option<StorageKey>,
-    mut new_slots: Option<&mut dyn SlotReader>,
+    new_slots: Option<&mut dyn SlotReader>,
 ) -> Result<IndexMutationPlan, InternalError>
 where
     C: CanisterKind,
 {
+    let mut store_for_index = |index: &IndexModel| {
+        db.with_store_registry(|registry| registry.try_get_store(index.store()))
+            .map(|store| store.index_store())
+    };
+
+    plan_index_mutation_for_slot_reader_structural_impl(
+        &mut store_for_index,
+        entity_path,
+        entity_tag,
+        model,
+        row_reader,
+        index_reader,
+        old_storage_key,
+        old_slots,
+        new_storage_key,
+        new_slots,
+    )
+}
+
+// Keep the structural planner loop nongeneric once store lookup has already
+// been lowered onto one index-store callback.
+#[expect(clippy::too_many_arguments)]
+fn plan_index_mutation_for_slot_reader_structural_impl(
+    store_for_index: &mut IndexStoreLookup<'_>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    model: &'static EntityModel,
+    row_reader: &dyn StructuralPrimaryRowReader,
+    index_reader: &dyn StructuralIndexEntryReader,
+    old_storage_key: Option<StorageKey>,
+    mut old_slots: Option<&mut dyn SlotReader>,
+    new_storage_key: Option<StorageKey>,
+    mut new_slots: Option<&mut dyn SlotReader>,
+) -> Result<IndexMutationPlan, InternalError> {
     let indexes = model.indexes();
     let mut commit_ops = Vec::new();
 
     // Phase 1: per-index load, validate, and synthesize commit ops from
     // slot-reader projections only.
     for index in indexes {
-        let store = db
-            .with_store_registry(|registry| registry.try_get_store(index.store()))?
-            .index_store();
+        let store = store_for_index(index)?;
         let index_fields = index_fields_csv(index);
         let membership_program =
             compile_index_membership_predicate_structural(entity_path, model, index)?;
 
         let old_key = match old_slots.as_deref_mut() {
             Some(slots) => load_structural_index_key(
-                StructuralIndexKeyLane::Old,
+                IndexKeyLane::Old,
                 entity_tag,
                 index,
                 membership_program.as_ref(),
@@ -452,7 +489,7 @@ where
         };
         let new_key = match new_slots.as_deref_mut() {
             Some(slots) => load_structural_index_key(
-                StructuralIndexKeyLane::New,
+                IndexKeyLane::New,
                 entity_tag,
                 index,
                 membership_program.as_ref(),

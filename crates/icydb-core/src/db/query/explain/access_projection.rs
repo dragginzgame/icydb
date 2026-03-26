@@ -122,10 +122,7 @@ fn write_access_json_children(children: &[ExplainAccessPath], out: &mut String) 
     out.push(']');
 }
 
-pub(in crate::db::query::explain) fn write_access_strategy_label(
-    out: &mut String,
-    access: &ExplainAccessPath,
-) {
+pub(in crate::db) fn write_access_strategy_label(out: &mut String, access: &ExplainAccessPath) {
     match access {
         ExplainAccessPath::ByKey { .. } => out.push_str("ByKey"),
         ExplainAccessPath::ByKeys { .. } => out.push_str("ByKeys"),

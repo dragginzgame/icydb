@@ -251,7 +251,7 @@ impl ExecutionKernel {
         let row_layout = RowLayout::from_model(prepared.authority.model());
         let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
             &prepared.logical_plan.access,
-            crate::db::executor::StructuralTraversalRuntime::new(
+            crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),
             ),

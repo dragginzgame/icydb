@@ -27,7 +27,7 @@ use std::{cell::RefCell, thread::LocalKey};
 ///
 /// CommitPrepareAuthority
 ///
-/// Structural authority needed by nongeneric commit-preparation stages.
+/// Resolved authority needed by nongeneric commit-preparation stages.
 ///
 
 struct CommitPrepareAuthority {
@@ -40,7 +40,7 @@ struct CommitPrepareAuthority {
 }
 
 impl CommitPrepareAuthority {
-    /// Lower one entity type into the structural authority used by commit preparation.
+    /// Lower one entity type into the resolved authority used by commit preparation.
     fn for_type<E>() -> Self
     where
         E: EntityKind + Path,
@@ -57,19 +57,19 @@ impl CommitPrepareAuthority {
 }
 
 ///
-/// StructuralCommitInputs
+/// CommitInputs
 ///
 /// Structural commit inputs decoded before forward-index planning runs.
 ///
 
-struct StructuralCommitInputs {
+struct CommitInputs {
     raw_key: RawDataKey,
     data_key: DataKey,
     old_row: Option<RawRow>,
     new_row: Option<RawRow>,
 }
 
-impl StructuralCommitInputs {
+impl CommitInputs {
     // Build the canonical schema-fingerprint mismatch mapping for structural commit inputs.
     fn schema_fingerprint_mismatch(
         entity_path: &str,
@@ -114,15 +114,7 @@ where
     R: PrimaryRowReader<E> + StructuralPrimaryRowReader,
     I: IndexEntryReader<E> + StructuralIndexEntryReader,
 {
-    validate_commit_marker_rows_for_entity::<E>(op)?;
-
-    prepare_row_commit_for_entity_impl(
-        db,
-        op,
-        CommitPrepareAuthority::for_type::<E>(),
-        row_reader,
-        index_reader,
-    )
+    prepare_row_commit_for_entity_with_structural_readers::<E>(db, op, row_reader, index_reader)
 }
 
 /// Prepare a typed row-level commit op against committed-store readers.
@@ -130,16 +122,8 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    validate_commit_marker_rows_for_entity::<E>(op)?;
-
     let context = db.context::<E>();
-    prepare_row_commit_for_entity_impl(
-        db,
-        op,
-        CommitPrepareAuthority::for_type::<E>(),
-        &context,
-        &context,
-    )
+    prepare_row_commit_for_entity_with_structural_readers::<E>(db, op, &context, &context)
 }
 
 // Fully decode commit-marker row payloads before structural planning runs so
@@ -308,7 +292,7 @@ fn decode_commit_marker_structural_slots<'a>(
 fn prepare_row_commit_structural_inputs(
     op: &CommitRowOp,
     authority: &CommitPrepareAuthority,
-) -> Result<StructuralCommitInputs, InternalError> {
+) -> Result<CommitInputs, InternalError> {
     if op.entity_path != authority.entity_path {
         return Err(InternalError::store_corruption(format!(
             "commit marker entity path mismatch: expected '{}', found '{}'",
@@ -316,7 +300,7 @@ fn prepare_row_commit_structural_inputs(
         )));
     }
     if op.schema_fingerprint != authority.schema_fingerprint {
-        return Err(StructuralCommitInputs::schema_fingerprint_mismatch(
+        return Err(CommitInputs::schema_fingerprint_mismatch(
             authority.entity_path,
             op.schema_fingerprint,
             authority.schema_fingerprint,
@@ -341,7 +325,7 @@ fn prepare_row_commit_structural_inputs(
         ));
     }
 
-    Ok(StructuralCommitInputs {
+    Ok(CommitInputs {
         raw_key,
         data_key,
         old_row,
@@ -355,7 +339,7 @@ fn finalize_row_commit_structural<C>(
     db: &Db<C>,
     index_reader: &dyn StructuralIndexEntryReader,
     authority: CommitPrepareAuthority,
-    structural: StructuralCommitInputs,
+    structural: CommitInputs,
     index_plan: IndexMutationPlan,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where

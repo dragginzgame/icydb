@@ -438,17 +438,8 @@ fn eval_scalar_executable_compare_predicate(
     let Some(field_slot) = cmp.field_slot else {
         return Ok(false);
     };
-    let Some(actual) = slots.get_scalar(field_slot)? else {
-        return Ok(false);
-    };
 
-    Ok(eval_compare_scalar_slot(
-        actual,
-        cmp.op,
-        &cmp.value,
-        &cmp.coercion,
-    )
-    .unwrap_or_else(|| {
+    Ok(eval_scalar_compare_fast_path(field_slot, cmp, slots)?.unwrap_or_else(|| {
         debug_assert!(
             false,
             "scalar executable predicate path admitted unsupported compare node: op={:?} coercion={:?} value={:?}",
@@ -513,8 +504,7 @@ fn eval_compare_with_structural_slots(
     };
 
     if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-        && let Some(actual) = slots.get_scalar(field_slot)?
-        && let Some(result) = eval_compare_scalar_slot(actual, cmp.op, &cmp.value, &cmp.coercion)
+        && let Some(result) = eval_scalar_compare_fast_path(field_slot, cmp, slots)?
     {
         return Ok(result);
     }
@@ -525,6 +515,25 @@ fn eval_compare_with_structural_slots(
 
     Ok(eval_compare_values(
         &actual,
+        cmp.op,
+        &cmp.value,
+        &cmp.coercion,
+    ))
+}
+
+// Share the scalar-slot read plus direct compare dispatch across the scalar-only
+// executor lane and the structural fallback path.
+fn eval_scalar_compare_fast_path(
+    field_slot: usize,
+    cmp: &ExecutableComparePredicate,
+    slots: &dyn SlotReader,
+) -> Result<Option<bool>, crate::error::InternalError> {
+    let Some(actual) = slots.get_scalar(field_slot)? else {
+        return Ok(Some(false));
+    };
+
+    Ok(eval_compare_scalar_slot(
+        actual,
         cmp.op,
         &cmp.value,
         &cmp.coercion,
@@ -761,10 +770,10 @@ where
             | CompareOp::Lte
             | CompareOp::Gt
             | CompareOp::Gte => Some(eval_ordered_scalar_compare(actual, op, value, decode)),
-            CompareOp::In => Some(scalar_in_list(actual, value, decode).unwrap_or(false)),
-            CompareOp::NotIn => {
-                Some(scalar_in_list(actual, value, decode).is_some_and(|matched| !matched))
-            }
+            CompareOp::In | CompareOp::NotIn => Some(eval_list_membership_compare_result(
+                op,
+                scalar_in_list(actual, value, decode),
+            )),
             CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => Some(false),
         },
         CoercionId::TextCasefold => Some(false),
@@ -787,19 +796,7 @@ where
         return false;
     };
 
-    match op {
-        CompareOp::Eq => actual == expected,
-        CompareOp::Ne => actual != expected,
-        CompareOp::Lt => actual < expected,
-        CompareOp::Lte => actual <= expected,
-        CompareOp::Gt => actual > expected,
-        CompareOp::Gte => actual >= expected,
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => false,
-    }
+    eval_ordered_compare_result(op, actual.cmp(&expected))
 }
 
 // Evaluate direct blob equality/list membership without rebuilding `Value::Blob`.
@@ -817,8 +814,10 @@ fn eval_blob_scalar_compare(
             CompareOp::Ne => {
                 Some(matches!(value, Value::Blob(expected) if actual != expected.as_slice()))
             }
-            CompareOp::In => Some(blob_in_list(actual, value).unwrap_or(false)),
-            CompareOp::NotIn => Some(blob_in_list(actual, value).is_some_and(|matched| !matched)),
+            CompareOp::In | CompareOp::NotIn => Some(eval_list_membership_compare_result(
+                op,
+                blob_in_list(actual, value),
+            )),
             CompareOp::Lt
             | CompareOp::Lte
             | CompareOp::Gt
@@ -845,8 +844,9 @@ fn eval_null_scalar_compare(op: CompareOp, value: &Value, coercion: &CoercionSpe
             | CompareOp::Contains
             | CompareOp::StartsWith
             | CompareOp::EndsWith => Some(false),
-            CompareOp::In => Some(null_in_list(value).unwrap_or(false)),
-            CompareOp::NotIn => Some(null_in_list(value).is_some_and(|matched| !matched)),
+            CompareOp::In | CompareOp::NotIn => {
+                Some(eval_list_membership_compare_result(op, null_in_list(value)))
+            }
         },
         CoercionId::TextCasefold => Some(false),
         CoercionId::NumericWiden => None,
@@ -879,8 +879,10 @@ fn eval_text_scalar_compare(
         CompareOp::EndsWith => Some(
             matches!(value, Value::Text(expected) if text_ends_with_scalar(actual, expected, mode)),
         ),
-        CompareOp::In => Some(text_in_list(actual, value, mode).unwrap_or(false)),
-        CompareOp::NotIn => Some(text_in_list(actual, value, mode).is_some_and(|matched| !matched)),
+        CompareOp::In | CompareOp::NotIn => Some(eval_list_membership_compare_result(
+            op,
+            text_in_list(actual, value, mode),
+        )),
         CompareOp::Contains => Some(false),
     }
 }
@@ -897,7 +899,12 @@ fn eval_text_scalar_order_compare(
         return false;
     };
 
-    let ordering = compare_scalar_text(actual, expected, mode);
+    eval_ordered_compare_result(op, compare_scalar_text(actual, expected, mode))
+}
+
+// Share the ordered compare-op mapping across direct scalar and text fast
+// paths so each caller only owns literal decode / canonical compare work.
+fn eval_ordered_compare_result(op: CompareOp, ordering: Ordering) -> bool {
     match op {
         CompareOp::Eq => ordering == Ordering::Equal,
         CompareOp::Ne => ordering != Ordering::Equal,
@@ -950,6 +957,24 @@ fn blob_in_list(actual: &[u8], list: &Value) -> Option<bool> {
     }
 
     saw_valid.then_some(false)
+}
+
+// Keep `IN` / `NOT IN` result shaping identical across scalar fast-path
+// variants after each lane has evaluated its list-membership semantics.
+fn eval_list_membership_compare_result(op: CompareOp, matched: Option<bool>) -> bool {
+    match op {
+        CompareOp::In => matched.unwrap_or(false),
+        CompareOp::NotIn => matched.is_some_and(|did_match| !did_match),
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
+    }
 }
 
 fn null_in_list(list: &Value) -> Option<bool> {

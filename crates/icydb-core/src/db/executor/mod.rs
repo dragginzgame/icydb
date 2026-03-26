@@ -60,8 +60,8 @@ pub(in crate::db) use explain::{
     assemble_load_execution_verbose_diagnostics_with_model,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
+pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
-pub use mutation::save::StructuralMutationMode;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
     resolve_structural_order,

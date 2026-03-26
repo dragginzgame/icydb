@@ -17,8 +17,10 @@ macro_rules! build {
         // all
         println!("cargo:rerun-if-changed=build.rs");
 
-        // add the cfg flag
+        // Register custom cfg names and feature values used by generated actor code
+        // so downstream crates do not trip `unexpected_cfgs` when they include it.
         println!("cargo:rustc-check-cfg=cfg(icydb)");
+        println!("cargo:rustc-check-cfg=cfg(feature, values(\"sql\"))");
         println!("cargo:rustc-cfg=icydb");
 
         // Get the output directory set by Cargo

@@ -397,7 +397,7 @@ impl InternalError {
         ))
     }
 
-    /// Construct an executor-origin structural mutation after-image invariant.
+    /// Construct an executor-origin mutation result invariant.
     ///
     /// This constructor lands ahead of the public structural mutation surface,
     /// so the library target may not route through it until that caller exists.
@@ -408,15 +408,15 @@ impl InternalError {
         detail: impl AsRef<str>,
     ) -> Self {
         Self::executor_invariant(format!(
-            "structural mutation produced an invalid entity: {entity_path} key={data_key} ({})",
+            "mutation result is invalid: {entity_path} key={data_key} ({})",
             detail.as_ref(),
         ))
     }
 
-    /// Construct an executor-origin structural mutation unknown-field invariant.
+    /// Construct an executor-origin mutation unknown-field invariant.
     pub(crate) fn mutation_structural_field_unknown(entity_path: &str, field_name: &str) -> Self {
         Self::executor_invariant(format!(
-            "unknown field for structural mutation: {entity_path} field={field_name}",
+            "mutation field not found: {entity_path} field={field_name}",
         ))
     }
 

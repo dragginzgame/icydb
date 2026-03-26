@@ -16,7 +16,7 @@ use crate::{
             AccessStreamBindings, ExecutableAccess, ExecutionOptimization,
             pipeline::contracts::FastPathKeyResult, route::verify_pk_stream_fast_path_access,
             scan::fast_stream::execute_structural_fast_stream_request,
-            stream::access::StructuralTraversalRuntime,
+            stream::access::TraversalRuntime,
         },
         query::plan::AccessPlannedQuery,
     },
@@ -24,7 +24,7 @@ use crate::{
 };
 
 pub(super) fn execute_primary_key_fast_stream_route(
-    runtime: &StructuralTraversalRuntime,
+    runtime: &TraversalRuntime,
     plan: &AccessPlannedQuery,
     stream_direction: Direction,
     probe_fetch_hint: Option<usize>,

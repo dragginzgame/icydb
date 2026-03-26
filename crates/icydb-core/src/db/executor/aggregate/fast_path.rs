@@ -18,7 +18,7 @@ use crate::{
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
             scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
-            stream::access::StructuralTraversalRuntime,
+            stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
@@ -43,16 +43,15 @@ struct VerifiedAggregateFastPathRoute {
 impl ExecutionKernel {
     /// Resolve one structural access request and fold one aggregate terminal from it.
     pub(in crate::db::executor) fn fold_aggregate_from_structural_access(
-        traversal_runtime: StructuralTraversalRuntime,
+        traversal_runtime: TraversalRuntime,
         store: StoreHandle,
         plan: &AccessPlannedQuery,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
-        access: ExecutableAccess<'_, crate::db::access::StructuralKey>,
+        access: ExecutableAccess<'_, crate::db::access::AccessKey>,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
-        let mut key_stream =
-            traversal_runtime.ordered_key_stream_from_structural_runtime_access(access)?;
+        let mut key_stream = traversal_runtime.ordered_key_stream_from_runtime_access(access)?;
 
         Self::run_streaming_aggregate_reducer(
             store,
@@ -71,7 +70,7 @@ impl ExecutionKernel {
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let index_predicate_execution =
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
-        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.authority.entity_tag());
+        let runtime = TraversalRuntime::new(inputs.store, inputs.authority.entity_tag());
         let Some(fast) = execute_fast_stream_route(
             &runtime,
             FastStreamRouteKind::SecondaryIndex,
@@ -272,7 +271,7 @@ impl ExecutionKernel {
             None,
         );
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
-            StructuralTraversalRuntime::new(store, entity_tag),
+            TraversalRuntime::new(store, entity_tag),
             store,
             plan,
             direction,
@@ -349,7 +348,7 @@ impl ExecutionKernel {
         }
 
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
-            StructuralTraversalRuntime::new(store, entity_tag),
+            TraversalRuntime::new(store, entity_tag),
             store,
             plan,
             direction,
@@ -375,7 +374,7 @@ impl ExecutionKernel {
             return Ok(None);
         };
 
-        let runtime = StructuralTraversalRuntime::new(inputs.store, inputs.authority.entity_tag());
+        let runtime = TraversalRuntime::new(inputs.store, inputs.authority.entity_tag());
         let Some(fast) = execute_fast_stream_route(
             &runtime,
             FastStreamRouteKind::IndexRangeLimitPushdown,
@@ -423,7 +422,7 @@ impl ExecutionKernel {
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
         );
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
-            StructuralTraversalRuntime::new(inputs.store, inputs.authority.entity_tag()),
+            TraversalRuntime::new(inputs.store, inputs.authority.entity_tag()),
             inputs.store,
             inputs.logical_plan,
             inputs.direction,

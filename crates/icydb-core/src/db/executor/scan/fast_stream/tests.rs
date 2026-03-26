@@ -11,7 +11,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
-            ExecutionOptimization, stream::access::StructuralTraversalRuntime,
+            ExecutionOptimization, stream::access::TraversalRuntime,
         },
         index::IndexStore,
         registry::StoreRegistry,
@@ -95,7 +95,7 @@ fn fast_stream_requires_exact_key_count_hint() {
         None,
         None,
     );
-    let runtime = StructuralTraversalRuntime::new(
+    let runtime = TraversalRuntime::new(
         ctx.structural_store().expect("test store should resolve"),
         FastStreamInvariantEntity::ENTITY_TAG,
     );

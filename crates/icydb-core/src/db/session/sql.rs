@@ -19,8 +19,8 @@ use crate::{
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlLaneKind,
             LoweredSqlQuery, PreparedSqlStatement as CorePreparedSqlStatement,
-            SqlGlobalAggregateTerminal, StructuralSqlGlobalAggregateCommand,
-            apply_lowered_select_shape, bind_lowered_sql_delete_query_structural,
+            SqlGlobalAggregateCommandCore, SqlGlobalAggregateTerminal, apply_lowered_select_shape,
+            bind_lowered_sql_delete_query_structural,
             bind_lowered_sql_explain_global_aggregate_structural, bind_lowered_sql_query,
             compile_sql_global_aggregate_command, lower_sql_command_from_prepared_statement,
             lowered_sql_command_lane, prepare_sql_statement,
@@ -510,7 +510,7 @@ impl LoweredSqlCommand {
 #[inline(never)]
 fn explain_sql_global_aggregate_structural(
     mode: SqlExplainMode,
-    command: StructuralSqlGlobalAggregateCommand,
+    command: SqlGlobalAggregateCommandCore,
 ) -> Result<String, QueryError> {
     let model = command.query().model();
 

@@ -42,15 +42,12 @@ fn value_for_expression(
     })
 }
 
-fn index_component_value_from_slot_reader<F>(
+fn index_component_value_from_slot_reader(
     entity_model: &EntityModel,
     index: &IndexModel,
     key_item: IndexKeyItem,
-    read_slot: &mut F,
-) -> Result<Option<Value>, InternalError>
-where
-    F: FnMut(usize) -> Option<Value>,
-{
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> Result<Option<Value>, InternalError> {
     let field = key_item.field();
     let Some(field_index) = resolve_field_slot(entity_model, field) else {
         return Err(InternalError::index_key_item_field_missing_on_entity_model(
@@ -79,24 +76,22 @@ impl IndexKey {
         slots: &dyn SlotReader,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
-        build_index_key(entity_tag, storage_key, index, |key_item| {
-            index_component_bytes_from_slots(slots, index, key_item)
-        })
+        let mut component_bytes =
+            |key_item| index_component_bytes_from_slots(slots, index, key_item);
+
+        build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
 
     /// Build an index key from one structural row slot reader plus runtime identity.
     /// Returns `Ok(None)` when indexed values are non-indexable.
-    pub(crate) fn new_from_slot_reader<F>(
+    pub(crate) fn new_from_slot_reader(
         entity_tag: EntityTag,
         storage_key: StorageKey,
         entity_model: &EntityModel,
         index: &IndexModel,
-        read_slot: &mut F,
-    ) -> Result<Option<Self>, InternalError>
-    where
-        F: FnMut(usize) -> Option<Value>,
-    {
-        build_index_key(entity_tag, storage_key, index, |key_item| {
+        read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+    ) -> Result<Option<Self>, InternalError> {
+        let mut component_bytes = |key_item| {
             let Some(value) =
                 index_component_value_from_slot_reader(entity_model, index, key_item, read_slot)?
             else {
@@ -104,7 +99,9 @@ impl IndexKey {
             };
 
             encode_value_index_component(value)
-        })
+        };
+
+        build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
 
     /// Build an index key from a typed entity for test-only parity checks.
@@ -361,15 +358,12 @@ impl IndexKey {
 
 // Build one user-facing index key by sharing the canonical component walk
 // across structural slot readers and typed slot-reader adapters.
-fn build_index_key<F>(
+fn build_index_key(
     entity_tag: EntityTag,
     storage_key: StorageKey,
     index: &IndexModel,
-    mut component_bytes: F,
-) -> Result<Option<IndexKey>, InternalError>
-where
-    F: FnMut(IndexKeyItem) -> Result<Option<Vec<u8>>, InternalError>,
-{
+    component_bytes: &mut dyn FnMut(IndexKeyItem) -> Result<Option<Vec<u8>>, InternalError>,
+) -> Result<Option<IndexKey>, InternalError> {
     // Phase 1: validate declared index shape and pre-size the component buffer.
     let index_component_count = match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => fields.len(),

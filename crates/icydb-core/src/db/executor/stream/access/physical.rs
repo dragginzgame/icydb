@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutableAccessPathDispatch, StructuralKey, dispatch_executable_access_path},
+        access::{AccessKey, ExecutableAccessPathDispatch, dispatch_executable_access_path},
         cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
@@ -129,28 +129,28 @@ fn require_index_range_spec(
 }
 
 ///
-/// StructuralKeyAccessRuntime
+/// KeyAccessRuntime
 ///
-/// StructuralKeyAccessRuntime binds one recovered typed context to the
+/// KeyAccessRuntime binds one recovered typed context to the
 /// structural planner-key boundary used by structural fast-path traversal.
 /// It recovers typed primary-key values only inside physical leaf resolution.
 ///
 
-struct StructuralKeyAccessRuntime {
+struct KeyAccessRuntime {
     store: StoreHandle,
     entity_tag: EntityTag,
 }
 
-impl StructuralKeyAccessRuntime {
+impl KeyAccessRuntime {
     const fn new(store: StoreHandle, entity_tag: EntityTag) -> Self {
         Self { store, entity_tag }
     }
 }
 
-impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
+impl PhysicalAccessRuntime<AccessKey> for KeyAccessRuntime {
     fn resolve_by_key(
         &self,
-        key: StructuralKey,
+        key: AccessKey,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         Ok((
             vec![DataKey::try_from_structural_key(self.entity_tag, &key)?],
@@ -160,7 +160,7 @@ impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
 
     fn resolve_by_keys(
         &self,
-        keys: &[StructuralKey],
+        keys: &[AccessKey],
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let mut data_keys = Vec::with_capacity(keys.len());
         for key in keys {
@@ -174,8 +174,8 @@ impl PhysicalAccessRuntime<StructuralKey> for StructuralKeyAccessRuntime {
 
     fn resolve_key_range(
         &self,
-        start: StructuralKey,
-        end: StructuralKey,
+        start: AccessKey,
+        end: AccessKey,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
@@ -387,7 +387,7 @@ where
     Ok(Box::new(VecOrderedKeyStream::new(candidates)))
 }
 
-impl ExecutableAccessPath<'_, StructuralKey> {
+impl ExecutableAccessPath<'_, AccessKey> {
     // Physical access lowering for one structural executable access path.
     // Typed key recovery is deferred to the concrete path leaves in the
     // structural runtime adapter.
@@ -396,7 +396,7 @@ impl ExecutableAccessPath<'_, StructuralKey> {
         &self,
         request: StructuralPhysicalStreamRequest<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let runtime = StructuralKeyAccessRuntime::new(request.store, request.entity_tag);
+        let runtime = KeyAccessRuntime::new(request.store, request.entity_tag);
         let bindings = PhysicalStreamBindings {
             index_prefix_specs: request.index_prefix_specs,
             index_range_spec: request.index_range_spec,

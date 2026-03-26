@@ -8,7 +8,7 @@ use crate::{
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, StructuralStoreResolver,
+            LoweredIndexRangeSpec, StoreResolver,
             aggregate::{
                 AggregateKind, field::FieldSlot, projection::ScalarProjectionBoundaryRequest,
             },
@@ -95,7 +95,7 @@ pub(in crate::db::executor) struct PreparedAggregateExecutionState<'ctx> {
 ///
 
 pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
-    pub(in crate::db::executor) store_resolver: StructuralStoreResolver<'ctx>,
+    pub(in crate::db::executor) store_resolver: StoreResolver<'ctx>,
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,

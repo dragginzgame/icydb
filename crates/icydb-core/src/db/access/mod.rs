@@ -38,11 +38,11 @@ pub(crate) use plan::{
 pub(crate) use validate::{AccessPlanError, validate_access_structure_model};
 
 ///
-/// StructuralKey
+/// AccessKey
 ///
-/// Structural model-level key literal carried by canonical access plans.
+/// Model-level key literal carried by canonical access plans.
 /// Executor runtime boundaries may consume this alias mechanically without
 /// taking semantic ownership of the underlying planner value representation.
 ///
 
-pub(in crate::db) type StructuralKey = Value;
+pub(in crate::db) type AccessKey = Value;

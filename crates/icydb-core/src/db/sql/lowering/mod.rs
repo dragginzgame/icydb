@@ -170,7 +170,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 }
 
 ///
-/// StructuralSqlGlobalAggregateCommand
+/// SqlGlobalAggregateCommandCore
 ///
 /// Generic-free lowered global aggregate command bound onto the structural
 /// query surface.
@@ -179,12 +179,12 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 ///
 
 #[derive(Debug)]
-pub(crate) struct StructuralSqlGlobalAggregateCommand {
+pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
     terminal: SqlGlobalAggregateTerminal,
 }
 
-impl StructuralSqlGlobalAggregateCommand {
+impl SqlGlobalAggregateCommandCore {
     /// Borrow the structural query payload for aggregate explain/execution.
     #[must_use]
     pub(in crate::db) const fn query(&self) -> &StructuralQuery {
@@ -375,7 +375,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(
     lowered: &LoweredSqlCommand,
     model: &'static crate::model::entity::EntityModel,
     consistency: MissingRowPolicy,
-) -> Option<(SqlExplainMode, StructuralSqlGlobalAggregateCommand)> {
+) -> Option<(SqlExplainMode, SqlGlobalAggregateCommandCore)> {
     let LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } = &lowered.0 else {
         return None;
     };
@@ -978,8 +978,8 @@ fn bind_lowered_sql_global_aggregate_command_structural(
     model: &'static crate::model::entity::EntityModel,
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
-) -> StructuralSqlGlobalAggregateCommand {
-    StructuralSqlGlobalAggregateCommand {
+) -> SqlGlobalAggregateCommandCore {
+    SqlGlobalAggregateCommandCore {
         query: apply_lowered_base_query_shape(
             StructuralQuery::new(model, consistency),
             lowered.query,

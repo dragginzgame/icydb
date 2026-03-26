@@ -27,7 +27,7 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor,
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                ExplainExecutionOrderingSource, ExplainPredicate,
+                ExplainExecutionOrderingSource, ExplainPredicate, write_access_strategy_label,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
@@ -41,10 +41,15 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::{collections::BTreeMap, ops::Bound};
+use std::{
+    borrow::Cow,
+    collections::BTreeMap,
+    fmt::{Debug, Write},
+    ops::Bound,
+};
 
 // Assemble one canonical scalar load execution descriptor tree through one
-// model-owned structural authority path.
+// model-owned authority path.
 #[inline(never)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
@@ -160,7 +165,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one
-// model-owned structural authority path.
+// model-owned authority path.
 pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
@@ -176,10 +181,13 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         .projection_spec(model)
         .fields()
         .map(projection_field_label)
+        .map(Cow::into_owned)
         .collect::<Vec<_>>();
     let projection_pushdown = load_covering_scan_eligible(plan, strict_predicate_compatible);
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
+    let mut chosen_label = String::new();
+    write_access_strategy_label(&mut chosen_label, &access_strategy);
     let rejections = access_choice
         .rejected
         .into_iter()
@@ -188,16 +196,13 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![
-        format!(
-            "diag.r.execution_mode={:?}",
-            route_plan.shape().execution_mode()
+        route_diagnostic_line_debug("execution_mode", &route_plan.shape().execution_mode()),
+        route_diagnostic_line_bool(
+            "continuation_applied",
+            route_plan.continuation().capabilities().applied(),
         ),
-        format!(
-            "diag.r.continuation_applied={}",
-            route_plan.continuation().capabilities().applied()
-        ),
-        format!("diag.r.limit={:?}", route_plan.continuation().limit()),
-        format!("diag.r.fast_path_order={:?}", route_plan.fast_path_order()),
+        route_diagnostic_line_debug("limit", &route_plan.continuation().limit()),
+        route_diagnostic_line_debug("fast_path_order", &route_plan.fast_path_order()),
         secondary_order_pushdown_verbose_line(&route_plan),
     ];
     lines.push(route_fetch_diagnostic_line(
@@ -208,31 +213,41 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-    lines.push(format!(
-        "diag.r.predicate_stage={}",
-        if plan.scalar_plan().predicate.is_none() {
-            "none".to_string()
-        } else if strict_predicate_compatible {
-            "index_prefilter(strict_all_or_none)".to_string()
-        } else {
-            "residual_post_access".to_string()
-        }
+    let predicate_stage = if plan.scalar_plan().predicate.is_none() {
+        "none"
+    } else if strict_predicate_compatible {
+        "index_prefilter(strict_all_or_none)"
+    } else {
+        "residual_post_access"
+    };
+    lines.push(descriptor_route_property_line(
+        "diag.r.predicate_stage",
+        predicate_stage,
     ));
-    lines.push(format!("diag.r.projected_fields={projected_fields:?}"));
-    lines.push(format!("diag.r.projection_pushdown={projection_pushdown}"));
-    lines.push(format!(
-        "diag.r.access_choice_chosen={}",
-        access_choice.chosen_label
+    lines.push(route_diagnostic_line_debug(
+        "projected_fields",
+        &projected_fields,
     ));
-    lines.push(format!(
-        "diag.r.access_choice_chosen_reason={}",
-        access_choice.chosen_reason.code()
+    lines.push(route_diagnostic_line_bool(
+        "projection_pushdown",
+        projection_pushdown,
     ));
-    lines.push(format!(
-        "diag.r.access_choice_alternatives={:?}",
-        access_choice.alternatives
+    lines.push(descriptor_route_property_line(
+        "diag.r.access_choice_chosen",
+        &chosen_label,
     ));
-    lines.push(format!("diag.r.access_choice_rejections={rejections:?}"));
+    lines.push(descriptor_route_property_line(
+        "diag.r.access_choice_chosen_reason",
+        access_choice.chosen_reason.code(),
+    ));
+    lines.push(route_diagnostic_line_debug(
+        "access_choice_alternatives",
+        &access_choice.alternatives,
+    ));
+    lines.push(route_diagnostic_line_debug(
+        "access_choice_rejections",
+        &rejections,
+    ));
     if let Some(capability) =
         execution_preparation_predicate_index_capability(&execution_preparation)
     {
@@ -246,7 +261,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
 }
 
 // Assemble one canonical scalar aggregate execution descriptor through one
-// model-owned structural authority path.
+// model-owned authority path.
 #[inline(never)]
 pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
@@ -328,16 +343,20 @@ fn access_execution_node_descriptor(
     access_strategy: ExplainAccessRoute,
     execution_mode: ExplainExecutionMode,
 ) -> ExplainExecutionNodeDescriptor {
+    // Preserve the owned explain access route on the node itself, then recurse
+    // through child unions/intersections without cloning simple leaf routes.
     let mut node =
         empty_execution_node_descriptor(access_node_type(&access_strategy), execution_mode);
-    node.access_strategy = Some(access_strategy.clone());
+    node.access_strategy = Some(access_strategy);
 
-    if let ExplainAccessRoute::Union(children) | ExplainAccessRoute::Intersection(children) =
-        access_strategy
+    if let Some(ExplainAccessRoute::Union(children) | ExplainAccessRoute::Intersection(children)) =
+        node.access_strategy.as_ref()
     {
         for child in children {
-            node.children
-                .push(access_execution_node_descriptor(child, execution_mode));
+            node.children.push(access_execution_node_descriptor(
+                child.clone(),
+                execution_mode,
+            ));
         }
     }
 
@@ -407,7 +426,7 @@ fn annotate_projection_pushdown_node_properties(
         .projection_spec(model)
         .fields()
         .map(projection_field_label)
-        .map(Value::from)
+        .map(|field| Value::from(field.into_owned()))
         .collect();
     node.node_properties
         .insert("proj_fields", Value::List(projected_fields));
@@ -415,7 +434,7 @@ fn annotate_projection_pushdown_node_properties(
         .insert("proj_pushdown", Value::from(covering_scan));
 }
 
-fn projection_field_label(field: &ProjectionField) -> String {
+fn projection_field_label(field: &ProjectionField) -> Cow<'_, str> {
     match field {
         ProjectionField::Scalar { expr, .. } => projection_expr_label(expr),
     }
@@ -423,15 +442,15 @@ fn projection_field_label(field: &ProjectionField) -> String {
 
 // Keep projection metadata deterministic and planner-owned by reducing each
 // expression to one stable field-like label for explain projection output.
-fn projection_expr_label(expr: &Expr) -> String {
+fn projection_expr_label(expr: &Expr) -> Cow<'_, str> {
     match expr {
-        Expr::Field(field) => field.as_str().to_string(),
+        Expr::Field(field) => Cow::Borrowed(field.as_str()),
         Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => projection_expr_label(expr),
         Expr::Aggregate(aggregate) => aggregate
             .target_field()
-            .map_or_else(|| "aggregate".to_string(), str::to_string),
-        Expr::Literal(_) => "literal".to_string(),
-        Expr::Binary { .. } => "expr".to_string(),
+            .map_or_else(|| Cow::Borrowed("aggregate"), Cow::Borrowed),
+        Expr::Literal(_) => Cow::Borrowed("literal"),
+        Expr::Binary { .. } => Cow::Borrowed("expr"),
     }
 }
 
@@ -439,8 +458,15 @@ fn annotate_access_choice_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     access_choice: AccessChoiceExplainSnapshot,
 ) {
+    let mut chosen_label = String::new();
+    write_access_strategy_label(
+        &mut chosen_label,
+        node.access_strategy
+            .as_ref()
+            .expect("access root must carry an access strategy"),
+    );
     node.node_properties
-        .insert("acc_choice", Value::from(access_choice.chosen_label));
+        .insert("acc_choice", Value::from(chosen_label));
     node.node_properties.insert(
         "acc_reason",
         Value::from(access_choice.chosen_reason.code()),
@@ -462,7 +488,23 @@ fn annotate_access_choice_node_properties(
 }
 
 fn descriptor_route_property_line(line_key: &str, property_value: &str) -> String {
-    format!("{line_key}={property_value}")
+    let mut out = String::with_capacity(line_key.len() + property_value.len() + 1);
+    out.push_str(line_key);
+    out.push('=');
+    out.push_str(property_value);
+    out
+}
+
+fn route_diagnostic_line_bool(label: &str, value: bool) -> String {
+    let mut out = route_diagnostic_prefix(label);
+    out.push_str(if value { "true" } else { "false" });
+    out
+}
+
+fn route_diagnostic_line_debug(label: &str, value: &impl Debug) -> String {
+    let mut out = route_diagnostic_prefix(label);
+    let _ = write!(out, "{value:?}");
+    out
 }
 
 const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
@@ -515,11 +557,9 @@ fn annotate_fast_path_reason_node_properties(
                 selected = Some(*route);
             }
         } else {
-            rejections.push(Value::from(format!(
-                "{}={}",
-                fast_path_label(*route),
-                fast_path_rejection_reason(*route, route_plan),
-            )));
+            let mut rejection = String::new();
+            write_fast_path_rejection_entry(&mut rejection, *route, route_plan);
+            rejections.push(Value::from(rejection));
         }
     }
 
@@ -603,6 +643,16 @@ const fn fast_path_rejection_reason(
     }
 }
 
+fn write_fast_path_rejection_entry(
+    out: &mut String,
+    route: FastPathOrder,
+    route_plan: &ExecutionRoutePlan,
+) {
+    out.push_str(fast_path_label(route));
+    out.push('=');
+    out.push_str(fast_path_rejection_reason(route, route_plan));
+}
+
 const fn direction_code(direction: Direction) -> &'static str {
     match direction {
         Direction::Asc => "asc",
@@ -677,42 +727,49 @@ fn secondary_order_pushdown_verbose_line(route_plan: &ExecutionRoutePlan) -> Str
             u64_from_usize(*prefix_len)
         ),
         PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
-            format!(
-                "diag.r.secondary_order_pushdown=rejected({})",
-                secondary_order_pushdown_rejection_label(reason)
-            )
+            let mut out = "diag.r.secondary_order_pushdown=rejected(".to_string();
+            write_secondary_order_pushdown_rejection_label(&mut out, reason);
+            out.push(')');
+            out
         }
     }
 }
 
-fn secondary_order_pushdown_rejection_label(reason: &SecondaryOrderPushdownRejection) -> String {
+fn write_secondary_order_pushdown_rejection_label(
+    out: &mut String,
+    reason: &SecondaryOrderPushdownRejection,
+) {
     match reason {
-        SecondaryOrderPushdownRejection::NoOrderBy => "NoOrderBy".to_string(),
+        SecondaryOrderPushdownRejection::NoOrderBy => out.push_str("NoOrderBy"),
         SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
-            "AccessPathNotSingleIndexPrefix".to_string()
+            out.push_str("AccessPathNotSingleIndexPrefix");
         }
         SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len } => {
-            format!(
+            let _ = write!(
+                out,
                 "AccessPathIndexRangeUnsupported(index={index},prefix_len={})",
                 u64_from_usize(*prefix_len)
-            )
+            );
         }
         SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
             prefix_len,
             index_field_len,
-        } => format!(
-            "InvalidIndexPrefixBounds(prefix_len={},index_field_len={})",
-            u64_from_usize(*prefix_len),
-            u64_from_usize(*index_field_len)
-        ),
+        } => {
+            let _ = write!(
+                out,
+                "InvalidIndexPrefixBounds(prefix_len={},index_field_len={})",
+                u64_from_usize(*prefix_len),
+                u64_from_usize(*index_field_len)
+            );
+        }
         SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
-            format!("MissingPrimaryKeyTieBreak(field={field})")
+            let _ = write!(out, "MissingPrimaryKeyTieBreak(field={field})");
         }
         SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
-            format!("PrimaryKeyDirectionNotAscending(field={field})")
+            let _ = write!(out, "PrimaryKeyDirectionNotAscending(field={field})");
         }
         SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field } => {
-            format!("MixedDirectionNotEligible(field={field})")
+            let _ = write!(out, "MixedDirectionNotEligible(field={field})");
         }
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
             index,
@@ -720,10 +777,13 @@ fn secondary_order_pushdown_rejection_label(reason: &SecondaryOrderPushdownRejec
             expected_suffix,
             expected_full,
             actual,
-        } => format!(
-            "OrderFieldsDoNotMatchIndex(index={index},prefix_len={},expected_suffix={expected_suffix:?},expected_full={expected_full:?},actual={actual:?})",
-            u64_from_usize(*prefix_len)
-        ),
+        } => {
+            let _ = write!(
+                out,
+                "OrderFieldsDoNotMatchIndex(index={index},prefix_len={},expected_suffix={expected_suffix:?},expected_full={expected_full:?},actual={actual:?})",
+                u64_from_usize(*prefix_len)
+            );
+        }
     }
 }
 
@@ -835,12 +895,15 @@ fn prefix_predicate_text(fields: &[&str], values: &[Value], prefix_len: usize) -
         return None;
     }
 
-    let mut parts = Vec::with_capacity(applied_len);
+    let mut out = String::new();
     for idx in 0..applied_len {
-        parts.push(format!("{}={:?}", fields[idx], values[idx]));
+        if idx > 0 {
+            out.push_str(" AND ");
+        }
+        let _ = write!(out, "{}={:?}", fields[idx], values[idx]);
     }
 
-    Some(parts.join(" AND "))
+    Some(out)
 }
 
 fn index_range_pushdown_predicate_text(
@@ -850,28 +913,44 @@ fn index_range_pushdown_predicate_text(
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Option<String> {
-    let mut parts = Vec::new();
+    let mut out = String::new();
     if let Some(prefix_text) = prefix_predicate_text(fields, prefix, prefix_len) {
-        parts.push(prefix_text);
+        out.push_str(&prefix_text);
     }
 
     let range_field = fields.get(prefix_len).copied().unwrap_or("index_range");
     match lower {
-        Bound::Included(value) => parts.push(format!("{range_field}>={value:?}")),
-        Bound::Excluded(value) => parts.push(format!("{range_field}>{value:?}")),
+        Bound::Included(value) => {
+            if !out.is_empty() {
+                out.push_str(" AND ");
+            }
+            let _ = write!(out, "{range_field}>={value:?}");
+        }
+        Bound::Excluded(value) => {
+            if !out.is_empty() {
+                out.push_str(" AND ");
+            }
+            let _ = write!(out, "{range_field}>{value:?}");
+        }
         Bound::Unbounded => {}
     }
     match upper {
-        Bound::Included(value) => parts.push(format!("{range_field}<={value:?}")),
-        Bound::Excluded(value) => parts.push(format!("{range_field}<{value:?}")),
+        Bound::Included(value) => {
+            if !out.is_empty() {
+                out.push_str(" AND ");
+            }
+            let _ = write!(out, "{range_field}<={value:?}");
+        }
+        Bound::Excluded(value) => {
+            if !out.is_empty() {
+                out.push_str(" AND ");
+            }
+            let _ = write!(out, "{range_field}<{value:?}");
+        }
         Bound::Unbounded => {}
     }
 
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" AND "))
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn explain_predicate_for_plan(plan: &AccessPlannedQuery) -> Option<ExplainPredicate> {
@@ -978,11 +1057,22 @@ fn aggregate_covering_projection_for_terminal(
 }
 
 fn route_fetch_diagnostic_line(label: &str, fetch: Option<usize>) -> String {
+    let mut out = route_diagnostic_prefix(label);
     if let Some(fetch) = fetch {
-        format!("diag.r.{label}=fetch({})", u64_from_usize(fetch))
+        let _ = write!(out, "fetch({})", u64_from_usize(fetch));
     } else {
-        format!("diag.r.{label}=disabled")
+        out.push_str("disabled");
     }
+
+    out
+}
+
+fn route_diagnostic_prefix(label: &str) -> String {
+    let mut out = String::with_capacity("diag.r.".len() + label.len() + 1);
+    out.push_str("diag.r.");
+    out.push_str(label);
+    out.push('=');
+    out
 }
 
 fn annotate_continuation_node_properties(

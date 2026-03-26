@@ -49,7 +49,14 @@ pub(in crate::db) struct AccessChoiceExplainRejected {
 impl AccessChoiceExplainRejected {
     #[must_use]
     pub(in crate::db) fn render(&self) -> String {
-        format!("index:{}={}", self.index_name, self.reason.code())
+        let reason = self.reason.code();
+        let mut out =
+            String::with_capacity("index:".len() + self.index_name.len() + 1 + reason.len());
+        out.push_str("index:");
+        out.push_str(self.index_name);
+        out.push('=');
+        out.push_str(reason);
+        out
     }
 }
 
@@ -62,7 +69,6 @@ impl AccessChoiceExplainRejected {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AccessChoiceExplainSnapshot {
-    pub(in crate::db) chosen_label: String,
     pub(in crate::db) chosen_reason: AccessChoiceSelectedReason,
     pub(in crate::db) alternatives: Vec<&'static str>,
     pub(in crate::db) rejected: Vec<AccessChoiceExplainRejected>,
@@ -207,11 +213,9 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
     access: &ExplainAccessPath,
 ) -> AccessChoiceExplainSnapshot {
     // Phase 1: classify chosen access family and seed non-index fallbacks.
-    let (family, chosen_label, chosen_index_name, chosen_score_hint) =
-        chosen_access_shape_projection(access);
+    let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
         return AccessChoiceExplainSnapshot {
-            chosen_label,
             chosen_reason: AccessChoiceSelectedReason::NonIndexAccess,
             alternatives: Vec::new(),
             rejected: Vec::new(),
@@ -220,7 +224,6 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
 
     let Some(chosen_index_name) = chosen_index_name else {
         return AccessChoiceExplainSnapshot {
-            chosen_label,
             chosen_reason: AccessChoiceSelectedReason::SelectedIndexUnavailable,
             alternatives: Vec::new(),
             rejected: Vec::new(),
@@ -229,7 +232,6 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
 
     let Ok(schema_info) = SchemaInfo::from_entity_model(model) else {
         return AccessChoiceExplainSnapshot {
-            chosen_label,
             chosen_reason: AccessChoiceSelectedReason::SchemaUnavailable,
             alternatives: Vec::new(),
             rejected: Vec::new(),
@@ -267,38 +269,23 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
     // Phase 3: derive deterministic winner/rejection reason codes from the
     // one-pass candidate evaluation results above.
     AccessChoiceExplainSnapshot {
-        chosen_label,
         chosen_reason: chosen_selection_reason(family, chosen_score, &eligible_other_scores),
         alternatives,
         rejected,
     }
 }
 
-fn chosen_access_shape_projection(
+const fn chosen_access_shape_projection(
     access: &ExplainAccessPath,
-) -> (AccessChoiceFamily, String, Option<&str>, CandidateScore) {
+) -> (AccessChoiceFamily, Option<&str>, CandidateScore) {
     match access {
-        ExplainAccessPath::ByKey { .. } => (
+        ExplainAccessPath::ByKey { .. }
+        | ExplainAccessPath::ByKeys { .. }
+        | ExplainAccessPath::KeyRange { .. }
+        | ExplainAccessPath::FullScan
+        | ExplainAccessPath::Union(_)
+        | ExplainAccessPath::Intersection(_) => (
             AccessChoiceFamily::NonIndex,
-            "by_key".to_string(),
-            None,
-            CandidateScore {
-                prefix_len: 0,
-                exact: true,
-            },
-        ),
-        ExplainAccessPath::ByKeys { .. } => (
-            AccessChoiceFamily::NonIndex,
-            "by_keys".to_string(),
-            None,
-            CandidateScore {
-                prefix_len: 0,
-                exact: true,
-            },
-        ),
-        ExplainAccessPath::KeyRange { .. } => (
-            AccessChoiceFamily::NonIndex,
-            "key_range".to_string(),
             None,
             CandidateScore {
                 prefix_len: 0,
@@ -312,7 +299,6 @@ fn chosen_access_shape_projection(
             ..
         } => (
             AccessChoiceFamily::Prefix,
-            format!("index:{name}"),
             Some(*name),
             CandidateScore {
                 prefix_len: *prefix_len,
@@ -321,7 +307,6 @@ fn chosen_access_shape_projection(
         ),
         ExplainAccessPath::IndexMultiLookup { name, fields, .. } => (
             AccessChoiceFamily::MultiLookup,
-            format!("index:{name}"),
             Some(*name),
             CandidateScore {
                 prefix_len: 1,
@@ -332,38 +317,10 @@ fn chosen_access_shape_projection(
             name, prefix_len, ..
         } => (
             AccessChoiceFamily::Range,
-            format!("index:{name}"),
             Some(*name),
             CandidateScore {
                 prefix_len: *prefix_len,
                 exact: false,
-            },
-        ),
-        ExplainAccessPath::FullScan => (
-            AccessChoiceFamily::NonIndex,
-            "full_scan".to_string(),
-            None,
-            CandidateScore {
-                prefix_len: 0,
-                exact: true,
-            },
-        ),
-        ExplainAccessPath::Union(_) => (
-            AccessChoiceFamily::NonIndex,
-            "union".to_string(),
-            None,
-            CandidateScore {
-                prefix_len: 0,
-                exact: true,
-            },
-        ),
-        ExplainAccessPath::Intersection(_) => (
-            AccessChoiceFamily::NonIndex,
-            "intersection".to_string(),
-            None,
-            CandidateScore {
-                prefix_len: 0,
-                exact: true,
             },
         ),
     }

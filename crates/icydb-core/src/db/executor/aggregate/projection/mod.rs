@@ -56,7 +56,7 @@ use crate::{
     value::Value,
 };
 
-type StructuralValueProjection = Vec<(DataKey, Value)>;
+type ValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
 type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
@@ -74,7 +74,7 @@ pub(in crate::db) enum ScalarProjectionBoundaryRequest {
 pub(in crate::db) enum ScalarProjectionBoundaryOutput {
     Count(u32),
     Values(Vec<Value>),
-    ValuesWithDataKeys(StructuralValueProjection),
+    ValuesWithDataKeys(ValueProjection),
     TerminalValue(Option<Value>),
 }
 
@@ -526,7 +526,7 @@ where
 
     // Project one materialized `(id, value)` vector into one field value vector while
     // preserving the effective response row order.
-    fn field_values_from_projection(projected_values: StructuralValueProjection) -> Vec<Value> {
+    fn field_values_from_projection(projected_values: ValueProjection) -> Vec<Value> {
         projected_values
             .into_iter()
             .map(|(_, value)| value)
@@ -537,7 +537,7 @@ where
     // preserving first-observed order within the effective response window.
     // This is value DISTINCT semantics via canonical `GroupKey` equality.
     fn project_distinct_field_values_from_materialized(
-        projected_values: StructuralValueProjection,
+        projected_values: ValueProjection,
     ) -> Result<Vec<Value>, InternalError> {
         project_distinct_field_values_from_structural_projection(projected_values)
     }
@@ -549,7 +549,7 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<StructuralValueProjection, InternalError> {
+    ) -> Result<ValueProjection, InternalError> {
         let row_decoder = RowDecoder::structural();
 
         rows.into_iter()
@@ -611,7 +611,7 @@ where
         prepared: &PreparedAggregateStreamingInputs<'_>,
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
-    ) -> Result<Option<StructuralValueProjection>, InternalError> {
+    ) -> Result<Option<ValueProjection>, InternalError> {
         Self::covering_index_projection_pairs_from_context(prepared, context, window)
     }
 
@@ -754,7 +754,7 @@ where
     // Resolve one covering projection component stream for one lowered
     // index-prefix/index-range bounds contract.
     fn read_covering_projection_component_pairs_for_index_bounds(
-        store_resolver: crate::db::executor::StructuralStoreResolver<'_>,
+        store_resolver: crate::db::executor::StoreResolver<'_>,
         entity_tag: crate::types::EntityTag,
         index: &crate::model::index::IndexModel,
         bounds: (
@@ -780,7 +780,7 @@ where
 }
 
 fn project_distinct_field_values_from_structural_projection(
-    projected_values: StructuralValueProjection,
+    projected_values: ValueProjection,
 ) -> Result<Vec<Value>, InternalError> {
     let mut distinct_values = GroupKeySet::default();
     let mut distinct_projected_values = Vec::new();

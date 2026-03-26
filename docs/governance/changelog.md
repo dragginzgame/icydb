@@ -78,7 +78,7 @@ Rules:
 3. Changelog subsections are optional; include only sections relevant to that release.
 4. If an entry reaches 4 lines or more of changelog content, split it into subsection headers.
 5. For small cleanup releases, prefer no subsection headers; use a short plain-language summary with concise bullets.
-6. For structural cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
+6. For internal cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
 7. If a section like `Changed` becomes large, split into topic-based subheaders (for example `Changed - Aggregate Execution`, `Changed - Structure`).
 8. Do not include file paths.
 9. Do not include test names.

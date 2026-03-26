@@ -1619,8 +1619,7 @@ fn structural_update_builder_rejects_unknown_field_names() {
     assert_eq!(err.class, ErrorClass::Internal);
     assert_eq!(err.origin, ErrorOrigin::Executor);
     assert!(
-        err.message
-            .contains("unknown field for structural mutation"),
+        err.message.contains("mutation field not found"),
         "unexpected error: {err:?}"
     );
 }

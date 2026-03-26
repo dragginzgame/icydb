@@ -27,7 +27,7 @@ use crate::{
 };
 
 ///
-/// SqlStructuralProjectionRows
+/// SqlProjectionRows
 ///
 /// Generic-free SQL projection row payload emitted by executor-owned structural
 /// projection execution helpers.
@@ -37,13 +37,13 @@ use crate::{
 
 #[cfg(feature = "sql")]
 #[derive(Debug)]
-pub(in crate::db) struct SqlStructuralProjectionRows {
+pub(in crate::db) struct SqlProjectionRows {
     rows: Vec<Vec<Value>>,
     row_count: u32,
 }
 
 #[cfg(feature = "sql")]
-impl SqlStructuralProjectionRows {
+impl SqlProjectionRows {
     #[must_use]
     pub(in crate::db) const fn new(rows: Vec<Vec<Value>>, row_count: u32) -> Self {
         Self { rows, row_count }
@@ -63,7 +63,7 @@ pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
     debug: bool,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
-) -> Result<SqlStructuralProjectionRows, InternalError>
+) -> Result<SqlProjectionRows, InternalError>
 where
     C: CanisterKind,
 {
@@ -83,7 +83,7 @@ where
     )?;
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
-    Ok(SqlStructuralProjectionRows::new(projected, row_count))
+    Ok(SqlProjectionRows::new(projected, row_count))
 }
 
 #[cfg(feature = "sql")]

@@ -14,9 +14,7 @@ use crate::db::data::structural_field::leaf::{
     decode_principal_value_bytes, decode_subaccount_value_bytes, decode_timestamp_value_bytes,
     decode_uint_big_value_bytes, decode_unit_value_bytes,
 };
-use crate::db::data::structural_field::{
-    StructuralFieldDecodeError, decode_structural_field_by_kind_bytes,
-};
+use crate::db::data::structural_field::{FieldDecodeError, decode_structural_field_by_kind_bytes};
 use crate::{
     model::field::FieldKind,
     types::{Float64, Int, Nat},
@@ -60,7 +58,7 @@ enum ValueEnumFieldTag {
 }
 
 // Resolve one tagged `Value` variant label into its decode contract.
-fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, StructuralFieldDecodeError> {
+fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, FieldDecodeError> {
     let tag = match variant {
         "Account" => ValueVariantTag::Account,
         "Blob" => ValueVariantTag::Scalar(FieldKind::Blob),
@@ -87,7 +85,7 @@ fn parse_value_variant_tag(variant: &str) -> Result<ValueVariantTag, StructuralF
         "Ulid" => ValueVariantTag::Scalar(FieldKind::Ulid),
         "Unit" => ValueVariantTag::Unit,
         other => {
-            return Err(StructuralFieldDecodeError::new(format!(
+            return Err(FieldDecodeError::new(format!(
                 "unsupported value variant '{other}'"
             )));
         }
@@ -111,10 +109,7 @@ fn parse_value_enum_field_tag(raw_bytes: &[u8]) -> Option<ValueEnumFieldTag> {
 //
 // Safety:
 // `context` must be a valid `ValueArrayDecodeState`.
-fn push_value_array_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), StructuralFieldDecodeError> {
+fn push_value_array_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
     let items = unsafe { &mut *context.cast::<ValueArrayDecodeState>() };
     items.push(decode_structural_value_storage_bytes(item_bytes)?);
 
@@ -125,10 +120,7 @@ fn push_value_array_item(
 //
 // Safety:
 // `context` must be a valid `ValueArrayDecodeState`.
-fn push_untyped_array_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), StructuralFieldDecodeError> {
+fn push_untyped_array_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
     let items = unsafe { &mut *context.cast::<ValueArrayDecodeState>() };
     items.push(decode_untyped_shallow_bytes(item_bytes)?);
 
@@ -142,15 +134,15 @@ fn push_untyped_array_item(
 fn push_value_storage_map_entry_item(
     item_bytes: &[u8],
     context: *mut (),
-) -> Result<(), StructuralFieldDecodeError> {
+) -> Result<(), FieldDecodeError> {
     let entries = unsafe { &mut *context.cast::<Vec<(Value, Value)>>() };
     let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(item_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: truncated value map entry",
         ));
     };
     if major != 4 || argument != 2 {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "expected two-item CBOR array for value map entry",
         ));
     }
@@ -160,7 +152,7 @@ fn push_value_storage_map_entry_item(
     let value_start = cursor;
     cursor = skip_cbor_value(item_bytes, cursor)?;
     if cursor != item_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: trailing bytes after value map entry",
         ));
     }
@@ -181,7 +173,7 @@ fn push_untyped_map_entry(
     key_bytes: &[u8],
     value_bytes: &[u8],
     context: *mut (),
-) -> Result<(), StructuralFieldDecodeError> {
+) -> Result<(), FieldDecodeError> {
     let entries = unsafe { &mut *context.cast::<UntypedMapDecodeState>() };
     entries.push((
         decode_untyped_shallow_bytes(key_bytes)?,
@@ -196,7 +188,7 @@ fn push_untyped_map_entry(
 // visitor graph.
 pub(in crate::db) fn decode_structural_value_storage_bytes(
     raw_bytes: &[u8],
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
         raw_bytes,
         "typed CBOR decode failed: truncated value payload",
@@ -220,9 +212,9 @@ pub(in crate::db) fn decode_structural_value_storage_bytes(
 // composites to `Null`.
 pub(super) fn decode_untyped_enum_payload_bytes(
     raw_bytes: &[u8],
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: truncated CBOR value",
         ));
     };
@@ -231,9 +223,7 @@ pub(super) fn decode_untyped_enum_payload_bytes(
         0 | 1 | 2 | 3 | 7 => decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start),
         4 => decode_untyped_list_bytes(raw_bytes),
         5 => decode_untyped_map_bytes(raw_bytes),
-        _ => Err(StructuralFieldDecodeError::new(
-            "unsupported enum payload CBOR shape",
-        )),
+        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
     }
 }
 
@@ -259,15 +249,11 @@ pub(super) fn normalize_map_entries_or_preserve(mut entries: Vec<(Value, Value)>
 }
 
 // Decode one unit `Value` variant from the externally tagged wire shape.
-fn decode_unit_value_variant(
-    variant: ValueVariantTag,
-) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_unit_value_variant(variant: ValueVariantTag) -> Result<Value, FieldDecodeError> {
     match variant {
         ValueVariantTag::Null => Ok(Value::Null),
         ValueVariantTag::Unit => Ok(Value::Unit),
-        _ => Err(StructuralFieldDecodeError::new(
-            "unsupported unit value variant",
-        )),
+        _ => Err(FieldDecodeError::new("unsupported unit value variant")),
     }
 }
 
@@ -276,7 +262,7 @@ fn decode_unit_value_variant(
 fn decode_value_variant_payload(
     variant: ValueVariantTag,
     payload_bytes: &[u8],
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     match variant {
         ValueVariantTag::Account => decode_account_value_bytes(payload_bytes),
         ValueVariantTag::Date => decode_date_value_bytes(payload_bytes),
@@ -297,7 +283,7 @@ fn decode_value_variant_payload(
 }
 
 // Decode one persisted `Value::List` payload recursively from raw element bytes.
-fn decode_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let mut items = Vec::new();
     walk_cbor_array_items(
         raw_bytes,
@@ -312,7 +298,7 @@ fn decode_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<Value, Structural
 
 // Decode one persisted `Value::Map` payload recursively while preserving
 // runtime map invariants.
-fn decode_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let mut entries = Vec::new();
     walk_cbor_array_items(
         raw_bytes,
@@ -323,25 +309,25 @@ fn decode_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralF
     )?;
 
     Value::from_map(entries)
-        .map_err(|err| StructuralFieldDecodeError::new(format!("typed CBOR decode failed: {err}")))
+        .map_err(|err| FieldDecodeError::new(format!("typed CBOR decode failed: {err}")))
 }
 
 // Decode one persisted `Value::Enum` payload struct without routing through the
 // generic `Value` deserializer.
-fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: truncated value enum payload",
         ));
     };
     if major != 5 {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "expected CBOR map for value enum payload",
         ));
     }
 
     let entry_count = usize::try_from(argument)
-        .map_err(|_| StructuralFieldDecodeError::new("expected bounded CBOR map length"))?;
+        .map_err(|_| FieldDecodeError::new("expected bounded CBOR map length"))?;
     let mut variant = None;
     let mut path = None;
     let mut payload = None;
@@ -372,13 +358,13 @@ fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, Structural
     }
 
     if cursor != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: trailing bytes after value enum payload",
         ));
     }
 
     let variant = variant.ok_or_else(|| {
-        StructuralFieldDecodeError::new("typed CBOR decode failed: missing enum variant field")
+        FieldDecodeError::new("typed CBOR decode failed: missing enum variant field")
     })?;
     let mut value = ValueEnum::new(variant, path);
     if let Some(payload) = payload {
@@ -388,20 +374,20 @@ fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, Structural
     Ok(Value::Enum(value))
 }
 
-fn decode_required_text_value_field(raw_bytes: &[u8]) -> Result<&str, StructuralFieldDecodeError> {
+fn decode_required_text_value_field(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: missing text field",
         ));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: trailing bytes after text field",
         ));
     }
     if major != 3 {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: expected a text string",
         ));
     }
@@ -410,17 +396,15 @@ fn decode_required_text_value_field(raw_bytes: &[u8]) -> Result<&str, Structural
 }
 
 // Decode one optional text field from the `ValueEnum` payload struct.
-fn decode_optional_text_value_field(
-    raw_bytes: &[u8],
-) -> Result<Option<&str>, StructuralFieldDecodeError> {
+fn decode_optional_text_value_field(raw_bytes: &[u8]) -> Result<Option<&str>, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: missing optional text field",
         ));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: trailing bytes after optional text field",
         ));
     }
@@ -428,7 +412,7 @@ fn decode_optional_text_value_field(
         return Ok(None);
     }
     if major != 3 {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: expected a text string",
         ));
     }
@@ -441,17 +425,15 @@ fn decode_optional_text_value_field(
 }
 
 // Decode one optional nested `Value` field from the `ValueEnum` payload struct.
-fn decode_optional_nested_value_field(
-    raw_bytes: &[u8],
-) -> Result<Option<Value>, StructuralFieldDecodeError> {
+fn decode_optional_nested_value_field(raw_bytes: &[u8]) -> Result<Option<Value>, FieldDecodeError> {
     let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: missing nested value field",
         ));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: trailing bytes after nested value field",
         ));
     }
@@ -468,7 +450,7 @@ fn decode_untyped_scalar_bytes(
     major: u8,
     argument: u64,
     payload_start: usize,
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     let value = match major {
         0 | 1 => decode_untyped_integer(decode_cbor_integer(major, argument)?),
         2 => {
@@ -481,20 +463,14 @@ fn decode_untyped_scalar_bytes(
             22 => Value::Null,
             26 | 27 => Value::Float64(
                 Float64::try_new(decode_cbor_float(raw_bytes, argument, payload_start)?)
-                    .ok_or_else(|| {
-                        StructuralFieldDecodeError::new("non-finite CBOR float payload")
-                    })?,
+                    .ok_or_else(|| FieldDecodeError::new("non-finite CBOR float payload"))?,
             ),
             _ => {
-                return Err(StructuralFieldDecodeError::new(
-                    "unsupported enum payload CBOR shape",
-                ));
+                return Err(FieldDecodeError::new("unsupported enum payload CBOR shape"));
             }
         },
         _ => {
-            return Err(StructuralFieldDecodeError::new(
-                "unsupported enum payload CBOR shape",
-            ));
+            return Err(FieldDecodeError::new("unsupported enum payload CBOR shape"));
         }
     };
 
@@ -502,7 +478,7 @@ fn decode_untyped_scalar_bytes(
 }
 
 // Decode one untyped list payload one level deep directly from bytes.
-fn decode_untyped_list_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_untyped_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let mut values = Vec::new();
     walk_cbor_array_items(
         raw_bytes,
@@ -516,7 +492,7 @@ fn decode_untyped_list_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldD
 }
 
 // Decode one untyped map payload one level deep directly from bytes.
-fn decode_untyped_map_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_untyped_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let mut values = Vec::new();
     walk_cbor_map_entries(
         raw_bytes,
@@ -530,9 +506,9 @@ fn decode_untyped_map_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDe
 }
 
 // Decode one fallback payload item without rebuilding nested composites.
-fn decode_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(StructuralFieldDecodeError::new(
+        return Err(FieldDecodeError::new(
             "typed CBOR decode failed: truncated CBOR value",
         ));
     };
@@ -540,9 +516,7 @@ fn decode_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<Value, StructuralFie
     match major {
         0 | 1 | 2 | 3 | 7 => decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start),
         4 | 5 => Ok(Value::Null),
-        _ => Err(StructuralFieldDecodeError::new(
-            "unsupported enum payload CBOR shape",
-        )),
+        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
     }
 }
 

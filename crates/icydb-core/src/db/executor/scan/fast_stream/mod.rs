@@ -12,10 +12,10 @@ mod tests;
 
 use crate::{
     db::{
-        access::StructuralKey,
+        access::AccessKey,
         executor::{
             ExecutableAccess, ExecutionOptimization, OrderedKeyStreamBox,
-            pipeline::contracts::FastPathKeyResult, stream::access::StructuralTraversalRuntime,
+            pipeline::contracts::FastPathKeyResult, stream::access::TraversalRuntime,
         },
     },
     error::InternalError,
@@ -39,11 +39,11 @@ fn finalize_fast_path_key_stream(
 
 /// Resolve one structural fast-path access stream without rebuilding a typed access plan.
 pub(in crate::db::executor) fn execute_structural_fast_stream_request(
-    runtime: &StructuralTraversalRuntime,
-    access: ExecutableAccess<'_, StructuralKey>,
+    runtime: &TraversalRuntime,
+    access: ExecutableAccess<'_, AccessKey>,
     optimization: ExecutionOptimization,
 ) -> Result<FastPathKeyResult, InternalError> {
-    let key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
+    let key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
 
     finalize_fast_path_key_stream(key_stream, optimization)
 }

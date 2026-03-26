@@ -57,20 +57,20 @@ where
 }
 
 ///
-/// StructuralStoreResolver
+/// StoreResolver
 ///
-/// StructuralStoreResolver is the non-generic named-store lookup bundle used by
+/// StoreResolver is the non-generic named-store lookup bundle used by
 /// executor helpers that must resolve index-owned stores after the typed
 /// boundary has already chosen the entity model/runtime shell.
 ///
 
 #[derive(Clone, Copy)]
-pub(in crate::db) struct StructuralStoreResolver<'a> {
+pub(in crate::db) struct StoreResolver<'a> {
     lookup: &'a dyn StoreLookup,
 }
 
-impl<'a> StructuralStoreResolver<'a> {
-    /// Build one structural named-store resolver from one object-safe lookup boundary.
+impl<'a> StoreResolver<'a> {
+    /// Build one named-store resolver from one object-safe lookup boundary.
     #[must_use]
     pub(in crate::db) const fn new(lookup: &'a dyn StoreLookup) -> Self {
         Self { lookup }

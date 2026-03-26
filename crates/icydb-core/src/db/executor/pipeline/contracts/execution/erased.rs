@@ -11,7 +11,7 @@ use crate::{
             AccessStreamBindings, ExecutableAccess, OrderedKeyStreamBox,
             pipeline::contracts::FastPathKeyResult,
             scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
-            stream::access::StructuralTraversalRuntime,
+            stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -32,14 +32,14 @@ use crate::{
 ///
 
 pub(in crate::db::executor::pipeline::contracts::execution) struct ErasedRuntimeBindings {
-    runtime: StructuralTraversalRuntime,
+    runtime: TraversalRuntime,
 }
 
 impl ErasedRuntimeBindings {
     /// Construct one structural runtime binding bundle from one structural traversal runtime.
     #[must_use]
     pub(in crate::db::executor::pipeline::contracts::execution) const fn from_runtime(
-        runtime: StructuralTraversalRuntime,
+        runtime: TraversalRuntime,
     ) -> Self {
         Self { runtime }
     }
@@ -121,7 +121,6 @@ impl ErasedRuntimeBindings {
             index_predicate_execution,
         );
 
-        self.runtime
-            .ordered_key_stream_from_structural_runtime_access(access)
+        self.runtime.ordered_key_stream_from_runtime_access(access)
     }
 }

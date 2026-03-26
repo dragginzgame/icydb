@@ -45,12 +45,12 @@ trait CursorPlanSurface<K: FieldValue> {
 }
 
 ///
-/// StructuredCursorPlanSurface
+/// CursorPlanSurfaceAdapter
 ///
 /// Concrete adapter that exposes the canonical cursor validation surface.
 ///
 
-struct StructuredCursorPlanSurface<'a, K> {
+struct CursorPlanSurfaceAdapter<'a, K> {
     access: Option<ExecutableAccessPath<'a, K>>,
     model: &'a EntityModel,
     order: &'a OrderSpec,
@@ -58,7 +58,7 @@ struct StructuredCursorPlanSurface<'a, K> {
     initial_offset: u32,
 }
 
-impl<K: FieldValue> CursorPlanSurface<K> for StructuredCursorPlanSurface<'_, K> {
+impl<K: FieldValue> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> {
     fn entity_model(&self) -> &EntityModel {
         self.model
     }
@@ -100,7 +100,7 @@ where
         return Ok(PlannedCursor::none());
     };
 
-    let surface = StructuredCursorPlanSurface {
+    let surface = CursorPlanSurfaceAdapter {
         access,
         model,
         order,
@@ -136,7 +136,7 @@ where
         return Ok(PlannedCursor::none());
     }
 
-    let surface = StructuredCursorPlanSurface {
+    let surface = CursorPlanSurfaceAdapter {
         access,
         model,
         order,

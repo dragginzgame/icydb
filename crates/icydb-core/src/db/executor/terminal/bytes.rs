@@ -11,7 +11,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
-            ExecutableAccess, ExecutablePlan, PreparedLoadPlan, StructuralTraversalRuntime,
+            ExecutableAccess, ExecutablePlan, PreparedLoadPlan, TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_orderable_field_value_with_slot_reader,
@@ -380,7 +380,7 @@ where
     // Resolve one bounded covering projection component stream from one
     // lowered index-bound contract.
     fn read_bytes_covering_projection_component_pairs_for_index_bounds(
-        store_resolver: crate::db::executor::StructuralStoreResolver<'_>,
+        store_resolver: crate::db::executor::StoreResolver<'_>,
         entity_tag: crate::types::EntityTag,
         index: &crate::model::index::IndexModel,
         bounds: (
@@ -493,9 +493,8 @@ where
         let (offset, limit) = bytes_page_window_state(page.as_ref());
 
         // Phase 2: stream keys and sum persisted payload lengths over the page window.
-        let runtime =
-            StructuralTraversalRuntime::new(prepared.store, prepared.authority.entity_tag());
-        let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
+        let runtime = TraversalRuntime::new(prepared.store, prepared.authority.entity_tag());
+        let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
 
         sum_row_payload_bytes_from_ordered_key_stream_with_store(
             prepared.store,

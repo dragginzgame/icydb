@@ -32,7 +32,7 @@ pub(crate) fn commit_schema_fingerprint_for_entity<E: EntityKind>() -> CommitSch
     commit_schema_fingerprint_for_model(E::PATH, E::MODEL)
 }
 
-/// Compute one deterministic schema/index fingerprint from structural authority.
+/// Compute one deterministic schema/index fingerprint from resolved authority.
 #[must_use]
 pub(crate) fn commit_schema_fingerprint_for_model(
     entity_path: &'static str,

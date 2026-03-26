@@ -263,7 +263,7 @@ impl ExecutablePlanCore {
     }
 }
 
-// Build one canonical lowered executable-plan core from structural authority
+// Build one canonical lowered executable-plan core from resolved authority
 // plus one logical plan, regardless of whether the caller started from a typed
 // `ExecutablePlan<E>` shell or a structural follow-on rewrite.
 fn build_executable_plan_core(

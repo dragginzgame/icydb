@@ -200,7 +200,7 @@ pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
     crate::db::identifiers_tail_match(left, right)
 }
 
-/// Build one stable list of SQL entity names from structural authority.
+/// Build one stable list of SQL entity names from resolved authority.
 #[doc(hidden)]
 #[must_use]
 pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
@@ -222,7 +222,7 @@ pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
     let parsed = session.core_session().parse_sql_statement(sql_trimmed)?;
     let statement = parsed.route();
 
-    // Phase 2: route the parsed statement through one shared structural helper.
+    // Phase 2: route the parsed statement through one shared helper.
     match statement {
         SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. }
             if parsed.is_delete_like_query_surface() =>
@@ -245,7 +245,7 @@ pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
     }
 }
 
-// Resolve one structural authority from an entity-scoped SQL statement.
+// Resolve one authority from an entity-scoped SQL statement.
 fn authority_for_statement(
     statement: &SqlStatementRoute,
     authorities: &[EntityAuthority],
@@ -259,7 +259,7 @@ fn authority_for_statement(
         .ok_or_else(|| unsupported_sql_entity_error(sql_entity, authorities))
 }
 
-// Resolve one structural authority from one SQL entity identifier.
+// Resolve one authority from one SQL entity identifier.
 fn authority_for_entity_name(
     entity_name: &str,
     authorities: &[EntityAuthority],
@@ -270,7 +270,7 @@ fn authority_for_entity_name(
         .find(|authority| identifiers_tail_match(entity_name, authority.model().name()))
 }
 
-// Execute one shared SQL query/explain lane after routing authority structurally.
+// Execute one shared SQL query/explain lane after routing authority once.
 fn query_lane_result_for_statement<C: CanisterKind>(
     session: &DbSession<C>,
     sql: &str,
@@ -278,7 +278,7 @@ fn query_lane_result_for_statement<C: CanisterKind>(
     statement: &SqlStatementRoute,
     authorities: &[EntityAuthority],
 ) -> Result<SqlQueryResult, Error> {
-    // Phase 1: resolve one canonical structural authority for the routed
+    // Phase 1: resolve one canonical authority for the routed
     // query/explain statement.
     let authority = authority_for_statement(statement, authorities)?;
     let core_session = session.core_session();
@@ -311,7 +311,7 @@ fn query_lane_result_for_statement<C: CanisterKind>(
     ))
 }
 
-// Render one DESCRIBE result through one shared structural authority path.
+// Render one DESCRIBE result through one shared authority path.
 fn describe_result_for_statement<C: CanisterKind>(
     session: &DbSession<C>,
     statement: &SqlStatementRoute,
@@ -323,7 +323,7 @@ fn describe_result_for_statement<C: CanisterKind>(
     Ok(SqlQueryResult::Describe(description))
 }
 
-// Render one SHOW INDEXES result through one shared structural authority path.
+// Render one SHOW INDEXES result through one shared authority path.
 fn show_indexes_result_for_statement<C: CanisterKind>(
     session: &DbSession<C>,
     statement: &SqlStatementRoute,
@@ -338,7 +338,7 @@ fn show_indexes_result_for_statement<C: CanisterKind>(
     })
 }
 
-// Render one SHOW COLUMNS result through one shared structural authority path.
+// Render one SHOW COLUMNS result through one shared authority path.
 fn show_columns_result_for_statement<C: CanisterKind>(
     session: &DbSession<C>,
     statement: &SqlStatementRoute,

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::StructuralKey,
+        access::AccessKey,
         executor::{
             ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -91,23 +91,23 @@ fn validate_index_range_spec_alignment<K>(
 }
 
 ///
-/// StructuralTraversalRuntime
+/// TraversalRuntime
 ///
-/// StructuralTraversalRuntime carries the structural store/index authority
+/// TraversalRuntime carries the store/index authority
 /// needed to resolve planner-key executable access paths without recovering
 /// `Context<'_, E>` inside the execution hot path.
-/// It is the structural fast-path/runtime leaf used by erased execution
+/// It is the fast-path runtime leaf used by erased execution
 /// adapters and typed context shells alike.
 ///
 
 #[derive(Clone, Copy)]
-pub(in crate::db::executor) struct StructuralTraversalRuntime {
+pub(in crate::db::executor) struct TraversalRuntime {
     pub(in crate::db::executor) store: crate::db::registry::StoreHandle,
     pub(in crate::db::executor) entity_tag: crate::types::EntityTag,
 }
 
-impl StructuralTraversalRuntime {
-    /// Build one structural traversal runtime from canonical store authority.
+impl TraversalRuntime {
+    /// Build one traversal runtime from canonical store authority.
     #[must_use]
     pub(in crate::db::executor) const fn new(
         store: crate::db::registry::StoreHandle,
@@ -116,10 +116,10 @@ impl StructuralTraversalRuntime {
         Self { store, entity_tag }
     }
 
-    /// Resolve one structural executable access binding into an ordered key stream.
-    pub(in crate::db::executor) fn ordered_key_stream_from_structural_runtime_access(
+    /// Resolve one executable access binding into an ordered key stream.
+    pub(in crate::db::executor) fn ordered_key_stream_from_runtime_access(
         &self,
-        request: ExecutableAccess<'_, StructuralKey>,
+        request: ExecutableAccess<'_, AccessKey>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let inputs = TraversalInputs {
             index_prefix_specs: request.bindings.index_prefix_specs,
@@ -141,10 +141,10 @@ impl StructuralTraversalRuntime {
     }
 }
 
-impl AccessTraversalRuntime<StructuralKey> for StructuralTraversalRuntime {
+impl AccessTraversalRuntime<AccessKey> for TraversalRuntime {
     fn lower_path_access(
         &self,
-        path: &ExecutableAccessPath<'_, StructuralKey>,
+        path: &ExecutableAccessPath<'_, AccessKey>,
         inputs: TraversalInputs<'_>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_spec: Option<&LoweredIndexRangeSpec>,

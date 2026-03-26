@@ -11,7 +11,7 @@
 //! Boundary: data::store persists `RawDataKey`; higher layers use `DataKey`.
 
 use crate::{
-    db::access::StructuralKey,
+    db::access::AccessKey,
     error::InternalError,
     traits::{EntityKind, FieldValue, Storable},
     types::EntityTag,
@@ -138,7 +138,7 @@ impl DataKey {
     /// no longer carry typed entity keys.
     pub(crate) fn try_from_structural_key(
         entity: EntityTag,
-        key: &StructuralKey,
+        key: &AccessKey,
     ) -> Result<Self, InternalError> {
         let key = StorageKey::try_from_value(key)?;
 

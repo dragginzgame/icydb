@@ -28,7 +28,7 @@ pub struct EntityAuthority {
 }
 
 impl EntityAuthority {
-    /// Build structural authority from explicit runtime metadata.
+    /// Build authority from explicit runtime metadata.
     #[must_use]
     pub const fn new(
         model: &'static EntityModel,
@@ -42,13 +42,13 @@ impl EntityAuthority {
         }
     }
 
-    /// Build structural authority from one resolved entity type.
+    /// Build authority from one resolved entity type.
     #[must_use]
     pub const fn for_type<E: EntityKind>() -> Self {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
-    /// Borrow structural entity model authority.
+    /// Borrow the entity model authority.
     #[must_use]
     pub const fn model(&self) -> &'static EntityModel {
         self.model

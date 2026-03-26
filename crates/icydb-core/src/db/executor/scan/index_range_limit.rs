@@ -9,7 +9,7 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             ExecutionOptimization, LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
-            stream::access::StructuralTraversalRuntime,
+            stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -19,7 +19,7 @@ use crate::{
 
 /// Execute one bounded index-range fast-path stream through the structural runtime.
 pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
-    runtime: &StructuralTraversalRuntime,
+    runtime: &TraversalRuntime,
     plan: &AccessPlannedQuery,
     index_range_spec: Option<&LoweredIndexRangeSpec>,
     continuation: AccessScanContinuationInput<'_>,

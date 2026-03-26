@@ -17,8 +17,7 @@ use crate::{
             AccessStreamBindings, ContinuationEngine, EntityAuthority, ExecutionKernel,
             ExecutionPlan, ExecutionPreparation, ExecutionTrace, ExecutorPlanError,
             PreparedLoadPlan, ResolvedScalarContinuationContext,
-            ScalarRouteContinuationInvariantProjection, StructuralStoreResolver,
-            StructuralTraversalRuntime,
+            ScalarRouteContinuationInvariantProjection, StoreResolver, TraversalRuntime,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
                 ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
@@ -112,7 +111,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
 pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<'ctx> {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
-    pub(in crate::db::executor) store_resolver: StructuralStoreResolver<'ctx>,
+    pub(in crate::db::executor) store_resolver: StoreResolver<'ctx>,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
     pub(in crate::db::executor) index_prefix_specs:
         Vec<crate::db::executor::LoweredIndexPrefixSpec>,
@@ -268,7 +267,7 @@ fn execute_prepared_scalar_path_execution(
     let structural_access = plan.access.clone();
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
         &structural_access,
-        StructuralTraversalRuntime::new(store, authority.entity_tag()),
+        TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
     );
@@ -509,7 +508,7 @@ where
     let structural_access = logical_plan.access.clone();
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
         &structural_access,
-        StructuralTraversalRuntime::new(store, authority.entity_tag()),
+        TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
     );
@@ -575,7 +574,7 @@ where
 
         validate_executor_plan_for_authority(authority, &logical_plan)?;
         let store = self.db.recovered_store(authority.store_path())?;
-        let store_resolver = self.db.structural_store_resolver();
+        let store_resolver = self.db.store_resolver();
 
         Ok(PreparedScalarMaterializedBoundary {
             authority,

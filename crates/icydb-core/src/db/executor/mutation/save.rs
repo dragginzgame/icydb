@@ -10,9 +10,7 @@ use crate::{
         data::{DataKey, PersistedRow, RawRow, UpdatePatch, decode_raw_row_for_entity_key},
         executor::{
             Context, ExecutorError,
-            mutation::{
-                StructuralMutationInput, commit_save_row_ops_with_window, mutation_write_context,
-            },
+            mutation::{MutationInput, commit_save_row_ops_with_window, mutation_write_context},
         },
         schema::commit_schema_fingerprint_for_entity,
     },
@@ -76,18 +74,18 @@ impl SaveRule {
 }
 
 ///
-/// StructuralMutationMode
+/// MutationMode
 ///
-/// StructuralMutationMode
+/// MutationMode
 ///
-/// StructuralMutationMode makes the structural patch path spell out the same
+/// MutationMode makes the structural patch path spell out the same
 /// row-existence contract the typed save surface already owns.
 /// This keeps future structural callers from smuggling write-mode meaning
 /// through ad hoc helper choice once the seam moves beyond `icydb-core`.
 ///
 
 #[derive(Clone, Copy)]
-pub enum StructuralMutationMode {
+pub enum MutationMode {
     #[allow(dead_code)]
     Insert,
     #[allow(dead_code)]
@@ -95,7 +93,7 @@ pub enum StructuralMutationMode {
     Update,
 }
 
-impl StructuralMutationMode {
+impl MutationMode {
     const fn save_rule(self) -> SaveRule {
         match self {
             Self::Insert => SaveRule::RequireAbsent,
@@ -140,7 +138,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         key: E::Key,
         patch: UpdatePatch,
     ) -> Result<E, InternalError> {
-        self.apply_structural_mutation(StructuralMutationMode::Insert, key, patch)
+        self.apply_structural_mutation(MutationMode::Insert, key, patch)
     }
 
     /// Apply one structural full-row replacement, inserting if missing.
@@ -153,7 +151,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         key: E::Key,
         patch: UpdatePatch,
     ) -> Result<E, InternalError> {
-        self.apply_structural_mutation(StructuralMutationMode::Replace, key, patch)
+        self.apply_structural_mutation(MutationMode::Replace, key, patch)
     }
 
     /// Apply one structural field patch to an existing entity row.
@@ -166,7 +164,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         key: E::Key,
         patch: UpdatePatch,
     ) -> Result<E, InternalError> {
-        self.apply_structural_mutation(StructuralMutationMode::Update, key, patch)
+        self.apply_structural_mutation(MutationMode::Update, key, patch)
     }
 
     /// Replace an entity, inserting if missing.
@@ -303,7 +301,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Validate and stage all row ops before opening the commit window.
         for mut entity in entities {
             self.preflight_entity(&mut entity)?;
-            let mutation = StructuralMutationInput::from_entity(&entity)?;
+            let mutation = MutationInput::from_entity(&entity)?;
 
             let (marker_row_op, data_key) =
                 Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
@@ -331,7 +329,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn prepare_logical_row_op(
         ctx: &Context<'_, E>,
         save_rule: SaveRule,
-        mutation: &StructuralMutationInput,
+        mutation: &MutationInput,
     ) -> Result<(CommitRowOp, DataKey), InternalError> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
         let data_key = mutation.data_key().clone();
@@ -354,7 +352,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Build the persisted after-image under one explicit structural mode.
     fn build_after_image_row(
-        mutation: &StructuralMutationInput,
+        mutation: &MutationInput,
         old_row: Option<&RawRow>,
     ) -> Result<RawRow, InternalError> {
         let Some(old_row) = old_row else {
@@ -366,12 +364,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Build the persisted after-image under one explicit structural mode.
     fn build_structural_after_image_row(
-        mode: StructuralMutationMode,
-        mutation: &StructuralMutationInput,
+        mode: MutationMode,
+        mutation: &MutationInput,
         old_row: Option<&RawRow>,
     ) -> Result<RawRow, InternalError> {
         match mode {
-            StructuralMutationMode::Update => {
+            MutationMode::Update => {
                 let Some(old_row) = old_row else {
                     return RawRow::from_serialized_update_patch(
                         E::MODEL,
@@ -381,7 +379,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
                 old_row.apply_serialized_update_patch(E::MODEL, mutation.serialized_patch())
             }
-            StructuralMutationMode::Insert | StructuralMutationMode::Replace => {
+            MutationMode::Insert | MutationMode::Replace => {
                 RawRow::from_serialized_update_patch(E::MODEL, mutation.serialized_patch())
             }
         }
@@ -448,7 +446,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
             // Run the canonical save preflight before key extraction.
             self.preflight_entity(&mut entity)?;
-            let mutation = StructuralMutationInput::from_entity(&entity)?;
+            let mutation = MutationInput::from_entity(&entity)?;
 
             let (marker_row_op, _data_key) =
                 Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
@@ -471,11 +469,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     #[allow(dead_code)]
     pub(in crate::db) fn apply_structural_mutation(
         &self,
-        mode: StructuralMutationMode,
+        mode: MutationMode,
         key: E::Key,
         patch: UpdatePatch,
     ) -> Result<E, InternalError> {
-        let mutation = StructuralMutationInput::from_update_patch::<E>(key, &patch)?;
+        let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
 
         self.save_structural_mutation(mode, mutation)
     }
@@ -483,8 +481,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     #[allow(dead_code)]
     fn save_structural_mutation(
         &self,
-        mode: StructuralMutationMode,
-        mutation: StructuralMutationInput,
+        mode: MutationMode,
+        mutation: MutationInput,
     ) -> Result<E, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = mutation_write_context::<E>(&self.db)?;
@@ -493,7 +491,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let raw_after_image =
             Self::build_structural_after_image_row(mode, &mutation, old_raw.as_ref())?;
         let entity = self.validate_structural_after_image(&data_key, &raw_after_image)?;
-        let normalized_mutation = StructuralMutationInput::from_entity(&entity)?;
+        let normalized_mutation = MutationInput::from_entity(&entity)?;
         let row =
             Self::build_structural_after_image_row(mode, &normalized_mutation, old_raw.as_ref())?;
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();

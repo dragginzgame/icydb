@@ -10,8 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, PreparedAggregatePlan,
-            StructuralTraversalRuntime,
+            ExecutionKernel, ExecutionPreparation, PreparedAggregatePlan, TraversalRuntime,
             aggregate::{
                 AggregateFoldMode, AggregateKind, PreparedAggregateStreamingInputs,
                 PreparedAggregateStreamingInputsCore, PreparedScalarTerminalBoundary,
@@ -332,8 +331,8 @@ fn aggregate_existing_rows_terminal_output_with_runtime(
         None,
         index_predicate_execution,
     );
-    let runtime = StructuralTraversalRuntime::new(store, entity_tag);
-    let mut key_stream = runtime.ordered_key_stream_from_structural_runtime_access(access)?;
+    let runtime = TraversalRuntime::new(store, entity_tag);
+    let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
 
     // Phase 3: fold through existing-row semantics and record scan metrics.
     let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(

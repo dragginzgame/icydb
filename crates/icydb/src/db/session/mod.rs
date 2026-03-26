@@ -26,9 +26,7 @@ pub use delete::SessionDeleteQuery;
 pub use load::{FluentLoadQuery, PagedLoadQuery};
 
 ///
-/// StructuralMutationMode
-///
-/// StructuralMutationMode
+/// MutationMode
 ///
 /// Public write-mode contract for structural session mutations.
 /// This keeps insert, update, and replace under one API surface instead of
@@ -36,18 +34,18 @@ pub use load::{FluentLoadQuery, PagedLoadQuery};
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StructuralMutationMode {
+pub enum MutationMode {
     Insert,
     Replace,
     Update,
 }
 
-impl StructuralMutationMode {
-    const fn into_core(self) -> core::db::StructuralMutationMode {
+impl MutationMode {
+    const fn into_core(self) -> core::db::MutationMode {
         match self {
-            Self::Insert => core::db::StructuralMutationMode::Insert,
-            Self::Replace => core::db::StructuralMutationMode::Replace,
-            Self::Update => core::db::StructuralMutationMode::Update,
+            Self::Insert => core::db::MutationMode::Insert,
+            Self::Replace => core::db::MutationMode::Replace,
+            Self::Update => core::db::MutationMode::Update,
         }
     }
 }
@@ -72,8 +70,7 @@ impl UpdatePatch {
     /// Build one empty structural patch.
     ///
     /// Callers then append field updates through `set_field(...)` so model
-    /// field-name validation stays at the patch boundary instead of leaking
-    /// internal slot indices into the public API.
+    /// field-name validation stays at the patch boundary.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -84,8 +81,7 @@ impl UpdatePatch {
     /// Resolve one model field name and append its structural field update.
     ///
     /// This keeps the public patch surface field-name-driven while still
-    /// lowering immediately into the internal structural slot patch owned by
-    /// `icydb-core`.
+    /// validating field existence before mutation execution begins.
     pub fn set_field(
         mut self,
         model: &'static EntityModel,
@@ -531,21 +527,20 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Apply one structural mutation under one explicit write-mode contract.
     ///
-    /// Structural mutation is a dynamic ingress, not a weaker write path:
-    /// the session still routes through the shared structural mutation input,
-    /// decodes the after-image back into `E`, and reuses the normal typed save
-    /// validation line before commit staging.
+    /// This is a dynamic, field-name-driven write ingress, not a weaker write
+    /// path: the same entity validation and commit rules still apply before
+    /// the write can succeed.
     ///
     /// `mode` semantics are explicit:
-    /// - `Insert`: patch must describe a full after-image; fails if the row already exists.
+    /// - `Insert`: patch must describe a full row; fails if the row already exists.
     /// - `Update`: patch applies over the existing row; fails if the row is missing.
-    /// - `Replace`: patch must describe a full after-image; rebuilds from an empty
-    ///   row image and inserts if the row is missing.
+    /// - `Replace`: patch must describe a full row; omitted fields are not inherited
+    ///   from the previous value, and the row is inserted if it is missing.
     pub fn mutate_structural<E>(
         &self,
         key: E::Key,
         patch: UpdatePatch,
-        mode: StructuralMutationMode,
+        mode: MutationMode,
     ) -> Result<WriteResponse<E>, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,

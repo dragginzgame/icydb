@@ -386,3 +386,28 @@ fn classification_integrity_corruption_constructors_never_downgrade() {
         );
     }
 }
+
+#[test]
+fn mutation_unknown_field_message_uses_public_wording() {
+    let err = InternalError::mutation_structural_field_unknown("tests::User", "missing_name");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        err.message,
+        "mutation field not found: tests::User field=missing_name",
+    );
+}
+
+#[test]
+fn mutation_invalid_result_message_uses_public_wording() {
+    let err =
+        InternalError::mutation_structural_after_image_invalid("tests::User", "abc123", "detail");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        err.message,
+        "mutation result is invalid: tests::User key=abc123 (detail)",
+    );
+}

@@ -10,7 +10,7 @@ use crate::{
             AccessStreamBindings, ExecutableAccess, ExecutionOptimization, LoweredIndexPrefixSpec,
             pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
-            stream::access::StructuralTraversalRuntime,
+            stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -20,7 +20,7 @@ use crate::{
 
 /// Execute one secondary-index fast-path stream route through the structural runtime.
 pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
-    runtime: &StructuralTraversalRuntime,
+    runtime: &TraversalRuntime,
     plan: &AccessPlannedQuery,
     index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     stream_direction: Direction,

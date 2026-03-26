@@ -62,7 +62,7 @@ pub use diagnostics::{
 };
 #[doc(hidden)]
 pub use executor::EntityAuthority;
-pub use executor::StructuralMutationMode;
+pub use executor::MutationMode;
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use migration::{
@@ -176,10 +176,10 @@ impl<C: CanisterKind> Db<C> {
         self.store.with(|reg| f(reg))
     }
 
-    /// Build one structural named-store resolver for executor/runtime helpers.
+    /// Build one named-store resolver for executor/runtime helpers.
     #[must_use]
-    pub(in crate::db) fn structural_store_resolver(&self) -> executor::StructuralStoreResolver<'_> {
-        executor::StructuralStoreResolver::new(self)
+    pub(in crate::db) fn store_resolver(&self) -> executor::StoreResolver<'_> {
+        executor::StoreResolver::new(self)
     }
 
     /// Build one storage diagnostics report for registered stores/entities.

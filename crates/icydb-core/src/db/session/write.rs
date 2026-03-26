@@ -1,10 +1,7 @@
 #[cfg(test)]
 use crate::db::{DataStore, IndexStore};
 use crate::{
-    db::{
-        DbSession, PersistedRow, WriteBatchResponse, data::UpdatePatch,
-        executor::StructuralMutationMode,
-    },
+    db::{DbSession, PersistedRow, WriteBatchResponse, data::UpdatePatch, executor::MutationMode},
     error::InternalError,
     traits::{CanisterKind, EntityValue},
 };
@@ -63,7 +60,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         key: E::Key,
         patch: UpdatePatch,
-        mode: StructuralMutationMode,
+        mode: MutationMode,
     ) -> Result<E, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -84,7 +81,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.mutate_structural(key, patch, StructuralMutationMode::Replace)
+        self.mutate_structural(key, patch, MutationMode::Replace)
     }
 
     /// Replace a single-entity-type batch atomically in one commit window.
@@ -136,7 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.mutate_structural(key, patch, StructuralMutationMode::Insert)
+        self.mutate_structural(key, patch, MutationMode::Insert)
     }
 
     /// Apply one structural field patch to an existing entity row.
@@ -153,7 +150,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.mutate_structural(key, patch, StructuralMutationMode::Update)
+        self.mutate_structural(key, patch, MutationMode::Update)
     }
 
     /// Update a single-entity-type batch atomically in one commit window.

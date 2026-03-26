@@ -23,9 +23,9 @@ pub(in crate::db) use storage_key::{
 pub(in crate::db) use value_storage::decode_structural_value_storage_bytes;
 
 ///
-/// StructuralFieldDecodeError
+/// FieldDecodeError
 ///
-/// StructuralFieldDecodeError captures one persisted-field structural decode
+/// FieldDecodeError captures one persisted-field structural decode
 /// failure.
 /// It keeps structural decode diagnostics local to the field boundary so row
 /// and relation callers can map them into taxonomy-correct higher-level errors.
@@ -33,11 +33,11 @@ pub(in crate::db) use value_storage::decode_structural_value_storage_bytes;
 
 #[derive(Clone, Debug, ThisError)]
 #[error("{message}")]
-pub(in crate::db) struct StructuralFieldDecodeError {
+pub(in crate::db) struct FieldDecodeError {
     message: String,
 }
 
-impl StructuralFieldDecodeError {
+impl FieldDecodeError {
     // Build one structural field-decode failure message.
     fn new(message: impl Into<String>) -> Self {
         Self {
@@ -50,7 +50,7 @@ impl StructuralFieldDecodeError {
 pub(in crate::db) fn decode_structural_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     // Keep byte-backed `ByKind` leaves off the generic `ValueWire` bridge
     // whenever their persisted shape is fixed or already owned by the leaf
     // type.

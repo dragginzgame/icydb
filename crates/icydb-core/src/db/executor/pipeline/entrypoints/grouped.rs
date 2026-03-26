@@ -18,7 +18,7 @@ use crate::{
         pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
         pipeline::orchestrator::LoadExecutionSurface,
         pipeline::timing::{elapsed_execution_micros, start_execution_timer},
-        stream::access::StructuralTraversalRuntime,
+        stream::access::TraversalRuntime,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -35,7 +35,7 @@ use crate::{
 ///
 
 struct GroupedPathRuntimeCore {
-    traversal_runtime: StructuralTraversalRuntime,
+    traversal_runtime: TraversalRuntime,
     row_store: StoreHandle,
     authority: EntityAuthority,
     output_observer: GroupedOutputRuntimeObserverBindings,
@@ -131,7 +131,7 @@ where
         let store = self.db.recovered_store(authority.store_path())?;
 
         Ok(GroupedPathRuntimeCore {
-            traversal_runtime: StructuralTraversalRuntime::new(store, authority.entity_tag()),
+            traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
             row_store: store,
             authority,
             output_observer: GroupedOutputRuntimeObserverBindings::for_path(

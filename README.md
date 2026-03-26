@@ -89,7 +89,7 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## 0.64 Highlights
 
-- Public structural mutation is now mode-driven: callers build an `UpdatePatch`, choose `Insert` / `Update` / `Replace`, and still reuse the same typed validation and commit pipeline underneath.
+- The public mutation API is now mode-driven: callers build an `UpdatePatch`, choose `Insert` / `Update` / `Replace`, and still reuse the same typed validation and commit pipeline underneath.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
 - Repo-managed cargo flows now use IcyDB-local cargo state, which helps keep local build/test/check runs from contending with sibling repositories on the same filesystem.
 
@@ -172,18 +172,18 @@ pub fn users_named_ann() -> Result<Vec<User>, icydb::Error> {
 }
 ```
 
-### Apply one structural mutation
+### Apply one mutation
 
 ```rust
 use icydb::prelude::*;
-use icydb::db::{StructuralMutationMode, UpdatePatch};
+use icydb::db::{MutationMode, UpdatePatch};
 
 pub fn rename_user(user_id: Ulid, new_name: String) -> Result<(), icydb::Error> {
     let patch = UpdatePatch::new()
         .set_field(User::MODEL, "id", Value::Ulid(user_id))?
         .set_field(User::MODEL, "name", Value::Text(new_name))?;
 
-    db!().mutate_structural::<User>(user_id, patch, StructuralMutationMode::Update)?;
+    db!().mutate_structural::<User>(user_id, patch, MutationMode::Update)?;
 
     Ok(())
 }

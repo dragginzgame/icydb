@@ -10,8 +10,7 @@ use crate::db::data::structural_field::value_storage::{
     decode_untyped_enum_payload_bytes, normalize_map_entries_or_preserve,
 };
 use crate::db::data::structural_field::{
-    StructuralFieldDecodeError, decode_structural_field_by_kind_bytes,
-    decode_structural_value_storage_bytes,
+    FieldDecodeError, decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
 };
 use crate::{
     model::field::{EnumVariantModel, FieldKind, FieldStorageDecode},
@@ -40,10 +39,7 @@ type KindMapDecodeState = (Vec<(Value, Value)>, FieldKind, FieldKind);
 //
 // Safety:
 // `context` must be a valid `KindArrayDecodeState`.
-fn push_kind_array_item(
-    item_bytes: &[u8],
-    context: *mut (),
-) -> Result<(), StructuralFieldDecodeError> {
+fn push_kind_array_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<KindArrayDecodeState>() };
     state
         .0
@@ -60,7 +56,7 @@ fn push_kind_map_entry(
     key_bytes: &[u8],
     value_bytes: &[u8],
     context: *mut (),
-) -> Result<(), StructuralFieldDecodeError> {
+) -> Result<(), FieldDecodeError> {
     let state = unsafe { &mut *context.cast::<KindMapDecodeState>() };
     state.0.push((
         decode_structural_field_by_kind_bytes(key_bytes, state.1)?,
@@ -72,10 +68,7 @@ fn push_kind_map_entry(
 
 // Decode one list/set field directly from CBOR bytes and recurse only through
 // the declared item contract.
-fn decode_list_bytes(
-    raw_bytes: &[u8],
-    inner: FieldKind,
-) -> Result<Value, StructuralFieldDecodeError> {
+fn decode_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<Value, FieldDecodeError> {
     let mut state = (Vec::new(), inner);
     walk_cbor_array_items(
         raw_bytes,
@@ -94,7 +87,7 @@ fn decode_map_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
     value_kind: FieldKind,
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     let mut state = (Vec::new(), key_kind, value_kind);
     walk_cbor_map_entries(
         raw_bytes,
@@ -113,7 +106,7 @@ fn decode_enum_bytes(
     raw_bytes: &[u8],
     path: &'static str,
     variants: &'static [EnumVariantModel],
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
         raw_bytes,
         "typed CBOR decode failed: truncated CBOR value",
@@ -157,7 +150,7 @@ fn decode_enum_bytes(
 pub(super) fn decode_composite_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Value, StructuralFieldDecodeError> {
+) -> Result<Value, FieldDecodeError> {
     match kind {
         FieldKind::Enum { path, variants } => decode_enum_bytes(raw_bytes, path, variants),
         FieldKind::List(inner) | FieldKind::Set(inner) => decode_list_bytes(raw_bytes, *inner),
@@ -185,7 +178,7 @@ pub(super) fn decode_composite_field_by_kind_bytes(
         | FieldKind::Uint128
         | FieldKind::UintBig
         | FieldKind::Ulid
-        | FieldKind::Unit => Err(StructuralFieldDecodeError::new(
+        | FieldKind::Unit => Err(FieldDecodeError::new(
             "leaf field unexpectedly routed through composite decode",
         )),
     }

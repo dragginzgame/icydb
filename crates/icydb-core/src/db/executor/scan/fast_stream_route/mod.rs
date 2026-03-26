@@ -16,7 +16,7 @@ use crate::{
                 index_range_limit::execute_index_range_fast_stream_route,
                 secondary_index::execute_secondary_index_fast_stream_route,
             },
-            stream::access::StructuralTraversalRuntime,
+            stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -67,7 +67,7 @@ pub(in crate::db::executor) enum FastStreamRouteRequest<'a> {
 
 /// Execute one verified fast-stream route through the structural load dispatch boundary.
 pub(in crate::db::executor) fn execute_fast_stream_route(
-    runtime: &StructuralTraversalRuntime,
+    runtime: &TraversalRuntime,
     route_kind: FastStreamRouteKind,
     request: FastStreamRouteRequest<'_>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
