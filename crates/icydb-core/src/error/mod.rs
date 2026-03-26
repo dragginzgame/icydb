@@ -1179,8 +1179,8 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical row-decoder missing-field corruption error.
-    pub(crate) fn row_decode_declared_field_missing(field_name: &str) -> Self {
+    /// Construct the canonical persisted-row missing declared-field corruption error.
+    pub(crate) fn persisted_row_declared_field_missing(field_name: &str) -> Self {
         Self::persisted_row_decode_failed(format!("missing declared field `{field_name}`"))
     }
 
@@ -1305,17 +1305,6 @@ impl InternalError {
     ) -> Self {
         Self::store_corruption(format!(
             "{context_label}: source={source_path} field={field_name} target={target_path} expected={target_entity_name} (tag={expected_tag}) actual_tag={actual_tag}",
-        ))
-    }
-
-    /// Construct the canonical relation-source row missing-field corruption error.
-    pub(crate) fn relation_source_row_missing_field(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-    ) -> Self {
-        Self::serialize_corruption(format!(
-            "relation source row decode failed: missing field: source={source_path} field={field_name} target={target_path}",
         ))
     }
 

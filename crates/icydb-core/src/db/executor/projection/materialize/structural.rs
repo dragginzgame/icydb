@@ -6,16 +6,15 @@
 use crate::{
     db::{
         Db,
-        data::{DataRow, StructuralSlotReader, decode_slot_value_by_contract},
+        data::{CanonicalSlotReader, DataRow, StructuralSlotReader},
         executor::{
             EntityAuthority,
             pipeline::entrypoints::execute_initial_scalar_rows_for_canister,
             projection::{
-                eval::{
-                    ProjectionEvalError, ScalarProjectionEvalError, ScalarProjectionExpr,
-                    eval_scalar_projection_expr,
+                eval::{ScalarProjectionExpr, eval_canonical_scalar_projection_expr},
+                materialize::{
+                    prepare_projection_plan, visit_projection_values_with_required_value_reader,
                 },
-                materialize::{prepare_projection_plan, visit_projection_values_with_slot_reader},
             },
         },
         query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
@@ -122,8 +121,7 @@ fn project_scalar_data_rows_from_projection_structural(
 
         let mut values = Vec::with_capacity(compiled_fields.len());
         for compiled in compiled_fields {
-            let value = eval_scalar_projection_expr(compiled, &row_fields)
-                .map_err(ScalarProjectionEvalError::into_internal_error)?;
+            let value = eval_canonical_scalar_projection_expr(compiled, &row_fields)?;
             values.push(value);
         }
         projected_rows.push(values);
@@ -146,28 +144,29 @@ fn project_generic_data_rows_from_projection_structural(
         let row_fields = StructuralSlotReader::from_raw_row(raw_row, model)?;
         row_fields.validate_storage_key(data_key)?;
 
+        // Phase 2: decode declared slots lazily but fail closed when a
+        // canonical structural row omits one.
         let mut values = Vec::with_capacity(projection.len());
         let mut slot_cache: Vec<Option<Value>> = vec![None; model.fields().len()];
         let mut slot_decoded = vec![false; model.fields().len()];
-        let mut slot_error: Option<InternalError> = None;
         let mut read_slot = |slot: usize| {
             if !slot_decoded[slot] {
-                match decode_slot_value_by_contract(&row_fields, slot) {
-                    Ok(value) => slot_cache[slot] = value,
-                    Err(err) => slot_error = Some(err),
-                }
+                slot_cache[slot] = Some(row_fields.required_value_by_contract(slot)?);
                 slot_decoded[slot] = true;
             }
 
-            slot_cache[slot].clone()
+            slot_cache[slot].clone().ok_or_else(|| {
+                InternalError::executor_internal(format!(
+                    "structural projection slot cache missing decoded value: slot={slot}",
+                ))
+            })
         };
-        visit_projection_values_with_slot_reader(projection, model, &mut read_slot, &mut |value| {
-            values.push(value);
-        })
-        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
-        if let Some(err) = slot_error {
-            return Err(err);
-        }
+        visit_projection_values_with_required_value_reader(
+            projection,
+            model,
+            &mut read_slot,
+            &mut |value| values.push(value),
+        )?;
 
         projected_rows.push(values);
     }

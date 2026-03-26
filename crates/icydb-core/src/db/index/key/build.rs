@@ -6,7 +6,7 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        data::{ScalarSlotValueRef, SlotReader, StorageKey, decode_slot_value_by_contract},
+        data::{CanonicalSlotReader, ScalarSlotValueRef, StorageKey},
         index::{
             derive_index_expression_value,
             key::{
@@ -14,7 +14,7 @@ use crate::{
                 encode_canonical_index_component_from_scalar,
             },
         },
-        scalar_expr::{compile_scalar_index_key_item_program, eval_scalar_value_program},
+        scalar_expr::{compile_scalar_index_key_item_program, eval_canonical_scalar_value_program},
     },
     error::InternalError,
     model::{
@@ -73,7 +73,7 @@ impl IndexKey {
     pub(crate) fn new_from_slots(
         entity_tag: EntityTag,
         storage_key: StorageKey,
-        slots: &dyn SlotReader,
+        slots: &dyn CanonicalSlotReader,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         let mut component_bytes =
@@ -433,21 +433,14 @@ fn push_index_key_component(
 
 // Build one canonical index component directly from one slot reader.
 fn index_component_bytes_from_slots(
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
     index: &IndexModel,
     key_item: IndexKeyItem,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let field = key_item.field();
 
     if let Some(program) = compile_scalar_index_key_item_program(slots.model(), key_item) {
-        // Shared scalar programs still fail closed when the backing row omits a
-        // declared source field. `None` here means the slot is absent, not that
-        // the scalar result was non-indexable.
-        let Some(source) = eval_scalar_value_program(&program, slots)? else {
-            return Err(InternalError::index_key_item_field_missing_on_lookup_row(
-                field,
-            ));
-        };
+        let source = eval_canonical_scalar_value_program(&program, slots)?;
 
         return encode_scalar_index_component(source.as_slot_value_ref());
     }
@@ -460,24 +453,10 @@ fn index_component_bytes_from_slots(
 
     match key_item {
         IndexKeyItem::Field(_) => {
-            if let Some(source) = slots.get_scalar(field_index)? {
-                return encode_scalar_index_component(source);
-            }
-
-            let Some(value) = decode_slot_value_by_contract(slots, field_index)? else {
-                return Err(InternalError::index_key_item_field_missing_on_lookup_row(
-                    field,
-                ));
-            };
-
-            encode_value_index_component(value)
+            encode_value_index_component(slots.required_value_by_contract(field_index)?)
         }
         IndexKeyItem::Expression(expression) => {
-            let Some(source) = decode_slot_value_by_contract(slots, field_index)? else {
-                return Err(InternalError::index_key_item_field_missing_on_lookup_row(
-                    field,
-                ));
-            };
+            let source = slots.required_value_by_contract(field_index)?;
             let Some(value) = value_for_expression(index, expression, source)? else {
                 return Ok(None);
             };

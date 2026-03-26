@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{ScalarSlotValueRef, ScalarValueRef, SlotReader, decode_slot_value_by_contract},
+        data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutableComparePredicate,
             ExecutablePredicate, Predicate, PredicateCapabilityContext, PredicateExecutionModel,
@@ -102,7 +102,7 @@ impl PredicateProgram {
     /// Evaluate one precompiled predicate program against one structural slot reader.
     pub(in crate::db) fn eval_with_structural_slot_reader(
         &self,
-        slots: &dyn SlotReader,
+        slots: &dyn CanonicalSlotReader,
     ) -> Result<bool, crate::error::InternalError> {
         match &self.compiled {
             CompiledPredicate::Scalar(program) => {
@@ -318,7 +318,7 @@ fn eval_compare_with_executable_slots(
 fn eval_scalar_predicate_program(
     _program: ScalarPredicateProgram,
     predicate: &ExecutablePredicate,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     eval_scalar_executable_predicate(predicate, slots)
 }
@@ -326,7 +326,7 @@ fn eval_scalar_predicate_program(
 // Evaluate one executable predicate tree through scalar-only slot reads.
 fn eval_scalar_executable_predicate(
     predicate: &ExecutablePredicate,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     match predicate {
         ExecutablePredicate::True => Ok(true),
@@ -347,9 +347,7 @@ fn eval_scalar_executable_predicate(
             slots.get_scalar(field_slot.expect("scalar fast path validated field slot"))?,
             Some(ScalarSlotValueRef::Value(_))
         )),
-        ExecutablePredicate::IsMissing { field_slot } => {
-            Ok(field_slot.is_none_or(|field_slot| !slots.has(field_slot)))
-        }
+        ExecutablePredicate::IsMissing { field_slot } => Ok(field_slot.is_none()),
         ExecutablePredicate::IsEmpty { field_slot } => eval_scalar_is_empty(
             field_slot.expect("scalar fast path validated field slot"),
             slots,
@@ -386,11 +384,9 @@ fn eval_scalar_executable_predicate(
 // Evaluate one scalar `IS EMPTY` node directly through the scalar slot seam.
 fn eval_scalar_is_empty(
     field_slot: usize,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
-    let Some(actual) = slots.get_scalar(field_slot)? else {
-        return Ok(false);
-    };
+    let actual = slots.required_scalar(field_slot)?;
 
     Ok(match actual {
         ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => text.is_empty(),
@@ -402,12 +398,8 @@ fn eval_scalar_is_empty(
 // Evaluate one scalar `IS NOT EMPTY` node directly through the scalar slot seam.
 fn eval_scalar_is_not_empty(
     field_slot: usize,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
-    if !slots.has(field_slot) {
-        return Ok(false);
-    }
-
     eval_scalar_is_empty(field_slot, slots).map(|empty| !empty)
 }
 
@@ -416,11 +408,9 @@ fn eval_scalar_text_contains(
     field_slot: usize,
     needle: &str,
     mode: TextMode,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
-    let Some(actual) = slots.get_scalar(field_slot)? else {
-        return Ok(false);
-    };
+    let actual = slots.required_scalar(field_slot)?;
 
     Ok(match actual {
         ScalarSlotValueRef::Value(ScalarValueRef::Text(actual)) => {
@@ -433,7 +423,7 @@ fn eval_scalar_text_contains(
 // Evaluate one executable comparison against one slot reader under the scalar fast path.
 fn eval_scalar_executable_compare_predicate(
     cmp: &ExecutableComparePredicate,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = cmp.field_slot else {
         return Ok(false);
@@ -454,7 +444,7 @@ fn eval_scalar_executable_compare_predicate(
 // Evaluate one executable predicate against one structural slot reader.
 fn eval_with_structural_slots(
     predicate: &ExecutablePredicate,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     match predicate {
         ExecutablePredicate::True => Ok(true),
@@ -473,9 +463,7 @@ fn eval_with_structural_slots(
         ExecutablePredicate::IsNotNull { field_slot } => {
             eval_is_not_null_with_structural_slots(*field_slot, slots)
         }
-        ExecutablePredicate::IsMissing { field_slot } => {
-            Ok(field_slot.is_none_or(|slot| !slots.has(slot)))
-        }
+        ExecutablePredicate::IsMissing { field_slot } => Ok(field_slot.is_none()),
         ExecutablePredicate::IsEmpty { field_slot } => {
             eval_is_empty_with_structural_slots(*field_slot, slots)
         }
@@ -494,7 +482,7 @@ fn eval_with_structural_slots(
 // Evaluate one comparison predicate through the structural slot seam.
 fn eval_compare_with_structural_slots(
     cmp: &ExecutableComparePredicate,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = cmp.field_slot else {
         return Ok(false);
@@ -509,9 +497,7 @@ fn eval_compare_with_structural_slots(
         return Ok(result);
     }
 
-    let Some(actual) = decode_slot_value_by_contract(slots, field_slot)? else {
-        return Ok(false);
-    };
+    let actual = slots.required_value_by_contract(field_slot)?;
 
     Ok(eval_compare_values(
         &actual,
@@ -526,11 +512,9 @@ fn eval_compare_with_structural_slots(
 fn eval_scalar_compare_fast_path(
     field_slot: usize,
     cmp: &ExecutableComparePredicate,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<bool>, crate::error::InternalError> {
-    let Some(actual) = slots.get_scalar(field_slot)? else {
-        return Ok(Some(false));
-    };
+    let actual = slots.required_scalar(field_slot)?;
 
     Ok(eval_compare_scalar_slot(
         actual,
@@ -579,7 +563,7 @@ where
 // Evaluate `IS NULL` through the structural slot seam.
 fn eval_is_null_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -590,21 +574,21 @@ fn eval_is_null_with_structural_slots(
 
     if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
         return Ok(matches!(
-            slots.get_scalar(field_slot)?,
-            Some(ScalarSlotValueRef::Null)
+            slots.required_scalar(field_slot)?,
+            ScalarSlotValueRef::Null
         ));
     }
 
     Ok(matches!(
-        decode_slot_value_by_contract(slots, field_slot)?,
-        Some(Value::Null)
+        slots.required_value_by_contract(field_slot)?,
+        Value::Null
     ))
 }
 
 // Evaluate `IS NOT NULL` through the structural slot seam.
 fn eval_is_not_null_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -615,21 +599,21 @@ fn eval_is_not_null_with_structural_slots(
 
     if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
         return Ok(matches!(
-            slots.get_scalar(field_slot)?,
-            Some(ScalarSlotValueRef::Value(_))
+            slots.required_scalar(field_slot)?,
+            ScalarSlotValueRef::Value(_)
         ));
     }
 
-    Ok(matches!(
-        decode_slot_value_by_contract(slots, field_slot)?,
-        Some(value) if !matches!(value, Value::Null)
+    Ok(!matches!(
+        slots.required_value_by_contract(field_slot)?,
+        Value::Null
     ))
 }
 
 // Evaluate `IS EMPTY` through the structural slot seam.
 fn eval_is_empty_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -638,9 +622,9 @@ fn eval_is_empty_with_structural_slots(
         return Ok(false);
     };
 
-    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-        && let Some(actual) = slots.get_scalar(field_slot)?
-    {
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+        let actual = slots.required_scalar(field_slot)?;
+
         return Ok(match actual {
             ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => text.is_empty(),
             ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)) => bytes.is_empty(),
@@ -648,21 +632,19 @@ fn eval_is_empty_with_structural_slots(
         });
     }
 
-    Ok(decode_slot_value_by_contract(slots, field_slot)?
-        .is_some_and(|value| is_empty_value(&value)))
+    Ok(is_empty_value(
+        &slots.required_value_by_contract(field_slot)?,
+    ))
 }
 
 // Evaluate `IS NOT EMPTY` through the structural slot seam.
 fn eval_is_not_empty_with_structural_slots(
     field_slot: Option<usize>,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
     };
-    if !slots.has(field_slot) {
-        return Ok(false);
-    }
 
     eval_is_empty_with_structural_slots(Some(field_slot), slots).map(|empty| !empty)
 }
@@ -672,7 +654,7 @@ fn eval_text_contains_with_structural_slots(
     field_slot: Option<usize>,
     value: &Value,
     mode: TextMode,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
     let Some(field_slot) = field_slot else {
         return Ok(false);
@@ -681,9 +663,9 @@ fn eval_text_contains_with_structural_slots(
         return Ok(false);
     };
 
-    if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-        && let Some(actual) = slots.get_scalar(field_slot)?
-    {
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+        let actual = slots.required_scalar(field_slot)?;
+
         return Ok(match (actual, value) {
             (ScalarSlotValueRef::Value(ScalarValueRef::Text(actual)), Value::Text(needle)) => {
                 text_contains_scalar(actual, needle, mode)
@@ -692,8 +674,10 @@ fn eval_text_contains_with_structural_slots(
         });
     }
 
-    Ok(decode_slot_value_by_contract(slots, field_slot)?
-        .is_some_and(|actual| actual.text_contains(value, mode).unwrap_or(false)))
+    Ok(slots
+        .required_value_by_contract(field_slot)?
+        .text_contains(value, mode)
+        .unwrap_or(false))
 }
 
 // Evaluate one compare op directly against one scalar slot value when possible.
@@ -1212,7 +1196,7 @@ mod tests {
     use super::{PredicateProgram, eval_compare_scalar_slot, eval_compare_values};
     use crate::{
         db::{
-            data::{ScalarSlotValueRef, ScalarValueRef, SlotReader},
+            data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, SlotReader},
             predicate::{
                 CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutablePredicate,
                 Predicate,
@@ -1273,6 +1257,8 @@ mod tests {
 
         crate::db::data::impl_scalar_only_test_slot_reader_get_value!();
     }
+
+    impl CanonicalSlotReader for PredicateTestSlotReader {}
 
     #[test]
     fn scalar_compare_fast_path_matches_value_semantics_for_strict_int_and_text() {

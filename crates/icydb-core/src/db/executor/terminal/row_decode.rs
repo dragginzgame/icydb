@@ -10,8 +10,9 @@ use crate::types::Ulid;
 use crate::{
     db::{
         data::{
-            DataRow, RawRow, ScalarSlotValueRef, SlotReader, StorageKey, StructuralSlotReader,
-            decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+            CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, StorageKey,
+            StructuralSlotReader, decode_structural_field_by_kind_bytes,
+            decode_structural_value_storage_bytes,
         },
         executor::terminal::page::KernelRow,
     },
@@ -146,19 +147,18 @@ fn decode_row_field(
     field: &RowFieldLayout,
 ) -> Result<Option<Value>, InternalError> {
     // Phase 1: keep scalar slots on the borrowed fast path when possible.
-    if matches!(field.leaf_codec, LeafCodec::Scalar(_))
-        && let Some(value) = row_fields.get_scalar(slot)?
-    {
+    if matches!(field.leaf_codec, LeafCodec::Scalar(_)) {
+        let value = row_fields.required_scalar(slot)?;
+
         return Ok(Some(match value {
             ScalarSlotValueRef::Null => Value::Null,
             ScalarSlotValueRef::Value(value) => value.into_value(),
         }));
     }
 
-    // Phase 2: fall back to the declared field decode contract for complex payloads.
-    let Some(bytes) = row_fields.get_bytes(slot) else {
-        return Err(InternalError::row_decode_declared_field_missing(field.name));
-    };
+    // Phase 2: fall back to the declared field decode contract for complex
+    // payloads without permitting canonical-row slot absence.
+    let bytes = row_fields.required_bytes(slot)?;
     let value = match field.storage_decode {
         FieldStorageDecode::ByKind => decode_structural_field_by_kind_bytes(bytes, field.kind),
         FieldStorageDecode::Value => decode_structural_value_storage_bytes(bytes),
@@ -204,6 +204,7 @@ mod tests {
         db::data::decode_structural_field_by_kind_bytes,
         error::{ErrorClass, ErrorOrigin},
         model::field::{FieldKind, FieldStorageDecode},
+        serialize::serialize,
         traits::EntitySchema,
         types::{Blob, Text},
         value::{Value, ValueEnum},
@@ -284,6 +285,67 @@ mod tests {
             ])),
         );
         assert_eq!(row.slot(3), Some(Value::Blob(vec![0x10, 0x20, 0x30])));
+    }
+
+    #[test]
+    fn structural_row_decoder_rejects_raw_cbor_scalar_slot_payloads() {
+        let entity = RowDecodeEntity {
+            id: Ulid::from_u128(8),
+            title: "alpha".to_string(),
+            tags: vec!["one".to_string(), "two".to_string()],
+            portrait: Blob::from(vec![0x10, 0x20, 0x30]),
+        };
+        let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+            .expect("test key construction should succeed");
+        let id_bytes = crate::db::data::encode_persisted_scalar_slot_payload(&entity.id, "id")
+            .expect("id payload should encode");
+        let raw_title = serialize(&entity.title).expect("raw scalar title should encode");
+        let tags_bytes = crate::db::data::encode_persisted_slot_payload(&entity.tags, "tags")
+            .expect("tags payload should encode");
+        let portrait_bytes =
+            crate::db::data::encode_persisted_scalar_slot_payload(&entity.portrait, "portrait")
+                .expect("portrait payload should encode");
+        let slot_payloads = [
+            id_bytes.as_slice(),
+            raw_title.as_slice(),
+            tags_bytes.as_slice(),
+            portrait_bytes.as_slice(),
+        ];
+        let mut payload = Vec::new();
+        let mut offset = 0_u32;
+
+        payload.extend_from_slice(&4_u16.to_be_bytes());
+        for bytes in slot_payloads {
+            let len = u32::try_from(bytes.len()).expect("slot length should fit u32");
+            payload.extend_from_slice(&offset.to_be_bytes());
+            payload.extend_from_slice(&len.to_be_bytes());
+            offset = offset.saturating_add(len);
+        }
+        for bytes in slot_payloads {
+            payload.extend_from_slice(bytes);
+        }
+        let row = RawRow::try_new(
+            crate::db::codec::serialize_row_payload(payload).expect("serialize row payload"),
+        )
+        .expect("build raw row");
+
+        let Err(err) = RowDecoder::structural()
+            .decode(&RowLayout::from_model(RowDecodeEntity::MODEL), (key, row))
+        else {
+            panic!("raw CBOR scalar slot payloads must fail closed");
+        };
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Serialize);
+        assert!(
+            err.message.contains("field 'title'"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message
+                .contains("expected slot envelope prefix byte 0xFF"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

@@ -17,16 +17,16 @@ pub(in crate::db) use entity_decode::{
     PersistedEntityRow, decode_data_rows_into_entity_response, decode_raw_row_for_entity_key,
 };
 pub(crate) use key::{DataKey, RawDataKey};
+pub(in crate::db) use persisted_row::{
+    CanonicalSlotReader, SerializedUpdatePatch, StructuralSlotReader,
+    apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
+    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+};
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
     UpdatePatch, decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
     decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
-};
-pub(in crate::db) use persisted_row::{
-    SerializedUpdatePatch, StructuralSlotReader, apply_serialized_update_patch_to_raw_row,
-    apply_update_patch_to_raw_row, decode_slot_value_by_contract,
-    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
 };
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;

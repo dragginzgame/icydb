@@ -22,7 +22,7 @@ use crate::{
 use crate::db::executor::projection::{
     eval::{
         ProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
-        eval_expr_grouped, eval_expr_with_slot_reader,
+        eval_expr_grouped, eval_expr_with_required_value_reader, eval_expr_with_slot_reader,
         eval_scalar_projection_expr_with_value_reader,
     },
     grouped::GroupedRowView,
@@ -169,6 +169,28 @@ pub(super) fn visit_projection_values_with_slot_reader(
         match field {
             ProjectionField::Scalar { expr, .. } => {
                 on_value(eval_expr_with_slot_reader(expr, model, read_slot)?);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Walk one projection spec through one required-value reader so canonical
+// structural rows fail closed on missing declared slots.
+#[cfg(feature = "sql")]
+pub(super) fn visit_projection_values_with_required_value_reader(
+    projection: &ProjectionSpec,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
+    on_value: &mut dyn FnMut(Value),
+) -> Result<(), InternalError> {
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                on_value(eval_expr_with_required_value_reader(
+                    expr, model, read_slot,
+                )?);
             }
         }
     }

@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::{CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp, decode_data_key},
-        data::{DataKey, DataStore, RawDataKey, RawRow, SlotReader, StructuralSlotReader},
+        data::{CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StructuralSlotReader},
         index::{
             IndexEntryReader, IndexMutationPlan, PrimaryRowReader, StructuralIndexEntryReader,
             StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
@@ -91,8 +91,6 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    validate_commit_marker_rows_for_entity::<E>(op)?;
-
     prepare_row_commit_for_entity_impl(
         db,
         op,
@@ -126,25 +124,25 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     prepare_row_commit_for_entity_with_structural_readers::<E>(db, op, &context, &context)
 }
 
-// Fully decode commit-marker row payloads before structural planning runs so
-// malformed non-indexed fields cannot slip through commit/recovery preparation
-// and fail later only when a query endpoint touches them.
-fn validate_commit_marker_rows_for_entity<E>(op: &CommitRowOp) -> Result<(), InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let (_, data_key) = decode_data_key(&op.key)?;
-
+// Fully decode commit-marker row payloads after structural authority has been
+// confirmed so malformed non-indexed fields still fail closed without letting
+// miswired hooks report the wrong entity contract.
+fn validate_commit_marker_rows(
+    data_key: &DataKey,
+    before: Option<&RawRow>,
+    after: Option<&RawRow>,
+    model: &'static EntityModel,
+) -> Result<(), InternalError> {
     // Phase 1: validate the optional "before" row against the structural slot
-    // contract for the current entity model when the marker carries one.
-    if let Some(before) = op.before.as_ref() {
-        validate_commit_marker_row_for_entity(&data_key, before, "before", E::MODEL)?;
+    // contract for the resolved entity model when the marker carries one.
+    if let Some(before) = before {
+        validate_commit_marker_row_for_entity(data_key, before.as_bytes(), "before", model)?;
     }
 
     // Phase 2: validate the optional "after" row the same way so commit apply
     // never persists a row image that queries cannot later decode.
-    if let Some(after) = op.after.as_ref() {
-        validate_commit_marker_row_for_entity(&data_key, after, "after", E::MODEL)?;
+    if let Some(after) = after {
+        validate_commit_marker_row_for_entity(data_key, after.as_bytes(), "after", model)?;
     }
 
     Ok(())
@@ -163,12 +161,12 @@ fn validate_commit_marker_row_for_entity(
             "commit marker {label} row decode failed: {err}",
         ))
     })?;
-    let mut slots = decode_commit_marker_structural_slots(data_key, &raw_row, label, model)?;
+    let slots = decode_commit_marker_structural_slots(data_key, &raw_row, label, model)?;
 
     // Phase 1: decode every declared slot through the field contract so
     // malformed non-indexed fields cannot bypass commit preparation.
     for slot in 0..model.fields().len() {
-        slots.get_value(slot).map_err(|err| {
+        slots.required_value_by_contract(slot).map_err(|err| {
             let message = format!("commit marker {label} row decode failed: {err}");
             if err.class() == ErrorClass::IncompatiblePersistedFormat {
                 InternalError::serialize_incompatible_persisted_format(message)
@@ -194,7 +192,20 @@ fn prepare_row_commit_for_entity_impl<C>(
 where
     C: crate::traits::CanisterKind,
 {
+    // Phase 1: resolve nongeneric marker authority before any model-driven row
+    // decode runs so miswired hooks fail on path/schema mismatch first.
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
+
+    // Phase 2: once authority is confirmed, validate the persisted row images
+    // against that resolved model before index planning or apply.
+    validate_commit_marker_rows(
+        &structural.data_key,
+        structural.old_row.as_ref(),
+        structural.new_row.as_ref(),
+        authority.model,
+    )?;
+
+    // Phase 3: derive forward index work from the validated structural rows.
     let index_plan = if authority.model.indexes().is_empty() {
         empty_forward_index_plan()
     } else {
@@ -247,9 +258,13 @@ where
         row_reader,
         index_reader,
         old_row.map(|_| storage_key),
-        old_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
+        old_slots
+            .as_mut()
+            .map(|slots| slots as &mut dyn CanonicalSlotReader),
         new_row.map(|_| storage_key),
-        new_slots.as_mut().map(|slots| slots as &mut dyn SlotReader),
+        new_slots
+            .as_mut()
+            .map(|slots| slots as &mut dyn CanonicalSlotReader),
     )
 }
 

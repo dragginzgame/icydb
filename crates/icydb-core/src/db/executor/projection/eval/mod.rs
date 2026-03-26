@@ -15,6 +15,8 @@ use crate::{
 use thiserror::Error as ThisError;
 
 #[cfg(any(test, feature = "sql"))]
+pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
+#[cfg(test)]
 pub(in crate::db::executor) use scalar::{ScalarProjectionEvalError, eval_scalar_projection_expr};
 pub(in crate::db::executor) use scalar::{
     ScalarProjectionExpr, compile_scalar_projection_expr,
@@ -121,6 +123,50 @@ pub(in crate::db::executor) fn eval_expr_with_slot_reader(
             kind: format!("{:?}", aggregate.kind()),
         }),
         Expr::Alias { expr, .. } => eval_expr_with_slot_reader(expr.as_ref(), model, read_slot),
+    }
+}
+
+/// Evaluate one projection expression through one required-value reader on the
+/// canonical structural row path.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::executor) fn eval_expr_with_required_value_reader(
+    expr: &Expr,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
+) -> Result<Value, InternalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let Some(field_index) = resolve_field_slot(model, field_name) else {
+                return Err(ProjectionEvalError::UnknownField {
+                    field: field_name.to_string(),
+                }
+                .into_invalid_logical_plan_internal_error());
+            };
+
+            read_slot(field_index)
+        }
+        Expr::Literal(value) => Ok(value.clone()),
+        Expr::Unary { op, expr } => {
+            let operand = eval_expr_with_required_value_reader(expr.as_ref(), model, read_slot)?;
+            operators::eval_unary_expr(*op, operand)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        }
+        Expr::Binary { op, left, right } => {
+            let left_value = eval_expr_with_required_value_reader(left.as_ref(), model, read_slot)?;
+            let right_value =
+                eval_expr_with_required_value_reader(right.as_ref(), model, read_slot)?;
+
+            operators::eval_binary_expr(*op, left_value, right_value)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        }
+        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
+            kind: format!("{:?}", aggregate.kind()),
+        }
+        .into_invalid_logical_plan_internal_error()),
+        Expr::Alias { expr, .. } => {
+            eval_expr_with_required_value_reader(expr.as_ref(), model, read_slot)
+        }
     }
 }
 

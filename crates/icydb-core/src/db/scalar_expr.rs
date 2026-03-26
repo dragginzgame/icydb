@@ -3,8 +3,10 @@
 //! Does not own: predicate boolean trees or index key framing.
 //! Boundary: predicate and index runtimes use this to avoid `Value` fallback for scalar work.
 
+#[cfg(test)]
+use crate::db::data::SlotReader;
 use crate::{
-    db::data::{ScalarSlotValueRef, ScalarValueRef, SlotReader},
+    db::data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
     error::InternalError,
     model::{
         entity::{EntityModel, resolve_field_slot},
@@ -279,6 +281,7 @@ pub(in crate::db) fn compile_scalar_index_key_item_program(
 }
 
 /// Evaluate one compiled scalar expression directly from one slot reader.
+#[cfg(test)]
 pub(in crate::db) fn eval_scalar_value_program<'a>(
     program: &ScalarValueProgram,
     slots: &'a dyn SlotReader,
@@ -312,7 +315,43 @@ pub(in crate::db) fn eval_scalar_value_program<'a>(
     }
 }
 
+/// Evaluate one compiled scalar expression through the canonical structural
+/// slot seam where declared slots must already exist.
+pub(in crate::db) fn eval_canonical_scalar_value_program<'a>(
+    program: &ScalarValueProgram,
+    slots: &'a dyn CanonicalSlotReader,
+) -> Result<ScalarExprValue<'a>, InternalError> {
+    match program {
+        ScalarValueProgram::Field { slot } => eval_canonical_scalar_field(*slot, slots),
+        ScalarValueProgram::Lower { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Lower)
+        }
+        ScalarValueProgram::Upper { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Upper)
+        }
+        ScalarValueProgram::Trim { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Trim)
+        }
+        ScalarValueProgram::LowerTrim { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::LowerTrim)
+        }
+        ScalarValueProgram::Date { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Date)
+        }
+        ScalarValueProgram::Year { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Year)
+        }
+        ScalarValueProgram::Month { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Month)
+        }
+        ScalarValueProgram::Day { slot } => {
+            eval_canonical_scalar_expression_op(*slot, slots, ScalarIndexExpressionOp::Day)
+        }
+    }
+}
+
 // Evaluate one scalar field access through the slot-reader fast path only.
+#[cfg(test)]
 fn eval_scalar_field(
     slot: usize,
     slots: &dyn SlotReader,
@@ -327,7 +366,19 @@ fn eval_scalar_field(
     }))
 }
 
+// Evaluate one scalar field access through the canonical slot-reader fast path.
+fn eval_canonical_scalar_field(
+    slot: usize,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<ScalarExprValue<'_>, InternalError> {
+    Ok(match slots.required_scalar(slot)? {
+        ScalarSlotValueRef::Null => ScalarExprValue::Null,
+        ScalarSlotValueRef::Value(value) => scalar_expr_value_from_slot_value(value),
+    })
+}
+
 // Evaluate one scalar expression operator against the shared scalar slot seam.
+#[cfg(test)]
 fn eval_scalar_expression_op(
     slot: usize,
     slots: &dyn SlotReader,
@@ -341,6 +392,19 @@ fn eval_scalar_expression_op(
         ScalarExprValue::Null => Ok(Some(ScalarExprValue::Null)),
         value => derive_non_null_scalar_expression_value(op, value)
             .map(Some)
+            .map_err(|expected| op.input_type_mismatch(expected)),
+    }
+}
+
+// Evaluate one scalar expression operator against the canonical slot seam.
+fn eval_canonical_scalar_expression_op(
+    slot: usize,
+    slots: &dyn CanonicalSlotReader,
+    op: ScalarIndexExpressionOp,
+) -> Result<ScalarExprValue<'_>, InternalError> {
+    match eval_canonical_scalar_field(slot, slots)? {
+        ScalarExprValue::Null => Ok(ScalarExprValue::Null),
+        value => derive_non_null_scalar_expression_value(op, value)
             .map_err(|expected| op.input_type_mismatch(expected)),
     }
 }
@@ -465,11 +529,12 @@ fn timestamp_to_bucket_date(timestamp_millis: i64) -> Date {
 mod tests {
     use super::{
         ScalarExprValue, compile_scalar_field_program, compile_scalar_index_expression_program,
-        compile_scalar_index_key_item_program, eval_scalar_value_program,
+        compile_scalar_index_key_item_program, eval_canonical_scalar_value_program,
+        eval_scalar_value_program,
     };
     use crate::{
         db::{
-            data::{ScalarSlotValueRef, SlotReader},
+            data::{CanonicalSlotReader, ScalarSlotValueRef, SlotReader},
             index::derive_index_expression_value,
             scalar_expr::ScalarValueProgram::{Date, Field, Lower},
         },
@@ -531,6 +596,8 @@ mod tests {
             panic!("test scalar expr reader should not route through get_value")
         }
     }
+
+    impl CanonicalSlotReader for TestSlotReader {}
 
     #[test]
     fn scalar_expr_compiles_field_and_index_programs_on_scalar_slots_only() {
@@ -625,6 +692,27 @@ mod tests {
 
         assert_eq!(field_value, Some(ScalarExprValue::Null));
         assert_eq!(date_value, None);
+    }
+
+    #[test]
+    fn canonical_scalar_expr_rejects_missing_declared_slots() {
+        let slots = TestSlotReader {
+            name: Some(ScalarSlotValueRef::Null),
+            created_at: None,
+        };
+        let date = compile_scalar_index_expression_program(
+            &SCALAR_EXPR_MODEL,
+            IndexExpression::Date("created_at"),
+        )
+        .expect("date should compile");
+
+        let err = eval_canonical_scalar_value_program(&date, &slots)
+            .expect_err("canonical scalar lane must fail closed on missing slots");
+
+        assert!(
+            err.message.contains("missing declared field `created_at`"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

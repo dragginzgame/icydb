@@ -8,7 +8,7 @@ use crate::{
         Db,
         commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
         data::{
-            DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef, SlotReader,
+            CanonicalSlotReader, DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef,
             StorageKey, StructuralSlotReader, decode_relation_target_storage_keys_bytes,
         },
         index::{
@@ -296,13 +296,7 @@ fn relation_target_storage_keys_from_field_bytes(
 ) -> Result<Vec<StorageKey>, InternalError> {
     validate_relation_field_kind(relation.field_kind)?;
 
-    let Some(bytes) = row_fields.get_bytes(relation.field_index) else {
-        return Err(InternalError::relation_source_row_missing_field(
-            source.path,
-            relation.field_name,
-            relation.target_path,
-        ));
-    };
+    let bytes = row_fields.required_field_bytes(relation.field_index, relation.field_name)?;
     let keys =
         decode_relation_target_storage_keys_bytes(bytes, relation.field_kind).map_err(|err| {
             InternalError::relation_source_row_decode_failed(
@@ -327,9 +321,9 @@ fn relation_target_storage_keys_from_scalar_slot(
         return Ok(None);
     };
 
-    match row_fields.get_scalar(relation.field_index)? {
-        Some(ScalarSlotValueRef::Null) => Ok(Some(Vec::new())),
-        Some(ScalarSlotValueRef::Value(value)) => {
+    match row_fields.required_scalar(relation.field_index)? {
+        ScalarSlotValueRef::Null => Ok(Some(Vec::new())),
+        ScalarSlotValueRef::Value(value) => {
             let storage_key = storage_key_from_relation_scalar(value).ok_or_else(|| {
                 InternalError::relation_source_row_unsupported_scalar_relation_key(
                     source.path,
@@ -340,12 +334,6 @@ fn relation_target_storage_keys_from_scalar_slot(
 
             Ok(Some(vec![storage_key]))
         }
-        None if row_fields.has(relation.field_index) => Ok(None),
-        None => Err(InternalError::relation_source_row_missing_field(
-            source.path,
-            relation.field_name,
-            relation.target_path,
-        )),
     }
 }
 

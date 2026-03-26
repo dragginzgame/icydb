@@ -217,6 +217,13 @@ fn decode_row_field_spans<'a>(
         field_count_bytes[0],
         field_count_bytes[1],
     ]));
+    if field_count != model.fields().len() {
+        return Err(StructuralRowDecodeError::corruption(format!(
+            "row decode failed: slot count mismatch: expected {}, found {}",
+            model.fields().len(),
+            field_count,
+        )));
+    }
     let table_len = field_count.checked_mul(8).ok_or_else(|| {
         StructuralRowDecodeError::corruption("row decode failed: slot table overflow")
     })?;
@@ -231,11 +238,7 @@ fn decode_row_field_spans<'a>(
     })?;
     let mut spans: SlotSpans = vec![None; model.fields().len()];
 
-    for (slot, span) in spans
-        .iter_mut()
-        .enumerate()
-        .take(field_count.min(model.fields().len()))
-    {
+    for (slot, span) in spans.iter_mut().enumerate() {
         let entry_start = slot.checked_mul(8).ok_or_else(|| {
             StructuralRowDecodeError::corruption("row decode failed: slot index overflow")
         })?;
@@ -251,7 +254,9 @@ fn decode_row_field_spans<'a>(
                 StructuralRowDecodeError::corruption("row decode failed: slot length out of range")
             })?;
         if len == 0 {
-            continue;
+            return Err(StructuralRowDecodeError::corruption(format!(
+                "row decode failed: missing slot payload: slot={slot}",
+            )));
         }
         let end = start.checked_add(len).ok_or_else(|| {
             StructuralRowDecodeError::corruption("row decode failed: slot span overflow")

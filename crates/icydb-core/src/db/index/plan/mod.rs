@@ -12,7 +12,7 @@ use crate::{
         Db,
         commit::CommitIndexOp,
         cursor::IndexScanContinuationInput,
-        data::{DataKey, RawRow, SlotReader, StorageKey},
+        data::{CanonicalSlotReader, DataKey, RawRow, StorageKey},
         direction::Direction,
         executor::Context,
         index::{
@@ -332,7 +332,7 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     if let Some(predicate_program) = predicate_program {
         let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
@@ -353,7 +353,7 @@ fn load_structural_index_key(
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
     storage_key: Option<StorageKey>,
-    slots: &dyn SlotReader,
+    slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     let Some(storage_key) = storage_key else {
         return Err(lane.missing_entity_key_error());
@@ -424,9 +424,9 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural<C>(
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
     old_storage_key: Option<StorageKey>,
-    old_slots: Option<&mut dyn SlotReader>,
+    old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
-    new_slots: Option<&mut dyn SlotReader>,
+    new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, InternalError>
 where
     C: CanisterKind,
@@ -461,9 +461,9 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
     old_storage_key: Option<StorageKey>,
-    mut old_slots: Option<&mut dyn SlotReader>,
+    mut old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
-    mut new_slots: Option<&mut dyn SlotReader>,
+    mut new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, InternalError> {
     let indexes = model.indexes();
     let mut commit_ops = Vec::new();

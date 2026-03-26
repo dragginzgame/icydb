@@ -6,7 +6,7 @@
 #[cfg(feature = "sql")]
 use crate::db::response::ProjectedRow;
 use crate::{
-    db::data::{RawRow, StructuralSlotReader},
+    db::data::{CanonicalSlotReader, RawRow, SlotReader, StructuralSlotReader},
     db::query::{
         builder::aggregate::{count, sum},
         plan::{
@@ -14,6 +14,7 @@ use crate::{
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
         },
     },
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::{field::FieldKind, index::IndexModel},
     traits::{EntitySchema, EntityValue, FieldProjection as _},
     types::Ulid,
@@ -26,7 +27,8 @@ use std::cmp::Ordering;
 #[cfg(feature = "sql")]
 use super::project_rows_from_projection;
 use super::{
-    GroupedRowView, compile_scalar_projection_expr, eval_expr_grouped, eval_expr_with_slot_reader,
+    GroupedRowView, compile_scalar_projection_expr, eval_canonical_scalar_projection_expr,
+    eval_expr_grouped, eval_expr_with_required_value_reader, eval_expr_with_slot_reader,
     eval_scalar_projection_expr, evaluate_grouped_projection_values,
 };
 
@@ -113,6 +115,46 @@ fn eval_scalar_expr_for_row(
     eval_scalar_projection_expr(&compiled, &row_fields)
 }
 
+///
+/// ProjectionMissingDeclaredSlotReader
+///
+/// ProjectionMissingDeclaredSlotReader
+///
+/// ProjectionMissingDeclaredSlotReader simulates one canonical structural row
+/// whose declared slots are absent so projection evaluators can prove they
+/// preserve corruption diagnostics instead of flattening them into
+/// invalid-logical-plan failures.
+///
+
+struct ProjectionMissingDeclaredSlotReader;
+
+impl SlotReader for ProjectionMissingDeclaredSlotReader {
+    fn model(&self) -> &'static crate::model::entity::EntityModel {
+        ProjectionEvalEntity::MODEL
+    }
+
+    fn has(&self, _slot: usize) -> bool {
+        false
+    }
+
+    fn get_bytes(&self, _slot: usize) -> Option<&[u8]> {
+        None
+    }
+
+    fn get_scalar(
+        &self,
+        _slot: usize,
+    ) -> Result<Option<crate::db::data::ScalarSlotValueRef<'_>>, InternalError> {
+        Ok(None)
+    }
+
+    fn get_value(&mut self, _slot: usize) -> Result<Option<Value>, InternalError> {
+        panic!("projection missing-slot test reader should not route through get_value")
+    }
+}
+
+impl CanonicalSlotReader for ProjectionMissingDeclaredSlotReader {}
+
 #[test]
 fn eval_expr_supports_arithmetic_projection() {
     let (_, entity) = row(1, 7, true);
@@ -151,6 +193,31 @@ fn scalar_projection_expr_matches_generic_eval_for_arithmetic_projection() {
         Some(Ordering::Equal),
         "compiled scalar projection should preserve arithmetic projection semantics",
     );
+}
+
+#[test]
+fn required_projection_eval_preserves_internal_slot_errors() {
+    let expr = Expr::Field(FieldId::new("rank"));
+    let err = eval_expr_with_required_value_reader(&expr, ProjectionEvalEntity::MODEL, &mut |_| {
+        Err(InternalError::persisted_row_declared_field_missing("rank"))
+    })
+    .expect_err("required projection evaluation should preserve structural slot errors");
+
+    assert_eq!(err.class(), ErrorClass::Corruption);
+    assert_eq!(err.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn canonical_scalar_projection_preserves_missing_declared_slot_corruption() {
+    let expr = Expr::Field(FieldId::new("rank"));
+    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, &expr)
+        .expect("rank field should compile onto scalar seam");
+    let err =
+        eval_canonical_scalar_projection_expr(&compiled, &ProjectionMissingDeclaredSlotReader)
+            .expect_err("canonical scalar projection should fail closed on missing declared slot");
+
+    assert_eq!(err.class(), ErrorClass::Corruption);
+    assert_eq!(err.origin(), ErrorOrigin::Serialize);
 }
 
 #[test]

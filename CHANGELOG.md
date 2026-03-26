@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.65.x] 🧱 - 2026-03-26 - Canonical Row Invariant Hard-Cut
+
+- `0.65.0` hard-cuts the persisted row format so every stored row must have one valid payload for every declared field, rejects missing slots and legacy raw-CBOR scalar bytes across commit/replay/query paths, and may require an explicit data rewrite or reset if existing stored data was relying on the older tolerant row shape.
+
+See detailed breakdown:
+[docs/changelog/0.65.md](docs/changelog/0.65.md)
+
+---
+
 ## [0.64.x] 🧩 - 2026-03-25 - Structural Mutation API
 
 - `0.64.6` closes the `0.64` line by auditing the public mutation wording, simplifying the remaining user-facing `UpdatePatch` error messages, and explicitly freezing the shipped surface at the single mode-driven `MutationMode` + `UpdatePatch` + `DbSession::mutate_structural(...)` API without extra wrapper layers.
