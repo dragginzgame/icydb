@@ -3,19 +3,15 @@
 //! Does not own: planner or executor decision derivation.
 //! Boundary: consumes explain projection types and emits deterministic render output.
 
-use crate::{
-    db::query::explain::{
-        ExplainExecutionNodeDescriptor,
-        access_projection::write_access_strategy_label,
-        execution::{execution_mode_label, ordering_source_label},
-        nodes::{
-            execution_mode_detail_label, fast_path_reason, fast_path_selected,
-            predicate_pushdown_mode,
-        },
+use crate::db::query::explain::{
+    ExplainExecutionNodeDescriptor, ExplainPropertyMap,
+    access_projection::write_access_strategy_label,
+    execution::{execution_mode_label, ordering_source_label},
+    nodes::{
+        execution_mode_detail_label, fast_path_reason, fast_path_selected, predicate_pushdown_mode,
     },
-    value::Value,
 };
-use std::{collections::BTreeMap, fmt::Write};
+use std::fmt::Write;
 
 impl ExplainExecutionNodeDescriptor {
     /// Render this execution subtree as a compact text tree.
@@ -97,11 +93,8 @@ impl ExplainExecutionNodeDescriptor {
             let _ = write!(out, " rows_expected={rows_expected}");
         }
         if !self.node_properties.is_empty() {
-            let _ = write!(
-                out,
-                " node_properties={}",
-                render_node_properties(&self.node_properties)
-            );
+            out.push_str(" node_properties=");
+            write_node_properties(out, &self.node_properties);
         }
 
         for child in &self.children {
@@ -203,11 +196,8 @@ impl ExplainExecutionNodeDescriptor {
         }
         if !self.node_properties.is_empty() {
             push_rendered_line_prefix_with_indent(out, field_indent);
-            let _ = write!(
-                out,
-                "node_properties={}",
-                render_node_properties(&self.node_properties)
-            );
+            out.push_str("node_properties=");
+            write_node_properties(out, &self.node_properties);
         }
     }
 }
@@ -229,18 +219,16 @@ fn push_rendered_line_prefix_with_indent(out: &mut String, indent: &str) {
     out.push_str(indent);
 }
 
-fn render_node_properties(node_properties: &BTreeMap<&'static str, Value>) -> String {
-    let mut rendered = String::new();
+fn write_node_properties(out: &mut String, node_properties: &ExplainPropertyMap) {
     let mut first = true;
-    for (key, value) in node_properties {
+    for (key, value) in node_properties.iter() {
         if first {
             first = false;
         } else {
-            rendered.push(',');
+            out.push(',');
         }
-        let _ = write!(rendered, "{key}={value:?}");
+        let _ = write!(out, "{key}={value:?}");
     }
-    rendered
 }
 
 const fn next_node_id(node_id_counter: &mut u64) -> u64 {

@@ -135,10 +135,9 @@ fn collect_execution_node_identities_into(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use crate::db::query::explain::{
         ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+        ExplainPropertyMap,
     };
 
     use super::{ExecutionNodeIdentity, ExecutionNodeLayer, collect_execution_node_identities};
@@ -181,7 +180,7 @@ mod tests {
             covering_scan: None,
             rows_expected: None,
             children: Vec::new(),
-            node_properties: BTreeMap::new(),
+            node_properties: ExplainPropertyMap::new(),
         };
 
         let identity = ExecutionNodeIdentity::from_explain_node(7, &descriptor);
@@ -229,7 +228,7 @@ mod tests {
                     covering_scan: None,
                     rows_expected: None,
                     children: Vec::new(),
-                    node_properties: BTreeMap::new(),
+                    node_properties: ExplainPropertyMap::new(),
                 },
                 ExplainExecutionNodeDescriptor {
                     node_type: ExplainExecutionNodeType::AggregateCount,
@@ -256,12 +255,12 @@ mod tests {
                         covering_scan: None,
                         rows_expected: None,
                         children: Vec::new(),
-                        node_properties: BTreeMap::new(),
+                        node_properties: ExplainPropertyMap::new(),
                     }],
-                    node_properties: BTreeMap::new(),
+                    node_properties: ExplainPropertyMap::new(),
                 },
             ],
-            node_properties: BTreeMap::new(),
+            node_properties: ExplainPropertyMap::new(),
         };
         let identities = collect_execution_node_identities(&descriptor);
         let actual = identities
@@ -315,7 +314,7 @@ mod tests {
                     covering_scan: None,
                     rows_expected: None,
                     children: Vec::new(),
-                    node_properties: BTreeMap::new(),
+                    node_properties: ExplainPropertyMap::new(),
                 },
                 ExplainExecutionNodeDescriptor {
                     node_type: ExplainExecutionNodeType::LimitOffset,
@@ -330,10 +329,10 @@ mod tests {
                     covering_scan: None,
                     rows_expected: None,
                     children: Vec::new(),
-                    node_properties: BTreeMap::new(),
+                    node_properties: ExplainPropertyMap::new(),
                 },
             ],
-            node_properties: BTreeMap::new(),
+            node_properties: ExplainPropertyMap::new(),
         };
         let identities = collect_execution_node_identities(&descriptor);
         let identity_ids = identities

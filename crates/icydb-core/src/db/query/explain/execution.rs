@@ -10,7 +10,80 @@ use crate::{
     },
     value::Value,
 };
-use std::collections::BTreeMap;
+use std::fmt::{self, Debug};
+
+///
+/// ExplainPropertyMap
+///
+/// Stable ordered property map for EXPLAIN descriptor metadata.
+/// Keeps deterministic key order without retaining `BTreeMap` machinery on the
+/// query/export path.
+///
+
+#[derive(Clone, Default, Eq, PartialEq)]
+pub struct ExplainPropertyMap {
+    entries: Vec<(&'static str, Value)>,
+}
+
+impl ExplainPropertyMap {
+    /// Build an empty EXPLAIN property map.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    /// Insert or replace one stable property.
+    pub fn insert(&mut self, key: &'static str, value: Value) -> Option<Value> {
+        match self
+            .entries
+            .binary_search_by_key(&key, |(existing_key, _)| *existing_key)
+        {
+            Ok(index) => Some(std::mem::replace(&mut self.entries[index].1, value)),
+            Err(index) => {
+                self.entries.insert(index, (key, value));
+                None
+            }
+        }
+    }
+
+    /// Borrow one property value by key.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.entries
+            .binary_search_by_key(&key, |(existing_key, _)| *existing_key)
+            .ok()
+            .map(|index| &self.entries[index].1)
+    }
+
+    /// Return whether the property map contains the given key.
+    #[must_use]
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Return whether the property map is empty.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Iterate over all stored properties in deterministic key order.
+    pub fn iter(&self) -> impl Iterator<Item = (&'static str, &Value)> {
+        self.entries.iter().map(|(key, value)| (*key, value))
+    }
+}
+
+impl Debug for ExplainPropertyMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        for (key, value) in self.iter() {
+            map.entry(&key, value);
+        }
+        map.finish()
+    }
+}
 
 ///
 /// ExplainAggregateTerminalRoute
@@ -85,7 +158,7 @@ pub struct ExplainExecutionDescriptor {
     pub(crate) ordering_source: ExplainExecutionOrderingSource,
     pub(crate) limit: Option<u32>,
     pub(crate) cursor: bool,
-    pub(crate) node_properties: BTreeMap<&'static str, Value>,
+    pub(crate) node_properties: ExplainPropertyMap,
 }
 
 ///
@@ -152,7 +225,7 @@ pub struct ExplainExecutionNodeDescriptor {
     pub(crate) covering_scan: Option<bool>,
     pub(crate) rows_expected: Option<u64>,
     pub(crate) children: Vec<Self>,
-    pub(crate) node_properties: BTreeMap<&'static str, Value>,
+    pub(crate) node_properties: ExplainPropertyMap,
 }
 
 impl ExplainAggregateTerminalPlan {
@@ -242,7 +315,7 @@ impl ExplainExecutionDescriptor {
 
     /// Borrow projected execution node properties.
     #[must_use]
-    pub const fn node_properties(&self) -> &BTreeMap<&'static str, Value> {
+    pub const fn node_properties(&self) -> &ExplainPropertyMap {
         &self.node_properties
     }
 
@@ -432,7 +505,7 @@ impl ExplainExecutionNodeDescriptor {
 
     /// Borrow node properties.
     #[must_use]
-    pub const fn node_properties(&self) -> &BTreeMap<&'static str, Value> {
+    pub const fn node_properties(&self) -> &ExplainPropertyMap {
         &self.node_properties
     }
 }

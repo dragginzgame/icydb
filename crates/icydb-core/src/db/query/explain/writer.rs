@@ -3,7 +3,8 @@
 //! Does not own: explain DTO semantics or access/execution projection policy.
 //! Boundary: lightweight string JSON emit primitives used by explain modules.
 
-use std::{collections::BTreeMap, fmt::Debug};
+use crate::db::query::explain::ExplainPropertyMap;
+use std::fmt::{self, Debug, Write as _};
 
 ///
 /// JsonWriter
@@ -15,6 +16,30 @@ use std::{collections::BTreeMap, fmt::Debug};
 pub(in crate::db::query::explain) struct JsonWriter<'a> {
     out: &'a mut String,
     first: bool,
+}
+
+///
+/// JsonEscapedWriter
+///
+/// Minimal `fmt::Write` adapter that streams debug output directly into one
+/// quoted JSON string without allocating an intermediate buffer.
+///
+
+struct JsonEscapedWriter<'a> {
+    out: &'a mut String,
+}
+
+impl<'a> JsonEscapedWriter<'a> {
+    const fn new(out: &'a mut String) -> Self {
+        Self { out }
+    }
+}
+
+impl fmt::Write for JsonEscapedWriter<'_> {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        write_json_string_fragment(self.out, value);
+        Ok(())
+    }
 }
 
 impl<'a> JsonWriter<'a> {
@@ -44,7 +69,7 @@ impl<'a> JsonWriter<'a> {
         value: &impl Debug,
     ) {
         self.begin_field(key);
-        write_json_string(self.out, &format!("{value:?}"));
+        write_debug_json_string(self.out, value);
     }
 
     pub(in crate::db::query::explain) fn field_null(&mut self, key: &str) {
@@ -76,20 +101,20 @@ impl<'a> JsonWriter<'a> {
                 if index > 0 {
                     out.push(',');
                 }
-                write_json_string(out, &format!("{value:?}"));
+                write_debug_json_string(out, value);
             }
             out.push(']');
         });
     }
 
-    pub(in crate::db::query::explain) fn field_debug_map<T: Debug>(
+    pub(in crate::db::query::explain) fn field_debug_map(
         &mut self,
         key: &str,
-        values: &BTreeMap<&'static str, T>,
+        values: &ExplainPropertyMap,
     ) {
         self.field_with(key, |out| {
             let mut object = JsonWriter::begin_object(out);
-            for (property_name, property_value) in values {
+            for (property_name, property_value) in values.iter() {
                 object.field_value_debug(property_name, property_value);
             }
             object.finish();
@@ -125,6 +150,20 @@ impl<'a> JsonWriter<'a> {
 
 pub(in crate::db::query::explain) fn write_json_string(out: &mut String, value: &str) {
     out.push('"');
+    write_json_string_fragment(out, value);
+    out.push('"');
+}
+
+fn write_debug_json_string(out: &mut String, value: &impl Debug) {
+    out.push('"');
+
+    let mut escaped = JsonEscapedWriter::new(out);
+    let _ = write!(&mut escaped, "{value:?}");
+
+    out.push('"');
+}
+
+fn write_json_string_fragment(out: &mut String, value: &str) {
     for ch in value.chars() {
         match ch {
             '"' => out.push_str("\\\""),
@@ -137,5 +176,4 @@ pub(in crate::db::query::explain) fn write_json_string(out: &mut String, value: 
             _ => out.push(ch),
         }
     }
-    out.push('"');
 }

@@ -27,7 +27,8 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor,
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                ExplainExecutionOrderingSource, ExplainPredicate, write_access_strategy_label,
+                ExplainExecutionOrderingSource, ExplainPredicate, ExplainPropertyMap,
+                write_access_strategy_label,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
@@ -43,7 +44,6 @@ use crate::{
 };
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
     fmt::{Debug, Write},
     ops::Bound,
 };
@@ -327,7 +327,7 @@ const fn empty_execution_node_descriptor(
         covering_scan: None,
         rows_expected: None,
         children: Vec::new(),
-        node_properties: BTreeMap::new(),
+        node_properties: ExplainPropertyMap::new(),
     }
 }
 
@@ -1039,8 +1039,8 @@ fn explain_node_properties_for_route(
     aggregation: AggregateKind,
     projected_field: Option<&str>,
     covering_projection: bool,
-) -> BTreeMap<&'static str, Value> {
-    let mut node_properties = BTreeMap::new();
+) -> ExplainPropertyMap {
+    let mut node_properties = ExplainPropertyMap::new();
 
     // Keep seek metadata additive and node-local so explain schema can evolve
     // without introducing new top-level descriptor fields for each route hint.

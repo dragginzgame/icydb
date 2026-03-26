@@ -19,7 +19,7 @@ use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;
 use crate::types::Ulid;
 use crate::value::Value;
-use std::{collections::BTreeMap, ops::Bound};
+use std::ops::Bound;
 
 const PUSHDOWN_INDEX_FIELDS: [&str; 1] = ["tag"];
 const PUSHDOWN_INDEX: IndexModel = IndexModel::new(
@@ -917,7 +917,7 @@ fn explain_execution_node_type_vocabulary_is_frozen() {
 
 #[test]
 fn execution_descriptor_verbose_text_renders_all_optional_fields() {
-    let mut node_properties = BTreeMap::new();
+    let mut node_properties = ExplainPropertyMap::new();
     node_properties.insert("fetch", Value::from(7_u64));
     let descriptor = ExplainExecutionNodeDescriptor {
         node_type: ExplainExecutionNodeType::TopNSeek,
@@ -983,9 +983,9 @@ fn execution_descriptor_canonical_json_shape_is_stable() {
             covering_scan: None,
             rows_expected: None,
             children: Vec::new(),
-            node_properties: BTreeMap::new(),
+            node_properties: ExplainPropertyMap::new(),
         }],
-        node_properties: BTreeMap::new(),
+        node_properties: ExplainPropertyMap::new(),
     };
 
     let json = descriptor.render_json_canonical();
@@ -1017,7 +1017,7 @@ fn execution_descriptor_canonical_json_field_order_is_stable() {
         covering_scan: Some(false),
         rows_expected: Some(5),
         children: Vec::new(),
-        node_properties: BTreeMap::new(),
+        node_properties: ExplainPropertyMap::new(),
     };
     let json = descriptor.render_json_canonical();
     let ordered_fields = [
@@ -1145,7 +1145,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 covering_scan: None,
                 rows_expected: None,
                 children: Vec::new(),
-                node_properties: BTreeMap::new(),
+                node_properties: ExplainPropertyMap::new(),
             },
         ),
         (
@@ -1163,7 +1163,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 covering_scan: None,
                 rows_expected: None,
                 children: Vec::new(),
-                node_properties: BTreeMap::new(),
+                node_properties: ExplainPropertyMap::new(),
             },
         ),
         (
@@ -1181,7 +1181,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 covering_scan: None,
                 rows_expected: None,
                 children: Vec::new(),
-                node_properties: BTreeMap::new(),
+                node_properties: ExplainPropertyMap::new(),
             },
         ),
         (
@@ -1199,7 +1199,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 covering_scan: None,
                 rows_expected: None,
                 children: Vec::new(),
-                node_properties: BTreeMap::new(),
+                node_properties: ExplainPropertyMap::new(),
             },
         ),
     ];
@@ -1230,7 +1230,7 @@ fn execution_descriptor_canonical_json_missing_optional_fields_render_explicit_n
         covering_scan: None,
         rows_expected: None,
         children: Vec::new(),
-        node_properties: BTreeMap::new(),
+        node_properties: ExplainPropertyMap::new(),
     };
 
     let json = descriptor.render_json_canonical();
@@ -1348,7 +1348,7 @@ fn assert_execution_additive_metadata_parity(
 
 #[test]
 fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_shapes() {
-    let mut fast_path_properties = BTreeMap::new();
+    let mut fast_path_properties = ExplainPropertyMap::new();
     fast_path_properties.insert(
         "fast_path_selected",
         Value::Text("secondary_index".to_string()),
@@ -1373,7 +1373,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 covering_scan: Some(false),
                 rows_expected: None,
                 children: Vec::new(),
-                node_properties: BTreeMap::new(),
+                node_properties: ExplainPropertyMap::new(),
             },
             "aggregate",
             "materialized",
@@ -1395,7 +1395,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 covering_scan: Some(false),
                 rows_expected: None,
                 children: Vec::new(),
-                node_properties: BTreeMap::new(),
+                node_properties: ExplainPropertyMap::new(),
             },
             "aggregate",
             "streaming",
@@ -1462,7 +1462,7 @@ fn execution_descriptor_pushdown_mode_projection_is_stable() {
         covering_scan: None,
         rows_expected: None,
         children: Vec::new(),
-        node_properties: BTreeMap::new(),
+        node_properties: ExplainPropertyMap::new(),
     };
 
     let none_mode = descriptor.render_json_canonical();
@@ -1549,7 +1549,7 @@ fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
     let query_explain = plan.explain();
 
     // Phase 2: build one seek-route execution descriptor and snapshot the whole payload.
-    let mut node_properties = BTreeMap::new();
+    let mut node_properties = ExplainPropertyMap::new();
     node_properties.insert("fetch", Value::from(1_u64));
     let terminal_plan = ExplainAggregateTerminalPlan::new(
         query_explain,
@@ -1621,7 +1621,7 @@ fn explain_aggregate_terminal_plan_snapshot_standard_route_is_stable() {
             ordering_source: ExplainExecutionOrderingSource::AccessOrder,
             limit: Some(3),
             cursor: true,
-            node_properties: BTreeMap::new(),
+            node_properties: ExplainPropertyMap::new(),
         },
     );
 

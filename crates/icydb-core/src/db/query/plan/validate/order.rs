@@ -13,7 +13,6 @@ use crate::{
     },
     model::entity::EntityModel,
 };
-use std::collections::BTreeSet;
 
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
@@ -38,7 +37,7 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
     model: &EntityModel,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
-    let mut seen = BTreeSet::new();
+    let mut seen = Vec::with_capacity(order.fields.len());
     let pk_field = model.primary_key.name;
 
     for (field, _) in &order.fields {
@@ -46,9 +45,12 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
         if !non_pk_field {
             continue;
         }
-        seen.insert(field.as_str())
-            .then_some(())
-            .ok_or_else(|| PlanError::from(OrderPlanError::duplicate_order_field(field)))?;
+        if seen.contains(&field.as_str()) {
+            return Err(PlanError::from(OrderPlanError::duplicate_order_field(
+                field,
+            )));
+        }
+        seen.push(field.as_str());
     }
 
     Ok(())

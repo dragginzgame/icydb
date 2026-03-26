@@ -4,7 +4,7 @@
 //! Boundary: consumed by predicate schema/semantics/runtime layers.
 
 use crate::value::CoercionFamily;
-use std::collections::BTreeMap;
+use std::fmt;
 
 ///
 /// CoercionId
@@ -42,10 +42,10 @@ impl CoercionId {
 /// Fully-specified coercion policy for predicate comparisons.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct CoercionSpec {
     pub(crate) id: CoercionId,
-    pub(crate) params: BTreeMap<String, String>,
+    pub(crate) params: Vec<(String, String)>,
 }
 
 impl CoercionSpec {
@@ -53,14 +53,38 @@ impl CoercionSpec {
     pub const fn new(id: CoercionId) -> Self {
         Self {
             id,
-            params: BTreeMap::new(),
+            params: Vec::new(),
         }
+    }
+}
+
+impl fmt::Debug for CoercionSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CoercionSpec")
+            .field("id", &self.id)
+            .field("params", &CoercionParamsDebug(&self.params))
+            .finish()
     }
 }
 
 impl Default for CoercionSpec {
     fn default() -> Self {
         Self::new(CoercionId::Strict)
+    }
+}
+
+// Keep verbose predicate diagnostics stable even though coercion params no
+// longer retain tree-map machinery internally.
+struct CoercionParamsDebug<'a>(&'a [(String, String)]);
+
+impl fmt::Debug for CoercionParamsDebug<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_map();
+        for (key, value) in self.0 {
+            debug.entry(key, value);
+        }
+
+        debug.finish()
     }
 }
 

@@ -9,6 +9,7 @@ use crate::model::{
 };
 use candid::CandidType;
 use serde::Deserialize;
+use std::fmt::Write;
 
 ///
 /// EntitySchemaDescription
@@ -415,48 +416,77 @@ const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength
 
 /// Render one stable field-kind label for describe output.
 fn summarize_field_kind(kind: &FieldKind) -> String {
+    let mut out = String::new();
+    write_field_kind_summary(&mut out, kind);
+
+    out
+}
+
+// Stream one stable field-kind label directly into the output buffer so
+// describe/sql surfaces do not retain a large recursive `format!` family.
+fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
     match kind {
-        FieldKind::Account => "account".to_string(),
-        FieldKind::Blob => "blob".to_string(),
-        FieldKind::Bool => "bool".to_string(),
-        FieldKind::Date => "date".to_string(),
-        FieldKind::Decimal { scale } => format!("decimal(scale={scale})"),
-        FieldKind::Duration => "duration".to_string(),
-        FieldKind::Enum { path, .. } => format!("enum({path})"),
-        FieldKind::Float32 => "float32".to_string(),
-        FieldKind::Float64 => "float64".to_string(),
-        FieldKind::Int => "int".to_string(),
-        FieldKind::Int128 => "int128".to_string(),
-        FieldKind::IntBig => "int_big".to_string(),
-        FieldKind::Principal => "principal".to_string(),
-        FieldKind::Subaccount => "subaccount".to_string(),
-        FieldKind::Text => "text".to_string(),
-        FieldKind::Timestamp => "timestamp".to_string(),
-        FieldKind::Uint => "uint".to_string(),
-        FieldKind::Uint128 => "uint128".to_string(),
-        FieldKind::UintBig => "uint_big".to_string(),
-        FieldKind::Ulid => "ulid".to_string(),
-        FieldKind::Unit => "unit".to_string(),
+        FieldKind::Account => out.push_str("account"),
+        FieldKind::Blob => out.push_str("blob"),
+        FieldKind::Bool => out.push_str("bool"),
+        FieldKind::Date => out.push_str("date"),
+        FieldKind::Decimal { scale } => {
+            let _ = write!(out, "decimal(scale={scale})");
+        }
+        FieldKind::Duration => out.push_str("duration"),
+        FieldKind::Enum { path, .. } => {
+            out.push_str("enum(");
+            out.push_str(path);
+            out.push(')');
+        }
+        FieldKind::Float32 => out.push_str("float32"),
+        FieldKind::Float64 => out.push_str("float64"),
+        FieldKind::Int => out.push_str("int"),
+        FieldKind::Int128 => out.push_str("int128"),
+        FieldKind::IntBig => out.push_str("int_big"),
+        FieldKind::Principal => out.push_str("principal"),
+        FieldKind::Subaccount => out.push_str("subaccount"),
+        FieldKind::Text => out.push_str("text"),
+        FieldKind::Timestamp => out.push_str("timestamp"),
+        FieldKind::Uint => out.push_str("uint"),
+        FieldKind::Uint128 => out.push_str("uint128"),
+        FieldKind::UintBig => out.push_str("uint_big"),
+        FieldKind::Ulid => out.push_str("ulid"),
+        FieldKind::Unit => out.push_str("unit"),
         FieldKind::Relation {
             target_entity_name,
             key_kind,
             strength,
             ..
-        } => format!(
-            "relation(target={target_entity_name}, key={}, strength={})",
-            summarize_field_kind(key_kind),
-            summarize_relation_strength(*strength),
-        ),
-        FieldKind::List(inner) => format!("list<{}>", summarize_field_kind(inner)),
-        FieldKind::Set(inner) => format!("set<{}>", summarize_field_kind(inner)),
-        FieldKind::Map { key, value } => {
-            format!(
-                "map<{}, {}>",
-                summarize_field_kind(key),
-                summarize_field_kind(value)
-            )
+        } => {
+            out.push_str("relation(target=");
+            out.push_str(target_entity_name);
+            out.push_str(", key=");
+            write_field_kind_summary(out, key_kind);
+            out.push_str(", strength=");
+            out.push_str(summarize_relation_strength(*strength));
+            out.push(')');
         }
-        FieldKind::Structured { queryable } => format!("structured(queryable={queryable})"),
+        FieldKind::List(inner) => {
+            out.push_str("list<");
+            write_field_kind_summary(out, inner);
+            out.push('>');
+        }
+        FieldKind::Set(inner) => {
+            out.push_str("set<");
+            write_field_kind_summary(out, inner);
+            out.push('>');
+        }
+        FieldKind::Map { key, value } => {
+            out.push_str("map<");
+            write_field_kind_summary(out, key);
+            out.push_str(", ");
+            write_field_kind_summary(out, value);
+            out.push('>');
+        }
+        FieldKind::Structured { queryable } => {
+            let _ = write!(out, "structured(queryable={queryable})");
+        }
     }
 }
 

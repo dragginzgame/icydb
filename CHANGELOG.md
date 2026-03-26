@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.65.x] 🧱 - 2026-03-26 - Canonical Row Invariant Hard-Cut
 
+- `0.65.3` keeps the canonical-row behavior unchanged but trims more raw SQL canister wasm by replacing several small ordered-tree helpers in EXPLAIN, schema describe/info, ORDER BY validation, and predicate coercion metadata with lighter deterministic containers, cutting shrunk `wasm-release` size from `1,164,644` to `1,157,161` on `minimal` (`7,483` bytes) and from `1,303,241` to `1,295,758` on `one_simple` (`7,483` bytes).
 - `0.65.2` keeps the new canonical-row behavior unchanged but further hardens fresh-install writes by making canonical rows the only production storage write token, routing save and commit replay back through the same canonical row emitter, and adding guard tests plus cleanup around the stricter row model.
 - `0.65.1` closes the last read-side gap in the canonical row hard-cut by forcing every structural row to fully decode before projection, predicate, relation, or index consumers can use it, so malformed unused fields now fail immediately instead of only when a later query happens to touch them.
 - `0.65.0` hard-cuts the persisted row format so every stored row must have one valid payload for every declared field, rejects missing slots and legacy raw-CBOR scalar bytes across commit/replay/query paths, and may require an explicit data rewrite or reset if existing stored data was relying on the older tolerant row shape.

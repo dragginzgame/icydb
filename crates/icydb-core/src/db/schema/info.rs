@@ -15,15 +15,26 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
 };
-use std::collections::{BTreeMap, BTreeSet};
+
+type SchemaFieldEntry = (&'static str, SchemaFieldInfo);
+
+fn schema_field_info<'a>(
+    fields: &'a [SchemaFieldEntry],
+    name: &str,
+) -> Option<&'a SchemaFieldInfo> {
+    fields
+        .binary_search_by_key(&name, |(field_name, _)| *field_name)
+        .ok()
+        .map(|index| &fields[index].1)
+}
 
 // Resolve one index field reference and enforce baseline queryability invariants.
 fn index_field_type<'a>(
-    fields: &'a BTreeMap<String, SchemaFieldInfo>,
+    fields: &'a [SchemaFieldEntry],
     index: &IndexModel,
     field: &'static str,
 ) -> Result<&'a FieldType, ValidateError> {
-    let Some(field_info) = fields.get(field) else {
+    let Some(field_info) = schema_field_info(fields, field) else {
         return Err(ValidateError::IndexFieldUnknown {
             index: *index,
             field: field.to_string(),
@@ -51,26 +62,27 @@ fn index_field_type<'a>(
 
 // Validate one field key item, including duplicate-field rejection for one index.
 fn validate_index_field_reference(
-    fields: &BTreeMap<String, SchemaFieldInfo>,
+    fields: &[SchemaFieldEntry],
     index: &IndexModel,
     field: &'static str,
-    seen: &mut BTreeSet<&'static str>,
+    seen: &mut Vec<&'static str>,
 ) -> Result<(), ValidateError> {
     index_field_type(fields, index, field)?;
 
-    if !seen.insert(field) {
+    if seen.contains(&field) {
         return Err(ValidateError::IndexFieldDuplicate {
             index: *index,
             field: field.to_string(),
         });
     }
+    seen.push(field);
 
     Ok(())
 }
 
 // Validate one expression key item against declared schema field types.
 fn validate_index_expression_reference(
-    fields: &BTreeMap<String, SchemaFieldInfo>,
+    fields: &[SchemaFieldEntry],
     index: &IndexModel,
     expression: IndexExpression,
 ) -> Result<(), ValidateError> {
@@ -108,19 +120,19 @@ fn validate_index_expression_reference(
 }
 
 fn validate_index_fields(
-    fields: &BTreeMap<String, SchemaFieldInfo>,
+    fields: &[SchemaFieldEntry],
     indexes: &[&IndexModel],
 ) -> Result<(), ValidateError> {
-    let mut seen_names = BTreeSet::new();
+    let mut seen_names = Vec::with_capacity(indexes.len());
     for index in indexes {
-        if seen_names.contains(index.name()) {
+        if seen_names.contains(&index.name()) {
             return Err(ValidateError::DuplicateIndexName {
                 name: index.name().to_string(),
             });
         }
-        seen_names.insert(index.name());
+        seen_names.push(index.name());
 
-        let mut seen = BTreeSet::new();
+        let mut seen = Vec::new();
         match index.key_items() {
             IndexKeyItemsRef::Fields(fields_ref) => {
                 for field in fields_ref {
@@ -187,23 +199,23 @@ struct SchemaFieldInfo {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SchemaInfo {
-    fields: BTreeMap<String, SchemaFieldInfo>,
+    fields: Vec<SchemaFieldEntry>,
 }
 
 impl SchemaInfo {
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
-        self.fields.get(name).map(|field| &field.ty)
+        schema_field_info(self.fields.as_slice(), name).map(|field| &field.ty)
     }
 
     #[must_use]
     pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
-        self.fields.get(name).map(|field| &field.kind)
+        schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
     }
 
     /// Builds runtime predicate schema information from an entity model.
     pub(crate) fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
-        // Validate identity constraints before building schema maps.
+        // Phase 1: validate identity constraints before building schema tables.
         let entity_name = EntityName::try_from_str(model.entity_name).map_err(|err| {
             ValidateError::InvalidEntityName {
                 name: model.entity_name.to_string(),
@@ -221,27 +233,27 @@ impl SchemaInfo {
             });
         }
 
-        let mut fields = BTreeMap::new();
+        // Phase 2: build one compact field table sorted by field name so
+        // downstream lookups can stay deterministic without tree maps.
+        let mut fields = Vec::with_capacity(model.fields.len());
         for field in model.fields {
-            let ty = field_type_from_model_kind(&field.kind);
-            if fields
-                .insert(
-                    field.name.to_string(),
-                    SchemaFieldInfo {
-                        ty,
-                        kind: field.kind,
-                    },
-                )
-                .is_some()
-            {
-                return Err(ValidateError::DuplicateField {
-                    field: field.name.to_string(),
-                });
+            let info = SchemaFieldInfo {
+                ty: field_type_from_model_kind(&field.kind),
+                kind: field.kind,
+            };
+
+            match fields.binary_search_by_key(&field.name, |(name, _)| *name) {
+                Ok(_) => {
+                    return Err(ValidateError::DuplicateField {
+                        field: field.name.to_string(),
+                    });
+                }
+                Err(index) => fields.insert(index, (field.name, info)),
             }
         }
 
-        let pk_field_type = &fields
-            .get(model.primary_key.name)
+        // Phase 3: verify primary-key and index contracts against the compact table.
+        let pk_field_type = &schema_field_info(fields.as_slice(), model.primary_key.name)
             .expect("primary key verified above")
             .ty;
         if !pk_field_type.is_keyable() {
@@ -260,6 +272,8 @@ impl SchemaInfo {
             })?;
         }
 
+        // Phase 4: validate predicate-bearing index metadata against the same
+        // schema surface reused by planners and executors.
         let schema = Self { fields };
         validate_index_predicates(&schema, model.indexes)?;
 
