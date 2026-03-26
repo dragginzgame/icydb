@@ -8,7 +8,7 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            DataKey, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes,
+            CanonicalRow, DataKey, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes,
             decode_storage_key_field_bytes, decode_structural_field_by_kind_bytes,
             decode_structural_value_storage_bytes,
         },
@@ -347,6 +347,56 @@ pub trait SlotWriter {
     }
 }
 
+// Resolve one staged slot cell by layout index before writer-specific payload handling.
+fn slot_cell_mut<T>(slots: &mut [T], slot: usize) -> Result<&mut T, InternalError> {
+    slots.get_mut(slot).ok_or_else(|| {
+        InternalError::persisted_row_encode_failed(
+            format!("slot {slot} is outside the row layout",),
+        )
+    })
+}
+
+// Reject slot clears at the canonical slot-image staging boundary while keeping
+// writer-specific error wording at the call site.
+fn required_slot_payload_bytes<'a>(
+    model: &'static EntityModel,
+    writer_label: &str,
+    slot: usize,
+    payload: Option<&'a [u8]>,
+) -> Result<&'a [u8], InternalError> {
+    payload.ok_or_else(|| {
+        InternalError::persisted_row_encode_failed(format!(
+            "{writer_label} cannot clear slot {slot} for entity '{}'",
+            model.path()
+        ))
+    })
+}
+
+// Encode one fixed-width slot table plus concatenated slot payload bytes into
+// the canonical row payload container.
+fn encode_slot_payload_from_parts(
+    slot_count: usize,
+    slot_table: &[(u32, u32)],
+    payload_bytes: &[u8],
+) -> Result<Vec<u8>, InternalError> {
+    let field_count = u16::try_from(slot_count).map_err(|_| {
+        InternalError::persisted_row_encode_failed(format!(
+            "field count {slot_count} exceeds u16 slot table capacity",
+        ))
+    })?;
+    let mut encoded = Vec::with_capacity(
+        usize::from(field_count) * (u32::BITS as usize / 4) + 2 + payload_bytes.len(),
+    );
+    encoded.extend_from_slice(&field_count.to_be_bytes());
+    for (start, len) in slot_table {
+        encoded.extend_from_slice(&start.to_be_bytes());
+        encoded.extend_from_slice(&len.to_be_bytes());
+    }
+    encoded.extend_from_slice(payload_bytes);
+
+    Ok(encoded)
+}
+
 ///
 /// PersistedRow
 ///
@@ -453,6 +503,110 @@ pub(in crate::db) fn encode_slot_value_from_value(
     }
 }
 
+// Decode one slot payload and immediately re-encode it through the current
+// field contract so every row-emission path normalizes bytes at the boundary.
+fn canonicalize_slot_payload(
+    model: &'static EntityModel,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<Vec<u8>, InternalError> {
+    let value = decode_slot_value_from_bytes(model, slot, raw_value)?;
+
+    encode_slot_value_from_value(model, slot, &value)
+}
+
+// Emit one raw row from a dense canonical slot image.
+fn emit_raw_row_from_slot_payloads(
+    model: &'static EntityModel,
+    slot_payloads: &[Vec<u8>],
+) -> Result<CanonicalRow, InternalError> {
+    if slot_payloads.len() != model.fields().len() {
+        return Err(InternalError::persisted_row_encode_failed(format!(
+            "canonical slot image expected {} slots for entity '{}', found {}",
+            model.fields().len(),
+            model.path(),
+            slot_payloads.len()
+        )));
+    }
+
+    let mut writer = SlotBufferWriter::for_model(model);
+
+    // Phase 1: write the already canonicalized dense slot image through the
+    // single row-container authority.
+    for (slot, payload) in slot_payloads.iter().enumerate() {
+        writer.write_slot(slot, Some(payload.as_slice()))?;
+    }
+
+    // Phase 2: wrap the canonical slot container in the shared row envelope.
+    let encoded = serialize_row_payload(writer.finish()?)?;
+    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
+
+    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
+}
+
+// Build one dense canonical slot image from a serialized patch, failing closed
+// when any declared slot is missing or any payload is non-canonical.
+fn dense_canonical_slot_image_from_serialized_patch(
+    model: &'static EntityModel,
+    patch: &SerializedUpdatePatch,
+) -> Result<Vec<Vec<u8>>, InternalError> {
+    let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
+    let mut slot_payloads = Vec::with_capacity(model.fields().len());
+
+    for (slot, payload) in patch_payloads.into_iter().enumerate() {
+        let payload = payload.ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "serialized patch did not emit slot {slot} for entity '{}'",
+                model.path()
+            ))
+        })?;
+        slot_payloads.push(canonicalize_slot_payload(model, slot, payload)?);
+    }
+
+    Ok(slot_payloads)
+}
+
+/// Build one canonical row from one serialized structural patch that already
+/// describes a full logical row image.
+pub(in crate::db) fn canonical_row_from_serialized_update_patch(
+    model: &'static EntityModel,
+    patch: &SerializedUpdatePatch,
+) -> Result<CanonicalRow, InternalError> {
+    let slot_payloads = dense_canonical_slot_image_from_serialized_patch(model, patch)?;
+
+    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+}
+
+// Rebuild one full canonical row image from an existing raw row before it
+// crosses a storage write boundary.
+pub(in crate::db) fn canonical_row_from_raw_row(
+    model: &'static EntityModel,
+    raw_row: &RawRow,
+) -> Result<CanonicalRow, InternalError> {
+    let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
+        .map_err(StructuralRowDecodeError::into_internal_error)?;
+    let mut slot_payloads = Vec::with_capacity(model.fields().len());
+
+    // Phase 1: canonicalize every declared slot from the existing row image.
+    for slot in 0..model.fields().len() {
+        let existing_payload = field_bytes.field(slot).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is missing from the baseline row for entity '{}'",
+                model.path()
+            ))
+        })?;
+        slot_payloads.push(canonicalize_slot_payload(model, slot, existing_payload)?);
+    }
+
+    // Phase 2: re-emit the full image through the single row-emission owner.
+    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+}
+
+// Rewrap one row already loaded from storage as a canonical write token.
+pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) -> CanonicalRow {
+    CanonicalRow::from_canonical_raw_row(raw_row)
+}
+
 /// Apply one ordered structural patch to one raw row using the current
 /// persisted-row field codec authority.
 #[allow(dead_code)]
@@ -460,7 +614,7 @@ pub(in crate::db) fn apply_update_patch_to_raw_row(
     model: &'static EntityModel,
     raw_row: &RawRow,
     patch: &UpdatePatch,
-) -> Result<RawRow, InternalError> {
+) -> Result<CanonicalRow, InternalError> {
     let serialized_patch = serialize_update_patch_fields(model, patch)?;
 
     apply_serialized_update_patch_to_raw_row(model, raw_row, &serialized_patch)
@@ -525,35 +679,35 @@ pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
     model: &'static EntityModel,
     raw_row: &RawRow,
     patch: &SerializedUpdatePatch,
-) -> Result<RawRow, InternalError> {
+) -> Result<CanonicalRow, InternalError> {
     if patch.is_empty() {
-        return Ok(raw_row.clone());
+        return canonical_row_from_raw_row(model, raw_row);
     }
 
     let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
         .map_err(StructuralRowDecodeError::into_internal_error)?;
     let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
-    let mut writer = SlotBufferWriter::for_model(model);
+    let mut slot_payloads = Vec::with_capacity(model.fields().len());
 
-    // Phase 1: replay the current row layout slot-by-slot, overriding only the
-    // patched fields with their already serialized payload bytes.
+    // Phase 1: replay the current row layout slot-by-slot.
+    // Both patch and baseline bytes are normalized through the field contract
+    // so no opaque payload can cross into the emitted row image.
     for (slot, patch_payload) in patch_payloads.iter().enumerate() {
-        match patch_payload {
-            Some(payload) => {
-                writer.write_slot(slot, Some(payload))?;
-            }
-            None => {
-                writer.write_slot(slot, field_bytes.field(slot))?;
-            }
+        if let Some(payload) = patch_payload {
+            slot_payloads.push(canonicalize_slot_payload(model, slot, payload)?);
+        } else {
+            let existing_payload = field_bytes.field(slot).ok_or_else(|| {
+                InternalError::persisted_row_encode_failed(format!(
+                    "slot {slot} is missing from the baseline row for entity '{}'",
+                    model.path()
+                ))
+            })?;
+            slot_payloads.push(canonicalize_slot_payload(model, slot, existing_payload)?);
         }
     }
 
-    // Phase 2: wrap the new slot payload bytes back into the canonical row
-    // envelope.
-    let payload = writer.finish()?;
-    let encoded = serialize_row_payload(payload)?;
-
-    RawRow::try_new(encoded).map_err(InternalError::from)
+    // Phase 2: emit the rebuilt row through the single row-construction owner.
+    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
 }
 
 // Decode one non-scalar slot through the exact persisted contract declared by
@@ -1066,37 +1220,35 @@ where
 ///
 /// SlotBufferWriter
 ///
-/// SlotBufferWriter captures one row worth of slot payloads before they are
-/// encoded into the canonical slot container.
+/// SlotBufferWriter captures one dense canonical row worth of slot payloads
+/// before they are encoded into the canonical slot container.
 ///
 
 pub(in crate::db) struct SlotBufferWriter {
-    slots: Vec<Option<Vec<u8>>>,
+    model: &'static EntityModel,
+    slots: Vec<SlotBufferSlot>,
 }
 
 impl SlotBufferWriter {
     /// Build one empty slot buffer for one entity model.
     pub(in crate::db) fn for_model(model: &'static EntityModel) -> Self {
         Self {
-            slots: vec![None; model.fields().len()],
+            model,
+            slots: vec![SlotBufferSlot::Missing; model.fields().len()],
         }
     }
 
     /// Encode the buffered slots into the canonical row payload.
     pub(in crate::db) fn finish(self) -> Result<Vec<u8>, InternalError> {
-        let field_count = u16::try_from(self.slots.len()).map_err(|_| {
-            InternalError::persisted_row_encode_failed(format!(
-                "field count {} exceeds u16 slot table capacity",
-                self.slots.len(),
-            ))
-        })?;
+        let slot_count = self.slots.len();
         let mut payload_bytes = Vec::new();
-        let mut slot_table = Vec::with_capacity(self.slots.len());
+        let mut slot_table = Vec::with_capacity(slot_count);
 
-        // Phase 1: assign each present slot one payload span inside the data section.
-        for slot_payload in self.slots {
+        // Phase 1: require one payload for every declared slot before the row
+        // can cross the canonical persisted-row boundary.
+        for (slot, slot_payload) in self.slots.into_iter().enumerate() {
             match slot_payload {
-                Some(bytes) => {
+                SlotBufferSlot::Set(bytes) => {
                     let start = u32::try_from(payload_bytes.len()).map_err(|_| {
                         InternalError::persisted_row_encode_failed(
                             "slot payload start exceeds u32 range",
@@ -1110,36 +1262,41 @@ impl SlotBufferWriter {
                     payload_bytes.extend_from_slice(&bytes);
                     slot_table.push((start, len));
                 }
-                None => slot_table.push((0, 0)),
+                SlotBufferSlot::Missing => {
+                    return Err(InternalError::persisted_row_encode_failed(format!(
+                        "slot buffer writer did not emit slot {slot} for entity '{}'",
+                        self.model.path()
+                    )));
+                }
             }
         }
 
-        // Phase 2: write the fixed-width slot header followed by concatenated payloads.
-        let mut encoded = Vec::with_capacity(
-            usize::from(field_count) * (u32::BITS as usize / 4) + 2 + payload_bytes.len(),
-        );
-        encoded.extend_from_slice(&field_count.to_be_bytes());
-        for (start, len) in slot_table {
-            encoded.extend_from_slice(&start.to_be_bytes());
-            encoded.extend_from_slice(&len.to_be_bytes());
-        }
-        encoded.extend_from_slice(&payload_bytes);
-
-        Ok(encoded)
+        // Phase 2: flatten the slot table plus payload bytes into the canonical row image.
+        encode_slot_payload_from_parts(slot_count, slot_table.as_slice(), payload_bytes.as_slice())
     }
 }
 
 impl SlotWriter for SlotBufferWriter {
     fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
-        let entry = self.slots.get_mut(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is outside the row layout",
-            ))
-        })?;
-        *entry = payload.map(<[u8]>::to_vec);
+        let entry = slot_cell_mut(self.slots.as_mut_slice(), slot)?;
+        let payload = required_slot_payload_bytes(self.model, "slot buffer writer", slot, payload)?;
+        *entry = SlotBufferSlot::Set(payload.to_vec());
 
         Ok(())
     }
+}
+
+///
+/// SlotBufferSlot
+///
+/// SlotBufferSlot tracks whether one canonical row encoder has emitted a
+/// payload for every declared slot before flattening the row payload.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SlotBufferSlot {
+    Missing,
+    Set(Vec<u8>),
 }
 
 ///
@@ -1195,17 +1352,9 @@ impl SerializedPatchWriter {
 
 impl SlotWriter for SerializedPatchWriter {
     fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
-        let entry = self.slots.get_mut(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is outside the row layout",
-            ))
-        })?;
-        let payload = payload.ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "serialized patch writer cannot clear slot {slot} for entity '{}'",
-                self.model.path()
-            ))
-        })?;
+        let entry = slot_cell_mut(self.slots.as_mut_slice(), slot)?;
+        let payload =
+            required_slot_payload_bytes(self.model, "serialized patch writer", slot, payload)?;
         *entry = PatchWriterSlot::Set(payload.to_vec());
 
         Ok(())
@@ -1386,18 +1535,18 @@ impl SlotReader for StructuralSlotReader<'_> {
             InternalError::persisted_row_slot_cache_lookup_out_of_bounds(self.model.path(), slot)
         })?;
         if let CachedSlotValue::Decoded(value) = cached {
-            return Ok(value.clone());
+            return Ok(Some(value.clone()));
         }
 
         let field = self.field_model(slot)?;
-        let value = Some(decode_slot_value_from_bytes(
+        let value = decode_slot_value_from_bytes(
             self.model,
             slot,
             self.required_field_bytes(slot, field.name())?,
-        )?);
+        )?;
         self.cached_values[slot] = CachedSlotValue::Decoded(value.clone());
 
-        Ok(value)
+        Ok(Some(value))
     }
 }
 
@@ -1412,7 +1561,7 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {}
 
 enum CachedSlotValue {
     Pending,
-    Decoded(Option<Value>),
+    Decoded(Value),
 }
 
 // Encode one scalar slot value into the canonical prefixed scalar envelope.
@@ -2007,17 +2156,19 @@ impl PersistedScalar for () {
 #[cfg(test)]
 mod tests {
     use super::{
-        FieldSlot, ScalarSlotValueRef, ScalarValueRef, SerializedPatchWriter, SlotBufferWriter,
-        SlotReader, SlotWriter, UpdatePatch, apply_update_patch_to_raw_row,
+        FieldSlot, ScalarSlotValueRef, ScalarValueRef, SerializedFieldUpdate,
+        SerializedPatchWriter, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
+        UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
         decode_slot_value_by_contract, decode_slot_value_from_bytes, encode_scalar_slot_value,
-        encode_slot_value_from_value, serialize_entity_slots_as_update_patch,
-        serialize_update_patch_fields,
+        encode_slot_payload_from_parts, encode_slot_value_from_value,
+        serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
     };
     use crate::{
         db::{
             codec::serialize_row_payload,
             data::{RawRow, StructuralSlotReader},
         },
+        error::InternalError,
         model::{
             EntityModel,
             field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
@@ -2137,6 +2288,44 @@ mod tests {
         &ACCOUNT_FIELD_MODELS,
         &INDEX_MODELS,
     );
+
+    fn encode_slot_payload_allowing_missing_for_tests(
+        model: &'static EntityModel,
+        slots: &[Option<&[u8]>],
+    ) -> Result<Vec<u8>, InternalError> {
+        if slots.len() != model.fields().len() {
+            return Err(InternalError::persisted_row_encode_failed(format!(
+                "noncanonical slot payload test helper expected {} slots for entity '{}', found {}",
+                model.fields().len(),
+                model.path(),
+                slots.len()
+            )));
+        }
+        let mut payload_bytes = Vec::new();
+        let mut slot_table = Vec::with_capacity(slots.len());
+
+        for slot_payload in slots {
+            match slot_payload {
+                Some(bytes) => {
+                    let start = u32::try_from(payload_bytes.len()).map_err(|_| {
+                        InternalError::persisted_row_encode_failed(
+                            "slot payload start exceeds u32 range",
+                        )
+                    })?;
+                    let len = u32::try_from(bytes.len()).map_err(|_| {
+                        InternalError::persisted_row_encode_failed(
+                            "slot payload length exceeds u32 range",
+                        )
+                    })?;
+                    payload_bytes.extend_from_slice(bytes);
+                    slot_table.push((start, len));
+                }
+                None => slot_table.push((0_u32, 0_u32)),
+            }
+        }
+
+        encode_slot_payload_from_parts(slots.len(), slot_table.as_slice(), payload_bytes.as_slice())
+    }
 
     #[test]
     fn decode_slot_value_from_bytes_decodes_scalar_slots_through_one_owner() {
@@ -2392,6 +2581,25 @@ mod tests {
     }
 
     #[test]
+    fn slot_buffer_writer_rejects_clear_slots() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+
+        let err = writer
+            .write_slot(0, None)
+            .expect_err("canonical row staging must reject missing-slot clears");
+
+        assert!(
+            err.message
+                .contains("slot buffer writer cannot clear slot 0"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message.contains(TEST_MODEL.path()),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
     fn apply_update_patch_to_raw_row_uses_last_write_wins() {
         let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
         let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
@@ -2425,11 +2633,11 @@ mod tests {
 
     #[test]
     fn apply_update_patch_to_raw_row_rejects_noncanonical_missing_slot_baseline() {
+        let empty_slots = vec![None::<&[u8]>; TEST_MODEL.fields().len()];
         let raw_row = RawRow::try_new(
             serialize_row_payload(
-                SlotBufferWriter::for_model(&TEST_MODEL)
-                    .finish()
-                    .expect("finish slot payload"),
+                encode_slot_payload_allowing_missing_for_tests(&TEST_MODEL, empty_slots.as_slice())
+                    .expect("encode malformed slot payload"),
             )
             .expect("serialize row payload"),
         )
@@ -2445,6 +2653,75 @@ mod tests {
         assert_eq!(
             err.message,
             "row decode failed: missing slot payload: slot=0"
+        );
+    }
+
+    #[test]
+    fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_baseline() {
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode value-storage payload");
+        let malformed_slots = [Some([0xF6].as_slice()), Some(payload.as_slice())];
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(
+                encode_slot_payload_allowing_missing_for_tests(&TEST_MODEL, &malformed_slots)
+                    .expect("encode malformed slot payload"),
+            )
+            .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+        let patch = UpdatePatch::new().set(
+            FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
+            Value::Text("patched".to_string()),
+        );
+        let serialized =
+            serialize_update_patch_fields(&TEST_MODEL, &patch).expect("serialize patch");
+
+        let err = apply_serialized_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &serialized)
+            .expect_err("noncanonical scalar baseline must fail closed");
+
+        assert!(
+            err.message.contains("field 'name'"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message
+                .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_patch_payload() {
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode value-storage payload");
+        writer
+            .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
+            .expect("write scalar slot");
+        writer
+            .write_slot(1, Some(payload.as_slice()))
+            .expect("write value-storage slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+        let serialized = SerializedUpdatePatch::new(vec![SerializedFieldUpdate::new(
+            FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
+            vec![0xF6],
+        )]);
+
+        let err = apply_serialized_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &serialized)
+            .expect_err("noncanonical serialized patch payload must fail closed");
+
+        assert!(
+            err.message.contains("field 'name'"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message
+                .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
+            "unexpected error: {err:?}"
         );
     }
 
@@ -2556,6 +2833,9 @@ mod tests {
             .expect("decode old entity");
         let serialized =
             serialize_entity_slots_as_update_patch(&new_entity).expect("serialize entity patch");
+        let direct =
+            RawRow::from_serialized_update_patch(PersistedRowPatchBridgeEntity::MODEL, &serialized)
+                .expect("direct row emission should succeed");
 
         let patched = raw_row
             .apply_serialized_update_patch(PersistedRowPatchBridgeEntity::MODEL, &serialized)
@@ -2564,7 +2844,108 @@ mod tests {
             .try_decode::<PersistedRowPatchBridgeEntity>()
             .expect("decode patched entity");
 
+        assert_eq!(
+            direct, patched,
+            "fresh row emission and replayed full-image patch must converge on identical bytes",
+        );
         assert_eq!(old_decoded, old_entity);
         assert_eq!(decoded, new_entity);
+    }
+
+    #[test]
+    fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
+        let entity = PersistedRowPatchBridgeEntity {
+            id: crate::types::Ulid::from_u128(11),
+            name: "Ada".to_string(),
+        };
+        let raw_row = RawRow::from_entity(&entity).expect("encode canonical row");
+        let canonical = crate::db::data::canonical_row_from_raw_row(
+            PersistedRowPatchBridgeEntity::MODEL,
+            &raw_row,
+        )
+        .expect("canonical re-emission should succeed");
+
+        assert_eq!(
+            canonical.as_bytes(),
+            raw_row.as_bytes(),
+            "canonical raw-row rebuild must preserve already canonical row bytes",
+        );
+    }
+
+    #[test]
+    fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode value-storage payload");
+        let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+        writer
+            .write_slot(0, Some(&[0xF6]))
+            .expect("write malformed scalar slot");
+        writer
+            .write_slot(1, Some(payload.as_slice()))
+            .expect("write value-storage slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize malformed row"),
+        )
+        .expect("build malformed raw row");
+
+        let err = crate::db::data::canonical_row_from_raw_row(&TEST_MODEL, &raw_row)
+            .expect_err("canonical raw-row rebuild must reject malformed scalar payloads");
+
+        assert!(
+            err.message.contains("field 'name'"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message
+                .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn raw_row_from_serialized_update_patch_rejects_noncanonical_scalar_payload() {
+        let payload = crate::serialize::serialize(&Value::Text("payload".to_string()))
+            .expect("encode value-storage payload");
+        let serialized = SerializedUpdatePatch::new(vec![
+            SerializedFieldUpdate::new(
+                FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
+                vec![0xF6],
+            ),
+            SerializedFieldUpdate::new(
+                FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
+                payload,
+            ),
+        ]);
+
+        let err = RawRow::from_serialized_update_patch(&TEST_MODEL, &serialized)
+            .expect_err("fresh row emission must reject noncanonical serialized patch payloads");
+
+        assert!(
+            err.message.contains("field 'name'"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message
+                .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn raw_row_from_serialized_update_patch_rejects_incomplete_slot_image() {
+        let serialized = SerializedUpdatePatch::new(vec![SerializedFieldUpdate::new(
+            FieldSlot::from_index(&TEST_MODEL, 1).expect("resolve slot"),
+            crate::serialize::serialize(&Value::Text("payload".to_string()))
+                .expect("encode value-storage payload"),
+        )]);
+
+        let err = RawRow::from_serialized_update_patch(&TEST_MODEL, &serialized)
+            .expect_err("fresh row emission must reject missing declared slots");
+
+        assert!(
+            err.message.contains("serialized patch did not emit slot 0"),
+            "unexpected error: {err:?}"
+        );
     }
 }

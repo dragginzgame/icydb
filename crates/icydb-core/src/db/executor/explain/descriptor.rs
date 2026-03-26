@@ -98,70 +98,62 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     ) {
         root.children.push(predicate_stage);
     }
+    root.children.extend(load_modifier_execution_nodes(
+        plan,
+        &route_plan,
+        execution_mode,
+        route_shape,
+    ));
 
+    Ok(root)
+}
+
+fn load_modifier_execution_nodes(
+    plan: &AccessPlannedQuery,
+    route_plan: &ExecutionRoutePlan,
+    execution_mode: ExplainExecutionMode,
+    route_shape: ExecutionRouteShape,
+) -> Vec<ExplainExecutionNodeDescriptor> {
+    let mut nodes = Vec::new();
+
+    // Phase 1: emit route-owned pushdown and seek modifiers in access execution order.
     for node in [
-        secondary_order_pushdown_descriptor(&route_plan, execution_mode),
-        index_range_limit_pushdown_descriptor(&route_plan, execution_mode),
-        top_n_seek_descriptor(&route_plan, execution_mode),
+        secondary_order_pushdown_descriptor(route_plan, execution_mode),
+        index_range_limit_pushdown_descriptor(route_plan, execution_mode),
+        top_n_seek_descriptor(route_plan, execution_mode),
     ]
     .into_iter()
     .flatten()
     {
-        root.children.push(node);
+        nodes.push(node);
     }
 
-    if plan.scalar_plan().order.is_some() {
-        let order_node_type = if route_shape.is_streaming() {
-            ExplainExecutionNodeType::OrderByAccessSatisfied
-        } else {
-            ExplainExecutionNodeType::OrderByMaterializedSort
-        };
-        let mut order_node = empty_execution_node_descriptor(order_node_type, execution_mode);
-        order_node.node_properties.insert(
-            "order_by_idx",
-            Value::from(matches!(
-                order_node_type,
-                ExplainExecutionNodeType::OrderByAccessSatisfied
-            )),
-        );
-        root.children.push(order_node);
+    // Phase 2: emit planner-owned post-access modifiers that depend on route shape,
+    // distinct strategy, and continuation state.
+    if let Some(node) = order_by_execution_node_descriptor(
+        plan.scalar_plan().order.is_some(),
+        route_shape,
+        execution_mode,
+    ) {
+        nodes.push(node);
     }
-
-    match plan.distinct_execution_strategy() {
-        DistinctExecutionStrategy::None => {}
-        DistinctExecutionStrategy::PreOrdered => {
-            root.children.push(empty_execution_node_descriptor(
-                ExplainExecutionNodeType::DistinctPreOrdered,
-                execution_mode,
-            ));
-        }
-        DistinctExecutionStrategy::HashMaterialize => {
-            root.children.push(empty_execution_node_descriptor(
-                ExplainExecutionNodeType::DistinctMaterialized,
-                ExplainExecutionMode::Materialized,
-            ));
-        }
+    if let Some(node) =
+        distinct_execution_node_descriptor(plan.distinct_execution_strategy(), execution_mode)
+    {
+        nodes.push(node);
     }
-
     if let Some(page) = plan.scalar_plan().page.as_ref() {
-        let mut node =
-            empty_execution_node_descriptor(ExplainExecutionNodeType::LimitOffset, execution_mode);
-        node.limit = page.limit;
-        node.cursor = Some(route_plan.continuation().capabilities().applied());
-        node.node_properties
-            .insert("offset", Value::from(u64_from_usize(page.offset as usize)));
-        root.children.push(node);
+        nodes.push(limit_offset_execution_node_descriptor(
+            page,
+            route_plan,
+            execution_mode,
+        ));
+    }
+    if let Some(node) = cursor_resume_execution_node_descriptor(route_plan, execution_mode) {
+        nodes.push(node);
     }
 
-    if route_plan.continuation().capabilities().applied() {
-        let mut node =
-            empty_execution_node_descriptor(ExplainExecutionNodeType::CursorResume, execution_mode);
-        node.cursor = Some(true);
-        annotate_cursor_resume_node_properties(&mut node, &route_plan);
-        root.children.push(node);
-    }
-
-    Ok(root)
+    nodes
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one
@@ -710,6 +702,80 @@ fn secondary_order_pushdown_descriptor(
     node.node_properties.insert("index", Value::from(*index));
     node.node_properties
         .insert("prefix_len", Value::from(u64_from_usize(*prefix_len)));
+
+    Some(node)
+}
+
+fn order_by_execution_node_descriptor(
+    has_order_by: bool,
+    route_shape: ExecutionRouteShape,
+    execution_mode: ExplainExecutionMode,
+) -> Option<ExplainExecutionNodeDescriptor> {
+    if !has_order_by {
+        return None;
+    }
+
+    let node_type = if route_shape.is_streaming() {
+        ExplainExecutionNodeType::OrderByAccessSatisfied
+    } else {
+        ExplainExecutionNodeType::OrderByMaterializedSort
+    };
+    let mut node = empty_execution_node_descriptor(node_type, execution_mode);
+    node.node_properties.insert(
+        "order_by_idx",
+        Value::from(matches!(
+            node_type,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )),
+    );
+
+    Some(node)
+}
+
+const fn distinct_execution_node_descriptor(
+    strategy: DistinctExecutionStrategy,
+    execution_mode: ExplainExecutionMode,
+) -> Option<ExplainExecutionNodeDescriptor> {
+    match strategy {
+        DistinctExecutionStrategy::None => None,
+        DistinctExecutionStrategy::PreOrdered => Some(empty_execution_node_descriptor(
+            ExplainExecutionNodeType::DistinctPreOrdered,
+            execution_mode,
+        )),
+        DistinctExecutionStrategy::HashMaterialize => Some(empty_execution_node_descriptor(
+            ExplainExecutionNodeType::DistinctMaterialized,
+            ExplainExecutionMode::Materialized,
+        )),
+    }
+}
+
+fn limit_offset_execution_node_descriptor(
+    page: &crate::db::query::plan::PageSpec,
+    route_plan: &ExecutionRoutePlan,
+    execution_mode: ExplainExecutionMode,
+) -> ExplainExecutionNodeDescriptor {
+    let mut node =
+        empty_execution_node_descriptor(ExplainExecutionNodeType::LimitOffset, execution_mode);
+    node.limit = page.limit;
+    node.cursor = Some(route_plan.continuation().capabilities().applied());
+    node.node_properties
+        .insert("offset", Value::from(u64_from_usize(page.offset as usize)));
+
+    node
+}
+
+fn cursor_resume_execution_node_descriptor(
+    route_plan: &ExecutionRoutePlan,
+    execution_mode: ExplainExecutionMode,
+) -> Option<ExplainExecutionNodeDescriptor> {
+    if !route_plan.continuation().capabilities().applied() {
+        return None;
+    }
+
+    let mut node =
+        empty_execution_node_descriptor(ExplainExecutionNodeType::CursorResume, execution_mode);
+    node.cursor = Some(true);
+    annotate_cursor_resume_node_properties(&mut node, route_plan);
 
     Some(node)
 }

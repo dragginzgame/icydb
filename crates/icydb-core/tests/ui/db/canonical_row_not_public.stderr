@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `icydb_core::db::CanonicalRow`
+ --> tests/ui/db/canonical_row_not_public.rs:1:5
+  |
+1 | use icydb_core::db::CanonicalRow;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `CanonicalRow` in `db`

@@ -5,7 +5,7 @@
 
 use crate::db::commit::marker::CommitIndexOp;
 use crate::db::{
-    data::{DataStore, RawDataKey, RawRow},
+    data::{CanonicalRow, DataStore, RawDataKey},
     index::{IndexStore, RawIndexEntry, RawIndexKey},
 };
 use std::{cell::RefCell, thread::LocalKey};
@@ -148,5 +148,5 @@ pub(in crate::db) struct PreparedRowCommitOp {
     pub(crate) index_ops: Vec<PreparedIndexMutation>,
     pub(crate) data_store: &'static LocalKey<RefCell<DataStore>>,
     pub(crate) data_key: RawDataKey,
-    pub(crate) data_value: Option<RawRow>,
+    pub(crate) data_value: Option<CanonicalRow>,
 }

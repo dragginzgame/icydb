@@ -7,7 +7,10 @@ use crate::{
     db::{
         Db,
         commit::{CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp, decode_data_key},
-        data::{CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StructuralSlotReader},
+        data::{
+            CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StructuralSlotReader,
+            canonical_row_from_raw_row,
+        },
         index::{
             IndexEntryReader, IndexMutationPlan, PrimaryRowReader, StructuralIndexEntryReader,
             StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
@@ -156,7 +159,7 @@ fn validate_commit_marker_row_for_entity(
     label: &'static str,
     model: &'static EntityModel,
 ) -> Result<(), InternalError> {
-    let raw_row = RawRow::try_new(bytes.to_vec()).map_err(|err| {
+    let raw_row = RawRow::from_untrusted_bytes(bytes.to_vec()).map_err(|err| {
         InternalError::serialize_corruption(format!(
             "commit marker {label} row decode failed: {err}",
         ))
@@ -326,12 +329,12 @@ fn prepare_row_commit_structural_inputs(
     let old_row = op
         .before
         .as_ref()
-        .map(|bytes| RawRow::try_new(bytes.clone()))
+        .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
         .transpose()?;
     let new_row = op
         .after
         .as_ref()
-        .map(|bytes| RawRow::try_new(bytes.clone()))
+        .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
         .transpose()?;
 
     if old_row.is_none() && new_row.is_none() {
@@ -371,23 +374,25 @@ where
     )?;
     let data_store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
 
-    Ok(materialize_prepared_row_commit(
+    materialize_prepared_row_commit(
         index_plan,
         reverse_index_ops,
+        authority.model,
         data_store.data_store(),
         structural.raw_key,
         structural.new_row,
-    ))
+    )
 }
 
 // Materialize one prepared row commit entirely from structural planning outputs.
 fn materialize_prepared_row_commit(
     index_plan: IndexMutationPlan,
     reverse_index_ops: Vec<PreparedIndexMutation>,
+    model: &'static EntityModel,
     data_store: &'static LocalKey<RefCell<DataStore>>,
     data_key: RawDataKey,
     data_value: Option<RawRow>,
-) -> PreparedRowCommitOp {
+) -> Result<PreparedRowCommitOp, InternalError> {
     // Phase 1: lower planned commit ops into mechanical index mutations.
     let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len() + reverse_index_ops.len());
     index_ops.extend(
@@ -400,10 +405,17 @@ fn materialize_prepared_row_commit(
     // Phase 2: append the already-prepared reverse-index mutations unchanged.
     index_ops.extend(reverse_index_ops);
 
-    PreparedRowCommitOp {
+    // Phase 3: canonicalize any persisted after-image before it reaches the
+    // infallible store-apply boundary.
+    let data_value = data_value
+        .as_ref()
+        .map(|raw_row| canonical_row_from_raw_row(model, raw_row))
+        .transpose()?;
+
+    Ok(PreparedRowCommitOp {
         index_ops,
         data_store,
         data_key,
         data_value,
-    }
+    })
 }

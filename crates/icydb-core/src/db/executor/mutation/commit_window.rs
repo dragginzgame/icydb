@@ -102,8 +102,13 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
                 .or_default()
                 .insert(index_op.key.clone(), index_op.value.clone());
         }
-        self.data_overrides
-            .insert(row_op.data_key, row_op.data_value.clone());
+        self.data_overrides.insert(
+            row_op.data_key,
+            row_op
+                .data_value
+                .as_ref()
+                .map(|row| row.as_raw_row().clone()),
+        );
     }
 }
 

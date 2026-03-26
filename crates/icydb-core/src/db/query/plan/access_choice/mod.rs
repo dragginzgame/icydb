@@ -193,6 +193,18 @@ struct CandidateScore {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RangeCompareKind {
+    StartsWith,
+    Ordered,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct RangeFieldConstraint<'a> {
+    eq_value: Option<&'a Value>,
+    has_range: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CandidateEvaluation {
     Eligible(CandidateScore),
     Rejected(AccessChoiceRejectedReason),
@@ -617,81 +629,23 @@ fn evaluate_range_compare_candidate(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> CandidateEvaluation {
-    if !matches!(
-        cmp.op,
-        CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte | CompareOp::StartsWith
-    ) {
-        return CandidateEvaluation::Rejected(
-            AccessChoiceRejectedReason::OperatorNotRangeSupported,
-        );
-    }
-    if cmp.op == CompareOp::StartsWith {
-        if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::TextCasefold
-        ) {
-            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
+    let evaluation = match classify_single_range_compare_kind(cmp.op) {
+        Some(RangeCompareKind::StartsWith) => {
+            evaluate_starts_with_range_compare_candidate(index, schema, cmp)
         }
-        let Some(leading_key_item) = leading_index_key_item(index) else {
-            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
-        };
-        let literal_compatible =
-            index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
-        if starts_with_lookup_value_for_key_item(
-            leading_key_item,
-            cmp.field.as_str(),
-            cmp.value(),
-            cmp.coercion.id,
-            literal_compatible,
-        )
-        .is_none()
-        {
-            if !key_item_matches_field_and_coercion(
-                leading_key_item,
-                cmp.field.as_str(),
-                cmp.coercion.id,
-            ) {
-                return CandidateEvaluation::Rejected(
-                    AccessChoiceRejectedReason::LeadingFieldMismatch,
-                );
-            }
-            if !literal_compatible {
-                return CandidateEvaluation::Rejected(
-                    AccessChoiceRejectedReason::LiteralIncompatible,
-                );
-            }
+        Some(RangeCompareKind::Ordered) => {
+            evaluate_ordered_range_compare_candidate(index, schema, cmp)
+        }
+        None => Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
+    };
 
-            return CandidateEvaluation::Rejected(
-                AccessChoiceRejectedReason::StartsWithPrefixInvalid,
-            );
-        }
-    } else {
-        if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::NumericWiden
-        ) {
-            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
-        }
-        if index.fields().first() != Some(&cmp.field.as_str()) {
-            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
-        }
-        if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
-            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
-        }
-        if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotSupported);
-        }
-        if index.fields().len() != 1 {
-            return CandidateEvaluation::Rejected(
-                AccessChoiceRejectedReason::SingleFieldRangeRequired,
-            );
-        }
+    match evaluation {
+        Ok(()) => CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 0,
+            exact: true,
+        }),
+        Err(reason) => CandidateEvaluation::Rejected(reason),
     }
-
-    CandidateEvaluation::Eligible(CandidateScore {
-        prefix_len: 0,
-        exact: true,
-    })
 }
 
 fn evaluate_range_and_candidate(
@@ -755,48 +709,14 @@ fn range_candidate_score_from_compares(
     // Evaluate each index field in order so range scoring never allocates a
     // temporary per-field matrix just to recover the final prefix shape.
     for field in index.fields() {
-        let mut eq_value: Option<&Value> = None;
-        let mut has_range_field = false;
-
-        for cmp in compares {
-            if cmp.field.as_str() != *field {
-                continue;
-            }
-            if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
-                return Err(AccessChoiceRejectedReason::LiteralIncompatible);
-            }
-            if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-                return Err(AccessChoiceRejectedReason::OperatorNotSupported);
-            }
-
-            match cmp.op {
-                CompareOp::Eq => {
-                    if has_range_field {
-                        return Err(AccessChoiceRejectedReason::EqRangeConflict);
-                    }
-                    if let Some(existing) = eq_value
-                        && existing != cmp.value()
-                    {
-                        return Err(AccessChoiceRejectedReason::ConflictingEqConstraints);
-                    }
-                    eq_value = Some(cmp.value());
-                }
-                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-                    if eq_value.is_some() {
-                        return Err(AccessChoiceRejectedReason::EqRangeConflict);
-                    }
-                    has_range_field = true;
-                }
-                _ => return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
-            }
-        }
+        let constraint = classify_range_constraints_for_field(index, schema, field, compares)?;
 
         if !range_seen {
-            if eq_value.is_some() {
+            if constraint.eq_value.is_some() {
                 prefix_len = prefix_len.saturating_add(1);
                 continue;
             }
-            if has_range_field {
+            if constraint.has_range {
                 range_seen = true;
                 has_range = true;
                 continue;
@@ -804,7 +724,7 @@ fn range_candidate_score_from_compares(
             return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
         }
 
-        if eq_value.is_some() || has_range_field {
+        if constraint.eq_value.is_some() || constraint.has_range {
             return Err(AccessChoiceRejectedReason::NonContiguousRangeConstraints);
         }
     }
@@ -817,6 +737,130 @@ fn range_candidate_score_from_compares(
         prefix_len,
         exact: false,
     })
+}
+
+const fn classify_single_range_compare_kind(op: CompareOp) -> Option<RangeCompareKind> {
+    match op {
+        CompareOp::StartsWith => Some(RangeCompareKind::StartsWith),
+        CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            Some(RangeCompareKind::Ordered)
+        }
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::EndsWith => None,
+    }
+}
+
+fn evaluate_starts_with_range_compare_candidate(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+) -> Result<(), AccessChoiceRejectedReason> {
+    if !matches!(
+        cmp.coercion.id,
+        CoercionId::Strict | CoercionId::TextCasefold
+    ) {
+        return Err(AccessChoiceRejectedReason::NonStrictCoercion);
+    }
+    let Some(leading_key_item) = leading_index_key_item(index) else {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    };
+    let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+
+    if starts_with_lookup_value_for_key_item(
+        leading_key_item,
+        cmp.field.as_str(),
+        cmp.value(),
+        cmp.coercion.id,
+        literal_compatible,
+    )
+    .is_some()
+    {
+        return Ok(());
+    }
+
+    if !key_item_matches_field_and_coercion(leading_key_item, cmp.field.as_str(), cmp.coercion.id) {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    }
+    if !literal_compatible {
+        return Err(AccessChoiceRejectedReason::LiteralIncompatible);
+    }
+
+    Err(AccessChoiceRejectedReason::StartsWithPrefixInvalid)
+}
+
+fn evaluate_ordered_range_compare_candidate(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+) -> Result<(), AccessChoiceRejectedReason> {
+    if !matches!(
+        cmp.coercion.id,
+        CoercionId::Strict | CoercionId::NumericWiden
+    ) {
+        return Err(AccessChoiceRejectedReason::NonStrictCoercion);
+    }
+    if index.fields().first() != Some(&cmp.field.as_str()) {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    }
+    if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
+        return Err(AccessChoiceRejectedReason::LiteralIncompatible);
+    }
+    if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
+        return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+    }
+    if index.fields().len() != 1 {
+        return Err(AccessChoiceRejectedReason::SingleFieldRangeRequired);
+    }
+
+    Ok(())
+}
+
+fn classify_range_constraints_for_field<'a>(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    field: &str,
+    compares: &[&'a ComparePredicate],
+) -> Result<RangeFieldConstraint<'a>, AccessChoiceRejectedReason> {
+    let mut constraint = RangeFieldConstraint::default();
+
+    for cmp in compares {
+        if cmp.field.as_str() != field {
+            continue;
+        }
+        if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
+            return Err(AccessChoiceRejectedReason::LiteralIncompatible);
+        }
+        if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
+            return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+        }
+
+        match cmp.op {
+            CompareOp::Eq => {
+                if constraint.has_range {
+                    return Err(AccessChoiceRejectedReason::EqRangeConflict);
+                }
+                if let Some(existing) = constraint.eq_value
+                    && existing != cmp.value()
+                {
+                    return Err(AccessChoiceRejectedReason::ConflictingEqConstraints);
+                }
+                constraint.eq_value = Some(cmp.value());
+            }
+            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+                if constraint.eq_value.is_some() {
+                    return Err(AccessChoiceRejectedReason::EqRangeConflict);
+                }
+                constraint.has_range = true;
+            }
+            _ => return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
+        }
+    }
+
+    Ok(constraint)
 }
 
 fn chosen_selection_reason(

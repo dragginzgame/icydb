@@ -7,7 +7,9 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, PersistedRow, RawRow, UpdatePatch, decode_raw_row_for_entity_key},
+        data::{
+            CanonicalRow, DataKey, PersistedRow, RawRow, UpdatePatch, decode_raw_row_for_entity_key,
+        },
         executor::{
             Context, ExecutorError,
             mutation::{MutationInput, commit_save_row_ops_with_window, mutation_write_context},
@@ -354,7 +356,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn build_after_image_row(
         mutation: &MutationInput,
         old_row: Option<&RawRow>,
-    ) -> Result<RawRow, InternalError> {
+    ) -> Result<CanonicalRow, InternalError> {
         let Some(old_row) = old_row else {
             return RawRow::from_serialized_update_patch(E::MODEL, mutation.serialized_patch());
         };
@@ -367,7 +369,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         mode: MutationMode,
         mutation: &MutationInput,
         old_row: Option<&RawRow>,
-    ) -> Result<RawRow, InternalError> {
+    ) -> Result<CanonicalRow, InternalError> {
         match mode {
             MutationMode::Update => {
                 let Some(old_row) = old_row else {

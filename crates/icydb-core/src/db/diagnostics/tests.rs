@@ -16,7 +16,7 @@ use crate::{
             CommitRowOp, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_structural_readers,
         },
-        data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
+        data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         index::{IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
@@ -222,7 +222,7 @@ fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_l
     let raw_row = RawRow::try_new(row_bytes).expect("diagnostics test row should encode");
 
     with_data_store_mut(path, |store| {
-        store.insert(raw_key, raw_row);
+        store.insert_raw_for_test(raw_key, raw_row);
     });
 }
 
@@ -239,7 +239,7 @@ fn insert_corrupted_data_key(path: &'static str) {
     let raw_row = RawRow::try_new(vec![0xCD]).expect("diagnostics test row should encode");
 
     with_data_store_mut(path, |store| {
-        store.insert(corrupted_key, raw_row);
+        store.insert_raw_for_test(corrupted_key, raw_row);
     });
 }
 
@@ -276,7 +276,7 @@ fn insert_integrity_entity_row(entity: &IntegrityIndexedEntity) {
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let raw_row = RawRow::from_entity(entity).expect("integrity test row should encode");
+    let raw_row = CanonicalRow::from_entity(entity).expect("integrity test row should encode");
 
     with_data_store_mut(STORE_A_PATH, |store| {
         store.insert(raw_key, raw_row);
@@ -294,7 +294,7 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
     let raw_row = RawRow::try_new(encoded).expect("integrity test row envelope should fit bounds");
 
     with_data_store_mut(STORE_A_PATH, |store| {
-        store.insert(raw_key, raw_row);
+        store.insert_raw_for_test(raw_key, raw_row);
     });
 }
 

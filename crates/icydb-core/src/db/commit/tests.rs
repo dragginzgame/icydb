@@ -2915,11 +2915,11 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 first_key,
                 RawRow::try_new(first_row).expect("first row raw construction should succeed"),
             );
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 second_key,
                 RawRow::try_new(second_row).expect("second row raw construction should succeed"),
             );
@@ -3022,11 +3022,11 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
     // Phase 1: seed authoritative rows and intentionally stale conditional index state.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 active_key,
                 RawRow::try_new(active_row).expect("active raw row construction should succeed"),
             );
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 inactive_key,
                 RawRow::try_new(inactive_row)
                     .expect("inactive raw row construction should succeed"),
@@ -3117,12 +3117,12 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
     // Phase 1: seed authoritative rows and intentionally stale expression-index state.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 first_key,
                 RawRow::try_new(first_row)
                     .expect("first expression raw row construction should succeed"),
             );
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 second_key,
                 RawRow::try_new(second_row)
                     .expect("second expression raw row construction should succeed"),
@@ -3184,7 +3184,7 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 raw_key,
                 RawRow::try_new(future_version_row)
                     .expect("future-version row should fit raw row bounds"),
@@ -3249,7 +3249,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .expect("bad data key should encode");
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert(
+            data_store.insert_raw_for_test(
                 bad_key,
                 RawRow::try_new(vec![0xFF, 0x00, 0xAA]).expect("bad row raw construction"),
             );

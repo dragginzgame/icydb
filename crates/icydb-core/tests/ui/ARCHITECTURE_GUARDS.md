@@ -11,6 +11,7 @@ This file maps each UI test to exactly one architecture rule.
 | `db/commit_module_private.rs` | `db::commit` recovery/marker internals are not public API. |
 | `db/contracts_module_private.rs` | `db::contracts` planner/executor contract internals remain private. |
 | `db/cursor_module_private.rs` | `db::cursor` continuation/token internals are not public API. |
+| `db/canonical_row_not_public.rs` | `CanonicalRow` stays internal so arbitrary callers cannot acquire row-write capability. |
 | `db/diagnostics_module_private.rs` | `db::diagnostics` module internals are not imported directly; use root re-exports. |
 | `db/executor/aggregate_terminals_module_private.rs` | Executor aggregate terminal internals are not public API. |
 | `db/executor/grouped_budget_observability_module_private.rs` | Grouped budget observability internals are not publicly importable. |

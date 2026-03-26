@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        codec::{MAX_ROW_BYTES, serialize_row_payload},
+        codec::MAX_ROW_BYTES,
         data::{
             DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader, UpdatePatch,
             apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-            persisted_row::{SlotBufferWriter, SlotWriter},
+            persisted_row::canonical_row_from_serialized_update_patch,
         },
     },
     error::InternalError,
@@ -17,7 +17,7 @@ use crate::{
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Deref};
 use thiserror::Error as ThisError;
 
 #[cfg(test)]
@@ -28,6 +28,63 @@ use crate::db::data::serialize_entity_slots_as_update_patch;
 ///
 
 pub(crate) type DataRow = (DataKey, RawRow);
+
+///
+/// CanonicalRow
+///
+/// Write-capability wrapper for canonical persisted row bytes.
+/// Values of this type may cross storage write boundaries.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CanonicalRow(RawRow);
+
+impl CanonicalRow {
+    /// Wrap one raw row that is already known to satisfy canonical write invariants.
+    pub(in crate::db::data) const fn from_canonical_raw_row(raw_row: RawRow) -> Self {
+        Self(raw_row)
+    }
+
+    /// Consume the write-capability wrapper back into the underlying raw row.
+    pub(in crate::db::data) fn into_raw_row(self) -> RawRow {
+        self.0
+    }
+
+    /// Borrow the underlying raw row for read-side decoding helpers.
+    #[must_use]
+    pub(in crate::db) const fn as_raw_row(&self) -> &RawRow {
+        &self.0
+    }
+
+    /// Encode one entity into canonical persisted row bytes for write-path tests.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
+    where
+        E: PersistedRow,
+    {
+        let serialized_patch = serialize_entity_slots_as_update_patch(entity)?;
+
+        Self::from_serialized_update_patch(E::MODEL, &serialized_patch)
+    }
+
+    /// Build one canonical row from one serialized structural patch that
+    /// already describes a full canonical row image.
+    pub(in crate::db) fn from_serialized_update_patch(
+        model: &'static EntityModel,
+        patch: &SerializedUpdatePatch,
+    ) -> Result<Self, InternalError> {
+        canonical_row_from_serialized_update_patch(model, patch)
+    }
+}
+
+impl Deref for CanonicalRow {
+    type Target = RawRow;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 ///
 /// RawRowError
@@ -77,10 +134,16 @@ impl RawRow {
         Ok(())
     }
 
-    /// Construct a raw row from serialized bytes.
-    pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+    /// Construct one bounded raw row for internal decode/read boundaries.
+    pub(in crate::db) fn from_untrusted_bytes(bytes: Vec<u8>) -> Result<Self, RawRowError> {
         Self::ensure_size(&bytes)?;
         Ok(Self(bytes))
+    }
+
+    /// Construct a raw row from serialized bytes.
+    #[cfg(test)]
+    pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+        Self::from_untrusted_bytes(bytes)
     }
 
     /// Encode one entity into the canonical persisted row envelope.
@@ -90,7 +153,8 @@ impl RawRow {
         E: PersistedRow,
     {
         let serialized_patch = serialize_entity_slots_as_update_patch(entity)?;
-        Self::from_serialized_update_patch(E::MODEL, &serialized_patch)
+        CanonicalRow::from_serialized_update_patch(E::MODEL, &serialized_patch)
+            .map(CanonicalRow::into_raw_row)
     }
 
     /// Build one raw row from one serialized structural patch that already
@@ -98,40 +162,8 @@ impl RawRow {
     pub(in crate::db) fn from_serialized_update_patch(
         model: &'static EntityModel,
         patch: &SerializedUpdatePatch,
-    ) -> Result<Self, InternalError> {
-        let mut payloads = vec![None; model.fields().len()];
-
-        // Phase 1: project the serialized patch onto the full model slot set
-        // with last-write-wins semantics.
-        for entry in patch.entries() {
-            let slot = entry.slot().index();
-            let target = payloads.get_mut(slot).ok_or_else(|| {
-                InternalError::persisted_row_encode_failed(format!(
-                    "serialized patch slot {slot} is outside the row layout for entity '{}'",
-                    model.path()
-                ))
-            })?;
-            *target = Some(entry.payload());
-        }
-
-        // Phase 2: require a dense row image so new-row construction never
-        // depends on absent placeholder slots.
-        let mut writer = SlotBufferWriter::for_model(model);
-        for (slot, payload) in payloads.into_iter().enumerate() {
-            let Some(payload) = payload else {
-                return Err(InternalError::persisted_row_encode_failed(format!(
-                    "serialized patch did not emit slot {slot} for entity '{}'",
-                    model.path()
-                )));
-            };
-            writer.write_slot(slot, Some(payload))?;
-        }
-
-        // Phase 3: wrap the dense slot payloads into the canonical row
-        // envelope directly.
-        let encoded = serialize_row_payload(writer.finish()?)?;
-
-        Self::try_new(encoded).map_err(InternalError::from)
+    ) -> Result<CanonicalRow, InternalError> {
+        CanonicalRow::from_serialized_update_patch(model, patch)
     }
 
     /// Apply one ordered structural patch through the persisted-row boundary.
@@ -140,7 +172,7 @@ impl RawRow {
         &self,
         model: &'static EntityModel,
         patch: &UpdatePatch,
-    ) -> Result<Self, InternalError> {
+    ) -> Result<CanonicalRow, InternalError> {
         apply_update_patch_to_raw_row(model, self, patch)
     }
 
@@ -150,7 +182,7 @@ impl RawRow {
         &self,
         model: &'static EntityModel,
         patch: &SerializedUpdatePatch,
-    ) -> Result<Self, InternalError> {
+    ) -> Result<CanonicalRow, InternalError> {
         apply_serialized_update_patch_to_raw_row(model, self, patch)
     }
 

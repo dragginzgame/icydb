@@ -1410,7 +1410,7 @@ fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
         RawRow::try_new(serialize(&mismatched_row).expect("mismatched row should encode"))
             .expect("mismatched row should satisfy row bound");
     with_data_store_mut(SourceStore::PATH, |data_store| {
-        data_store.insert(raw_key, raw_row);
+        data_store.insert_raw_for_test(raw_key, raw_row);
     });
 
     let err = save
@@ -1473,7 +1473,7 @@ fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
     let raw_row = RawRow::try_new(serialize(&malformed).expect("malformed row should serialize"))
         .expect("malformed row bytes should satisfy row bound");
     with_data_store_mut(SourceStore::PATH, |data_store| {
-        data_store.insert(data_key, raw_row);
+        data_store.insert_raw_for_test(data_key, raw_row);
     });
 
     let save = SaveExecutor::<DecimalScaleEntity>::new(DB, false);

@@ -3,7 +3,7 @@
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
-use crate::db::data::{DataKey, RawDataKey, RawRow};
+use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use derive_more::Deref;
 
@@ -12,7 +12,7 @@ use derive_more::Deref;
 ///
 /// Thin persistence wrapper over one stable BTreeMap.
 ///
-/// Invariant: callers provide already-validated `RawDataKey` and `RawRow`.
+/// Invariant: callers provide already-validated `RawDataKey` and canonical row bytes.
 /// This type intentionally does not enforce commit-phase ordering.
 ///
 
@@ -27,7 +27,13 @@ impl DataStore {
     }
 
     /// Insert or replace one row by raw key.
-    pub fn insert(&mut self, key: RawDataKey, row: RawRow) -> Option<RawRow> {
+    pub(in crate::db) fn insert(&mut self, key: RawDataKey, row: CanonicalRow) -> Option<RawRow> {
+        self.0.insert(key, row.into_raw_row())
+    }
+
+    /// Insert one raw row directly for corruption-focused test setup only.
+    #[cfg(test)]
+    pub(crate) fn insert_raw_for_test(&mut self, key: RawDataKey, row: RawRow) -> Option<RawRow> {
         self.0.insert(key, row)
     }
 

@@ -3,7 +3,10 @@
 //! Does not own: commit-marker persistence, mutation planning, or recovery orchestration.
 //! Boundary: commit::{prepare,replay,executor} -> commit::rollback -> commit::apply.
 
-use crate::db::commit::{PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp};
+use crate::db::{
+    commit::{PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp},
+    data::canonical_row_from_stored_raw_row,
+};
 
 /// Capture the current store state needed to roll back one prepared row op.
 ///
@@ -23,7 +26,10 @@ pub(crate) fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowComm
     }
 
     // Phase 2: snapshot the row-store value for the target primary key.
-    let data_value = op.data_store.with_borrow(|store| store.get(&op.data_key));
+    let data_value = op
+        .data_store
+        .with_borrow(|store| store.get(&op.data_key))
+        .map(canonical_row_from_stored_raw_row);
 
     PreparedRowCommitOp {
         index_ops,
@@ -40,7 +46,10 @@ pub(crate) fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowComm
 #[must_use]
 pub(crate) fn snapshot_row_only_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
     // Recovery row-replay rollback does not touch index stores; rebuild owns those.
-    let data_value = op.data_store.with_borrow(|store| store.get(&op.data_key));
+    let data_value = op
+        .data_store
+        .with_borrow(|store| store.get(&op.data_key))
+        .map(canonical_row_from_stored_raw_row);
 
     PreparedRowCommitOp {
         index_ops: Vec::new(),

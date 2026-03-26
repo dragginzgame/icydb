@@ -59,10 +59,35 @@ static ACCESS_CHOICE_MODEL: EntityModel = entity_model_from_static(
     &ACCESS_CHOICE_FIELDS,
     &ACCESS_CHOICE_INDEX_REFS,
 );
+static ACCESS_CHOICE_RANGE_FIELDS: [FieldModel; 3] = [
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("city", FieldKind::Text),
+    FieldModel::new("email", FieldKind::Text),
+];
+static ACCESS_CHOICE_RANGE_INDEX_FIELDS: [&str; 2] = ["city", "email"];
+static ACCESS_CHOICE_RANGE_INDEXES: [IndexModel; 1] = [IndexModel::new(
+    "access_choice::city_email",
+    "access_choice::store",
+    &ACCESS_CHOICE_RANGE_INDEX_FIELDS,
+    false,
+)];
+static ACCESS_CHOICE_RANGE_INDEX_REFS: [&IndexModel; 1] = [&ACCESS_CHOICE_RANGE_INDEXES[0]];
+static ACCESS_CHOICE_RANGE_MODEL: EntityModel = entity_model_from_static(
+    "access_choice::range_entity",
+    "AccessChoiceRangeEntity",
+    &ACCESS_CHOICE_RANGE_FIELDS[0],
+    &ACCESS_CHOICE_RANGE_FIELDS,
+    &ACCESS_CHOICE_RANGE_INDEX_REFS,
+);
 
 fn schema() -> SchemaInfo {
     SchemaInfo::from_entity_model(&ACCESS_CHOICE_MODEL)
         .expect("access_choice test model should produce schema info")
+}
+
+fn range_schema() -> SchemaInfo {
+    SchemaInfo::from_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
+        .expect("access_choice range test model should produce schema info")
 }
 
 #[test]
@@ -309,5 +334,76 @@ fn evaluate_range_candidate_rejects_empty_text_casefold_starts_with_prefix() {
     assert_eq!(
         evaluation,
         CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::StartsWithPrefixInvalid),
+    );
+}
+
+#[test]
+fn evaluate_range_candidate_accepts_contiguous_eq_prefix_then_range_field() {
+    let predicate = crate::db::predicate::Predicate::And(vec![
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "city",
+                crate::db::predicate::CompareOp::Eq,
+                Value::Text("paris".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::Gt,
+                Value::Text("alice@example.com".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+    ]);
+
+    let evaluation =
+        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], &range_schema(), &predicate);
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 1,
+            exact: false,
+        }),
+    );
+}
+
+#[test]
+fn evaluate_range_candidate_rejects_eq_range_conflict_on_same_field() {
+    let predicate = crate::db::predicate::Predicate::And(vec![
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "city",
+                crate::db::predicate::CompareOp::Eq,
+                Value::Text("paris".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::Eq,
+                Value::Text("alice@example.com".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::Gt,
+                Value::Text("anna@example.com".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+    ]);
+
+    let evaluation =
+        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], &range_schema(), &predicate);
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::EqRangeConflict),
     );
 }
