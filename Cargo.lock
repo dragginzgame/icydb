@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "canister_minimal"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "canister_one_complex"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "canister_one_simple"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "canister_quickstart"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "canister_ten_complex"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "canister_ten_simple"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -307,9 +307,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.57"
+version = "1.2.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a0dd1ca384932ff3641c8718a02769f1698e7563dc6974ffd03346116310423"
+checksum = "e1e928d4b69e3077709075a938a05ffbedfa53a84c8f766efbf8220bb1ff60e1"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1266,7 +1266,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1275,11 +1275,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.65.3"
+version = "0.65.4"
 
 [[package]]
 name = "icydb-schema"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1295,7 +1295,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "canic-utils",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1332,7 +1332,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-one-complex-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-one-simple-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-quickstart-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-ten-complex-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1386,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-ten-simple-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "candid",
  "icydb",
@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-fixtures"
-version = "0.65.3"
+version = "0.65.4"
 dependencies = [
  "icydb",
 ]
@@ -1612,9 +1612,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
  "wasi",
@@ -2438,9 +2438,9 @@ dependencies = [
 
 [[package]]
 name = "simd-adler32"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
+checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
 
 [[package]]
 name = "slab"
