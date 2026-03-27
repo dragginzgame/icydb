@@ -41,3 +41,40 @@ fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
 
     assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
 }
+
+#[test]
+fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
+    let plain = parse_sql_predicate("name LIKE 'Al%'").expect("plain LIKE prefix should parse");
+    let lower =
+        parse_sql_predicate("LOWER(name) LIKE 'Al%'").expect("LOWER(field) LIKE should parse");
+    let upper =
+        parse_sql_predicate("UPPER(name) LIKE 'AL%'").expect("UPPER(field) LIKE should parse");
+
+    assert_eq!(
+        plain,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        ))
+    );
+    assert_eq!(
+        lower,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::TextCasefold,
+        ))
+    );
+    assert_eq!(
+        upper,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ))
+    );
+}

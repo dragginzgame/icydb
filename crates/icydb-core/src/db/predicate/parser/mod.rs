@@ -14,6 +14,45 @@ use crate::{
     value::Value,
 };
 
+// Track the accepted reduced-SQL text wrappers that lower onto shared
+// casefolded text predicate semantics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TextPredicateWrapper {
+    Lower,
+    Upper,
+}
+
+impl TextPredicateWrapper {
+    const fn unsupported_feature(self) -> &'static str {
+        match self {
+            Self::Lower => "LOWER(field) predicate forms beyond LIKE 'prefix%'",
+            Self::Upper => "UPPER(field) predicate forms beyond LIKE 'prefix%'",
+        }
+    }
+}
+
+// Track whether one parsed predicate field operand is raw-field strict text or
+// wrapped casefold text for the reduced SQL `LIKE` lowering boundary.
+#[derive(Debug, Eq, PartialEq)]
+enum PredicateFieldOperand {
+    Plain(String),
+    Wrapped {
+        field: String,
+        wrapper: TextPredicateWrapper,
+    },
+}
+
+impl PredicateFieldOperand {
+    fn into_plain_field(self) -> Result<String, SqlParseError> {
+        match self {
+            Self::Plain(field) => Ok(field),
+            Self::Wrapped { wrapper, .. } => Err(SqlParseError::unsupported_feature(
+                wrapper.unsupported_feature(),
+            )),
+        }
+    }
+}
+
 /// Parse one SQL predicate expression.
 ///
 /// This is the core predicate parsing boundary used by schema/index contracts
@@ -92,22 +131,12 @@ fn parse_predicate_primary(cursor: &mut SqlTokenCursor) -> Result<Predicate, Sql
 
 // Parse one field predicate family, including reduced SQL special forms.
 fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
-    let (field, lower_expr) = parse_predicate_field_operand(cursor)?;
-    if lower_expr {
-        if cursor.eat_identifier_keyword("LIKE") {
-            return parse_lower_like_prefix_predicate(cursor, field);
-        }
-
-        return Err(SqlParseError::unsupported_feature(
-            "LOWER(field) predicate forms beyond LIKE 'prefix%'",
-        ));
-    }
-
+    let operand = parse_predicate_field_operand(cursor)?;
     if cursor.eat_identifier_keyword("LIKE") {
-        return Err(SqlParseError::unsupported_feature(
-            "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
-        ));
+        return parse_like_prefix_predicate(cursor, operand);
     }
+
+    let field = operand.into_plain_field()?;
 
     if cursor.eat_keyword(Keyword::Is) {
         let is_not = cursor.eat_keyword(Keyword::Not);
@@ -143,28 +172,30 @@ fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlPa
 }
 
 // Parse one predicate field operand.
-// Reduced SQL supports plain fields and one bounded expression form:
-// LOWER(<field>) for casefold LIKE-prefix lowering.
+// Reduced SQL supports plain fields plus bounded `LOWER(<field>)` /
+// `UPPER(<field>)` wrappers for casefold LIKE-prefix lowering.
 fn parse_predicate_field_operand(
     cursor: &mut SqlTokenCursor,
-) -> Result<(String, bool), SqlParseError> {
+) -> Result<PredicateFieldOperand, SqlParseError> {
     if cursor.peek_identifier_keyword("LOWER")
         && matches!(cursor.peek_next_kind(), Some(TokenKind::LParen))
     {
-        let _ = cursor.bump();
-        cursor.expect_lparen()?;
-        let field = cursor.expect_identifier()?;
-        cursor.expect_rparen()?;
-        return Ok((field, true));
+        return parse_wrapped_field_operand(cursor, TextPredicateWrapper::Lower);
     }
 
-    Ok((cursor.expect_identifier()?, false))
+    if cursor.peek_identifier_keyword("UPPER")
+        && matches!(cursor.peek_next_kind(), Some(TokenKind::LParen))
+    {
+        return parse_wrapped_field_operand(cursor, TextPredicateWrapper::Upper);
+    }
+
+    Ok(PredicateFieldOperand::Plain(cursor.expect_identifier()?))
 }
 
-// Parse one bounded LOWER(field) LIKE 'prefix%' predicate family.
-fn parse_lower_like_prefix_predicate(
+// Parse one bounded LOWER/UPPER(field) or raw-field LIKE 'prefix%' predicate family.
+fn parse_like_prefix_predicate(
     cursor: &mut SqlTokenCursor,
-    field: String,
+    operand: PredicateFieldOperand,
 ) -> Result<Predicate, SqlParseError> {
     let Some(TokenKind::StringLiteral(pattern)) = cursor.bump() else {
         return Err(SqlParseError::expected(
@@ -174,16 +205,32 @@ fn parse_lower_like_prefix_predicate(
     };
     let Some(prefix) = like_prefix_from_pattern(pattern.as_str()) else {
         return Err(SqlParseError::unsupported_feature(
-            "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+            "LIKE patterns beyond trailing '%' prefix form",
         ));
+    };
+    let (field, coercion) = match operand {
+        PredicateFieldOperand::Plain(field) => (field, CoercionId::Strict),
+        PredicateFieldOperand::Wrapped { field, .. } => (field, CoercionId::TextCasefold),
     };
 
     Ok(Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::StartsWith,
         Value::Text(prefix.to_string()),
-        CoercionId::TextCasefold,
+        coercion,
     )))
+}
+
+fn parse_wrapped_field_operand(
+    cursor: &mut SqlTokenCursor,
+    wrapper: TextPredicateWrapper,
+) -> Result<PredicateFieldOperand, SqlParseError> {
+    let _ = cursor.bump();
+    cursor.expect_lparen()?;
+    let field = cursor.expect_identifier()?;
+    cursor.expect_rparen()?;
+
+    Ok(PredicateFieldOperand::Wrapped { field, wrapper })
 }
 
 // Parse one IN / NOT IN list predicate into one canonical predicate compare.

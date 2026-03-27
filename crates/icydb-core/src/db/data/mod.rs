@@ -25,9 +25,11 @@ pub(in crate::db) use persisted_row::{
 };
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
-    UpdatePatch, decode_persisted_option_scalar_slot_payload, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
+    UpdatePatch, decode_persisted_non_null_slot_payload,
+    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload,
 };
 pub(in crate::db) use row::CanonicalRow;
 pub(crate) use row::{DataRow, RawRow};

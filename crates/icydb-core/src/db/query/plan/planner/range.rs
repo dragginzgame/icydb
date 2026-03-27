@@ -9,7 +9,7 @@ use crate::{
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
         query::plan::planner::{index_literal_matches_schema, sorted_indexes},
-        schema::SchemaInfo,
+        schema::{FieldType, SchemaInfo},
     },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
@@ -104,7 +104,8 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         RangeConstraint,
     )> = None;
     for index in sorted_indexes(model, query_predicate) {
-        let Some((range_slot, prefix, range)) = index_range_candidate_for_index(index, &compares)
+        let Some((range_slot, prefix, range)) =
+            index_range_candidate_for_index(index, schema, &compares)
         else {
             continue;
         };
@@ -134,6 +135,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 // vector that is only consumed once.
 fn index_range_candidate_for_index(
     index: &'static IndexModel,
+    schema: &SchemaInfo,
     compares: &[CachedCompare<'_>],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
     let mut prefix = Vec::new();
@@ -141,7 +143,7 @@ fn index_range_candidate_for_index(
     let mut range_position = None;
 
     for (position, field_name) in index.fields().iter().enumerate() {
-        let constraint = field_constraint_for_index_field(index, field_name, compares)?;
+        let constraint = field_constraint_for_index_field(index, schema, field_name, compares)?;
         match constraint {
             IndexFieldConstraint::Eq(value) if range.is_none() => {
                 prefix.push(value);
@@ -170,15 +172,20 @@ fn index_range_candidate_for_index(
 // compare predicates that target it.
 fn field_constraint_for_index_field(
     index: &'static IndexModel,
+    schema: &SchemaInfo,
     field_name: &&'static str,
     compares: &[CachedCompare<'_>],
 ) -> Option<IndexFieldConstraint> {
     let mut constraint = IndexFieldConstraint::None;
+    let field_type = schema.field(field_name)?;
 
     for cached in compares {
         let cmp = cached.cmp;
         if cmp.field.as_str() != *field_name {
             continue;
+        }
+        if strict_field_range_requires_full_scan(field_type, cmp.coercion.id, cmp.op) {
+            return None;
         }
         if !cached.literal_compatible || !index.is_field_indexable(field_name, cmp.op) {
             return None;
@@ -316,6 +323,22 @@ fn compare_range_bound_values(left: &Value, right: &Value) -> Option<Ordering> {
     }
 
     None
+}
+
+fn strict_field_range_requires_full_scan(
+    field_type: &FieldType,
+    coercion: CoercionId,
+    op: CompareOp,
+) -> bool {
+    // Raw secondary-index key ordering includes per-component length framing, so
+    // strict field-key text ranges are not lexicographically preserved at the
+    // raw-byte scan boundary. Fail closed for ordered text range extraction.
+    coercion == CoercionId::Strict
+        && field_type.is_text()
+        && matches!(
+            op,
+            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+        )
 }
 
 ///

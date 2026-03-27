@@ -171,6 +171,18 @@ impl FieldRef {
         }
     }
 
+    /// Case-sensitive prefix match for text fields.
+    #[must_use]
+    pub fn text_starts_with(self, value: impl FieldValue) -> Predicate {
+        self.cmp(CompareOp::StartsWith, value, CoercionId::Strict)
+    }
+
+    /// Case-insensitive prefix match for text fields.
+    #[must_use]
+    pub fn text_starts_with_ci(self, value: impl FieldValue) -> Predicate {
+        self.cmp(CompareOp::StartsWith, value, CoercionId::TextCasefold)
+    }
+
     /// Inclusive range predicate lowered as `field >= lower AND field <= upper`.
     #[must_use]
     pub fn between(self, lower: impl FieldValue, upper: impl FieldValue) -> Predicate {
@@ -185,5 +197,40 @@ impl FieldRef {
 impl AsRef<str> for FieldRef {
     fn as_ref(&self) -> &str {
         self.0
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_ref_text_starts_with_uses_strict_prefix_compare() {
+        let predicate = FieldRef::new("name").text_starts_with("Al");
+        let Predicate::Compare(compare) = predicate else {
+            panic!("expected compare predicate");
+        };
+
+        assert_eq!(compare.field, "name");
+        assert_eq!(compare.op, CompareOp::StartsWith);
+        assert_eq!(compare.coercion.id, CoercionId::Strict);
+        assert_eq!(compare.value, Value::Text("Al".to_string()));
+    }
+
+    #[test]
+    fn field_ref_text_starts_with_ci_uses_casefold_prefix_compare() {
+        let predicate = FieldRef::new("name").text_starts_with_ci("AL");
+        let Predicate::Compare(compare) = predicate else {
+            panic!("expected compare predicate");
+        };
+
+        assert_eq!(compare.field, "name");
+        assert_eq!(compare.op, CompareOp::StartsWith);
+        assert_eq!(compare.coercion.id, CoercionId::TextCasefold);
+        assert_eq!(compare.value, Value::Text("AL".to_string()));
     }
 }

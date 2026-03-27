@@ -5,6 +5,7 @@
 //! stable load contracts needed by entrypoints and runtime leaves.
 
 mod contracts;
+mod guards;
 mod state;
 mod strategy;
 
@@ -18,6 +19,10 @@ use crate::{
 };
 pub(in crate::db::executor) use contracts::{
     LoadExecutionMode, LoadExecutionSurface, LoadTracingMode,
+};
+#[cfg(test)]
+pub(in crate::db::executor) use guards::{
+    load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
 
 /// Apply paging contracts over generic-free payload artifacts.

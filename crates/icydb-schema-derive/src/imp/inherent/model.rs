@@ -23,11 +23,13 @@ pub fn model_field_expr(field: &Field) -> TokenStream {
     let name = field.ident.to_string();
     let kind = model_kind_from_value(&field.value);
     let storage_decode = model_storage_decode_from_value(&field.value);
+    let nullable = matches!(field.value.cardinality(), Cardinality::Opt);
 
-    quote!(::icydb::model::field::FieldModel::new_with_storage_decode(
+    quote!(::icydb::model::field::FieldModel::new_with_storage_decode_and_nullability(
         #name,
         #kind,
         #storage_decode,
+        #nullable,
     ))
 }
 

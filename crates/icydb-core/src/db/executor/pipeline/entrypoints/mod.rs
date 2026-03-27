@@ -24,6 +24,10 @@ use crate::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     LoadExecutionMode, LoadTracingMode,
 };
+#[cfg(test)]
+pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
+    load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
+};
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };
@@ -89,6 +93,18 @@ where
             plan.into_prepared_load_plan(),
             LoadCursorInput::scalar(cursor),
         )
+    }
+
+    // Execute one scalar load plan with cursor input and discard tracing.
+    #[cfg(test)]
+    pub(in crate::db) fn execute_paged_with_cursor(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor: impl Into<PlannedCursor>,
+    ) -> Result<CursorPage<E>, InternalError> {
+        let (page, _) = self.execute_paged_with_cursor_traced(plan, cursor)?;
+
+        Ok(page)
     }
 
     // Execute one grouped load plan with grouped cursor support and trace output.

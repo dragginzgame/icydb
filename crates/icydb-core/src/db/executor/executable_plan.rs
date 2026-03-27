@@ -25,6 +25,8 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 use std::marker::PhantomData;
+#[cfg(test)]
+use std::ops::Bound;
 ///
 /// ExecutionStrategy
 ///
@@ -526,6 +528,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.execution_strategy()
     }
 
+    /// Borrow the structural logical plan for executor-owned tests.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
+    }
+
     /// Expose planner-projected execution ordering for executor/lowering tests.
     #[cfg(test)]
     pub(in crate::db) fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {
@@ -614,6 +623,60 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.core.index_range_specs()
     }
 
+    /// Render one canonical executor snapshot for test-only planner/executor
+    /// contract checks.
+    #[cfg(test)]
+    pub(in crate::db) fn render_snapshot_canonical(&self) -> Result<String, InternalError>
+    where
+        E: EntityValue,
+    {
+        // Phase 1: project all executor-owned summary fields from the logical plan.
+        let plan = self.core.plan();
+        let projection_spec = plan.projection_spec(E::MODEL);
+        let projection_selection =
+            if plan.grouped_plan().is_some() || projection_spec.len() != E::MODEL.fields.len() {
+                "Declared"
+            } else {
+                "All"
+            };
+        let projection_coverage_flag = plan.grouped_plan().is_some();
+        let continuation_signature = self.core.continuation_signature_for_runtime()?;
+        let ordering_direction = self
+            .core
+            .continuation_contract()?
+            .order_contract()
+            .direction();
+
+        // Phase 2: lower index-bound summaries into stable compact text.
+        let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs()?);
+        let index_range_specs = render_index_range_specs(self.core.index_range_specs()?);
+        let explain_plan = plan.explain_with_model(E::MODEL);
+
+        // Phase 3: join the canonical snapshot payload in one stable line order.
+        Ok([
+            "snapshot_version=1".to_string(),
+            format!("plan_hash={}", plan.fingerprint()),
+            format!("mode={:?}", self.core.mode()),
+            format!("is_grouped={}", self.core.is_grouped()),
+            format!("execution_strategy={:?}", self.core.execution_strategy()?),
+            format!("ordering_direction={ordering_direction:?}"),
+            format!(
+                "distinct_execution_strategy={:?}",
+                plan.distinct_execution_strategy()
+            ),
+            format!("projection_selection={projection_selection}"),
+            format!("projection_spec={projection_spec:?}"),
+            format!("order_spec={:?}", plan.scalar_plan().order),
+            format!("page_spec={:?}", plan.scalar_plan().page),
+            format!("projection_coverage_flag={projection_coverage_flag}"),
+            format!("continuation_signature={continuation_signature}"),
+            format!("index_prefix_specs={index_prefix_specs}"),
+            format!("index_range_specs={index_range_specs}"),
+            format!("explain_plan={explain_plan:?}"),
+        ]
+        .join("\n"))
+    }
+
     /// Split the executable plan into its canonical structural logical plan.
     ///
     /// Aggregate/scalar prepared boundaries should prefer this helper when they
@@ -656,4 +719,58 @@ impl<E: EntityKind> ExecutablePlan<E> {
             core: self.core,
         }
     }
+}
+
+#[cfg(test)]
+fn render_index_prefix_specs(specs: &[LoweredIndexPrefixSpec]) -> String {
+    let rendered = specs
+        .iter()
+        .map(|spec| {
+            format!(
+                "{{index:{},bound_type:equality,lower:{},upper:{}}}",
+                spec.index().name(),
+                render_lowered_bound(spec.lower()),
+                render_lowered_bound(spec.upper()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    format!("[{}]", rendered.join(","))
+}
+
+#[cfg(test)]
+fn render_index_range_specs(specs: &[LoweredIndexRangeSpec]) -> String {
+    let rendered = specs
+        .iter()
+        .map(|spec| {
+            format!(
+                "{{index:{},lower:{},upper:{}}}",
+                spec.index().name(),
+                render_lowered_bound(spec.lower()),
+                render_lowered_bound(spec.upper()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    format!("[{}]", rendered.join(","))
+}
+
+#[cfg(test)]
+fn render_lowered_bound(bound: &Bound<crate::db::access::LoweredKey>) -> String {
+    match bound {
+        Bound::Included(key) => format!("included({})", render_lowered_key_summary(key)),
+        Bound::Excluded(key) => format!("excluded({})", render_lowered_key_summary(key)),
+        Bound::Unbounded => "unbounded".to_string(),
+    }
+}
+
+#[cfg(test)]
+fn render_lowered_key_summary(key: &crate::db::access::LoweredKey) -> String {
+    let bytes = key.as_bytes();
+    let head_len = bytes.len().min(8);
+    let tail_len = bytes.len().min(8);
+    let head = crate::db::codec::cursor::encode_cursor(&bytes[..head_len]);
+    let tail = crate::db::codec::cursor::encode_cursor(&bytes[bytes.len() - tail_len..]);
+
+    format!("len:{}:head:{head}:tail:{tail}", bytes.len())
 }

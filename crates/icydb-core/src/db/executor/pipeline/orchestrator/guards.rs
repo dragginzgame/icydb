@@ -3,10 +3,10 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::executor::pipeline::orchestrator::state::{LoadAccessState, LoadPayloadState},
-};
+#[cfg(test)]
+use crate::db::executor::pipeline::orchestrator::state::{LoadAccessState, LoadPayloadState};
 
+#[cfg(test)]
 pub(in crate::db::executor) const fn load_execute_stage_order_guard() -> [&'static str; 6] {
     [
         "build_execution_context",
@@ -18,6 +18,7 @@ pub(in crate::db::executor) const fn load_execute_stage_order_guard() -> [&'stat
     ]
 }
 
+#[cfg(test)]
 pub(in crate::db::executor) const fn load_pipeline_state_optional_slot_count_guard() -> usize {
     fn consume_access_state_shape(state: LoadAccessState) {
         let LoadAccessState {

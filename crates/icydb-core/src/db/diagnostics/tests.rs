@@ -7,7 +7,6 @@ use super::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
     IntegrityTotals, StorageReport, integrity_report, storage_report,
 };
-use candid::types::{CandidType, Label, Type, TypeInner};
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
@@ -28,6 +27,7 @@ use crate::{
     traits::{EntityKind, Path, Storable, StoreKind},
     types::{EntityTag, Ulid},
 };
+use candid::types::{CandidType, Label, Type, TypeInner};
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, cell::RefCell};
@@ -61,14 +61,7 @@ impl StoreKind for DiagnosticsStoreA {
 }
 
 #[derive(
-    Clone,
-    Debug,
-    Default,
-    Deserialize,
-    FieldProjection,
-    PartialEq,
-    PersistedRow,
-    Serialize,
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
 )]
 struct IntegrityIndexedEntity {
     id: Ulid,
@@ -461,9 +454,9 @@ fn storage_report_entity_snapshots_are_sorted_by_store_then_path() {
     assert_eq!(
         entity_store_paths(&report),
         vec![
-            (STORE_A_PATH, "diagnostics_tests::entity::a_second"),
-            (STORE_A_PATH, "diagnostics_tests::entity::z_first"),
-            (STORE_Z_PATH, "diagnostics_tests::entity::z_first"),
+            (STORE_A_PATH, FIRST_ENTITY_PATH),
+            (STORE_A_PATH, SECOND_ENTITY_PATH),
+            (STORE_Z_PATH, FIRST_ENTITY_PATH),
         ]
     );
 }
@@ -483,14 +476,8 @@ fn storage_report_min_max_key_correctness() {
         .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == MINMAX_ENTITY_PATH)
         .expect("min/max snapshot should exist");
 
-    assert_eq!(
-        entity_snapshot.min_key(),
-        Some("-5")
-    );
-    assert_eq!(
-        entity_snapshot.max_key(),
-        Some("9")
-    );
+    assert_eq!(entity_snapshot.min_key(), Some("-5"));
+    assert_eq!(entity_snapshot.max_key(), Some("9"));
 }
 
 #[test]
@@ -668,7 +655,13 @@ fn data_store_snapshot_candid_shape_is_stable() {
 fn index_store_snapshot_candid_shape_is_stable() {
     let fields = expect_record_fields(IndexStoreSnapshot::ty());
 
-    for field in ["path", "entries", "user_entries", "system_entries", "memory_bytes"] {
+    for field in [
+        "path",
+        "entries",
+        "user_entries",
+        "system_entries",
+        "memory_bytes",
+    ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "IndexStoreSnapshot must keep `{field}` as Candid field key",
@@ -680,7 +673,14 @@ fn index_store_snapshot_candid_shape_is_stable() {
 fn entity_snapshot_candid_shape_is_stable() {
     let fields = expect_record_fields(EntitySnapshot::ty());
 
-    for field in ["store", "path", "entries", "memory_bytes", "min_key", "max_key"] {
+    for field in [
+        "store",
+        "path",
+        "entries",
+        "memory_bytes",
+        "min_key",
+        "max_key",
+    ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "EntitySnapshot must keep `{field}` as Candid field key",

@@ -6,6 +6,40 @@
 use super::*;
 
 #[test]
+fn singleton_only_round_trips_through_runtime_load() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SingletonUnitEntity>::new(DB, false);
+    let load = LoadExecutor::<SingletonUnitEntity>::new(DB, false);
+    let expected = SingletonUnitEntity {
+        id: Unit,
+        label: "project".to_string(),
+    };
+
+    save.insert(expected.clone())
+        .expect("singleton save should succeed");
+
+    let plan = Query::<SingletonUnitEntity>::new(MissingRowPolicy::Ignore)
+        .only()
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("singleton load plan should build");
+    let response = load.execute(plan).expect("singleton load should succeed");
+
+    assert_eq!(
+        response.len(),
+        1,
+        "singleton only() should match exactly one row",
+    );
+    assert_eq!(
+        response[0].entity_ref(),
+        &expected,
+        "loaded singleton should match inserted row",
+    );
+}
+
+#[test]
 fn executor_save_then_delete_round_trip() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

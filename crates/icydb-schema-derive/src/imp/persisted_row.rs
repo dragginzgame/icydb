@@ -85,6 +85,12 @@ fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> Toke
                 #field_name,
             )?
         ),
+        PersistedFieldType::OptionStructural(inner_ty) => quote!(
+            ::icydb::db::decode_persisted_option_slot_payload::<#inner_ty>(
+                bytes,
+                #field_name,
+            )?
+        ),
         PersistedFieldType::Scalar(parsed) => quote!(
             ::icydb::db::decode_persisted_scalar_slot_payload::<#parsed>(
                 bytes,
@@ -92,7 +98,7 @@ fn persisted_field_decode_expr(field_ty: &TokenStream, field_name: &str) -> Toke
             )?
         ),
         PersistedFieldType::Structural(parsed) => quote!(
-            ::icydb::db::decode_persisted_slot_payload::<#parsed>(
+            ::icydb::db::decode_persisted_non_null_slot_payload::<#parsed>(
                 bytes,
                 #field_name,
             )?
@@ -112,14 +118,14 @@ fn persisted_field_encode_expr(
                 #field_name,
             )?
         ),
-        PersistedFieldType::Scalar(_) => quote!(
-            ::icydb::db::encode_persisted_scalar_slot_payload(
+        PersistedFieldType::OptionStructural(_) | PersistedFieldType::Structural(_) => quote!(
+            ::icydb::db::encode_persisted_slot_payload(
                 #field_expr,
                 #field_name,
             )?
         ),
-        PersistedFieldType::Structural(_) => quote!(
-            ::icydb::db::encode_persisted_slot_payload(
+        PersistedFieldType::Scalar(_) => quote!(
+            ::icydb::db::encode_persisted_scalar_slot_payload(
                 #field_expr,
                 #field_name,
             )?
@@ -130,6 +136,7 @@ fn persisted_field_encode_expr(
 // Classifies one generated field type into the persisted-row emission lanes.
 enum PersistedFieldType {
     OptionScalar(Type),
+    OptionStructural(Type),
     Scalar(Type),
     Structural(Type),
 }
@@ -137,8 +144,12 @@ enum PersistedFieldType {
 fn classify_persisted_field_type(field_ty: &TokenStream) -> PersistedFieldType {
     let parsed = parse_type::<Type>(field_ty.clone()).expect("generated field type must parse");
 
-    if let Some(inner_ty) = option_inner_scalar_type(&parsed) {
-        return PersistedFieldType::OptionScalar(inner_ty);
+    if let Some(inner_ty) = option_inner_type(&parsed) {
+        if is_scalar_type(&inner_ty) {
+            return PersistedFieldType::OptionScalar(inner_ty);
+        }
+
+        return PersistedFieldType::OptionStructural(inner_ty);
     }
 
     if is_scalar_type(&parsed) {
@@ -148,7 +159,7 @@ fn classify_persisted_field_type(field_ty: &TokenStream) -> PersistedFieldType {
     PersistedFieldType::Structural(parsed)
 }
 
-fn option_inner_scalar_type(ty: &Type) -> Option<Type> {
+fn option_inner_type(ty: &Type) -> Option<Type> {
     let Type::Path(path) = ty else {
         return None;
     };
@@ -164,14 +175,14 @@ fn option_inner_scalar_type(ty: &Type) -> Option<Type> {
     let Some(GenericArgument::Type(inner_ty)) = args.first() else {
         return None;
     };
-    if is_scalar_type(inner_ty) {
-        return Some(inner_ty.clone());
-    }
-
-    None
+    Some(inner_ty.clone())
 }
 
 fn is_scalar_type(ty: &Type) -> bool {
+    if is_unit_tuple(ty) {
+        return true;
+    }
+
     matches!(
         path_last_ident(ty).as_deref(),
         Some(
@@ -204,8 +215,13 @@ fn is_scalar_type(ty: &Type) -> bool {
                 | "Subaccount"
                 | "Timestamp"
                 | "Ulid"
+                | "Unit"
         )
     ) || is_vec_u8(ty)
+}
+
+fn is_unit_tuple(ty: &Type) -> bool {
+    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
 }
 
 fn is_vec_u8(ty: &Type) -> bool {

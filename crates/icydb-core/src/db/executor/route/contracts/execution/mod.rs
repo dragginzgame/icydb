@@ -142,6 +142,12 @@ pub(in crate::db::executor) struct ExecutionRouteShape {
 
 impl ExecutionRouteShape {
     #[must_use]
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn execution_mode_case(self) -> ExecutionModeRouteCase {
+        self.execution_mode_case
+    }
+
+    #[must_use]
     pub(in crate::db::executor) const fn execution_mode(self) -> RouteExecutionMode {
         self.execution_mode
     }

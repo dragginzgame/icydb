@@ -109,7 +109,7 @@ macro_rules! define_simple_audit_entities {
                 pk(field = "id"),
                 fields(
                     field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-                    field(ident = "name", value(item(prim = "Text")), default = "String::new")
+                    field(ident = "name", value(item(prim = "Text")))
                 )
             )]
             pub struct $entity {}

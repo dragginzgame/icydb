@@ -51,7 +51,8 @@ pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::{
     DataStore, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader,
-    SlotWriter, UpdatePatch, decode_persisted_option_scalar_slot_payload,
+    SlotWriter, UpdatePatch, decode_persisted_non_null_slot_payload,
+    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload,
     decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
     encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
     encode_persisted_slot_payload,
@@ -268,15 +269,6 @@ impl<C: CanisterKind> Db<C> {
         self.entity_runtime_hooks
             .iter()
             .map(|hooks| hooks.model.name().to_string())
-            .collect()
-    }
-
-    /// Return deterministic `(entity_name, entity_tag)` runtime identity pairs.
-    #[must_use]
-    pub(crate) fn runtime_entity_name_tag_pairs(&self) -> Vec<(&'static str, EntityTag)> {
-        self.entity_runtime_hooks
-            .iter()
-            .map(|hooks| (hooks.model.name(), hooks.entity_tag))
             .collect()
     }
 

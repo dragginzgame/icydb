@@ -77,6 +77,17 @@ const EXPRESSION_UPPER_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
     &EXPRESSION_UPPER_INDEX_KEY_ITEMS,
     false,
 );
+const EXPRESSION_UNSUPPORTED_INDEX_FIELDS: [&str; 1] = ["email"];
+const EXPRESSION_UNSUPPORTED_INDEX_KEY_ITEMS: [IndexKeyItem; 1] = [IndexKeyItem::Expression(
+    IndexExpression::LowerTrim("email"),
+)];
+const EXPRESSION_UNSUPPORTED_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+    "plan_tests::idx_email_lower_trim",
+    "plan_tests::ExpressionUnsupportedIndexStore",
+    &EXPRESSION_UNSUPPORTED_INDEX_FIELDS,
+    &EXPRESSION_UNSUPPORTED_INDEX_KEY_ITEMS,
+    false,
+);
 const FILTERED_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 const FILTERED_EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
@@ -178,6 +189,18 @@ crate::test_entity! {
     indexes = [&EXPRESSION_UPPER_INDEX_MODEL],
 }
 
+crate::test_entity! {
+    ident = PlanExpressionUnsupportedEntity,
+    id = Ulid,
+    entity_name = "PlanExpressionUnsupportedEntity",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+    ],
+    indexes = [&EXPRESSION_UNSUPPORTED_INDEX_MODEL],
+}
+
 // Helper for tests that need the indexed model derived from a typed schema.
 fn model_with_index() -> &'static EntityModel {
     <PlanModelEntity as EntitySchema>::MODEL
@@ -205,6 +228,10 @@ fn model_with_filtered_expression_casefold_index() -> &'static EntityModel {
 
 fn model_with_expression_upper_index() -> &'static EntityModel {
     <PlanExpressionUpperEntity as EntitySchema>::MODEL
+}
+
+fn model_with_expression_unsupported_index() -> &'static EntityModel {
+    <PlanExpressionUnsupportedEntity as EntitySchema>::MODEL
 }
 
 fn compare_strict(field: &str, op: CompareOp, value: Value) -> Predicate {
@@ -584,8 +611,30 @@ fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
 }
 
 #[test]
-fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
+fn plan_access_text_casefold_eq_uses_upper_expression_index_prefix() {
     let model = model_with_expression_upper_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::Eq,
+        Value::Text("Alice@Example.Com".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: EXPRESSION_UPPER_INDEX_MODEL,
+            values: vec![Value::Text("ALICE@EXAMPLE.COM".to_string())],
+        }),
+        "text-casefold equality should lower through upper-expression index prefix matching",
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
+    let model = model_with_expression_unsupported_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_text_casefold(
         "email",
@@ -603,8 +652,36 @@ fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
 }
 
 #[test]
-fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
+fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
     let model = model_with_expression_upper_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("BOB@example.com".to_string()),
+        ]),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: EXPRESSION_UPPER_INDEX_MODEL,
+            values: vec![
+                Value::Text("ALICE@EXAMPLE.COM".to_string()),
+                Value::Text("BOB@EXAMPLE.COM".to_string()),
+            ],
+        }),
+        "text-casefold IN should lower through upper-expression index lookup values",
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
+    let model = model_with_expression_unsupported_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_text_casefold(
         "email",
@@ -712,8 +789,31 @@ fn plan_access_text_casefold_starts_with_single_char_prefix_uses_expression_inde
 }
 
 #[test]
-fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_kind() {
+fn plan_access_text_casefold_starts_with_uses_upper_expression_index_range() {
     let model = model_with_expression_upper_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("ALICE".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
+
+    assert_eq!(index.name(), EXPRESSION_UPPER_INDEX_MODEL.name());
+    assert!(
+        prefix.is_empty(),
+        "text-casefold starts-with upper-expression ranges should not carry equality prefix values",
+    );
+    assert_eq!(lower, &Bound::Included(Value::Text("ALICE".to_string())));
+    assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
+fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_kind() {
+    let model = model_with_expression_unsupported_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_text_casefold(
         "email",
@@ -1105,7 +1205,7 @@ fn plan_access_secondary_in_mixed_literal_types_stays_fail_closed() {
 }
 
 #[test]
-fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
+fn plan_access_text_between_equivalent_bounds_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = Predicate::And(vec![
@@ -1114,20 +1214,15 @@ fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
     ]);
 
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "single-field ranges should use empty prefixes"
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "strict text BETWEEN-style ranges must fail closed instead of using raw index-range scans",
     );
-    assert_eq!(lower, &Bound::Included(Value::Text("alpha".to_string())));
-    assert_eq!(upper, &Bound::Included(Value::Text("omega".to_string())));
 }
 
 #[test]
-fn plan_access_stability_single_field_between_equal_bounds_and_eq_share_identical_access_plan() {
+fn plan_access_text_between_equal_bounds_still_canonicalizes_to_eq() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let between_equal_bounds = Predicate::And(vec![
@@ -1143,51 +1238,34 @@ fn plan_access_stability_single_field_between_equal_bounds_and_eq_share_identica
 
     assert_eq!(
         between_plan, eq_plan,
-        "single-field equal-bounds BETWEEN shapes should canonicalize to the same access plan as strict equality",
+        "equal text bounds collapse to strict equality before range lowering, so the equality index path remains valid",
     );
 }
 
 #[test]
-fn plan_access_emits_index_range_for_text_starts_with() {
+fn plan_access_text_starts_with_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
 
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "starts-with index range should use an empty equality prefix"
-    );
-    assert_eq!(lower, &Bound::Included(Value::Text("foo".to_string())));
-    assert_eq!(upper, &Bound::Excluded(Value::Text("fop".to_string())));
+    assert_eq!(plan, AccessPlan::full_scan());
 }
 
 #[test]
-fn plan_access_text_starts_with_compiles_scalar_and_uses_index_range() {
+fn plan_access_text_starts_with_compiles_scalar_and_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
 
     let runtime = compile_runtime_predicate_for_test(model, &predicate);
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
 
     assert!(
         runtime.uses_scalar_program(),
         "runtime should compile starts-with onto the scalar executor for scalar text fields",
     );
-    assert_eq!(index.name(), INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "starts-with index range should use an empty equality prefix",
-    );
-    assert_eq!(lower, &Bound::Included(Value::Text("foo".to_string())));
-    assert_eq!(upper, &Bound::Excluded(Value::Text("fop".to_string())));
+    assert_eq!(plan, AccessPlan::full_scan());
 }
 
 #[test]
@@ -1202,37 +1280,25 @@ fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
 }
 
 #[test]
-fn plan_access_starts_with_high_unicode_prefix_skips_surrogate_gap_in_upper_bound() {
+fn plan_access_starts_with_high_unicode_prefix_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
-    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix));
 
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
-    assert_eq!(
-        upper,
-        &Bound::Excluded(Value::Text(format!(
-            "foo{}",
-            char::from_u32(0xE000).expect("valid scalar")
-        ))),
-    );
+    assert_eq!(plan, AccessPlan::full_scan());
 }
 
 #[test]
-fn plan_access_starts_with_max_unicode_prefix_uses_unbounded_upper() {
+fn plan_access_starts_with_max_unicode_prefix_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
-    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix));
 
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
-    assert_eq!(upper, &Bound::Unbounded);
+    assert_eq!(plan, AccessPlan::full_scan());
 }
 
 #[test]
@@ -1276,41 +1342,23 @@ fn plan_access_stability_max_unicode_starts_with_and_equivalent_lower_bound_shar
 }
 
 #[test]
-fn plan_access_emits_index_range_for_single_field_gt() {
+fn plan_access_text_gt_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::Gt, Value::Text("alpha".to_string()));
 
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "single-field ranges should use empty prefixes"
-    );
-    assert_eq!(lower, &Bound::Excluded(Value::Text("alpha".to_string())));
-    assert_eq!(upper, &Bound::Unbounded);
+    assert_eq!(plan, AccessPlan::full_scan());
 }
 
 #[test]
-fn plan_access_emits_index_range_for_single_field_lte() {
+fn plan_access_text_lte_falls_back_to_full_scan() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string()));
 
     let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
-    let (index, prefix, lower, upper) =
-        find_index_range(&plan).expect("plan should include index range");
-
-    assert_eq!(index.name(), INDEX_MODEL.name());
-    assert!(
-        prefix.is_empty(),
-        "single-field ranges should use empty prefixes"
-    );
-    assert_eq!(lower, &Bound::Unbounded);
-    assert_eq!(upper, &Bound::Included(Value::Text("omega".to_string())));
+    assert_eq!(plan, AccessPlan::full_scan());
 }
 
 #[test]

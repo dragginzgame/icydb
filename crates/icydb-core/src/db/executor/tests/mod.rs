@@ -3,7 +3,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-mod aggregate;
 mod continuation_structure;
 mod cursor_validation;
 mod lifecycle;
@@ -11,11 +10,13 @@ mod live_state;
 mod load_structure;
 mod metrics;
 mod mutation_save;
-mod paged_builder;
+mod ordering;
 mod pagination;
-mod route;
+mod post_access;
+mod reverse_index;
 mod semantics;
-mod stream_key;
+mod set_access;
+mod stale_secondary;
 
 use crate::{
     db::{
@@ -25,30 +26,21 @@ use crate::{
             init_commit_store_for_tests, prepare_row_commit_for_entity,
             prepare_row_commit_for_entity_with_structural_readers,
         },
-        cursor::{ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot},
         data::DataStore,
-        executor::{
-            DeleteExecutor, ExecutionOptimization, ExecutionOptimizationCounter, LoadExecutor,
-            SaveExecutor,
-        },
+        executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         index::IndexStore,
-        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
-        query::{
-            explain::{ExplainExecutionNodeDescriptor, ExplainExecutionNodeType},
-            intent::{IntentError, Query, QueryError},
-        },
+        predicate::MissingRowPolicy,
+        query::intent::Query,
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
-        schema::commit_schema_fingerprint_for_entity,
     },
     model::{
         field::{FieldKind, RelationStrength},
-        index::{IndexExpression, IndexKeyItem, IndexModel},
+        index::IndexModel,
     },
     testing::test_memory,
     traits::{EntityKind, EntityValue, Path},
-    types::{Date, Duration, Timestamp, Ulid},
-    value::Value,
+    types::{Ulid, Unit},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
@@ -85,7 +77,9 @@ static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
 /// SimpleEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct SimpleEntity {
     id: Ulid,
 }
@@ -104,10 +98,44 @@ crate::test_entity_schema! {
 }
 
 ///
+/// SingletonUnitEntity
+///
+/// Executor-lifecycle singleton fixture used to keep runtime `only()` load
+/// behavior covered after the old semantics harness was pruned.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SingletonUnitEntity {
+    id: Unit,
+    label: String,
+}
+
+crate::test_entity_schema! {
+    ident = SingletonUnitEntity,
+    id = Unit,
+    id_field = id,
+    singleton = true,
+    entity_name = "SingletonUnitEntity",
+    entity_tag = crate::testing::SINGLETON_UNIT_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Unit),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [],
+    store = TestDataStore,
+    canister = TestCanister,
+}
+
+///
 /// IndexedMetricsEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct IndexedMetricsEntity {
     id: Ulid,
     tag: u32,
@@ -140,46 +168,12 @@ crate::test_entity_schema! {
 }
 
 ///
-/// UniqueIndexRangeEntity
-///
-
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
-struct UniqueIndexRangeEntity {
-    id: Ulid,
-    code: u32,
-    label: String,
-}
-
-static UNIQUE_INDEX_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
-static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
-    "code_unique",
-    TestDataStore::PATH,
-    &UNIQUE_INDEX_RANGE_INDEX_FIELDS,
-    true,
-)];
-
-crate::test_entity_schema! {
-    ident = UniqueIndexRangeEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "UniqueIndexRangeEntity",
-    entity_tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("code", FieldKind::Uint),
-        ("label", FieldKind::Text),
-    ],
-    indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
-    store = TestDataStore,
-    canister = TestCanister,
-}
-
-///
 /// PushdownParityEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct PushdownParityEntity {
     id: Ulid,
     group: u32,
@@ -214,137 +208,43 @@ crate::test_entity_schema! {
 }
 
 ///
-/// TextPrefixParityEntity
+/// UniqueIndexRangeEntity
+///
+/// Executor snapshot fixture for unique secondary range access. This keeps the
+/// index-range execution snapshot coverage local to the revived executor test
+/// harness instead of depending on pruned pagination backlogs.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
-struct TextPrefixParityEntity {
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct UniqueIndexRangeEntity {
     id: Ulid,
+    code: u32,
     label: String,
 }
 
-static TEXT_PREFIX_PARITY_INDEX_FIELDS: [&str; 1] = ["label"];
-static TEXT_PREFIX_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
-    "label_prefix",
+static UNIQUE_INDEX_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
+static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "code_unique",
     TestDataStore::PATH,
-    &TEXT_PREFIX_PARITY_INDEX_FIELDS,
-    false,
+    &UNIQUE_INDEX_RANGE_INDEX_FIELDS,
+    true,
 )];
 
 crate::test_entity_schema! {
-    ident = TextPrefixParityEntity,
+    ident = UniqueIndexRangeEntity,
     id = Ulid,
     id_field = id,
-    entity_name = "TextPrefixParityEntity",
-    entity_tag = crate::testing::TEXT_PREFIX_PARITY_ENTITY_TAG,
+    entity_name = "UniqueIndexRangeEntity",
+    entity_tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
+        ("code", FieldKind::Uint),
         ("label", FieldKind::Text),
     ],
-    indexes = [&TEXT_PREFIX_PARITY_INDEX_MODELS[0]],
-    store = TestDataStore,
-    canister = TestCanister,
-}
-
-///
-/// ExpressionCasefoldParityEntity
-///
-
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
-struct ExpressionCasefoldParityEntity {
-    id: Ulid,
-    email: String,
-    label: String,
-}
-
-static EXPRESSION_CASEFOLD_PARITY_INDEX_FIELDS: [&str; 1] = ["email"];
-static EXPRESSION_CASEFOLD_PARITY_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
-    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
-static EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
-    "email_lower",
-    TestDataStore::PATH,
-    &EXPRESSION_CASEFOLD_PARITY_INDEX_FIELDS,
-    &EXPRESSION_CASEFOLD_PARITY_INDEX_KEY_ITEMS,
-    false,
-)];
-
-crate::test_entity_schema! {
-    ident = ExpressionCasefoldParityEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "ExpressionCasefoldParityEntity",
-    entity_tag = crate::testing::EXPRESSION_CASEFOLD_PARITY_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
-        ("label", FieldKind::Text),
-    ],
-    indexes = [&EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0]],
-    store = TestDataStore,
-    canister = TestCanister,
-}
-
-///
-/// ExpressionUpperParityEntity
-///
-
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
-struct ExpressionUpperParityEntity {
-    id: Ulid,
-    email: String,
-    label: String,
-}
-
-static EXPRESSION_UPPER_PARITY_INDEX_FIELDS: [&str; 1] = ["email"];
-static EXPRESSION_UPPER_PARITY_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
-    [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
-static EXPRESSION_UPPER_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
-    "email_upper",
-    TestDataStore::PATH,
-    &EXPRESSION_UPPER_PARITY_INDEX_FIELDS,
-    &EXPRESSION_UPPER_PARITY_INDEX_KEY_ITEMS,
-    false,
-)];
-
-crate::test_entity_schema! {
-    ident = ExpressionUpperParityEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "ExpressionUpperParityEntity",
-    entity_tag = crate::testing::EXPRESSION_UPPER_PARITY_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
-        ("label", FieldKind::Text),
-    ],
-    indexes = [&EXPRESSION_UPPER_PARITY_INDEX_MODELS[0]],
-    store = TestDataStore,
-    canister = TestCanister,
-}
-
-///
-/// SingletonUnitEntity
-///
-
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
-struct SingletonUnitEntity {
-    id: (),
-    label: String,
-}
-
-crate::test_entity_schema! {
-    ident = SingletonUnitEntity,
-    id = (),
-    id_field = id,
-    singleton = true,
-    entity_name = "SingletonUnitEntity",
-    entity_tag = crate::testing::SINGLETON_UNIT_ENTITY_TAG,
-    pk_index = 0,
-    fields = [("id", FieldKind::Unit), ("label", FieldKind::Text)],
-    indexes = [],
+    indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
     store = TestDataStore,
     canister = TestCanister,
 }
@@ -353,7 +253,9 @@ crate::test_entity_schema! {
 /// PhaseEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct PhaseEntity {
     id: Ulid,
     opt_rank: Option<u32>,
@@ -364,54 +266,42 @@ struct PhaseEntity {
 
 static PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
 
-crate::test_entity_schema! {
-    ident = PhaseEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "PhaseEntity",
-    entity_tag = crate::testing::PHASE_ENTITY_TAG,
-    pk_index = 0,
+crate::impl_test_entity_markers!(PhaseEntity);
+
+crate::impl_test_entity_model_storage!(
+    PhaseEntity,
+    "PhaseEntity",
+    0,
     fields = [
-        ("id", FieldKind::Ulid),
-        // Optional scalar fields are represented as scalar kinds in runtime models.
-        ("opt_rank", FieldKind::Uint),
-        ("rank", FieldKind::Uint),
-        ("tags", FieldKind::List(&PHASE_TAG_KIND)),
-        ("label", FieldKind::Text),
+        crate::model::field::FieldModel::new("id", FieldKind::Ulid),
+        crate::model::field::FieldModel::new_with_storage_decode_and_nullability(
+            "opt_rank",
+            FieldKind::Uint,
+            crate::model::field::FieldStorageDecode::ByKind,
+            true,
+        ),
+        crate::model::field::FieldModel::new("rank", FieldKind::Uint),
+        crate::model::field::FieldModel::new("tags", FieldKind::List(&PHASE_TAG_KIND)),
+        crate::model::field::FieldModel::new("label", FieldKind::Text)
     ],
     indexes = [],
-    store = TestDataStore,
-    canister = TestCanister,
+);
+
+crate::impl_test_entity_runtime_surface!(PhaseEntity, Ulid, "PhaseEntity", MODEL_DEF);
+
+impl crate::traits::EntityPlacement for PhaseEntity {
+    type Store = TestDataStore;
+    type Canister = TestCanister;
 }
 
-///
-/// TemporalBoundaryEntity
-///
-
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
-struct TemporalBoundaryEntity {
-    id: Ulid,
-    occurred_on: Date,
-    occurred_at: Timestamp,
-    elapsed: Duration,
+impl crate::traits::EntityKind for PhaseEntity {
+    const ENTITY_TAG: crate::types::EntityTag = crate::testing::PHASE_ENTITY_TAG;
 }
 
-crate::test_entity_schema! {
-    ident = TemporalBoundaryEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "TemporalBoundaryEntity",
-    entity_tag = crate::testing::TEMPORAL_BOUNDARY_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("occurred_on", FieldKind::Date),
-        ("occurred_at", FieldKind::Timestamp),
-        ("elapsed", FieldKind::Duration),
-    ],
-    indexes = [],
-    store = TestDataStore,
-    canister = TestCanister,
+impl crate::traits::EntityValue for PhaseEntity {
+    fn id(&self) -> crate::types::Id<Self> {
+        crate::types::Id::from_key(self.id)
+    }
 }
 
 // Clear the test data store and any pending commit marker between runs.
@@ -473,7 +363,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         RelationTargetEntity::ENTITY_TAG,
         <RelationTargetEntity as crate::traits::EntitySchema>::MODEL,
         RelationTargetEntity::PATH,
-        RelationTestDataStore::PATH,
+        RelationTargetStore::PATH,
         prepare_row_commit_for_entity::<RelationTargetEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RelationTargetEntity>,
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
@@ -482,7 +372,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         RelationSourceEntity::ENTITY_TAG,
         <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         RelationSourceEntity::PATH,
-        RelationTestDataStore::PATH,
+        RelationSourceStore::PATH,
         prepare_row_commit_for_entity::<RelationSourceEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<RelationSourceEntity>,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
@@ -491,7 +381,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         WeakSingleRelationSourceEntity::ENTITY_TAG,
         <WeakSingleRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakSingleRelationSourceEntity::PATH,
-        RelationTestDataStore::PATH,
+        RelationSourceStore::PATH,
         prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<WeakSingleRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
@@ -500,7 +390,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         WeakOptionalRelationSourceEntity::ENTITY_TAG,
         <WeakOptionalRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakOptionalRelationSourceEntity::PATH,
-        RelationTestDataStore::PATH,
+        RelationSourceStore::PATH,
         prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<WeakOptionalRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
@@ -509,7 +399,7 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         WeakListRelationSourceEntity::ENTITY_TAG,
         <WeakListRelationSourceEntity as crate::traits::EntitySchema>::MODEL,
         WeakListRelationSourceEntity::PATH,
-        RelationTestDataStore::PATH,
+        RelationSourceStore::PATH,
         prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<WeakListRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
@@ -523,7 +413,9 @@ static REL_DB: Db<RelationTestCanister> =
 /// RelationTargetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RelationTargetEntity {
     id: Ulid,
 }
@@ -545,7 +437,9 @@ crate::test_entity_schema! {
 /// RelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct RelationSourceEntity {
     id: Ulid,
     target: Ulid,
@@ -582,7 +476,9 @@ crate::test_entity_schema! {
 /// WeakSingleRelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct WeakSingleRelationSourceEntity {
     id: Ulid,
     target: Ulid,
@@ -619,7 +515,9 @@ crate::test_entity_schema! {
 /// WeakOptionalRelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct WeakOptionalRelationSourceEntity {
     id: Ulid,
     target: Option<Ulid>,
@@ -656,7 +554,9 @@ crate::test_entity_schema! {
 /// WeakListRelationSourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
 struct WeakListRelationSourceEntity {
     id: Ulid,
     targets: Vec<Ulid>,
@@ -705,30 +605,4 @@ fn reset_relation_stores() {
             })
             .expect("relation target store access should succeed");
     });
-}
-
-fn explain_execution_find_first_node(
-    descriptor: &ExplainExecutionNodeDescriptor,
-    node_type: ExplainExecutionNodeType,
-) -> Option<&ExplainExecutionNodeDescriptor> {
-    // Walk descriptor trees recursively so tests can assert by node type
-    // without coupling to child depth or sibling ordering.
-    if descriptor.node_type() == node_type {
-        return Some(descriptor);
-    }
-
-    for child in descriptor.children() {
-        if let Some(found) = explain_execution_find_first_node(child, node_type) {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
-fn explain_execution_contains_node_type(
-    descriptor: &ExplainExecutionNodeDescriptor,
-    node_type: ExplainExecutionNodeType,
-) -> bool {
-    explain_execution_find_first_node(descriptor, node_type).is_some()
 }

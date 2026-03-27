@@ -209,6 +209,39 @@ fn parse_select_statement_with_qualified_identifiers() {
 }
 
 #[test]
+fn parse_select_statement_with_strict_like_prefix_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE name LIKE 'Al%' \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("strict LIKE prefix select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Al".to_string()),
+                CoercionId::Strict,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_lower_like_prefix_predicate() {
     let statement = parse_sql(
         "SELECT * FROM users \
@@ -242,29 +275,55 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
 }
 
 #[test]
-fn parse_select_statement_rejects_lower_like_non_prefix_pattern() {
-    let err = parse_sql("SELECT * FROM users WHERE LOWER(name) LIKE '%Al'")
-        .expect_err("LOWER(field) LIKE suffix-only patterns should fail closed");
+fn parse_select_statement_with_upper_like_prefix_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE UPPER(name) LIKE 'AL%' \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("UPPER(field) LIKE prefix select statement should parse");
 
     assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "LOWER(field) LIKE patterns beyond trailing '%' prefix form"
-        }
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("AL".to_string()),
+                CoercionId::TextCasefold,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
     );
 }
 
 #[test]
-fn parse_select_statement_rejects_like_without_lower_field_expression() {
-    let err = parse_sql("SELECT * FROM users WHERE name LIKE 'Al%'")
-        .expect_err("LIKE without LOWER(field) should fail closed");
+fn parse_select_statement_rejects_like_non_prefix_pattern() {
+    let cases = [
+        "SELECT * FROM users WHERE name LIKE '%Al'",
+        "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
+        "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
+    ];
 
-    assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "LIKE predicates beyond LOWER(field) LIKE 'prefix%'"
-        }
-    );
+    for sql in cases {
+        let err = parse_sql(sql).expect_err("non-prefix LIKE pattern should fail closed");
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: "LIKE patterns beyond trailing '%' prefix form"
+            }
+        );
+    }
 }
 
 #[test]
@@ -576,12 +635,12 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
         ),
         (
-            "SELECT * FROM users WHERE name LIKE 'Al%'",
-            "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+            "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
+            "LIKE patterns beyond trailing '%' prefix form",
         ),
         (
-            "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
-            "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+            "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
+            "LIKE patterns beyond trailing '%' prefix form",
         ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),

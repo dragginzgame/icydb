@@ -58,7 +58,7 @@ impl IndexExpression {
     /// under `TextCasefold` coercion in the current release.
     #[must_use]
     pub const fn supports_text_casefold_lookup(&self) -> bool {
-        matches!(self, Self::Lower(_))
+        matches!(self, Self::Lower(_) | Self::Upper(_))
     }
 }
 
@@ -459,7 +459,7 @@ mod tests {
     #[test]
     fn index_expression_lookup_support_matrix_is_explicit() {
         assert!(IndexExpression::Lower("email").supports_text_casefold_lookup());
-        assert!(!IndexExpression::Upper("email").supports_text_casefold_lookup());
+        assert!(IndexExpression::Upper("email").supports_text_casefold_lookup());
         assert!(!IndexExpression::Trim("email").supports_text_casefold_lookup());
         assert!(!IndexExpression::LowerTrim("email").supports_text_casefold_lookup());
         assert!(!IndexExpression::Date("created_at").supports_text_casefold_lookup());

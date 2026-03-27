@@ -4,10 +4,12 @@
 //! Boundary: consumes `Db`/store read APIs and returns DTO snapshots.
 
 mod execution_trace;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     db::{
-        Db,
+        Db, EntityRuntimeHooks,
         commit::CommitRowOp,
         data::{DataKey, StorageKey, decode_structural_row_cbor},
         index::IndexKey,
@@ -588,6 +590,17 @@ impl EntityStats {
     }
 }
 
+fn storage_report_name_for_hook<'a, C: CanisterKind>(
+    name_map: &BTreeMap<&'static str, &'a str>,
+    hooks: &EntityRuntimeHooks<C>,
+) -> &'a str {
+    name_map
+        .get(hooks.entity_path)
+        .copied()
+        .or_else(|| name_map.get(hooks.model.name()).copied())
+        .unwrap_or(hooks.entity_path)
+}
+
 /// Build one deterministic storage snapshot with per-entity rollups.
 ///
 /// This path is read-only and fail-closed on decode/validation errors by counting
@@ -597,16 +610,15 @@ pub(crate) fn storage_report<C: CanisterKind>(
     name_to_path: &[(&'static str, &'static str)],
 ) -> Result<StorageReport, InternalError> {
     db.ensure_recovered_state()?;
-    // Build name→path map once, reuse across stores.
+    // Build one optional alias map once, then resolve report names from the
+    // runtime hook table so entity tags keep distinct path identity even when
+    // multiple hooks intentionally share the same model name.
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
-    let runtime_name_to_tag: BTreeMap<&str, EntityTag> =
-        db.runtime_entity_name_tag_pairs().into_iter().collect();
-    // Build one deterministic tag→path alias map to preserve report naming even
-    // after persisted keys move from string names to tag identities.
     let mut tag_name_map = BTreeMap::<EntityTag, &str>::new();
-    for (entity_name, entity_tag) in &runtime_name_to_tag {
-        let path_name = name_map.get(entity_name).copied().unwrap_or(*entity_name);
-        tag_name_map.entry(*entity_tag).or_insert(path_name);
+    for hooks in db.entity_runtime_hooks {
+        tag_name_map
+            .entry(hooks.entity_tag)
+            .or_insert_with(|| storage_report_name_for_hook(&name_map, hooks));
     }
     let mut data = Vec::new();
     let mut index = Vec::new();
@@ -654,11 +666,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                             db.runtime_hook_for_entity_tag(entity_tag)
                                 .ok()
                                 .map(|hooks| {
-                                    name_map
-                                        .get(hooks.model.name())
-                                        .copied()
-                                        .unwrap_or_else(|| hooks.model.name())
-                                        .to_string()
+                                    storage_report_name_for_hook(&name_map, hooks).to_string()
                                 })
                         })
                         .unwrap_or_else(|| format!("#{}", entity_tag.value()));

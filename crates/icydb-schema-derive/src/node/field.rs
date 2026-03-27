@@ -146,6 +146,20 @@ impl Field {
         Ok(())
     }
 
+    /// Return true when the declared field default is identical to the
+    /// generated Rust field type's implicit `Default` value.
+    pub fn default_matches_implicit_default(&self) -> bool {
+        let Some(default) = &self.default else {
+            return true;
+        };
+
+        match self.value.cardinality() {
+            Cardinality::One => self.one_default_matches_implicit_default(default),
+            Cardinality::Opt => option_default_matches(default),
+            Cardinality::Many => vec_default_matches(default),
+        }
+    }
+
     /// Generate the default expression for this field.
     pub fn default_expr(&self) -> TokenStream {
         match (&self.default, self.value.cardinality()) {
@@ -182,6 +196,177 @@ impl Field {
             default: None,
         }
     }
+
+    // One-cardinality fields can only use the implicit derive path when their
+    // explicit default lowers to the same value as the generated field type.
+    fn one_default_matches_implicit_default(&self, default: &Arg) -> bool {
+        if let Some(path) = self.value.item.is.as_ref() {
+            return custom_type_default_matches(path, default);
+        }
+
+        let Some(primitive) = self.value.item.primitive else {
+            return false;
+        };
+
+        primitive_default_matches(primitive, default)
+    }
+}
+
+// Explicit `None` or `Option::default()` matches the implicit optional default.
+fn option_default_matches(default: &Arg) -> bool {
+    matches!(default, Arg::ConstPath(path) if path_ends_with_segments(path, &["None"]))
+        || matches!(default, Arg::FuncPath(path) if path_ends_with_segments(path, &["Option", "default"]))
+}
+
+// Explicit empty vectors still match the derived default for repeated fields.
+fn vec_default_matches(default: &Arg) -> bool {
+    matches!(default, Arg::FuncPath(path)
+        if path_ends_with_segments(path, &["Vec", "new"])
+            || path_ends_with_segments(path, &["Vec", "default"]))
+}
+
+// Custom `is = "Type"` fields only match when the default is `Type::default()`.
+fn custom_type_default_matches(field_type: &Path, default: &Arg) -> bool {
+    matches!(default, Arg::FuncPath(path) if path_matches_type_default(path, field_type))
+}
+
+// Primitive defaults can use zero-literals, empty-string/vec constructors, or
+// the field type's own `default()` constructor.
+fn primitive_default_matches(primitive: Primitive, default: &Arg) -> bool {
+    match default {
+        Arg::Bool(value) => primitive == Primitive::Bool && !value,
+        Arg::Number(value) => {
+            primitive_supports_zero_literal(primitive) && arg_number_is_zero(value)
+        }
+        Arg::String(value) => primitive == Primitive::Text && value.value().is_empty(),
+        Arg::FuncPath(path) => primitive_default_fn_matches(primitive, path),
+        Arg::Char(_) | Arg::ConstPath(_) => false,
+    }
+}
+
+fn primitive_default_fn_matches(primitive: Primitive, path: &Path) -> bool {
+    if matches!(primitive, Primitive::Text)
+        && (path_ends_with_segments(path, &["String", "new"])
+            || path_ends_with_segments(path, &["String", "default"]))
+    {
+        return true;
+    }
+
+    if matches!(primitive, Primitive::Blob)
+        && (path_ends_with_segments(path, &["Vec", "new"])
+            || path_ends_with_segments(path, &["Vec", "default"]))
+    {
+        return true;
+    }
+
+    primitive_default_type_names(primitive)
+        .iter()
+        .any(|type_name| path_ends_with_segments(path, &[type_name, "default"]))
+}
+
+const fn primitive_default_type_names(primitive: Primitive) -> &'static [&'static str] {
+    match primitive {
+        Primitive::Account => &["Account"],
+        Primitive::Blob => &["Blob"],
+        Primitive::Bool => &["Bool", "bool"],
+        Primitive::Date => &["Date", "i32"],
+        Primitive::Decimal => &["Decimal", "f64"],
+        Primitive::Duration => &["Duration", "u64"],
+        Primitive::Float32 => &["Float32", "f32"],
+        Primitive::Float64 => &["Float64", "f64"],
+        Primitive::Int => &["Int"],
+        Primitive::Int8 => &["Int8", "i8"],
+        Primitive::Int16 => &["Int16", "i16"],
+        Primitive::Int32 => &["Int32", "i32"],
+        Primitive::Int64 => &["Int64", "i64"],
+        Primitive::Int128 => &["Int128", "i128"],
+        Primitive::Nat => &["Nat"],
+        Primitive::Nat8 => &["Nat8", "u8"],
+        Primitive::Nat16 => &["Nat16", "u16"],
+        Primitive::Nat32 => &["Nat32", "u32"],
+        Primitive::Nat64 => &["Nat64", "u64"],
+        Primitive::Nat128 => &["Nat128", "u128"],
+        Primitive::Principal => &["Principal"],
+        Primitive::Subaccount => &["Subaccount"],
+        Primitive::Text => &["Text", "String"],
+        Primitive::Timestamp => &["Timestamp", "u64"],
+        Primitive::Ulid => &["Ulid"],
+        Primitive::Unit => &["Unit"],
+    }
+}
+
+const fn primitive_supports_zero_literal(primitive: Primitive) -> bool {
+    matches!(
+        primitive,
+        Primitive::Date
+            | Primitive::Decimal
+            | Primitive::Duration
+            | Primitive::Float32
+            | Primitive::Float64
+            | Primitive::Int
+            | Primitive::Int8
+            | Primitive::Int16
+            | Primitive::Int32
+            | Primitive::Int64
+            | Primitive::Int128
+            | Primitive::Nat
+            | Primitive::Nat8
+            | Primitive::Nat16
+            | Primitive::Nat32
+            | Primitive::Nat64
+            | Primitive::Nat128
+            | Primitive::Timestamp
+    )
+}
+
+const fn arg_number_is_zero(number: &ArgNumber) -> bool {
+    match number {
+        ArgNumber::Float32(value) => value.to_bits() == 0.0f32.to_bits(),
+        ArgNumber::Float64(value) => value.to_bits() == 0.0f64.to_bits(),
+        ArgNumber::Int8(value) => *value == 0,
+        ArgNumber::Int16(value) => *value == 0,
+        ArgNumber::Int32(value) => *value == 0,
+        ArgNumber::Int64(value) => *value == 0,
+        ArgNumber::Int128(value) => *value == 0,
+        ArgNumber::Nat8(value) => *value == 0,
+        ArgNumber::Nat16(value) => *value == 0,
+        ArgNumber::Nat32(value) => *value == 0,
+        ArgNumber::Nat64(value) => *value == 0,
+        ArgNumber::Nat128(value) => *value == 0,
+    }
+}
+
+fn path_matches_type_default(default_path: &Path, field_type: &Path) -> bool {
+    let default_segments: Vec<_> = default_path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+    let type_segments: Vec<_> = field_type
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+
+    default_segments.len() == type_segments.len() + 1
+        && default_segments
+            .last()
+            .is_some_and(|segment| segment == "default")
+        && default_segments[..type_segments.len()] == type_segments[..]
+}
+
+fn path_ends_with_segments(path: &Path, expected: &[&str]) -> bool {
+    let segments: Vec<_> = path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+
+    segments.len() >= expected.len()
+        && segments[segments.len() - expected.len()..]
+            .iter()
+            .map(String::as_str)
+            .eq(expected.iter().copied())
 }
 
 impl HasSchemaPart for Field {
@@ -214,9 +399,10 @@ impl HasTypeExpr for Field {
 #[cfg(test)]
 mod tests {
     use super::{Field, Value};
-    use crate::node::Item;
+    use crate::node::{Arg, Item};
     use icydb_schema::types::Primitive;
     use quote::format_ident;
+    use syn::parse_quote;
 
     fn relation_field(ident: &str, many: bool) -> Field {
         Field {
@@ -266,5 +452,68 @@ mod tests {
         relation_field("user_ids", true)
             .validate()
             .expect("many relation field with _ids suffix should pass");
+    }
+
+    #[test]
+    fn default_match_detects_primitive_default_constructors() {
+        let field = Field {
+            ident: format_ident!("name"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Text),
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::FuncPath(parse_quote!(String::new))),
+        };
+
+        assert!(
+            field.default_matches_implicit_default(),
+            "String::new should not force a manual Default impl",
+        );
+    }
+
+    #[test]
+    fn default_match_detects_custom_type_default_constructors() {
+        let field = Field {
+            ident: format_ident!("profile"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    is: Some(parse_quote!(crate::Profile)),
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::FuncPath(parse_quote!(crate::Profile::default))),
+        };
+
+        assert!(
+            field.default_matches_implicit_default(),
+            "custom type default() should not force a manual Default impl",
+        );
+    }
+
+    #[test]
+    fn default_match_rejects_custom_non_default_constructors() {
+        let field = Field {
+            ident: format_ident!("id"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Ulid),
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::FuncPath(parse_quote!(Ulid::generate))),
+        };
+
+        assert!(
+            !field.default_matches_implicit_default(),
+            "custom constructors must still force an explicit Default impl",
+        );
     }
 }

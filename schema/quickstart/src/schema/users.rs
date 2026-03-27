@@ -13,8 +13,8 @@ use icydb::design::prelude::*;
     index(fields = "name"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "name", value(item(prim = "Text")), default = "String::new"),
-        field(ident = "age", value(item(prim = "Int32")), default = 0)
+        field(ident = "name", value(item(prim = "Text"))),
+        field(ident = "age", value(item(prim = "Int32")))
     )
 )]
 pub struct User {}

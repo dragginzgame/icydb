@@ -806,7 +806,7 @@ mod tests {
         Ok(session.show_entities())
     }
 
-    const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
+    const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
         [
             (
                 "SELECT * FROM FacadeSqlEntity JOIN other ON FacadeSqlEntity.id = other.id",
@@ -815,12 +815,16 @@ mod tests {
             ("SELECT \"name\" FROM FacadeSqlEntity", "quoted identifiers"),
             ("SELECT * FROM FacadeSqlEntity alias", "table aliases"),
             (
-                "SELECT * FROM FacadeSqlEntity WHERE name LIKE 'Al%'",
-                "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+                "SELECT * FROM FacadeSqlEntity WHERE name LIKE '%Al'",
+                "LIKE patterns beyond trailing '%' prefix form",
             ),
             (
                 "SELECT * FROM FacadeSqlEntity WHERE LOWER(name) LIKE '%Al'",
-                "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+                "LIKE patterns beyond trailing '%' prefix form",
+            ),
+            (
+                "SELECT * FROM FacadeSqlEntity WHERE UPPER(name) LIKE '%Al'",
+                "LIKE patterns beyond trailing '%' prefix form",
             ),
         ]
     }
@@ -932,6 +936,52 @@ mod tests {
         assert!(
             explain.contains("StartsWith") || explain.contains("starts_with"),
             "facade LOWER(field) LIKE prefix SQL explain should preserve starts-with intent",
+        );
+    }
+
+    #[test]
+    fn facade_query_from_sql_strict_like_prefix_lowers_to_load_query_intent() {
+        let session = fresh_facade_session();
+
+        let query = session
+            .query_from_sql::<FacadeSqlEntity>(
+                "SELECT * FROM FacadeSqlEntity WHERE name LIKE 'Al%'",
+            )
+            .expect("facade strict LIKE prefix SQL query should lower");
+        assert!(
+            matches!(query.mode(), core::db::QueryMode::Load(_)),
+            "facade strict LIKE prefix SQL should lower to load query mode",
+        );
+        let explain = query
+            .explain()
+            .expect("facade strict LIKE prefix SQL explain should build")
+            .render_text_canonical();
+        assert!(
+            explain.contains("StartsWith") || explain.contains("starts_with"),
+            "facade strict LIKE prefix SQL explain should preserve starts-with intent",
+        );
+    }
+
+    #[test]
+    fn facade_query_from_sql_upper_like_prefix_lowers_to_load_query_intent() {
+        let session = fresh_facade_session();
+
+        let query = session
+            .query_from_sql::<FacadeSqlEntity>(
+                "SELECT * FROM FacadeSqlEntity WHERE UPPER(name) LIKE 'AL%'",
+            )
+            .expect("facade UPPER(field) LIKE prefix SQL query should lower");
+        assert!(
+            matches!(query.mode(), core::db::QueryMode::Load(_)),
+            "facade UPPER(field) LIKE prefix SQL should lower to load query mode",
+        );
+        let explain = query
+            .explain()
+            .expect("facade UPPER(field) LIKE prefix SQL explain should build")
+            .render_text_canonical();
+        assert!(
+            explain.contains("StartsWith") || explain.contains("starts_with"),
+            "facade UPPER(field) LIKE prefix SQL explain should preserve starts-with intent",
         );
     }
 

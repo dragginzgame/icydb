@@ -18,12 +18,8 @@ use icydb::design::prelude::*;
             value(item(prim = "Ulid")),
             default = "Ulid::generate"
         ),
-        field(ident = "status", value(item(prim = "Text")), default = "String::new"),
-        field(
-            ident = "total_cents",
-            value(item(prim = "Nat64")),
-            default = "u64::default"
-        )
+        field(ident = "status", value(item(prim = "Text"))),
+        field(ident = "total_cents", value(item(prim = "Nat64")))
     )
 )]
 pub struct Order {}

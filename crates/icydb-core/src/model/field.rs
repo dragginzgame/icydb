@@ -133,6 +133,8 @@ pub struct FieldModel {
     pub(crate) name: &'static str,
     /// Runtime type shape (no schema-layer graph nodes).
     pub(crate) kind: FieldKind,
+    /// Whether the field may persist an explicit `NULL` payload.
+    pub(crate) nullable: bool,
     /// Persisted field decode contract used by structural runtime decoders.
     pub(crate) storage_decode: FieldStorageDecode,
     /// Leaf payload codec used by slot readers and writers.
@@ -143,7 +145,7 @@ impl FieldModel {
     /// Build one runtime field descriptor.
     #[must_use]
     pub const fn new(name: &'static str, kind: FieldKind) -> Self {
-        Self::new_with_storage_decode(name, kind, FieldStorageDecode::ByKind)
+        Self::new_with_storage_decode_and_nullability(name, kind, FieldStorageDecode::ByKind, false)
     }
 
     /// Build one runtime field descriptor with an explicit persisted decode contract.
@@ -153,9 +155,21 @@ impl FieldModel {
         kind: FieldKind,
         storage_decode: FieldStorageDecode,
     ) -> Self {
+        Self::new_with_storage_decode_and_nullability(name, kind, storage_decode, false)
+    }
+
+    /// Build one runtime field descriptor with an explicit decode contract and nullability.
+    #[must_use]
+    pub const fn new_with_storage_decode_and_nullability(
+        name: &'static str,
+        kind: FieldKind,
+        storage_decode: FieldStorageDecode,
+        nullable: bool,
+    ) -> Self {
         Self {
             name,
             kind,
+            nullable,
             storage_decode,
             leaf_codec: leaf_codec_for(kind, storage_decode),
         }
@@ -171,6 +185,12 @@ impl FieldModel {
     #[must_use]
     pub const fn kind(&self) -> FieldKind {
         self.kind
+    }
+
+    /// Return whether the persisted field contract permits explicit `NULL`.
+    #[must_use]
+    pub const fn nullable(&self) -> bool {
+        self.nullable
     }
 
     /// Return the persisted field decode contract.

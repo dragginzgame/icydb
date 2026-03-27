@@ -12,6 +12,8 @@ mod planning;
 mod policy;
 mod query;
 mod state;
+#[cfg(test)]
+mod tests;
 
 pub use errors::{IntentError, QueryError, QueryExecutionError};
 pub(crate) use key_access::{

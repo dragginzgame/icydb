@@ -243,6 +243,10 @@ fn option_inner_scalar_type(ty: &Type) -> Option<Type> {
 }
 
 fn is_scalar_type(ty: &Type) -> bool {
+    if is_unit_tuple(ty) {
+        return true;
+    }
+
     matches!(
         path_last_ident(ty).as_deref(),
         Some(
@@ -275,8 +279,13 @@ fn is_scalar_type(ty: &Type) -> bool {
                 | "Subaccount"
                 | "Timestamp"
                 | "Ulid"
+                | "Unit"
         )
     ) || is_vec_u8(ty)
+}
+
+fn is_unit_tuple(ty: &Type) -> bool {
+    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
 }
 
 fn is_vec_u8(ty: &Type) -> bool {

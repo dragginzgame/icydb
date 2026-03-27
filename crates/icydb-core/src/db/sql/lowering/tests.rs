@@ -417,6 +417,39 @@ fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_int
 }
 
 #[test]
+fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE name LIKE 'Al%'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("strict LIKE prefix SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("strict LIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent strict starts-with plan should build")
+            .into_inner(),
+        "plain LIKE 'prefix%' SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
 fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE 'Al%'",
@@ -450,19 +483,57 @@ fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_int
 }
 
 #[test]
-fn compile_sql_command_lower_like_non_prefix_pattern_rejects() {
-    let err = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE '%Al'",
+fn compile_sql_command_upper_like_prefix_parity_matches_casefold_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) LIKE 'AL%'",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("LOWER(field) LIKE non-prefix pattern should fail closed");
+    .expect("UPPER(field) LIKE prefix SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
 
-    assert!(matches!(
-        err,
-        SqlLoweringError::Parse(SqlParseError::UnsupportedFeature {
-            feature: "LOWER(field) LIKE patterns beyond trailing '%' prefix form"
-        })
-    ));
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("UPPER(field) LIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "UPPER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_like_non_prefix_pattern_rejects() {
+    let cases = [
+        "SELECT * FROM SqlLowerEntity WHERE name LIKE '%Al'",
+        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE '%Al'",
+        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) LIKE '%Al'",
+    ];
+
+    for sql in cases {
+        let err = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+            .expect_err("non-prefix LIKE pattern should fail closed");
+
+        assert!(matches!(
+            err,
+            SqlLoweringError::Parse(SqlParseError::UnsupportedFeature {
+                feature: "LIKE patterns beyond trailing '%' prefix form"
+            })
+        ));
+    }
 }
 
 #[test]

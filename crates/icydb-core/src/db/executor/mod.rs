@@ -24,6 +24,8 @@ mod runtime_context;
 mod scan;
 mod stream;
 mod terminal;
+#[cfg(test)]
+mod tests;
 mod traversal;
 mod util;
 mod window;

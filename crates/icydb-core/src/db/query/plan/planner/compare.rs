@@ -87,32 +87,36 @@ pub(super) fn plan_compare(
             if cmp.coercion.id != CoercionId::Strict {
                 return AccessPlan::full_scan();
             }
+            let Some(field_type) = schema.field(&cmp.field) else {
+                return AccessPlan::full_scan();
+            };
+            if strict_field_range_requires_full_scan(field_type, cmp.coercion.id) {
+                return AccessPlan::full_scan();
+            }
+
             // Single compare predicates only map directly to one-field indexes.
             // Composite prefix+range extraction remains AND-group driven.
-            if index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
-                let (lower, upper) = match cmp.op {
-                    CompareOp::Gt => (Bound::Excluded(cmp.value.clone()), Bound::Unbounded),
-                    CompareOp::Gte => (Bound::Included(cmp.value.clone()), Bound::Unbounded),
-                    CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(cmp.value.clone())),
-                    CompareOp::Lte => (Bound::Unbounded, Bound::Included(cmp.value.clone())),
-                    _ => unreachable!("range arm must be one of Gt/Gte/Lt/Lte"),
-                };
+            if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
+                return AccessPlan::full_scan();
+            }
 
-                for index in sorted_indexes(model, query_predicate) {
-                    if index.fields().len() == 1
-                        && index.fields()[0] == cmp.field.as_str()
-                        && index.is_field_indexable(&cmp.field, cmp.op)
-                    {
-                        let semantic_range = SemanticIndexRangeSpec::new(
-                            *index,
-                            vec![0usize],
-                            Vec::new(),
-                            lower,
-                            upper,
-                        );
+            let (lower, upper) = match cmp.op {
+                CompareOp::Gt => (Bound::Excluded(cmp.value.clone()), Bound::Unbounded),
+                CompareOp::Gte => (Bound::Included(cmp.value.clone()), Bound::Unbounded),
+                CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(cmp.value.clone())),
+                CompareOp::Lte => (Bound::Unbounded, Bound::Included(cmp.value.clone())),
+                _ => unreachable!("range arm must be one of Gt/Gte/Lt/Lte"),
+            };
 
-                        return AccessPlan::index_range(semantic_range);
-                    }
+            for index in sorted_indexes(model, query_predicate) {
+                if index.fields().len() == 1
+                    && index.fields()[0] == cmp.field.as_str()
+                    && index.is_field_indexable(&cmp.field, cmp.op)
+                {
+                    let semantic_range =
+                        SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
+
+                    return AccessPlan::index_range(semantic_range);
                 }
             }
         }
@@ -180,11 +184,20 @@ fn plan_starts_with_compare(
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
+    let field_type = schema.field(&cmp.field)?;
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
     for index in sorted_indexes(model, query_predicate) {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };
+        if matches!(
+            leading_key_item,
+            crate::model::index::IndexKeyItem::Field(key_field)
+                if key_field == cmp.field.as_str()
+                    && strict_field_range_requires_full_scan(field_type, cmp.coercion.id)
+        ) {
+            continue;
+        }
         let Some(prefix) = starts_with_lookup_value_for_key_item(
             leading_key_item,
             cmp.field.as_str(),
@@ -221,4 +234,12 @@ fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {
     next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
         Bound::Excluded(Value::Text(next_prefix))
     })
+}
+
+fn strict_field_range_requires_full_scan(field_type: &FieldType, coercion: CoercionId) -> bool {
+    // Raw secondary-index key ordering includes per-component length framing, so
+    // strict field-key text ranges are not lexicographically preserved at the
+    // raw-byte scan boundary. Fail closed until text range scans use an order-
+    // preserving index representation.
+    coercion == CoercionId::Strict && field_type.is_text()
 }

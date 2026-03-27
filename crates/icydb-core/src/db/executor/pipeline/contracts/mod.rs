@@ -61,6 +61,15 @@ impl PageCursor {
             Self::Grouped(token) => Some(token),
         }
     }
+
+    /// Encode one cursor into its canonical token bytes.
+    #[cfg(test)]
+    pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::TokenWireError> {
+        match self {
+            Self::Scalar(token) => token.encode(),
+            Self::Grouped(token) => token.encode(),
+        }
+    }
 }
 
 impl From<ContinuationToken> for PageCursor {

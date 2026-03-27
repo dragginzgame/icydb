@@ -22,7 +22,7 @@ use crate::{
     },
     serialize::{deserialize, serialize},
     traits::EntityKind,
-    types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
+    types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::{StorageKey, Value, ValueEnum},
 };
 use serde_cbor::{Value as CborValue, value::to_value as to_cbor_value};
@@ -31,6 +31,7 @@ use std::{cmp::Ordering, collections::BTreeMap, str};
 const SCALAR_SLOT_PREFIX: u8 = 0xFF;
 const SCALAR_SLOT_TAG_NULL: u8 = 0;
 const SCALAR_SLOT_TAG_VALUE: u8 = 1;
+const CBOR_NULL_PAYLOAD: [u8; 1] = [0xF6];
 
 const SCALAR_BOOL_PAYLOAD_LEN: usize = 1;
 const SCALAR_WORD32_PAYLOAD_LEN: usize = 4;
@@ -738,7 +739,14 @@ fn ensure_slot_value_matches_field_contract(
     value: &Value,
 ) -> Result<(), InternalError> {
     if matches!(value, Value::Null) {
-        return Ok(());
+        if field.nullable() {
+            return Ok(());
+        }
+
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field.name(),
+            "required field cannot store null",
+        ));
     }
 
     if matches!(field.kind(), FieldKind::Structured { queryable: false })
@@ -1184,6 +1192,39 @@ where
         .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
+/// Decode one non-null persisted slot payload through the shared leaf codec boundary.
+pub fn decode_persisted_non_null_slot_payload<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<T, InternalError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    if persisted_slot_payload_is_null(bytes) {
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            "unexpected null for non-nullable field",
+        ));
+    }
+
+    decode_persisted_slot_payload(bytes, field_name)
+}
+
+/// Decode one optional persisted slot payload preserving explicit CBOR `NULL`.
+pub fn decode_persisted_option_slot_payload<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<Option<T>, InternalError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    if persisted_slot_payload_is_null(bytes) {
+        return Ok(None);
+    }
+
+    decode_persisted_slot_payload(bytes, field_name).map(Some)
+}
+
 /// Decode one persisted scalar slot payload using the canonical scalar envelope.
 pub fn decode_persisted_scalar_slot_payload<T>(
     bytes: &[u8],
@@ -1215,6 +1256,11 @@ where
     };
 
     T::decode_scalar_payload(payload, field_name).map(Some)
+}
+
+// Detect the canonical persisted CBOR null payload used by optional structural slots.
+fn persisted_slot_payload_is_null(bytes: &[u8]) -> bool {
+    bytes == CBOR_NULL_PAYLOAD
 }
 
 ///
@@ -2149,6 +2195,27 @@ impl PersistedScalar for () {
     }
 }
 
+impl PersistedScalar for Unit {
+    const CODEC: ScalarCodec = ScalarCodec::Unit;
+
+    fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(Vec::new())
+    }
+
+    fn decode_scalar_payload(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        if !bytes.is_empty() {
+            return Err(InternalError::persisted_row_field_payload_must_be_empty(
+                field_name, "unit",
+            ));
+        }
+
+        Ok(Self)
+    }
+}
+
 ///
 /// TESTS
 ///
@@ -2159,6 +2226,7 @@ mod tests {
         FieldSlot, ScalarSlotValueRef, ScalarValueRef, SerializedFieldUpdate,
         SerializedPatchWriter, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
         UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
+        decode_persisted_non_null_slot_payload, decode_persisted_option_slot_payload,
         decode_slot_value_by_contract, decode_slot_value_from_bytes, encode_scalar_slot_value,
         encode_slot_payload_from_parts, encode_slot_value_from_value,
         serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
@@ -2210,6 +2278,11 @@ mod tests {
         name: String,
     }
 
+    #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+    struct PersistedRowProfileValue {
+        bio: String,
+    }
+
     crate::test_entity_schema! {
         ident = PersistedRowPatchBridgeEntity,
         id = crate::types::Ulid,
@@ -2252,6 +2325,17 @@ mod tests {
         },
     )];
     static ACCOUNT_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new("owner", FieldKind::Account)];
+    static REQUIRED_STRUCTURED_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
+        "profile",
+        FieldKind::Structured { queryable: false },
+    )];
+    static OPTIONAL_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
+        [FieldModel::new_with_storage_decode_and_nullability(
+            "profile",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::ByKind,
+            true,
+        )];
     static INDEX_MODELS: [&crate::model::index::IndexModel; 0] = [];
     static TEST_MODEL: EntityModel = EntityModel::new(
         "tests::PersistedRowFieldCodecEntity",
@@ -2286,6 +2370,20 @@ mod tests {
         "persisted_row_account_field_codec_entity",
         &ACCOUNT_FIELD_MODELS[0],
         &ACCOUNT_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowRequiredStructuredFieldCodecEntity",
+        "persisted_row_required_structured_field_codec_entity",
+        &REQUIRED_STRUCTURED_FIELD_MODELS[0],
+        &REQUIRED_STRUCTURED_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static OPTIONAL_STRUCTURED_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowOptionalStructuredFieldCodecEntity",
+        "persisted_row_optional_structured_field_codec_entity",
+        &OPTIONAL_STRUCTURED_FIELD_MODELS[0],
+        &OPTIONAL_STRUCTURED_FIELD_MODELS,
         &INDEX_MODELS,
     );
 
@@ -2441,6 +2539,50 @@ mod tests {
             .expect("decode slot");
 
         assert_eq!(decoded, Value::Account(account));
+    }
+
+    #[test]
+    fn decode_persisted_non_null_slot_payload_rejects_null_for_required_structured_fields() {
+        let err =
+            decode_persisted_non_null_slot_payload::<PersistedRowProfileValue>(&[0xF6], "profile")
+                .expect_err("required structured payload must reject null");
+
+        assert!(
+            err.message
+                .contains("unexpected null for non-nullable field"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn decode_persisted_option_slot_payload_treats_cbor_null_as_none() {
+        let decoded =
+            decode_persisted_option_slot_payload::<PersistedRowProfileValue>(&[0xF6], "profile")
+                .expect("optional structured payload should decode");
+
+        assert_eq!(decoded, None);
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_rejects_null_for_required_structured_slots() {
+        let err = encode_slot_value_from_value(&REQUIRED_STRUCTURED_MODEL, 0, &Value::Null)
+            .expect_err("required structured slot must reject null");
+
+        assert!(
+            err.message.contains("required field cannot store null"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_allows_null_for_optional_structured_slots() {
+        let payload = encode_slot_value_from_value(&OPTIONAL_STRUCTURED_MODEL, 0, &Value::Null)
+            .expect("optional structured slot should allow null");
+        let decoded =
+            decode_slot_value_from_bytes(&OPTIONAL_STRUCTURED_MODEL, 0, payload.as_slice())
+                .expect("optional structured slot should decode");
+
+        assert_eq!(decoded, Value::Null);
     }
 
     #[test]

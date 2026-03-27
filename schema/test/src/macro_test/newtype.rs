@@ -115,38 +115,34 @@ pub struct BoolD {}
 )]
 pub struct DateD {}
 
-#[newtype(
-    primitive = "Decimal",
-    item(prim = "Decimal", scale = 18),
-    default = 0.0
-)]
+#[newtype(primitive = "Decimal", item(prim = "Decimal", scale = 18))]
 pub struct DecimalD {}
 
-#[newtype(primitive = "Duration", item(prim = "Duration"), default = 0u64)]
+#[newtype(primitive = "Duration", item(prim = "Duration"))]
 pub struct DurationD {}
 
-#[newtype(primitive = "Float32", item(prim = "Float32"), default = 0)]
+#[newtype(primitive = "Float32", item(prim = "Float32"))]
 pub struct Float32D {}
 
-#[newtype(primitive = "Float64", item(prim = "Float64"), default = 0)]
+#[newtype(primitive = "Float64", item(prim = "Float64"))]
 pub struct Float64D {}
 
-#[newtype(primitive = "Int", item(prim = "Int"), default = 0)]
+#[newtype(primitive = "Int", item(prim = "Int"))]
 pub struct IntD {}
 
-#[newtype(primitive = "Int128", item(prim = "Int128"), default = 0)]
+#[newtype(primitive = "Int128", item(prim = "Int128"))]
 pub struct Int128D {}
 
-#[newtype(primitive = "Nat", item(prim = "Nat"), default = 0u64)]
+#[newtype(primitive = "Nat", item(prim = "Nat"))]
 pub struct NatD {}
 
-#[newtype(primitive = "Nat32", item(prim = "Nat32"), default = 0u32)]
+#[newtype(primitive = "Nat32", item(prim = "Nat32"))]
 pub struct Nat32D {}
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"), default = 0u64)]
+#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Nat64D;
 
-#[newtype(primitive = "Nat128", item(prim = "Nat128"), default = 0u128)]
+#[newtype(primitive = "Nat128", item(prim = "Nat128"))]
 pub struct Nat128D;
 
 #[newtype(
@@ -159,7 +155,7 @@ pub struct PrincipalD;
 #[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
 pub struct SubaccountD;
 
-#[newtype(primitive = "Text", item(prim = "Text"), default = "\"\"")]
+#[newtype(primitive = "Text", item(prim = "Text"))]
 pub struct TextD;
 
 #[newtype(

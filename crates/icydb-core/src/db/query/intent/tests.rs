@@ -14,28 +14,84 @@ use crate::{
         access::{AccessPath, AccessPlan},
         cursor::GroupedContinuationToken,
         direction::Direction,
-        predicate::{CompareOp, ComparePredicate},
+        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
+            explain::{
+                ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+            },
             expr::FilterExpr,
-            plan::{AccessPlannedQuery, LogicalPlan, ScalarPlan},
+            intent::model::QueryModel,
+            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, ScalarPlan},
         },
     },
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
-        index::IndexModel,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
     },
     testing::entity_model_from_static,
-    traits::{EntitySchema, FieldProjection, FieldValue},
-    types::{Ulid, Unit},
+    traits::{EntitySchema, FieldProjection, FieldValue, Path},
+    types::{Date, Duration, Timestamp, Ulid, Unit},
     value::{Value, ValueEnum},
 };
+use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // Helper for intent tests that need the typed model snapshot.
 fn basic_model() -> &'static EntityModel {
     <PlanEntity as EntitySchema>::MODEL
+}
+
+fn verbose_diagnostics_lines(verbose: &str) -> Vec<String> {
+    verbose
+        .lines()
+        .filter(|line| line.starts_with("diag."))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn verbose_diagnostics_map(verbose: &str) -> BTreeMap<String, String> {
+    let mut diagnostics = BTreeMap::new();
+    for line in verbose_diagnostics_lines(verbose) {
+        let Some((key, value)) = line.split_once('=') else {
+            panic!("diagnostic line must contain '=': {line}");
+        };
+        diagnostics.insert(key.to_string(), value.to_string());
+    }
+
+    diagnostics
+}
+
+fn explain_execution_contains_node_type(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    node_type: ExplainExecutionNodeType,
+) -> bool {
+    if descriptor.node_type() == node_type {
+        return true;
+    }
+
+    descriptor
+        .children()
+        .iter()
+        .any(|child| explain_execution_contains_node_type(child, node_type))
+}
+
+fn assert_expression_access_choice_selected(
+    diagnostics: &BTreeMap<String, String>,
+    expected_choice: &str,
+) {
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&expected_choice.to_string()),
+        "access-choice must select the same expression index chosen by planner access lowering",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"single_candidate".to_string()),
+        "expression lookup parity expects deterministic single-candidate selection",
+    );
 }
 
 fn query_error_is_group_plan_error(
@@ -116,7 +172,7 @@ fn query_error_is_predicate_validation_error(
 }
 
 // Test-only entity to compare typed vs model planning without schema macros.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct PlanEntity {
     id: Ulid,
     name: String,
@@ -165,10 +221,58 @@ struct PlanSingleton {
     id: Unit,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanSimpleEntity {
+    id: Ulid,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct PlanNumericEntity {
     id: Ulid,
     rank: i32,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanPushdownEntity {
+    id: Ulid,
+    group: u32,
+    rank: u32,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanUniqueRangeEntity {
+    id: Ulid,
+    code: u32,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanTextPrefixEntity {
+    id: Ulid,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanPhaseEntity {
+    id: Ulid,
+    tags: Vec<u32>,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanExpressionCasefoldEntity {
+    id: Ulid,
+    email: String,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanTemporalBoundaryEntity {
+    id: Ulid,
+    occurred_on: Date,
+    occurred_at: Timestamp,
+    elapsed: Duration,
 }
 
 impl FieldProjection for PlanSingleton {
@@ -191,8 +295,22 @@ crate::test_store! {
 }
 
 crate::test_entity_schema! {
+    ident = PlanSimpleEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanSimpleEntity",
+    entity_tag = crate::testing::SIMPLE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid)],
+    indexes = [],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
     ident = PlanEntity,
     id = Ulid,
+    id_field = id,
     entity_name = "PlanEntity",
     entity_tag = crate::testing::PLAN_ENTITY_TAG,
     pk_index = 0,
@@ -224,12 +342,153 @@ crate::test_entity_schema! {
 crate::test_entity_schema! {
     ident = PlanNumericEntity,
     id = Ulid,
+    id_field = id,
     entity_name = "PlanNumericEntity",
     entity_tag = crate::testing::PLAN_NUMERIC_ENTITY_TAG,
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
         ("rank", FieldKind::Int),
+    ],
+    indexes = [],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+static PLAN_PUSHDOWN_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+static PLAN_PUSHDOWN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "group_rank",
+    PlanDataStore::PATH,
+    &PLAN_PUSHDOWN_INDEX_FIELDS,
+    false,
+)];
+
+static PLAN_UNIQUE_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
+static PLAN_UNIQUE_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "code_unique",
+    PlanDataStore::PATH,
+    &PLAN_UNIQUE_RANGE_INDEX_FIELDS,
+    true,
+)];
+
+static PLAN_TEXT_PREFIX_INDEX_FIELDS: [&str; 1] = ["label"];
+static PLAN_TEXT_PREFIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "label",
+    PlanDataStore::PATH,
+    &PLAN_TEXT_PREFIX_INDEX_FIELDS,
+    false,
+)];
+
+static PLAN_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
+static PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+static PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
+    "email_expr",
+    PlanDataStore::PATH,
+    &PLAN_EXPRESSION_CASEFOLD_INDEX_FIELDS,
+    &PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS,
+    false,
+)];
+
+static PLAN_PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
+
+crate::test_entity_schema! {
+    ident = PlanPushdownEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanPushdownEntity",
+    entity_tag = crate::testing::PUSHDOWN_PARITY_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("group", FieldKind::Uint),
+        ("rank", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanUniqueRangeEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanUniqueRangeEntity",
+    entity_tag = crate::testing::UNIQUE_INDEX_RANGE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("code", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&PLAN_UNIQUE_RANGE_INDEX_MODELS[0]],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanTextPrefixEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanTextPrefixEntity",
+    entity_tag = crate::testing::TEXT_PREFIX_PARITY_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&PLAN_TEXT_PREFIX_INDEX_MODELS[0]],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanPhaseEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanPhaseEntity",
+    entity_tag = crate::testing::PHASE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tags", FieldKind::List(&PLAN_PHASE_TAG_KIND)),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanExpressionCasefoldEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanExpressionCasefoldEntity",
+    entity_tag = crate::testing::PLAN_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0]],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanTemporalBoundaryEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanTemporalBoundaryEntity",
+    entity_tag = crate::testing::TEMPORAL_BOUNDARY_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("occurred_on", FieldKind::Date),
+        ("occurred_at", FieldKind::Timestamp),
+        ("elapsed", FieldKind::Duration),
     ],
     indexes = [],
     store = PlanDataStore,
@@ -806,6 +1065,1208 @@ fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
 }
 
 #[test]
+fn explain_execution_verbose_reports_top_n_seek_hints() {
+    let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("id")
+        .offset(2)
+        .limit(3)
+        .explain_execution_verbose()
+        .expect("top-n verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_eq!(
+        diagnostics.get("diag.r.top_n_seek"),
+        Some(&"fetch(6)".to_string()),
+        "verbose execution explain should freeze top-n seek fetch diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get("diag.d.has_top_n_seek"),
+        Some(&"true".to_string()),
+        "descriptor diagnostics should report TopNSeek node presence",
+    );
+}
+
+#[test]
+fn expression_casefold_eq_access_and_execution_route_stay_in_parity() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::Eq,
+        Value::Text("ALICE@EXAMPLE.COM".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("expression eq explain should build");
+    let ExplainAccessPath::IndexPrefix {
+        name,
+        fields,
+        prefix_len,
+        values,
+    } = explain.access()
+    else {
+        panic!("expression eq should lower to index-prefix access");
+    };
+    assert_eq!(name, &PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0].name());
+    assert_eq!(fields.as_slice(), ["email"]);
+    assert_eq!(*prefix_len, 1);
+    assert_eq!(
+        values.as_slice(),
+        [Value::Text("alice@example.com".to_string())]
+    );
+
+    let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("expression eq verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_expression_access_choice_selected(&diagnostics, "IndexPrefix(email_expr)");
+
+    let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .explain_execution()
+        .expect("expression eq execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::IndexPrefixScan),
+        "execution route must preserve expression eq index-prefix route selection",
+    );
+}
+
+#[test]
+fn expression_casefold_in_access_and_execution_route_stay_in_parity() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("BOB@EXAMPLE.COM".to_string()),
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("bob@example.com".to_string()),
+        ]),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("expression IN explain should build");
+    let ExplainAccessPath::IndexMultiLookup {
+        name,
+        fields,
+        values,
+    } = explain.access()
+    else {
+        panic!("expression IN should lower to index-multi-lookup access");
+    };
+    assert_eq!(name, &PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0].name());
+    assert_eq!(fields.as_slice(), ["email"]);
+    assert_eq!(
+        values.as_slice(),
+        [
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("bob@example.com".to_string())
+        ],
+    );
+
+    let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("expression IN verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_expression_access_choice_selected(&diagnostics, "IndexMultiLookup(email_expr)");
+
+    let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .explain_execution()
+        .expect("expression IN execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(
+            &execution,
+            ExplainExecutionNodeType::IndexMultiLookup
+        ),
+        "execution route must preserve expression IN index-multi-lookup route selection",
+    );
+}
+
+#[test]
+fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("ALI".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("expression starts-with explain should build");
+    let ExplainAccessPath::IndexRange {
+        name,
+        fields,
+        prefix_len,
+        prefix,
+        lower,
+        upper,
+    } = explain.access()
+    else {
+        panic!("expression starts-with should lower to index-range access");
+    };
+    assert_eq!(name, &PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0].name());
+    assert_eq!(fields.as_slice(), ["email"]);
+    assert_eq!(*prefix_len, 0);
+    assert!(
+        prefix.is_empty(),
+        "expression starts-with range should not carry equality prefix values",
+    );
+    assert!(matches!(
+        lower,
+        std::ops::Bound::Included(Value::Text(value)) if value == "ali"
+    ));
+    assert!(matches!(upper, std::ops::Bound::Unbounded));
+
+    let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("expression starts-with verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_expression_access_choice_selected(&diagnostics, "IndexRange(email_expr)");
+    assert_eq!(
+        diagnostics.get("diag.r.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "text-casefold expression starts-with must keep residual filtering enabled",
+    );
+    assert_eq!(
+        diagnostics.get("diag.d.has_index_predicate_prefilter"),
+        Some(&"false".to_string()),
+        "text-casefold expression starts-with should not compile strict index prefilters",
+    );
+    assert_eq!(
+        diagnostics.get("diag.d.has_residual_predicate_filter"),
+        Some(&"true".to_string()),
+        "text-casefold expression starts-with must retain residual predicate filter enforcement",
+    );
+
+    let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .explain_execution()
+        .expect("expression starts-with execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::IndexRangeScan),
+        "execution route must preserve expression starts-with index-range route selection",
+    );
+}
+
+#[test]
+fn expression_casefold_starts_with_single_char_prefix_keeps_index_range_route() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("A".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("single-char expression starts-with explain should build");
+    let ExplainAccessPath::IndexRange {
+        name, lower, upper, ..
+    } = explain.access()
+    else {
+        panic!("single-char expression starts-with should lower to index-range access");
+    };
+    assert_eq!(name, &PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0].name());
+    assert!(matches!(
+        lower,
+        std::ops::Bound::Included(Value::Text(value)) if value == "a"
+    ));
+    assert!(matches!(upper, std::ops::Bound::Unbounded));
+
+    let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .explain_execution()
+        .expect("single-char expression starts-with execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::IndexRangeScan),
+        "single-char expression starts-with must keep index-range route selection",
+    );
+}
+
+#[test]
+fn explain_execution_text_and_json_surfaces_are_stable() {
+    let id = Ulid::from_u128(9_101);
+    let query = Query::<PlanSimpleEntity>::new(MissingRowPolicy::Ignore).by_id(id);
+    let descriptor = query
+        .explain_execution()
+        .expect("execution descriptor explain should build");
+
+    let text = query
+        .explain_execution_text()
+        .expect("execution text explain should build");
+    assert!(
+        text.contains("ByKeyLookup"),
+        "execution text surface should expose access-root node type"
+    );
+    assert_eq!(
+        text,
+        descriptor.render_text_tree(),
+        "execution text surface should be canonical descriptor text rendering",
+    );
+
+    let json = query
+        .explain_execution_json()
+        .expect("execution json explain should build");
+    assert!(
+        json.contains("\"node_type\":\"ByKeyLookup\""),
+        "execution json surface should expose canonical root node type"
+    );
+    assert_eq!(
+        json,
+        descriptor.render_json_canonical(),
+        "execution json surface should be canonical descriptor json rendering",
+    );
+}
+
+#[test]
+fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
+    let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::In,
+            Value::List(vec![Value::Uint(7), Value::Uint(8), Value::Uint(9)]),
+            CoercionId::Strict,
+        )))
+        .explain()
+        .expect("secondary IN explain should build");
+
+    assert!(
+        matches!(explain.access(), ExplainAccessPath::IndexMultiLookup { .. }),
+        "secondary IN predicates should lower to the dedicated index-multi-lookup access shape",
+    );
+}
+
+#[test]
+fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
+    let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Uint(8),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Uint(7),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Uint(8),
+                CoercionId::Strict,
+            )),
+        ]))
+        .explain()
+        .expect("secondary OR equality explain should build");
+
+    assert!(
+        matches!(explain.access(), ExplainAccessPath::IndexMultiLookup { .. }),
+        "same-field strict OR equality should lower to index-multi-lookup access shape",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_top_n_seek_shape_snapshot_is_stable() {
+    let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("id")
+        .offset(2)
+        .limit(3)
+        .explain_execution_verbose()
+        .expect("top-n verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diag.r.execution_mode=Streaming",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=Some(3)",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=fetch(6)",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=none",
+        "diag.r.projected_fields=[\"id\", \"rank\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=FullScan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=true",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=false",
+        "diag.p.mode=Load(LoadSpec { limit: Some(3), offset: 2 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=none",
+        "diag.p.distinct=false",
+        "diag.p.page=Page { limit: Some(3), offset: 2 }",
+        "diag.p.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "top-n verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason() {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .explain_execution_verbose()
+        .expect("execution verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_eq!(
+        diagnostics.get("diag.r.secondary_order_pushdown"),
+        Some(&"rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))".to_string()),
+        "verbose execution explain should expose explicit route rejection reason",
+    );
+    assert_eq!(
+        diagnostics.get("diag.p.mode"),
+        Some(&"Load(LoadSpec { limit: None, offset: 0 })".to_string()),
+        "verbose execution explain should include logical plan mode diagnostics",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_temporal_ranked_order_shape_parity() {
+    let top_like_verbose = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("occurred_on")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("temporal top-like verbose explain should build");
+    let bottom_like_verbose = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("occurred_on")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("temporal bottom-like verbose explain should build");
+
+    let top_like = verbose_diagnostics_map(&top_like_verbose);
+    let bottom_like = verbose_diagnostics_map(&bottom_like_verbose);
+    let parity_keys = [
+        "diag.r.execution_mode",
+        "diag.r.continuation_applied",
+        "diag.r.limit",
+        "diag.r.fast_path_order",
+        "diag.r.secondary_order_pushdown",
+        "diag.r.top_n_seek",
+        "diag.r.index_range_limit_pushdown",
+        "diag.r.predicate_stage",
+        "diag.r.projected_fields",
+        "diag.r.projection_pushdown",
+        "diag.r.access_choice_chosen",
+        "diag.r.access_choice_chosen_reason",
+        "diag.r.access_choice_alternatives",
+        "diag.r.access_choice_rejections",
+        "diag.d.has_top_n_seek",
+        "diag.d.has_index_range_limit_pushdown",
+        "diag.d.has_index_predicate_prefilter",
+        "diag.d.has_residual_predicate_filter",
+        "diag.p.mode",
+        "diag.p.order_pushdown",
+        "diag.p.predicate_pushdown",
+        "diag.p.distinct",
+        "diag.p.page",
+        "diag.p.consistency",
+    ];
+    for key in parity_keys {
+        assert_eq!(
+            top_like.get(key),
+            bottom_like.get(key),
+            "temporal top-like vs bottom-like ranked query shapes should keep verbose diagnostic parity for key {key}",
+        );
+    }
+}
+
+#[test]
+fn explain_execution_verbose_temporal_ranked_shape_snapshot_is_stable() {
+    let verbose = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("occurred_on")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("temporal ranked verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diag.r.execution_mode=Materialized",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=Some(2)",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=none",
+        "diag.r.projected_fields=[\"id\", \"occurred_on\", \"occurred_at\", \"elapsed\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=FullScan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=false",
+        "diag.p.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=none",
+        "diag.p.distinct=false",
+        "diag.p.page=Page { limit: Some(2), offset: 0 }",
+        "diag.p.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "temporal ranked verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
+    let range_predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Gte,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Lt,
+            Value::Uint(200),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Eq,
+            Value::Text("keep".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(range_predicate)
+        .order_by("code")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("index-range verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_eq!(
+        diagnostics.get("diag.r.index_range_limit_pushdown"),
+        Some(&"fetch(3)".to_string()),
+        "verbose execution explain should freeze index-range pushdown fetch diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get("diag.d.has_index_range_limit_pushdown"),
+        Some(&"true".to_string()),
+        "descriptor diagnostics should report index-range pushdown node presence",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "verbose execution explain should freeze predicate-stage diagnostics",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_rejection_shape_snapshot_is_stable() {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .explain_execution_verbose()
+        .expect("execution verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diag.r.execution_mode=Materialized",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=None",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.secondary_order_pushdown=rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=index_prefilter(strict_all_or_none)",
+        "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=IndexPrefix(group_rank)",
+        "diag.r.access_choice_chosen_reason=single_candidate",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.r.predicate_index_capability=fully_indexable",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=true",
+        "diag.d.has_residual_predicate_filter=false",
+        "diag.p.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=applied(index_prefix)",
+        "diag.p.distinct=false",
+        "diag.p.page=None",
+        "diag.p.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "verbose diagnostics snapshot drifted; output ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
+    let range_predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Gte,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Lt,
+            Value::Uint(200),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Eq,
+            Value::Text("keep".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(range_predicate)
+        .order_by("code")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("index-range verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diag.r.execution_mode=Streaming",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=Some(2)",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.secondary_order_pushdown=eligible(index=code_unique,prefix_len=0)",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=fetch(3)",
+        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.projected_fields=[\"id\", \"code\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=IndexRange(code_unique)",
+        "diag.r.access_choice_chosen_reason=single_candidate",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.r.predicate_index_capability=partially_indexable",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=true",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=true",
+        "diag.p.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=applied(index_range)",
+        "diag.p.distinct=false",
+        "diag.p.page=Page { limit: Some(2), offset: 0 }",
+        "diag.p.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "index-range verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families() {
+    let by_key = Query::<PlanSimpleEntity>::new(MissingRowPolicy::Ignore)
+        .by_id(Ulid::from_u128(9_301))
+        .explain_execution()
+        .expect("by-key execution descriptor should build");
+    let pushdown_rejected = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .explain_execution()
+        .expect("pushdown-rejected descriptor should build");
+    let index_range = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Gte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Lt,
+                Value::Uint(200),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("code")
+        .order_by("id")
+        .limit(2)
+        .explain_execution()
+        .expect("index-range descriptor should build");
+
+    for descriptor in [&by_key, &pushdown_rejected, &index_range] {
+        for deferred in [
+            ExplainExecutionNodeType::ProjectionMaterialized,
+            ExplainExecutionNodeType::ProjectionIndexOnly,
+            ExplainExecutionNodeType::GroupedAggregateHashMaterialized,
+            ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
+        ] {
+            assert!(
+                !explain_execution_contains_node_type(descriptor, deferred),
+                "scalar execution descriptors intentionally defer node family {} in this owner-local surface",
+                deferred.as_str(),
+            );
+        }
+    }
+}
+
+#[test]
+fn explain_execution_verbose_reports_equivalent_empty_contract_reason_paths() {
+    let is_null_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").is_null())
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+    let strict_in_empty_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").in_list(std::iter::empty::<Ulid>()))
+        .explain_execution_verbose()
+        .expect("strict IN [] verbose explain should build");
+
+    let is_null_diagnostics = verbose_diagnostics_map(&is_null_verbose);
+    let strict_in_empty_diagnostics = verbose_diagnostics_map(&strict_in_empty_verbose);
+    assert_eq!(
+        is_null_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "primary-key is-null should surface empty-contract predicate diagnostics",
+    );
+    assert_eq!(
+        strict_in_empty_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "strict IN [] should surface empty-contract predicate diagnostics",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_equivalent_empty_contract_route_stage_parity() {
+    let is_null_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").is_null())
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+    let strict_in_empty_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").in_list(std::iter::empty::<Ulid>()))
+        .explain_execution_verbose()
+        .expect("strict IN [] verbose explain should build");
+
+    let is_null_diagnostics = verbose_diagnostics_map(&is_null_verbose);
+    let strict_in_empty_diagnostics = verbose_diagnostics_map(&strict_in_empty_verbose);
+    assert_eq!(
+        is_null_diagnostics.get("diag.r.predicate_stage"),
+        strict_in_empty_diagnostics.get("diag.r.predicate_stage"),
+        "equivalent empty-contract predicates should keep route predicate-stage diagnostics in parity",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_non_strict_predicate_fallback_reason_path() {
+    let non_strict_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict predicate verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&non_strict_verbose);
+    assert_eq!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "non-strict indexed compare should surface full-scan fallback predicate diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "non-strict indexed compare should execute as residual post-access predicate stage",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_is_null_predicate_pushdown_reason_paths() {
+    let primary_key_is_null_verbose = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("id").is_null())
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+    let secondary_is_null_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").is_null())
+        .explain_execution_verbose()
+        .expect("secondary is-null verbose explain should build");
+
+    let primary_key_diagnostics = verbose_diagnostics_map(&primary_key_is_null_verbose);
+    let secondary_diagnostics = verbose_diagnostics_map(&secondary_is_null_verbose);
+
+    assert_eq!(
+        primary_key_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "impossible primary-key IS NULL should surface empty-contract predicate pushdown diagnostics",
+    );
+    assert_eq!(
+        secondary_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(is_null_full_scan)".to_string()),
+        "non-primary IS NULL should surface full-scan fallback predicate diagnostics",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_non_strict_fallback_shape_snapshot_is_stable() {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict fallback verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diag.r.execution_mode=Materialized",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=None",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=FullScan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=true",
+        "diag.p.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=fallback(non_strict_compare_coercion)",
+        "diag.p.distinct=false",
+        "diag.p.page=None",
+        "diag.p.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "non-strict fallback verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_empty_prefix_starts_with_fallback_reason_path() {
+    let empty_prefix_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("label").text_starts_with(""))
+        .explain_execution_verbose()
+        .expect("empty-prefix starts-with verbose explain should build");
+    let non_empty_prefix_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("label").text_starts_with("label"))
+        .explain_execution_verbose()
+        .expect("non-empty starts-with verbose explain should build");
+
+    let empty_prefix_diagnostics = verbose_diagnostics_map(&empty_prefix_verbose);
+    let non_empty_prefix_diagnostics = verbose_diagnostics_map(&non_empty_prefix_verbose);
+    assert_eq!(
+        empty_prefix_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(starts_with_empty_prefix)".to_string()),
+        "empty-prefix starts-with should surface the explicit empty-prefix fallback reason",
+    );
+    assert_eq!(
+        non_empty_prefix_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(full_scan)".to_string()),
+        "non-empty starts-with over a non-indexed field should remain generic full-scan fallback",
+    );
+    assert_eq!(
+        empty_prefix_diagnostics.get("diag.r.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "empty-prefix starts-with fallback should preserve residual predicate stage diagnostics",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_text_operator_fallback_reason_path() {
+    let text_contains_ci_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("label").text_contains_ci("label"))
+        .explain_execution_verbose()
+        .expect("text-contains-ci verbose explain should build");
+    let ends_with_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::EndsWith,
+            Value::Text("fix".to_string()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("ends-with verbose explain should build");
+
+    let text_contains_ci_diagnostics = verbose_diagnostics_map(&text_contains_ci_verbose);
+    let ends_with_diagnostics = verbose_diagnostics_map(&ends_with_verbose);
+    assert_eq!(
+        text_contains_ci_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "text contains-ci should surface dedicated text-operator full-scan fallback reason",
+    );
+    assert_eq!(
+        ends_with_diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "ends-with compare should surface dedicated text-operator full-scan fallback reason",
+    );
+    assert_eq!(
+        text_contains_ci_diagnostics.get("diag.r.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "text-operator fallback should preserve residual predicate-stage diagnostics",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_equivalent_in_set_route_stage_parity() {
+    let in_permuted_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").in_list([8_u32, 7_u32, 8_u32]))
+        .explain_execution_verbose()
+        .expect("permuted IN verbose explain should build");
+    let in_canonical_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").in_list([7_u32, 8_u32]))
+        .explain_execution_verbose()
+        .expect("canonical IN verbose explain should build");
+
+    let in_permuted_diagnostics = verbose_diagnostics_map(&in_permuted_verbose);
+    let in_canonical_diagnostics = verbose_diagnostics_map(&in_canonical_verbose);
+    assert_eq!(
+        in_permuted_diagnostics.get("diag.r.predicate_stage"),
+        in_canonical_diagnostics.get("diag.r.predicate_stage"),
+        "equivalent canonical IN sets should keep route predicate-stage diagnostics in parity",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_equivalent_between_and_eq_parity() {
+    let equivalent_between_verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Gte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Lte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent-between verbose explain should build");
+    let strict_eq_verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Eq,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("strict-eq verbose explain should build");
+
+    let between_diagnostics = verbose_diagnostics_map(&equivalent_between_verbose);
+    let eq_diagnostics = verbose_diagnostics_map(&strict_eq_verbose);
+    assert_eq!(
+        between_diagnostics.get("diag.p.predicate_pushdown"),
+        eq_diagnostics.get("diag.p.predicate_pushdown"),
+        "equivalent BETWEEN-style bounds and strict equality should report identical pushdown reason labels",
+    );
+    assert_eq!(
+        between_diagnostics.get("diag.r.predicate_stage"),
+        eq_diagnostics.get("diag.r.predicate_stage"),
+        "equivalent BETWEEN-style bounds and strict equality should preserve route predicate-stage parity",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_equivalent_prefix_like_route_stage_parity() {
+    let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text("foo".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("starts-with verbose explain should build");
+    let equivalent_range_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Gte,
+                Value::Text("foo".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Lt,
+                Value::Text("fop".to_string()),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent-range verbose explain should build");
+
+    let starts_with_diagnostics = verbose_diagnostics_map(&starts_with_verbose);
+    let equivalent_range_diagnostics = verbose_diagnostics_map(&equivalent_range_verbose);
+    assert_eq!(
+        starts_with_diagnostics.get("diag.p.predicate_pushdown"),
+        equivalent_range_diagnostics.get("diag.p.predicate_pushdown"),
+        "equivalent prefix-like and bounded-range forms should report identical predicate pushdown reason labels",
+    );
+    assert_eq!(
+        starts_with_diagnostics.get("diag.r.predicate_stage"),
+        equivalent_range_diagnostics.get("diag.r.predicate_stage"),
+        "equivalent prefix-like and bounded-range forms should preserve route predicate-stage parity",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_strict_text_prefix_like_full_scan_fallback_stage() {
+    let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text("foo".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("starts-with verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&starts_with_verbose);
+    assert_eq!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(full_scan)".to_string()),
+        "strict field-key text starts-with must fail closed instead of using raw index-range pushdown",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "strict field-key text starts-with must preserve residual filtering on the full-scan path",
+    );
+    assert_eq!(
+        diagnostics.get("diag.d.has_index_predicate_prefilter"),
+        Some(&"false".to_string()),
+        "strict field-key text starts-with must not emit a strict index prefilter when range pushdown is disabled",
+    );
+    assert_eq!(
+        diagnostics.get("diag.d.has_residual_predicate_filter"),
+        Some(&"true".to_string()),
+        "strict field-key text starts-with must retain residual predicate filtering on the fallback path",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_reports_max_unicode_prefix_like_parity() {
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text(prefix.clone()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("max-unicode starts-with verbose explain should build");
+    let equivalent_lower_bound_verbose =
+        Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Gte,
+                Value::Text(prefix),
+                CoercionId::Strict,
+            )))
+            .order_by("label")
+            .order_by("id")
+            .explain_execution_verbose()
+            .expect("equivalent lower-bound verbose explain should build");
+
+    let starts_with_diagnostics = verbose_diagnostics_map(&starts_with_verbose);
+    let lower_bound_diagnostics = verbose_diagnostics_map(&equivalent_lower_bound_verbose);
+    assert_eq!(
+        starts_with_diagnostics.get("diag.p.predicate_pushdown"),
+        lower_bound_diagnostics.get("diag.p.predicate_pushdown"),
+        "max-unicode prefix-like and equivalent lower-bound forms should report identical predicate pushdown reason labels",
+    );
+    assert_eq!(
+        starts_with_diagnostics.get("diag.r.predicate_stage"),
+        lower_bound_diagnostics.get("diag.r.predicate_stage"),
+        "max-unicode prefix-like and equivalent lower-bound forms should preserve route predicate-stage parity",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_non_strict_ends_with_uses_non_strict_fallback_precedence() {
+    let non_strict_ends_with_verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::EndsWith,
+            Value::Text("fix".to_string()),
+            CoercionId::TextCasefold,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict ends-with verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&non_strict_ends_with_verbose);
+    assert_eq!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "non-strict ends-with should report non-strict compare fallback reason",
+    );
+    assert_ne!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "non-strict ends-with should not be classified as text-operator fallback",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_keeps_collection_contains_on_generic_full_scan_fallback() {
+    let collection_contains_verbose = Query::<PlanPhaseEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "tags",
+            CompareOp::Contains,
+            Value::Uint(7),
+            CoercionId::CollectionElement,
+        )))
+        .explain_execution_verbose()
+        .expect("collection contains verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&collection_contains_verbose);
+    assert_eq!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "collection-element contains should continue to report non-strict compare fallback",
+    );
+    assert_ne!(
+        diagnostics.get("diag.p.predicate_pushdown"),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "collection-element contains should not be classified as text-operator fallback",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_is_null_fallback_shape_snapshot_is_stable() {
+    let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").is_null())
+        .explain_execution_verbose()
+        .expect("is-null fallback verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diag.r.execution_mode=Materialized",
+        "diag.r.continuation_applied=false",
+        "diag.r.limit=None",
+        "diag.r.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diag.r.secondary_order_pushdown=not_applicable",
+        "diag.r.top_n_seek=disabled",
+        "diag.r.index_range_limit_pushdown=disabled",
+        "diag.r.predicate_stage=residual_post_access",
+        "diag.r.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diag.r.projection_pushdown=false",
+        "diag.r.access_choice_chosen=FullScan",
+        "diag.r.access_choice_chosen_reason=non_index_access",
+        "diag.r.access_choice_alternatives=[]",
+        "diag.r.access_choice_rejections=[]",
+        "diag.d.has_top_n_seek=false",
+        "diag.d.has_index_range_limit_pushdown=false",
+        "diag.d.has_index_predicate_prefilter=false",
+        "diag.d.has_residual_predicate_filter=true",
+        "diag.p.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diag.p.order_pushdown=missing_model_context",
+        "diag.p.predicate_pushdown=fallback(is_null_full_scan)",
+        "diag.p.distinct=false",
+        "diag.p.page=None",
+        "diag.p.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "is-null fallback verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
 fn grouped_aggregate_builder_continuation_token_bytes_match_helper_shape() {
     let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")
@@ -1162,10 +2623,12 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
         .filter(FieldRef::new("id").eq(key))
         .build_plan_model()
         .expect("model by_id + id == literal plan should build");
-    let (logical, access, _projection_selection) = model_plan.into_parts();
-    let typed_access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, access)
-        .expect("typed access conversion should succeed");
-    let typed_plan = AccessPlannedQuery::from_parts(logical, typed_access);
+    let AccessPlannedQuery {
+        logical,
+        access,
+        projection_selection: _projection_selection,
+    } = model_plan;
+    let typed_plan = AccessPlannedQuery::from_parts(logical, access);
 
     assert!(
         typed_plan.scalar_plan().predicate.is_none(),
@@ -1274,7 +2737,11 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         .offset(2);
 
     let model_plan = model_intent.build_plan_model().expect("model plan");
-    let (model_logical, model_access, _projection_selection) = model_plan.into_parts();
+    let AccessPlannedQuery {
+        logical: model_logical,
+        access: model_access,
+        projection_selection: _projection_selection,
+    } = model_plan;
     let LogicalPlan::Scalar(ScalarPlan {
         mode,
         predicate: plan_predicate,
@@ -1288,8 +2755,6 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         panic!("typed/model intent parity test expects scalar logical plan");
     };
 
-    let access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, model_access)
-        .expect("convert access plan");
     let model_as_typed = AccessPlannedQuery::from_parts(
         LogicalPlan::Scalar(ScalarPlan {
             mode,
@@ -1300,7 +2765,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
             page,
             consistency,
         }),
-        access,
+        model_access,
     );
 
     let typed_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)

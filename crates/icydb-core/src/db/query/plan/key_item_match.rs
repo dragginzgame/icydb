@@ -144,8 +144,13 @@ mod tests {
             "email",
             CoercionId::TextCasefold,
         ));
-        assert!(!key_item_matches_field_and_coercion(
+        assert!(key_item_matches_field_and_coercion(
             IndexKeyItem::Expression(IndexExpression::Upper("email")),
+            "email",
+            CoercionId::TextCasefold,
+        ));
+        assert!(!key_item_matches_field_and_coercion(
+            IndexKeyItem::Expression(IndexExpression::LowerTrim("email")),
             "email",
             CoercionId::TextCasefold,
         ));
@@ -169,6 +174,18 @@ mod tests {
             CoercionId::TextCasefold,
             true,
         );
+        assert_eq!(
+            unsupported,
+            Some(Value::Text("ALICE@EXAMPLE.COM".to_string()))
+        );
+
+        let unsupported = eq_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::LowerTrim("email")),
+            "email",
+            &Value::Text("ALICE@Example.Com".to_string()),
+            CoercionId::TextCasefold,
+            true,
+        );
         assert_eq!(unsupported, None);
     }
 
@@ -185,6 +202,15 @@ mod tests {
 
         let unsupported = starts_with_lookup_value_for_key_item(
             IndexKeyItem::Expression(IndexExpression::Upper("email")),
+            "email",
+            &Value::Text("ALICE".to_string()),
+            CoercionId::TextCasefold,
+            true,
+        );
+        assert_eq!(unsupported, Some("ALICE".to_string()));
+
+        let unsupported = starts_with_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::LowerTrim("email")),
             "email",
             &Value::Text("ALICE".to_string()),
             CoercionId::TextCasefold,

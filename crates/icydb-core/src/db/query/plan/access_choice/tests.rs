@@ -38,11 +38,22 @@ static ACCESS_CHOICE_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::new_with
     &ACCESS_CHOICE_EXPRESSION_INDEX_KEY_ITEMS,
     false,
 )];
-static ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+static ACCESS_CHOICE_UPPER_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
+static ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::new_with_key_items(
+    "access_choice::email_upper",
+    "access_choice::store",
+    &ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS,
+    &ACCESS_CHOICE_UPPER_EXPRESSION_INDEX_KEY_ITEMS,
+    false,
+)];
+static ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::LowerTrim(
+        "email",
+    ))];
 static ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEXES: [IndexModel; 1] =
     [IndexModel::new_with_key_items(
-        "access_choice::email_upper",
+        "access_choice::email_lower_trim",
         "access_choice::store",
         &ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS,
         &ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEX_KEY_ITEMS,
@@ -112,6 +123,30 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_expression_index() {
 }
 
 #[test]
+fn evaluate_prefix_compare_candidate_accepts_text_casefold_upper_expression_index() {
+    let cmp = crate::db::predicate::ComparePredicate::with_coercion(
+        "email",
+        crate::db::predicate::CompareOp::Eq,
+        Value::Text("ALICE@Example.Com".to_string()),
+        CoercionId::TextCasefold,
+    );
+
+    let evaluation = evaluate_prefix_compare_candidate(
+        &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
+        &schema(),
+        &cmp,
+    );
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 1,
+            exact: true,
+        }),
+    );
+}
+
+#[test]
 fn evaluate_prefix_compare_candidate_rejects_text_casefold_on_raw_field_index() {
     let cmp = crate::db::predicate::ComparePredicate::with_coercion(
         "email",
@@ -166,6 +201,35 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_expression_index() {
 
     let evaluation = evaluate_multi_lookup_candidate(
         &ACCESS_CHOICE_EXPRESSION_INDEXES[0],
+        &schema(),
+        &predicate,
+    );
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 1,
+            exact: true,
+        }),
+    );
+}
+
+#[test]
+fn evaluate_multi_lookup_candidate_accepts_text_casefold_upper_expression_index() {
+    let predicate = crate::db::predicate::Predicate::Compare(
+        crate::db::predicate::ComparePredicate::with_coercion(
+            "email",
+            crate::db::predicate::CompareOp::In,
+            Value::List(vec![
+                Value::Text("ALICE@example.com".to_string()),
+                Value::Text("bob@EXAMPLE.com".to_string()),
+            ]),
+            CoercionId::TextCasefold,
+        ),
+    );
+
+    let evaluation = evaluate_multi_lookup_candidate(
+        &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
         &schema(),
         &predicate,
     );
@@ -284,6 +348,32 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_expression_ind
 
     let evaluation =
         evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 0,
+            exact: true,
+        }),
+    );
+}
+
+#[test]
+fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_upper_expression_index() {
+    let predicate = crate::db::predicate::Predicate::Compare(
+        crate::db::predicate::ComparePredicate::with_coercion(
+            "email",
+            crate::db::predicate::CompareOp::StartsWith,
+            Value::Text("ALICE".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    );
+
+    let evaluation = evaluate_range_candidate(
+        &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
+        &schema(),
+        &predicate,
+    );
 
     assert_eq!(
         evaluation,

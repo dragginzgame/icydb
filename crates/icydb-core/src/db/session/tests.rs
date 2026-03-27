@@ -12,10 +12,10 @@ use crate::{
         registry::StoreRegistry,
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
-    model::field::FieldKind,
+    model::{field::FieldKind, index::IndexModel},
     testing::test_memory,
     traits::Path,
-    types::Ulid,
+    types::{EntityTag, Ulid},
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -29,6 +29,11 @@ crate::test_canister! {
 
 crate::test_store! {
     ident = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_store! {
+    ident = IndexedSessionSqlStore,
     canister = SessionSqlCanister,
 }
 
@@ -47,9 +52,25 @@ thread_local! {
         .expect("SQL session test store registration should succeed");
         reg
     };
+    static INDEXED_SESSION_SQL_DATA_STORE: RefCell<DataStore> =
+        RefCell::new(DataStore::init(test_memory(162)));
+    static INDEXED_SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(163)));
+    static INDEXED_SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(
+            IndexedSessionSqlStore::PATH,
+            &INDEXED_SESSION_SQL_DATA_STORE,
+            &INDEXED_SESSION_SQL_INDEX_STORE,
+        )
+        .expect("indexed SQL session test store registration should succeed");
+        reg
+    };
 }
 
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
+static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
+    Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
 
 ///
 /// SessionSqlEntity
@@ -65,6 +86,30 @@ struct SessionSqlEntity {
     name: String,
     age: u64,
 }
+
+///
+/// IndexedSessionSqlEntity
+///
+/// Indexed SQL session fixture used to lock strict text-prefix execution over a
+/// real secondary `name` index.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct IndexedSessionSqlEntity {
+    id: Ulid,
+    name: String,
+    age: u64,
+}
+
+static INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
+static INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "name",
+    IndexedSessionSqlStore::PATH,
+    &INDEXED_SESSION_SQL_INDEX_FIELDS,
+    false,
+)];
 
 crate::test_entity_schema! {
     ident = SessionSqlEntity,
@@ -83,6 +128,23 @@ crate::test_entity_schema! {
     canister = SessionSqlCanister,
 }
 
+crate::test_entity_schema! {
+    ident = IndexedSessionSqlEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "IndexedSessionSqlEntity",
+    entity_tag = EntityTag::new(0x1033),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+        ("age", FieldKind::Uint),
+    ],
+    indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
 // Reset all session SQL fixture state between tests to preserve deterministic assertions.
 fn reset_session_sql_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -93,6 +155,68 @@ fn reset_session_sql_store() {
 
 fn sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(SESSION_SQL_DB)
+}
+
+fn reset_indexed_session_sql_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    ensure_recovered(&INDEXED_SESSION_SQL_DB).expect("write-side recovery should succeed");
+    INDEXED_SESSION_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
+    INDEXED_SESSION_SQL_INDEX_STORE.with(|store| store.borrow_mut().clear());
+}
+
+fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
+    DbSession::new(INDEXED_SESSION_SQL_DB)
+}
+
+#[test]
+fn fluent_load_explain_execution_surface_adapters_are_available() {
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(Ulid::from_u128(9_201)),
+            CoercionId::Strict,
+        )))
+        .order_by("id");
+    let descriptor = query
+        .explain_execution()
+        .expect("fluent execution descriptor explain should build");
+
+    let text = query
+        .explain_execution_text()
+        .expect("fluent execution text explain should build");
+    assert!(
+        text.contains("ByKeyLookup"),
+        "fluent execution text surface should include root node type",
+    );
+    assert_eq!(
+        text,
+        descriptor.render_text_tree(),
+        "fluent execution text surface should be canonical descriptor text rendering",
+    );
+
+    let json = query
+        .explain_execution_json()
+        .expect("fluent execution json explain should build");
+    assert!(
+        json.contains("\"node_type\":\"ByKeyLookup\""),
+        "fluent execution json surface should include canonical root node type",
+    );
+    assert_eq!(
+        json,
+        descriptor.render_json_canonical(),
+        "fluent execution json surface should be canonical descriptor json rendering",
+    );
+
+    let verbose = query
+        .explain_execution_verbose()
+        .expect("fluent execution verbose explain should build");
+    assert!(
+        verbose.contains("diag.r.secondary_order_pushdown="),
+        "fluent execution verbose surface should include diagnostics",
+    );
 }
 
 fn unsupported_sql_dispatch_query_error(message: &'static str) -> QueryError {
@@ -247,6 +371,22 @@ fn seed_session_sql_entities(
     }
 }
 
+// Seed one deterministic indexed SQL fixture dataset used by text-prefix tests.
+fn seed_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(&'static str, u64)],
+) {
+    for (name, age) in rows {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::generate(),
+                name: (*name).to_string(),
+                age: *age,
+            })
+            .expect("indexed seed insert should succeed");
+    }
+}
+
 // Execute one scalar SQL query and return `(name, age)` tuples in response order.
 fn execute_sql_name_age_rows(
     session: &DbSession<SessionSqlCanister>,
@@ -335,7 +475,7 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
@@ -347,12 +487,16 @@ const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
         ),
         ("SELECT * FROM SessionSqlEntity alias", "table aliases"),
         (
-            "SELECT * FROM SessionSqlEntity WHERE name LIKE 'Al%'",
-            "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+            "SELECT * FROM SessionSqlEntity WHERE name LIKE '%Al'",
+            "LIKE patterns beyond trailing '%' prefix form",
         ),
         (
             "SELECT * FROM SessionSqlEntity WHERE LOWER(name) LIKE '%Al'",
-            "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+            "LIKE patterns beyond trailing '%' prefix form",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE UPPER(name) LIKE '%Al'",
+            "LIKE patterns beyond trailing '%' prefix form",
         ),
     ]
 }
@@ -1293,6 +1437,37 @@ fn query_from_sql_select_grouped_aggregate_projection_lowers_to_grouped_intent()
 }
 
 #[test]
+fn query_from_sql_strict_like_prefix_lowers_to_strict_starts_with_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity WHERE name LIKE 'Al%'")
+        .expect("strict LIKE prefix SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("Al".to_string()),
+        CoercionId::Strict,
+    )));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("strict LIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent strict starts-with plan should build")
+            .into_inner(),
+        "plain LIKE 'prefix%' SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
 fn query_from_sql_lower_like_prefix_lowers_to_casefold_starts_with_intent() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1323,6 +1498,127 @@ fn query_from_sql_lower_like_prefix_lowers_to_casefold_starts_with_intent() {
             .into_inner(),
         "LOWER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
+}
+
+#[test]
+fn query_from_sql_upper_like_prefix_lowers_to_casefold_starts_with_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE UPPER(name) LIKE 'AL%'",
+        )
+        .expect("UPPER(field) LIKE prefix SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("AL".to_string()),
+        CoercionId::TextCasefold,
+    )));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("UPPER(field) LIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "UPPER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn execute_sql_projection_strict_like_prefix_matches_indexed_covering_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one mixed prefix dataset under a real secondary text index.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    // Phase 2: execute the strict indexed LIKE projection and compare with the
+    // casefold fallback shape that already succeeds in the reported repro.
+    let strict_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%'",
+    )
+    .expect("strict indexed LIKE projection should execute");
+    let casefold_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%'",
+    )
+    .expect("casefold LIKE projection should execute");
+
+    let expected_rows = vec![
+        vec![Value::Text("Sonja She-Devil".to_string())],
+        vec![Value::Text("Stamm Bladecaster".to_string())],
+        vec![Value::Text("Syra Child of Nature".to_string())],
+        vec![Value::Text("Sir Edward Lion".to_string())],
+        vec![Value::Text("Sethra Bhoaghail".to_string())],
+    ];
+
+    assert_eq!(
+        strict_rows, expected_rows,
+        "strict indexed LIKE prefix projection must return the matching secondary-index rows",
+    );
+    assert_eq!(
+        strict_rows, casefold_rows,
+        "strict indexed LIKE prefix execution must match the casefold fallback result set for already-uppercase prefixes",
+    );
+}
+
+#[test]
+fn execute_sql_entity_strict_like_prefix_matches_projection_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic uppercase-prefix dataset under the same
+    // secondary text index used by the projection regression.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    // Phase 2: verify entity-row execution agrees with the projection surface
+    // for the repaired strict LIKE prefix path.
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
+    )
+    .expect("strict LIKE prefix projection should execute");
+    let entity_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
+        )
+        .expect("strict LIKE prefix entity query should execute");
+    let entity_projected_names = entity_rows
+        .iter()
+        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
+        .collect::<Vec<_>>();
+
+    assert_eq!(entity_projected_names, projected_rows);
 }
 
 #[test]
