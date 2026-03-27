@@ -85,7 +85,7 @@ fn collection_internal_metadata_impl_tokens(def: &Def, kind: TokenStream) -> Tok
         .set_tokens(quote! {
             pub(crate) const __KIND: ::icydb::model::field::FieldKind = #kind;
             pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                ::icydb::model::field::FieldStorageDecode::ByKind;
+                ::icydb::model::field::FieldStorageDecode::Value;
         })
         .to_token_stream()
 }

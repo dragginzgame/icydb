@@ -292,7 +292,7 @@ impl Value {
     ///
     /// Invariants are validated and entries are normalized:
     /// - keys must be scalar and non-null
-    /// - values must be scalar/ref-like (no collections)
+    /// - values may be scalar or structured
     /// - entries are sorted by canonical key order
     /// - duplicate keys are rejected
     pub fn from_map(entries: Vec<(Self, Self)>) -> Result<Self, MapValueError> {
@@ -302,7 +302,7 @@ impl Value {
 
     /// Validate map entry invariants without changing order.
     pub fn validate_map_entries(entries: &[(Self, Self)]) -> Result<(), MapValueError> {
-        for (index, (key, value)) in entries.iter().enumerate() {
+        for (index, (key, _value)) in entries.iter().enumerate() {
             if matches!(key, Self::Null) {
                 return Err(MapValueError::EmptyKey { index });
             }
@@ -310,13 +310,6 @@ impl Value {
                 return Err(MapValueError::NonScalarKey {
                     index,
                     key: key.clone(),
-                });
-            }
-
-            if !value.is_scalar() {
-                return Err(MapValueError::NonScalarValue {
-                    index,
-                    value: value.clone(),
                 });
             }
         }

@@ -51,9 +51,11 @@ pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::{
     DataStore, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader,
-    SlotWriter, UpdatePatch, decode_persisted_non_null_slot_payload,
+    SlotWriter, UpdatePatch, decode_persisted_custom_many_slot_payload,
+    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
     decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload,
     decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
+    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
     encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
     encode_persisted_slot_payload,
 };

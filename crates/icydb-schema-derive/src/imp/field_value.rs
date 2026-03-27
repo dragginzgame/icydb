@@ -154,14 +154,6 @@ fn structured_collection_field_value_tokens(
     }
 }
 
-fn opaque_structured_field_value_tokens() -> TokenStream {
-    structured_collection_field_value_tokens(
-        quote!(::icydb::traits::FieldValueKind::Structured { queryable: false }),
-        quote!(::icydb::value::Value::Null),
-        quote!(None),
-    )
-}
-
 fn newtype_field_value_tokens(item: &TokenStream) -> TokenStream {
     quote! {
         fn kind() -> ::icydb::traits::FieldValueKind {
@@ -177,6 +169,139 @@ fn newtype_field_value_tokens(item: &TokenStream) -> TokenStream {
             Some(Self(inner))
         }
     }
+}
+
+fn field_to_value_expr(value: &crate::node::Value, access: TokenStream) -> TokenStream {
+    match value.cardinality() {
+        Cardinality::One => quote!(::icydb::traits::FieldValue::to_value(&#access)),
+        Cardinality::Opt => quote! {
+            match #access.as_ref() {
+                Some(inner) => ::icydb::traits::FieldValue::to_value(inner),
+                None => ::icydb::value::Value::Null,
+            }
+        },
+        Cardinality::Many => quote! {
+            ::icydb::value::Value::List(
+                #access
+                    .iter()
+                    .map(::icydb::traits::FieldValue::to_value)
+                    .collect(),
+            )
+        },
+    }
+}
+
+fn field_from_value_expr(value: &crate::node::Value, source: TokenStream) -> TokenStream {
+    match value.cardinality() {
+        Cardinality::One | Cardinality::Opt => {
+            let ty = value.type_expr();
+            quote!(<#ty as ::icydb::traits::FieldValue>::from_value(#source)?)
+        }
+        Cardinality::Many => {
+            let item_ty = value.item.type_expr();
+            quote!(::icydb::traits::field_value_vec_from_value::<#item_ty>(#source)?)
+        }
+    }
+}
+
+fn record_field_value_tokens(node: &Record) -> TokenStream {
+    let to_entries = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let value_expr = field_to_value_expr(&field.value, quote!(self.#ident));
+
+        quote! {
+            (
+                ::icydb::value::Value::Text(#name.to_string()),
+                #value_expr,
+            )
+        }
+    });
+    let from_fields = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let decode_expr = field_from_value_expr(
+            &field.value,
+            quote! {
+                normalized.iter().find_map(|(entry_key, entry_value)| match entry_key {
+                    ::icydb::value::Value::Text(entry_key) if entry_key == #name => Some(entry_value),
+                    _ => None,
+                })?
+            },
+        );
+
+        quote!(#ident: #decode_expr)
+    });
+    let field_count = node.fields.len();
+
+    structured_collection_field_value_tokens(
+        quote!(::icydb::traits::FieldValueKind::Structured { queryable: false }),
+        quote! {
+            {
+                let entries = vec![#(#to_entries),*];
+                match ::icydb::value::Value::from_map(entries) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        debug_assert!(
+                            false,
+                            "generated record FieldValue must emit canonical map entries: {err}",
+                        );
+                        ::icydb::value::Value::Map(Vec::new())
+                    }
+                }
+            }
+        },
+        quote! {
+            {
+                let ::icydb::value::Value::Map(entries) = value else {
+                    return None;
+                };
+                let normalized = ::icydb::value::Value::normalize_map_entries(entries.clone()).ok()?;
+                if normalized.len() != #field_count {
+                    return None;
+                }
+
+                Some(Self {
+                    #(#from_fields),*
+                })
+            }
+        },
+    )
+}
+
+fn tuple_field_value_tokens(node: &Tuple) -> TokenStream {
+    let to_items = node.values.iter().enumerate().map(|(index, value)| {
+        let slot = syn::Index::from(index);
+        field_to_value_expr(value, quote!(self.#slot))
+    });
+    let from_items = node.values.iter().enumerate().map(|(index, value)| {
+        let decode_expr = field_from_value_expr(
+            value,
+            quote! {
+                items.get(#index)?
+            },
+        );
+
+        quote!(#decode_expr)
+    });
+    let item_count = node.values.len();
+
+    structured_collection_field_value_tokens(
+        quote!(::icydb::traits::FieldValueKind::Structured { queryable: false }),
+        quote!(::icydb::value::Value::List(vec![#(#to_items),*])),
+        quote! {
+            {
+                let ::icydb::value::Value::List(items) = value else {
+                    return None;
+                };
+                if items.len() != #item_count {
+                    return None;
+                }
+
+                Some(Self(#(#from_items),*))
+            }
+        },
+    )
 }
 
 ///
@@ -256,7 +381,10 @@ impl Imp<Set> for FieldValueTrait {
 
 impl Imp<Record> for FieldValueTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(opaque_structured_field_value_strategy(node.def()))
+        Some(field_value_strategy(
+            node.def(),
+            record_field_value_tokens(node),
+        ))
     }
 }
 
@@ -266,14 +394,13 @@ impl Imp<Record> for FieldValueTrait {
 
 impl Imp<Tuple> for FieldValueTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        Some(opaque_structured_field_value_strategy(node.def()))
+        Some(field_value_strategy(
+            node.def(),
+            tuple_field_value_tokens(node),
+        ))
     }
 }
 
 fn field_value_strategy(def: &Def, tokens: TokenStream) -> TraitStrategy {
     TraitStrategy::from_impl(field_value_impl_tokens(def, tokens))
-}
-
-fn opaque_structured_field_value_strategy(def: &Def) -> TraitStrategy {
-    field_value_strategy(def, opaque_structured_field_value_tokens())
 }

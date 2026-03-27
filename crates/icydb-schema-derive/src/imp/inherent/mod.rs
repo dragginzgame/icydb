@@ -32,7 +32,7 @@ impl Imp<Enum> for InherentTrait {
                     variants: Self::__VARIANTS,
                 };
             pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                ::icydb::model::field::FieldStorageDecode::ByKind;
+                ::icydb::model::field::FieldStorageDecode::Value;
         };
         let meta_impl = field_type_meta_impl_tokens(
             node.def(),
@@ -112,7 +112,7 @@ impl Imp<Newtype> for InherentTrait {
             quote! {
                 pub(crate) const __KIND: ::icydb::model::field::FieldKind = #kind;
                 pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                    ::icydb::model::field::FieldStorageDecode::ByKind;
+                    ::icydb::model::field::FieldStorageDecode::Value;
             },
         );
         let meta_impl = field_type_meta_impl_tokens(
@@ -140,7 +140,7 @@ impl Imp<Record> for InherentTrait {
                 pub(crate) const __KIND: ::icydb::model::field::FieldKind =
                     ::icydb::model::field::FieldKind::Structured { queryable: false };
                 pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                    ::icydb::model::field::FieldStorageDecode::ByKind;
+                    ::icydb::model::field::FieldStorageDecode::Value;
             },
         );
         let meta_impl = field_type_meta_impl_tokens(
@@ -168,7 +168,7 @@ impl Imp<Tuple> for InherentTrait {
                 pub(crate) const __KIND: ::icydb::model::field::FieldKind =
                     ::icydb::model::field::FieldKind::Structured { queryable: false };
                 pub(crate) const __STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
-                    ::icydb::model::field::FieldStorageDecode::ByKind;
+                    ::icydb::model::field::FieldStorageDecode::Value;
             },
         );
         let meta_impl = field_type_meta_impl_tokens(

@@ -7,6 +7,7 @@ pub mod newtype;
 pub mod relation;
 pub mod sanitize;
 pub mod store;
+pub mod structured_field_value;
 pub mod validate;
 pub mod view_into;
 

@@ -14,7 +14,6 @@ impl Imp<Entity> for PersistedRowTrait {
         let field_materializers = node.fields.iter().enumerate().map(|(slot, field)| {
             let slot = syn::Index::from(slot);
             let ident = &field.ident;
-            let field_ty = field.value.type_expr();
             let field_name = ident.to_string();
 
             let missing_expr = if field.default.is_some() {
@@ -28,7 +27,12 @@ impl Imp<Entity> for PersistedRowTrait {
                     },
                 }
             };
-            let decode_expr = persisted_field_decode_expr(&field_ty, field_name.as_str());
+            let decode_expr = if field.value.item.is.is_some() {
+                persisted_custom_field_decode_expr(field, field_name.as_str())
+            } else {
+                let field_ty = field.value.type_expr();
+                persisted_field_decode_expr(&field_ty, field_name.as_str())
+            };
 
             quote! {
                 #ident: match slots.get_bytes(#slot) {
@@ -42,9 +46,12 @@ impl Imp<Entity> for PersistedRowTrait {
             let slot = syn::Index::from(slot);
             let ident = &field.ident;
             let field_name = ident.to_string();
-            let field_ty = field.value.type_expr();
-            let encode_expr =
-                persisted_field_encode_expr(&field_ty, quote!(&self.#ident), field_name.as_str());
+            let encode_expr = if field.value.item.is.is_some() {
+                persisted_custom_field_encode_expr(field, quote!(&self.#ident), field_name.as_str())
+            } else {
+                let field_ty = field.value.type_expr();
+                persisted_field_encode_expr(&field_ty, quote!(&self.#ident), field_name.as_str())
+            };
 
             quote! {
                 let payload = #encode_expr;
@@ -74,6 +81,50 @@ impl Imp<Entity> for PersistedRowTrait {
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+fn persisted_custom_field_decode_expr(field: &Field, field_name: &str) -> TokenStream {
+    match field.value.cardinality() {
+        Cardinality::One | Cardinality::Opt => {
+            let field_ty = field.value.type_expr();
+            quote!(
+                ::icydb::db::decode_persisted_custom_slot_payload::<#field_ty>(
+                    bytes,
+                    #field_name,
+                )?
+            )
+        }
+        Cardinality::Many => {
+            let item_ty = field.value.item.type_expr();
+            quote!(
+                ::icydb::db::decode_persisted_custom_many_slot_payload::<#item_ty>(
+                    bytes,
+                    #field_name,
+                )?
+            )
+        }
+    }
+}
+
+fn persisted_custom_field_encode_expr(
+    field: &Field,
+    field_expr: TokenStream,
+    field_name: &str,
+) -> TokenStream {
+    match field.value.cardinality() {
+        Cardinality::One | Cardinality::Opt => quote!(
+            ::icydb::db::encode_persisted_custom_slot_payload(
+                #field_expr,
+                #field_name,
+            )?
+        ),
+        Cardinality::Many => quote!(
+            ::icydb::db::encode_persisted_custom_many_slot_payload(
+                #field_expr,
+                #field_name,
+            )?
+        ),
     }
 }
 

@@ -21,7 +21,7 @@ use crate::{
         field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
     },
     serialize::{deserialize, serialize},
-    traits::EntityKind,
+    traits::{EntityKind, FieldValue, field_value_vec_from_value},
     types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::{StorageKey, Value, ValueEnum},
 };
@@ -1225,6 +1225,75 @@ where
     decode_persisted_slot_payload(bytes, field_name).map(Some)
 }
 
+/// Decode one persisted custom-schema payload through `Value` and reconstruct
+/// the typed field via `FieldValue`.
+pub fn decode_persisted_custom_slot_payload<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<T, InternalError>
+where
+    T: FieldValue,
+{
+    let value = decode_persisted_slot_payload::<Value>(bytes, field_name)?;
+
+    T::from_value(&value).ok_or_else(|| {
+        InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!(
+                "value payload does not match {}",
+                std::any::type_name::<T>()
+            ),
+        )
+    })
+}
+
+/// Decode one persisted repeated custom-schema payload through `Value::List`
+/// and reconstruct each item via `FieldValue`.
+pub fn decode_persisted_custom_many_slot_payload<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<Vec<T>, InternalError>
+where
+    T: FieldValue,
+{
+    let value = decode_persisted_slot_payload::<Value>(bytes, field_name)?;
+
+    field_value_vec_from_value::<T>(&value).ok_or_else(|| {
+        InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!(
+                "value payload does not match Vec<{}>",
+                std::any::type_name::<T>()
+            ),
+        )
+    })
+}
+
+/// Encode one custom-schema field payload through its `FieldValue`
+/// representation so structural decode preserves nested custom values.
+pub fn encode_persisted_custom_slot_payload<T>(
+    value: &T,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldValue,
+{
+    let value = value.to_value();
+    encode_persisted_slot_payload(&value, field_name)
+}
+
+/// Encode one repeated custom-schema payload through `Value::List`.
+pub fn encode_persisted_custom_many_slot_payload<T>(
+    values: &[T],
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldValue,
+{
+    let value = Value::List(values.iter().map(FieldValue::to_value).collect());
+    encode_persisted_slot_payload(&value, field_name)
+}
+
 /// Decode one persisted scalar slot payload using the canonical scalar envelope.
 pub fn decode_persisted_scalar_slot_payload<T>(
     bytes: &[u8],
@@ -2226,9 +2295,11 @@ mod tests {
         FieldSlot, ScalarSlotValueRef, ScalarValueRef, SerializedFieldUpdate,
         SerializedPatchWriter, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
         UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
+        decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
         decode_persisted_non_null_slot_payload, decode_persisted_option_slot_payload,
-        decode_slot_value_by_contract, decode_slot_value_from_bytes, encode_scalar_slot_value,
-        encode_slot_payload_from_parts, encode_slot_value_from_value,
+        decode_persisted_slot_payload, decode_slot_value_by_contract, decode_slot_value_from_bytes,
+        encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+        encode_scalar_slot_value, encode_slot_payload_from_parts, encode_slot_value_from_value,
         serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
     };
     use crate::{
@@ -2242,7 +2313,7 @@ mod tests {
             field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
         },
         testing::SIMPLE_ENTITY_TAG,
-        traits::EntitySchema,
+        traits::{EntitySchema, FieldValue},
         types::{Account, Principal, Subaccount},
         value::{Value, ValueEnum},
     };
@@ -2281,6 +2352,42 @@ mod tests {
     #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct PersistedRowProfileValue {
         bio: String,
+    }
+
+    impl FieldValue for PersistedRowProfileValue {
+        fn kind() -> crate::traits::FieldValueKind {
+            crate::traits::FieldValueKind::Structured { queryable: false }
+        }
+
+        fn to_value(&self) -> Value {
+            Value::from_map(vec![(
+                Value::Text("bio".to_string()),
+                Value::Text(self.bio.clone()),
+            )])
+            .expect("profile test value should encode as canonical map")
+        }
+
+        fn from_value(value: &Value) -> Option<Self> {
+            let Value::Map(entries) = value else {
+                return None;
+            };
+            let normalized = Value::normalize_map_entries(entries.clone()).ok()?;
+            let bio = normalized
+                .iter()
+                .find_map(|(entry_key, entry_value)| match entry_key {
+                    Value::Text(entry_key) if entry_key == "bio" => match entry_value {
+                        Value::Text(bio) => Some(bio.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                })?;
+
+            if normalized.len() != 1 {
+                return None;
+            }
+
+            Some(Self { bio })
+        }
     }
 
     crate::test_entity_schema! {
@@ -2539,6 +2646,48 @@ mod tests {
             .expect("decode slot");
 
         assert_eq!(decoded, Value::Account(account));
+    }
+
+    #[test]
+    fn custom_slot_payload_roundtrips_structured_field_value() {
+        let profile = PersistedRowProfileValue {
+            bio: "Ada".to_string(),
+        };
+        let payload = encode_persisted_custom_slot_payload(&profile, "profile")
+            .expect("encode custom structured payload");
+        let decoded = decode_persisted_custom_slot_payload::<PersistedRowProfileValue>(
+            payload.as_slice(),
+            "profile",
+        )
+        .expect("decode custom structured payload");
+
+        assert_eq!(decoded, profile);
+        assert_eq!(
+            decode_persisted_slot_payload::<Value>(payload.as_slice(), "profile")
+                .expect("decode raw value payload"),
+            profile.to_value(),
+        );
+    }
+
+    #[test]
+    fn custom_many_slot_payload_roundtrips_structured_value_lists() {
+        let profiles = vec![
+            PersistedRowProfileValue {
+                bio: "Ada".to_string(),
+            },
+            PersistedRowProfileValue {
+                bio: "Grace".to_string(),
+            },
+        ];
+        let payload = encode_persisted_custom_many_slot_payload(profiles.as_slice(), "profiles")
+            .expect("encode custom structured list payload");
+        let decoded = decode_persisted_custom_many_slot_payload::<PersistedRowProfileValue>(
+            payload.as_slice(),
+            "profiles",
+        )
+        .expect("decode custom structured list payload");
+
+        assert_eq!(decoded, profiles);
     }
 
     #[test]
