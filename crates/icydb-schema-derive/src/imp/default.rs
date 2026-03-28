@@ -186,12 +186,9 @@ mod tests {
 
     fn redundant_default_entity() -> Entity {
         Entity {
-            def: Def::new(
-                syn::parse_quote!(
-                    struct RedundantDefaultEntity;
-                ),
-                None,
-            ),
+            def: Def::new(syn::parse_quote!(
+                struct RedundantDefaultEntity;
+            )),
             store: syn::parse_quote!(UiDataStore),
             primary_key: PrimaryKey {
                 field: format_ident!("id"),
@@ -264,12 +261,9 @@ mod tests {
             ],
         };
         let record = Record {
-            def: Def::new(
-                syn::parse_quote!(
-                    struct RedundantDefaultRecord;
-                ),
-                None,
-            ),
+            def: Def::new(syn::parse_quote!(
+                struct RedundantDefaultRecord;
+            )),
             fields,
             traits: TraitBuilder::default(),
             ty: Type::default(),

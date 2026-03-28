@@ -10,7 +10,7 @@ use icydb::db::sql::SqlQueryResult;
 
 icydb::start!();
 
-/// Execute one reduced SQL statement against the one-simple audit set.
+/// Query.
 #[cfg(feature = "sql")]
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {

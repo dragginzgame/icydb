@@ -9,7 +9,7 @@ use thiserror::Error as ThisError;
 
 ///
 /// Error
-/// Public error type with a stable class + origin taxonomy.
+/// Public error payload.
 ///
 
 #[derive(CandidType, Debug, Deserialize, ThisError)]
@@ -134,7 +134,7 @@ impl From<ResponseError> for Error {
 
 ///
 /// ErrorKind
-/// Public error taxonomy for callers and canister interfaces.
+/// Public error category.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -142,13 +142,13 @@ impl From<ResponseError> for Error {
 pub enum ErrorKind {
     Query(QueryErrorKind),
 
-    /// Runtime failure preserving the core semantic error class.
+    /// Runtime failure.
     Runtime(RuntimeErrorKind),
 }
 
 ///
 /// RuntimeErrorKind
-/// Public runtime class taxonomy mirrored from `icydb-core::ErrorClass`.
+/// Public runtime error class.
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -165,35 +165,36 @@ pub enum RuntimeErrorKind {
 
 ///
 /// QueryErrorKind
+/// Public query error class.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum QueryErrorKind {
-    /// Predicate/model validation failed.
+    /// Validation failed.
     Validate,
 
-    /// Query intent contract was violated before planning.
+    /// Intent validation failed.
     Intent,
 
-    /// Planning rejected the query.
+    /// Planning failed.
     Plan,
 
-    /// Pagination requires ordering but none was provided.
+    /// Pagination lacked ordering.
     UnorderedPagination,
 
-    /// Continuation cursor token was invalid for this query.
+    /// Continuation cursor was invalid.
     InvalidContinuationCursor,
 
-    /// Valid query, but no rows matched.
+    /// No rows matched.
     NotFound,
 
-    /// Query expected one row but matched many.
+    /// More than one row matched.
     NotUnique,
 }
 
 /// ErrorOrigin
-/// Public origin taxonomy for callers and canister interfaces.
+/// Public error origin.
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq)]

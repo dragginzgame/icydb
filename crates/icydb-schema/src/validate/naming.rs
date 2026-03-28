@@ -59,13 +59,13 @@ mod tests {
         index_memory_id: u8,
     ) {
         schema.insert_node(SchemaNode::Canister(Canister::new(
-            Def::new(module_path, canister_ident, None),
+            Def::new(module_path, canister_ident),
             0,
             255,
             254,
         )));
         schema.insert_node(SchemaNode::Store(Store::new(
-            Def::new(module_path, store_ident, None),
+            Def::new(module_path, store_ident),
             store_ident,
             canister_path,
             data_memory_id,
@@ -87,7 +87,7 @@ mod tests {
         entity_name: &'static str,
     ) {
         schema.insert_node(SchemaNode::Entity(Entity::new(
-            Def::new(module_path, entity_ident, None),
+            Def::new(module_path, entity_ident),
             store_path,
             PrimaryKey::new("id", PrimaryKeySource::Internal),
             Some(entity_name),

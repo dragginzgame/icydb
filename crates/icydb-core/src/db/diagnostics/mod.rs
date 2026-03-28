@@ -29,7 +29,7 @@ pub use execution_trace::{
 
 ///
 /// StorageReport
-/// Live storage snapshot report
+/// Live storage snapshot payload.
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
@@ -350,7 +350,7 @@ impl StorageReport {
 
 ///
 /// DataStoreSnapshot
-/// Store-level snapshot metrics.
+/// Data-store snapshot row.
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
@@ -392,7 +392,7 @@ impl DataStoreSnapshot {
 
 ///
 /// IndexStoreSnapshot
-/// Index-store snapshot metrics
+/// Index-store snapshot row.
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
@@ -456,27 +456,21 @@ impl IndexStoreSnapshot {
 
 ///
 /// EntitySnapshot
-/// Per-entity storage breakdown across stores
+/// Per-entity storage snapshot row.
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntitySnapshot {
-    /// Store path (e.g., icydb_schema_tests::schema::TestDataStore)
     pub(crate) store: String,
 
-    /// Entity path (e.g., icydb_schema_tests::canister::db::Index)
     pub(crate) path: String,
 
-    /// Number of rows for this entity in the store
     pub(crate) entries: u64,
 
-    /// Approximate bytes used (key + value)
     pub(crate) memory_bytes: u64,
 
-    /// Minimum primary key for this entity (entity-local ordering)
     pub(crate) min_key: Option<String>,
 
-    /// Maximum primary key for this entity (entity-local ordering)
     pub(crate) max_key: Option<String>,
 }
 

@@ -262,37 +262,37 @@ const fn session_sql_lane(command: &LoweredSqlCommand) -> SqlLaneKind {
 const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) -> &'static str {
     match (surface, lane) {
         (SqlSurface::QueryFrom, SqlLaneKind::Explain) => {
-            "query_from_sql does not accept EXPLAIN statements; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept EXPLAIN; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Describe) => {
-            "query_from_sql does not accept DESCRIBE statements; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept DESCRIBE; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowIndexes) => {
-            "query_from_sql does not accept SHOW INDEXES statements; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept SHOW INDEXES; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowColumns) => {
-            "query_from_sql does not accept SHOW COLUMNS statements; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept SHOW COLUMNS; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
-            "query_from_sql does not accept SHOW ENTITIES statements; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept SHOW ENTITIES; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
-            "query_from_sql requires one executable SELECT or DELETE statement"
+            "query_from_sql only accepts SELECT or DELETE"
         }
         (SqlSurface::Explain, SqlLaneKind::Describe) => {
-            "explain_sql does not accept DESCRIBE statements; use execute_sql_dispatch(...)"
+            "explain_sql does not accept DESCRIBE; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowIndexes) => {
-            "explain_sql does not accept SHOW INDEXES statements; use execute_sql_dispatch(...)"
+            "explain_sql does not accept SHOW INDEXES; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowColumns) => {
-            "explain_sql does not accept SHOW COLUMNS statements; use execute_sql_dispatch(...)"
+            "explain_sql does not accept SHOW COLUMNS; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
-            "explain_sql does not accept SHOW ENTITIES statements; use execute_sql_dispatch(...)"
+            "explain_sql does not accept SHOW ENTITIES; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::Query | SqlLaneKind::Explain) => {
-            "explain_sql requires an EXPLAIN statement"
+            "explain_sql requires EXPLAIN"
         }
     }
 }
@@ -932,7 +932,7 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_lowered_sql_dispatch_select_core(select, authority)
             }
             LoweredSqlQuery::Delete(_) => Err(QueryError::unsupported_query(
-                "generated SQL query dispatch requires one lowered SELECT shape",
+                "generated SQL query dispatch requires lowered SELECT",
             )),
         }
     }

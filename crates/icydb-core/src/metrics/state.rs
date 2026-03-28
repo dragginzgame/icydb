@@ -12,9 +12,11 @@ use canic_cdk::utils::time::now_millis;
 use serde::Deserialize;
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
+///
 /// EventState
-/// Mutable runtime counters and rolling perf state for the current window.
-/// Stored in thread-local memory for update-only instrumentation.
+///
+/// Metrics window state.
+///
 
 #[derive(CandidType, Clone, Debug, Deserialize)]
 pub struct EventState {
@@ -72,11 +74,11 @@ impl Default for EventState {
     }
 }
 
+///
 /// EventOps
-/// Aggregated operation counters for executors, plans, rows, and index maintenance.
-/// Values are monotonic within a metrics window.
-/// Call counters are execution attempts; errors still increment them.
-/// Row counters reflect rows touched after execution, not requested rows.
+///
+/// Operation counters.
+///
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventOps {
     // Executor entrypoints
@@ -234,9 +236,11 @@ impl EventOps {
     }
 }
 
+///
 /// EntityCounters
-/// Per-entity counters mirroring `EventOps` categories.
-/// Used to compute report-level per-entity summaries.
+///
+/// Per-entity counters.
+///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntityCounters {
@@ -352,11 +356,11 @@ impl EntityCounters {
     }
 }
 
+///
 /// EventPerf
-/// Aggregate and max instruction deltas per executor kind.
-/// Captures execution pressure, not wall-clock latency.
-/// Instruction deltas are pressure indicators (validation + planning + execution),
-/// not latency measurements.
+///
+/// Instruction totals and maxima.
+///
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventPerf {
     // Instruction totals per executor (ic_cdk::api::performance_counter(1))
@@ -453,15 +457,15 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
     }
 }
 
+///
 /// EventReport
-/// Event/counter report for runtime metrics query endpoints.
-/// Storage snapshot types live in snapshot/storage modules.
+///
+/// Metrics query payload.
+///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventReport {
-    /// Ephemeral runtime counters since `window_start_ms`.
     counters: Option<EventState>,
-    /// Per-entity ephemeral counters and averages.
     entity_counters: Vec<EntitySummary>,
 }
 
@@ -498,9 +502,11 @@ impl EventReport {
     }
 }
 
+///
 /// EntitySummary
-/// Derived per-entity metrics for report consumers.
-/// Includes absolute counters and simple averages.
+///
+/// Per-entity metrics summary.
+///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntitySummary {

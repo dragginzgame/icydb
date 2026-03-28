@@ -12,7 +12,7 @@ use crate::db::{
 ///
 /// ExecutionAccessPathVariant
 ///
-/// Coarse access path shape used by the load execution trace surface.
+/// Coarse access path shape recorded in execution traces.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +31,7 @@ pub enum ExecutionAccessPathVariant {
 ///
 /// ExecutionOptimization
 ///
-/// Canonical load optimization selected by execution, if any.
+/// Load optimization selected at execution time, if any.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,8 +46,8 @@ pub enum ExecutionOptimization {
 ///
 /// ExecutionTrace
 ///
-/// Structured, opt-in load execution introspection snapshot.
-/// Captures plan-shape and execution decisions without changing semantics.
+/// Structured execution trace snapshot for one load path.
+/// Captures plan shape and counters without affecting behavior.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,8 +69,8 @@ pub struct ExecutionTrace {
 ///
 /// ExecutionMetrics
 ///
-/// Compact execution metrics projection derived from one `ExecutionTrace`.
-/// This surface is intentionally small and stable for pre-EXPLAIN observability.
+/// Compact metrics view derived from one `ExecutionTrace`.
+/// Kept small for lightweight observability surfaces.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

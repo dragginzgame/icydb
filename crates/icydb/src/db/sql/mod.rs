@@ -22,8 +22,7 @@ use crate::{
 ///
 /// SqlProjectionRows
 ///
-/// Render-ready SQL projection row payload.
-/// `columns` and each row vector are positionally aligned.
+/// Render-ready SQL projection rows.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -72,8 +71,7 @@ impl SqlProjectionRows {
 ///
 /// SqlQueryRowsOutput
 ///
-/// Structured SQL projection payload for canister endpoint surfaces.
-/// `columns` and each row vector are positionally aligned.
+/// Structured SQL projection payload.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -107,9 +105,7 @@ impl SqlQueryRowsOutput {
 ///
 /// SqlQueryResult
 ///
-/// Unified SQL endpoint envelope for one executed statement.
-/// Carries projection, explain, describe, index-listing, and entity-listing
-/// payloads behind one canister-friendly return type.
+/// Unified SQL endpoint result.
 ///
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {

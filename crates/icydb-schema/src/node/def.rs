@@ -8,22 +8,13 @@ use crate::prelude::*;
 pub struct Def {
     module_path: &'static str,
     ident: &'static str,
-    comments: Option<&'static str>,
 }
 
 impl Def {
-    /// Build one schema-definition identity triple.
+    /// Build one schema-definition identity pair.
     #[must_use]
-    pub const fn new(
-        module_path: &'static str,
-        ident: &'static str,
-        comments: Option<&'static str>,
-    ) -> Self {
-        Self {
-            module_path,
-            ident,
-            comments,
-        }
+    pub const fn new(module_path: &'static str, ident: &'static str) -> Self {
+        Self { module_path, ident }
     }
 
     /// Borrow definition module path.
@@ -36,12 +27,6 @@ impl Def {
     #[must_use]
     pub const fn ident(&self) -> &'static str {
         self.ident
-    }
-
-    /// Borrow optional definition comments.
-    #[must_use]
-    pub const fn comments(&self) -> Option<&'static str> {
-        self.comments
     }
 
     // path

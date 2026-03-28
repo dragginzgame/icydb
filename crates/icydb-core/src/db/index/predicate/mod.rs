@@ -16,17 +16,15 @@ use crate::{
 };
 use std::{
     cell::Cell,
-    collections::HashMap,
     sync::{Mutex, OnceLock},
 };
 
 pub(crate) use compile::{IndexCompilePolicy, compile_index_program};
 
 type CachedIndexPredicateResult = Result<&'static Predicate, SqlParseError>;
+type CachedIndexPredicateEntries = Vec<(&'static str, CachedIndexPredicateResult)>;
 
-static INDEX_PREDICATE_SQL_CACHE: OnceLock<
-    Mutex<HashMap<&'static str, CachedIndexPredicateResult>>,
-> = OnceLock::new();
+static INDEX_PREDICATE_SQL_CACHE: OnceLock<Mutex<CachedIndexPredicateEntries>> = OnceLock::new();
 
 /// Resolve one index predicate through the canonical parse/cache boundary.
 ///
@@ -46,13 +44,18 @@ pub(in crate::db) fn canonical_index_predicate(
 fn cached_index_predicate_from_sql(
     predicate_sql: &'static str,
 ) -> Result<&'static Predicate, SqlParseError> {
-    let cache = INDEX_PREDICATE_SQL_CACHE
-        .get_or_init(|| Mutex::new(HashMap::<&'static str, CachedIndexPredicateResult>::new()));
+    let cache =
+        INDEX_PREDICATE_SQL_CACHE.get_or_init(|| Mutex::new(CachedIndexPredicateEntries::new()));
+
+    // Generated schema index predicates are a small fixed set, so a linear
+    // scan keeps the memoization boundary deterministic without retaining
+    // general-purpose `HashMap` machinery in the query runtime.
     if let Some(cached) = cache
         .lock()
         .expect("index predicate cache mutex poisoned")
-        .get(predicate_sql)
-        .cloned()
+        .iter()
+        .find(|(cached_sql, _)| *cached_sql == predicate_sql)
+        .map(|(_, cached)| cached.clone())
     {
         return cached;
     }
@@ -61,10 +64,18 @@ fn cached_index_predicate_from_sql(
         let predicate: &'static Predicate = Box::leak(Box::new(predicate));
         predicate
     });
-    let mut guard = cache.lock().expect("index predicate cache mutex poisoned");
-    let cached = guard.entry(predicate_sql).or_insert_with(|| parsed.clone());
 
-    cached.clone()
+    let mut guard = cache.lock().expect("index predicate cache mutex poisoned");
+    if let Some((_, cached)) = guard
+        .iter()
+        .find(|(cached_sql, _)| *cached_sql == predicate_sql)
+    {
+        return cached.clone();
+    }
+
+    guard.push((predicate_sql, parsed.clone()));
+
+    parsed
 }
 
 ///

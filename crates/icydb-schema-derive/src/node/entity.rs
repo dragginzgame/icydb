@@ -479,12 +479,9 @@ mod tests {
 
     fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> Entity {
         Entity {
-            def: Def::new(
-                syn::parse_quote!(
-                    struct TestEntity;
-                ),
-                None,
-            ),
+            def: Def::new(syn::parse_quote!(
+                struct TestEntity;
+            )),
             store: syn::parse_quote!(UiDataStore),
             primary_key: PrimaryKey {
                 field: format_ident!("id"),

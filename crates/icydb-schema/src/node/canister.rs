@@ -138,7 +138,7 @@ mod tests {
     use super::*;
 
     fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
-        let canister = Canister::new(Def::new(path_module, ident, None), 0, 255, 254);
+        let canister = Canister::new(Def::new(path_module, ident), 0, 255, 254);
         schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
         canister
@@ -152,7 +152,7 @@ mod tests {
         index_memory_id: u8,
     ) {
         schema_write().insert_node(SchemaNode::Store(Store::new(
-            Def::new(path_module, ident, None),
+            Def::new(path_module, ident),
             ident,
             canister_path,
             data_memory_id,
@@ -192,12 +192,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_reserved_commit_memory_id() {
-        let canister = Canister::new(
-            Def::new("schema_reserved_commit", "Canister", None),
-            0,
-            255,
-            255,
-        );
+        let canister = Canister::new(Def::new("schema_reserved_commit", "Canister"), 0, 255, 255);
         schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
         let err = canister

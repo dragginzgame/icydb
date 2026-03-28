@@ -297,8 +297,6 @@ impl ComparePredicate {
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum UnsupportedQueryFeature {
-    #[error(
-        "map field '{field}' is not queryable; map predicates are disabled. model queryable attributes as scalar/indexed fields or list entries"
-    )]
+    #[error("map field '{field}' is not queryable; use scalar/indexed fields or list entries")]
     MapPredicate { field: String },
 }

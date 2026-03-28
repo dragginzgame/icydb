@@ -7,7 +7,7 @@ use crate::{
     db::{data::DataStore, index::IndexStore},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
-use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
+use std::{cell::RefCell, thread::LocalKey};
 use thiserror::Error as ThisError;
 
 ///
@@ -107,7 +107,7 @@ impl StoreHandle {
 
 #[derive(Default)]
 pub struct StoreRegistry {
-    stores: HashMap<&'static str, StoreHandle>,
+    stores: Vec<(&'static str, StoreHandle)>,
 }
 
 impl StoreRegistry {
@@ -119,11 +119,11 @@ impl StoreRegistry {
 
     /// Iterate registered stores.
     ///
-    /// Iteration order is intentionally unspecified because the registry uses a
-    /// `HashMap`. Semantic result ordering must never depend on this iteration
-    /// order; callers that need deterministic ordering must sort by store path.
+    /// Iteration order follows registration order. Semantic result ordering
+    /// must still not depend on this iteration order; callers that need
+    /// deterministic ordering must sort by store path.
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, StoreHandle)> {
-        self.stores.iter().map(|(k, v)| (*k, *v))
+        self.stores.iter().copied()
     }
 
     /// Register a `Store` path to its row/index store pair.
@@ -133,7 +133,11 @@ impl StoreRegistry {
         data: &'static LocalKey<RefCell<DataStore>>,
         index: &'static LocalKey<RefCell<IndexStore>>,
     ) -> Result<(), InternalError> {
-        if self.stores.contains_key(name) {
+        if self
+            .stores
+            .iter()
+            .any(|(existing_name, _)| *existing_name == name)
+        {
             return Err(StoreRegistryError::StoreAlreadyRegistered(name.to_string()).into());
         }
 
@@ -154,7 +158,7 @@ impl StoreRegistry {
             .into());
         }
 
-        self.stores.insert(name, StoreHandle::new(data, index));
+        self.stores.push((name, StoreHandle::new(data, index)));
 
         Ok(())
     }
@@ -162,8 +166,8 @@ impl StoreRegistry {
     /// Look up a store handle by path.
     pub fn try_get_store(&self, path: &str) -> Result<StoreHandle, InternalError> {
         self.stores
-            .get(path)
-            .copied()
+            .iter()
+            .find_map(|(existing_path, handle)| (*existing_path == path).then_some(*handle))
             .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
     }
 }

@@ -8,9 +8,8 @@ mod validate;
 
 use crate::node::{Def, ValidateNode};
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
-use proc_macro2::Span;
 use quote::quote;
-use syn::{Attribute, ItemStruct, LitStr, Visibility, parse_macro_input};
+use syn::{ItemStruct, Visibility, parse_macro_input};
 
 ///
 /// Prelude
@@ -23,9 +22,7 @@ use syn::{Attribute, ItemStruct, LitStr, Visibility, parse_macro_input};
 mod prelude {
     pub use crate::{
         r#gen::{Imp, Implementor},
-        helper::{
-            as_tokens, quote_one, quote_option, quote_slice, split_idents, to_path, to_str_lit,
-        },
+        helper::{quote_one, quote_option, quote_slice, split_idents, to_path, to_str_lit},
         node::*,
         trait_kind::{TraitBuilder, TraitKind},
         types::TraitStrategy,
@@ -62,7 +59,6 @@ macro_rules! macro_node {
             match NestedMeta::parse_meta_list(args.into()) {
                 Ok(args) => {
                     let item = parse_macro_input!(input as ItemStruct);
-                    let comments = extract_comments(&item.attrs);
 
                     // validate
                     if !matches!(item.vis, Visibility::Public(_)) {
@@ -77,7 +73,7 @@ macro_rules! macro_node {
                         Ok(node) => node,
                         Err(err) => return proc_macro::TokenStream::from(err.write_errors()),
                     };
-                    node.def = Def::new(item, comments);
+                    node.def = Def::new(item);
                     if let Err(err) = node.validate() {
                         return proc_macro::TokenStream::from(err.write_errors());
                     }
@@ -122,43 +118,3 @@ macro_node!(set, node::Set, r#gen::SetGen);
 macro_node!(store, node::Store, r#gen::StoreGen);
 macro_node!(tuple, node::Tuple, r#gen::TupleGen);
 macro_node!(validator, node::Validator, r#gen::ValidatorGen);
-
-///
-/// Helper Functions
-///
-
-/// Extracts and joins `///` doc comments from a list of attributes into a single `LitStr`.
-///
-/// Strips leading spaces from each doc line, trims surrounding newlines,
-/// and returns `None` if no doc comments are found.
-fn extract_comments(attrs: &[Attribute]) -> Option<LitStr> {
-    let lines: Vec<String> = attrs
-        .iter()
-        .filter_map(|attr| match &attr.meta {
-            syn::Meta::NameValue(meta) if meta.path.is_ident("doc") => {
-                if let syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Str(lit_str),
-                    ..
-                }) = &meta.value
-                {
-                    let value = lit_str.value();
-                    Some(value.strip_prefix(' ').unwrap_or(&value).to_string())
-                } else {
-                    None
-                }
-            }
-            _ => {
-                // NOTE: Only doc attributes contribute to extracted comments.
-                None
-            }
-        })
-        .collect();
-
-    let cleaned = lines.join("\n").trim_matches('\n').to_string();
-
-    if cleaned.is_empty() {
-        None
-    } else {
-        Some(LitStr::new(&cleaned, Span::call_site()))
-    }
-}

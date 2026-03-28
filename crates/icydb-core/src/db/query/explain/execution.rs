@@ -15,9 +15,8 @@ use std::fmt::{self, Debug};
 ///
 /// ExplainPropertyMap
 ///
-/// Stable ordered property map for EXPLAIN descriptor metadata.
-/// Keeps deterministic key order without retaining `BTreeMap` machinery on the
-/// query/export path.
+/// Stable ordered property map for EXPLAIN metadata.
+/// Keeps deterministic key order without `BTreeMap`.
 ///
 
 #[derive(Clone, Default, Eq, PartialEq)]
@@ -88,8 +87,7 @@ impl Debug for ExplainPropertyMap {
 ///
 /// ExplainAggregateTerminalRoute
 ///
-/// Executor-projected scalar aggregate terminal route label for explain output.
-/// Keeps seek-edge fast-path labels explicit without exposing route internals.
+/// Scalar aggregate route label used by EXPLAIN output.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -102,8 +100,7 @@ pub enum ExplainAggregateTerminalRoute {
 ///
 /// ExplainAggregateTerminalPlan
 ///
-/// Combined explain payload for one scalar aggregate terminal request.
-/// Includes logical explain projection plus executor route label.
+/// Combined EXPLAIN payload for one scalar aggregate request.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,8 +114,7 @@ pub struct ExplainAggregateTerminalPlan {
 ///
 /// ExplainExecutionOrderingSource
 ///
-/// Stable ordering-origin projection used by terminal execution explain output.
-/// This keeps index-seek labels and materialized fallback labels explicit.
+/// Ordering-origin label used by execution EXPLAIN output.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,7 +128,7 @@ pub enum ExplainExecutionOrderingSource {
 ///
 /// ExplainExecutionMode
 ///
-/// Stable execution-mode projection used by execution explain descriptors.
+/// Execution mode used by EXPLAIN descriptors.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -144,9 +140,8 @@ pub enum ExplainExecutionMode {
 ///
 /// ExplainExecutionDescriptor
 ///
-/// Stable scalar execution descriptor consumed by terminal EXPLAIN surfaces.
-/// This keeps execution authority projection centralized and avoids ad-hoc
-/// terminal-specific explain branching at call sites.
+/// Scalar execution descriptor consumed by terminal EXPLAIN surfaces.
+/// Keeps execution projection centralized for renderers.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -164,7 +159,7 @@ pub struct ExplainExecutionDescriptor {
 ///
 /// ExplainExecutionNodeType
 ///
-/// Stable execution-node vocabulary for EXPLAIN descriptor projection.
+/// Execution-node vocabulary for EXPLAIN descriptors.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -207,8 +202,8 @@ pub enum ExplainExecutionNodeType {
 ///
 /// ExplainExecutionNodeDescriptor
 ///
-/// Canonical execution-node descriptor used by EXPLAIN text/verbose/json
-/// renderers. Optional fields are node-family specific and are additive.
+/// Canonical execution-node descriptor for EXPLAIN renderers.
+/// Optional fields are node-family specific.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

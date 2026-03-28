@@ -48,11 +48,6 @@ where
 /// Transform helpers
 /// ----------------------
 
-/// Pass through a tokenizable value unchanged (useful for comments).
-pub fn as_tokens<T: ToTokens>(t: &T) -> TokenStream {
-    quote!(#t)
-}
-
 /// Convert a tokenizable value into a string literal token.
 pub fn to_str_lit<T: ToTokens>(t: &T) -> TokenStream {
     let s = quote!(#t).to_string();

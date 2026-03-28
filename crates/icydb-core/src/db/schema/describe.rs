@@ -14,8 +14,7 @@ use std::fmt::Write;
 ///
 /// EntitySchemaDescription
 ///
-/// Stable schema-introspection payload for one runtime entity model.
-/// This mirrors SQL-style `DESCRIBE` intent for fields, indexes, and relations.
+/// Stable describe payload for one entity model.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -89,8 +88,7 @@ impl EntitySchemaDescription {
 ///
 /// EntityFieldDescription
 ///
-/// One field-level projection inside `EntitySchemaDescription`.
-/// Keeps field type and queryability metadata explicit for diagnostics.
+/// One field entry in a describe payload.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -141,8 +139,7 @@ impl EntityFieldDescription {
 ///
 /// EntityIndexDescription
 ///
-/// One secondary-index projection inside `EntitySchemaDescription`.
-/// Includes uniqueness and ordered field list.
+/// One index entry in a describe payload.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -185,8 +182,7 @@ impl EntityIndexDescription {
 ///
 /// EntityRelationDescription
 ///
-/// One relation-field projection inside `EntitySchemaDescription`.
-/// Captures relation target identity plus strength/cardinality metadata.
+/// One relation entry in a describe payload.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -260,7 +256,7 @@ impl EntityRelationDescription {
 ///
 /// EntityRelationStrength
 ///
-/// Describe-surface relation strength projection.
+/// Describe relation strength.
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -272,7 +268,7 @@ pub enum EntityRelationStrength {
 ///
 /// EntityRelationCardinality
 ///
-/// Describe-surface relation cardinality projection.
+/// Describe relation cardinality.
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]

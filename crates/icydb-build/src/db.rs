@@ -126,8 +126,6 @@ fn store_wiring_tokens(
             );
         });
 
-        /// Global accessor (fat handle) for this canister’s DB.
-        /// This is the **only** API applications should use.
         #[must_use]
         pub const fn db() -> ::icydb::db::DbSession<#canister_path> {
             ::icydb::db::DbSession::new(
@@ -181,12 +179,6 @@ fn sql_dispatch_module_tokens(descriptor_entries: TokenStream) -> TokenStream {
 
     quote! {
         #[cfg(feature = "sql")]
-        ///
-        /// SQL Runtime Dispatch
-        ///
-        /// Auto-generated helpers that map runtime SQL entity identifiers
-        /// to concrete entity types for this canister.
-        ///
         pub mod sql_dispatch {
             #imports
 
@@ -212,13 +204,11 @@ fn sql_dispatch_import_tokens() -> TokenStream {
 
 fn sql_dispatch_query_surface_tokens() -> TokenStream {
     quote! {
-        /// Return one list of all supported SQL entity names.
         #[must_use]
         pub fn entities() -> Vec<String> {
             ::icydb::db::sql::generated_sql_entities(SQL_ENTITY_AUTHORITIES)
         }
 
-        /// Execute one reduced SQL query-side statement and return one typed SQL surface payload.
         pub fn query(sql: &str) -> Result<SqlQueryResult, Error> {
             ::icydb::db::sql::execute_generated_sql_query_dispatch(&db(), sql, SQL_ENTITY_AUTHORITIES)
         }

@@ -305,7 +305,7 @@ impl<'a> Lexer<'a> {
             byte if is_identifier_start(byte) => self.lex_identifier_or_keyword(),
             other => {
                 return Err(SqlParseError::invalid_syntax(format!(
-                    "unexpected character '{}'; reduced SQL only supports unquoted identifiers, string literals, numbers, and simple operators",
+                    "unexpected character '{}'; reduced SQL supports bare identifiers, strings, numbers, and simple operators",
                     other as char
                 )));
             }
