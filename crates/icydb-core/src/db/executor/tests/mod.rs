@@ -4,8 +4,11 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 mod aggregate_core;
+mod aggregate_numeric;
+mod aggregate_optimizations;
 mod aggregate_path;
 mod aggregate_projection;
+mod aggregate_tail;
 mod continuation_structure;
 mod cursor_validation;
 mod lifecycle;

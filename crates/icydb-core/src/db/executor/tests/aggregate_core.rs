@@ -2,10 +2,11 @@ use super::*;
 use crate::{
     db::{
         access::AccessPath,
+        data::DataKey,
         executor::{
             ExecutablePlan,
             aggregate::{
-                AggregateKind, ScalarTerminalBoundaryRequest,
+                AggregateKind, ScalarNumericFieldBoundaryRequest, ScalarTerminalBoundaryRequest,
                 field::{
                     AggregateFieldValueError, resolve_orderable_aggregate_target_slot_with_model,
                 },
@@ -33,6 +34,35 @@ use std::cell::RefCell;
 
 type AggregateId<E> = crate::types::Id<E>;
 type AggregateIdPair<E> = Option<(AggregateId<E>, AggregateId<E>)>;
+
+const SECONDARY_SINGLE_STEP_STRICT_ROWS: [(u128, u32, u32); 5] = [
+    (8_831, 7, 10),
+    (8_832, 7, 20),
+    (8_833, 7, 30),
+    (8_834, 7, 40),
+    (8_835, 8, 50),
+];
+const SECONDARY_SINGLE_STEP_MISSING_OK_ROWS: [(u128, u32, u32); 5] = [
+    (8_841, 7, 10),
+    (8_842, 7, 20),
+    (8_843, 7, 30),
+    (8_844, 7, 40),
+    (8_845, 8, 50),
+];
+const SECONDARY_STALE_ID_ROWS: [(u128, u32, u32); 5] = [
+    (8_851, 7, 10),
+    (8_852, 7, 20),
+    (8_853, 7, 30),
+    (8_854, 7, 40),
+    (8_855, 8, 50),
+];
+const SECONDARY_STALE_FIELD_ROWS: [(u128, u32, u32); 5] = [
+    (8_261, 7, 10),
+    (8_262, 7, 20),
+    (8_263, 7, 30),
+    (8_264, 7, 40),
+    (8_265, 8, 50),
+];
 
 ///
 /// AggregateCaptureSink
@@ -83,6 +113,19 @@ fn capture_rows_scanned_for_entity<R>(
     (output, rows_scanned)
 }
 
+fn expected_nth_by_rank_id(
+    response: &crate::db::response::EntityResponse<PushdownParityEntity>,
+    nth: usize,
+) -> Option<crate::types::Id<PushdownParityEntity>> {
+    let mut rows: Vec<_> = response
+        .iter()
+        .map(|row| (row.entity_ref().rank, row.id()))
+        .collect();
+    rows.sort_unstable_by_key(|(rank, id)| (*rank, id.key()));
+
+    rows.get(nth).map(|(_, id)| *id)
+}
+
 fn seed_pushdown_entities(rows: &[(u128, u32, u32)]) {
     reset_store();
     let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
@@ -95,6 +138,28 @@ fn seed_pushdown_entities(rows: &[(u128, u32, u32)]) {
             label: format!("group-{group}-rank-{rank}"),
         })
         .expect("aggregate pushdown seed save should succeed");
+    }
+}
+
+fn remove_pushdown_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
+        .expect("pushdown data key should build")
+        .to_raw()
+        .expect("pushdown data key should encode");
+
+    DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected pushdown row to exist before data-only removal",
+        );
+    });
+}
+
+fn seed_stale_secondary_rows(rows: &[(u128, u32, u32)], stale_ids: &[u128]) {
+    seed_pushdown_entities(rows);
+    for stale_id in stale_ids {
+        remove_pushdown_row_data(*stale_id);
     }
 }
 
@@ -126,6 +191,36 @@ fn seed_phase_entities(rows: &[(u128, u32)]) {
     }
 }
 
+fn seed_indexed_metrics_rows(rows: &[(u128, u32, &str)]) {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
+    for (id, tag, label) in rows {
+        save.insert(IndexedMetricsEntity {
+            id: Ulid::from_u128(*id),
+            tag: *tag,
+            label: (*label).to_string(),
+        })
+        .expect("seed indexed-metrics row save should succeed");
+    }
+}
+
+fn remove_indexed_metrics_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<IndexedMetricsEntity>(Ulid::from_u128(id))
+        .expect("indexed-metrics data key should build")
+        .to_raw()
+        .expect("indexed-metrics data key should encode");
+
+    DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected indexed-metrics row to exist before data-only removal",
+        );
+    });
+}
+
 fn planned_slot<E>(field: &str) -> PlannedFieldSlot
 where
     E: EntityKind,
@@ -143,6 +238,20 @@ fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
         field,
         CompareOp::Eq,
         Value::Uint(u64::from(value)),
+        CoercionId::Strict,
+    ))
+}
+
+fn id_in_predicate(ids: &[u128]) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::In,
+        Value::List(
+            ids.iter()
+                .copied()
+                .map(|id| Value::Ulid(Ulid::from_u128(id)))
+                .collect(),
+        ),
         CoercionId::Strict,
     ))
 }
@@ -208,6 +317,259 @@ fn secondary_group_rank_order_plan(
     ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
 }
 
+fn indexed_metrics_tag_index_range_plan(
+    consistency: MissingRowPolicy,
+) -> ExecutablePlan<IndexedMetricsEntity> {
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            vec![],
+            std::ops::Bound::Included(Value::Uint(0)),
+            std::ops::Bound::Excluded(Value::Uint(1_000)),
+        ),
+        consistency,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    ExecutablePlan::<IndexedMetricsEntity>::new(logical_plan)
+}
+
+fn assert_secondary_id_extrema_single_step(
+    rows: &[(u128, u32, u32)],
+    consistency: MissingRowPolicy,
+    expected_min: u128,
+    expected_max: u128,
+    label: &str,
+) {
+    seed_pushdown_entities(rows);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let (min_asc, scanned_min_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_min_terminal(
+                &load,
+                secondary_group_rank_order_plan(consistency, OrderDirection::Asc, 2),
+            )
+            .expect("secondary single-step MIN ASC should succeed")
+        });
+    let (max_desc, scanned_max_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_max_terminal(
+                &load,
+                secondary_group_rank_order_plan(consistency, OrderDirection::Desc, 2),
+            )
+            .expect("secondary single-step MAX DESC should succeed")
+        });
+
+    assert_eq!(
+        min_asc.map(|id| id.key()),
+        Some(Ulid::from_u128(expected_min))
+    );
+    assert_eq!(
+        max_desc.map(|id| id.key()),
+        Some(Ulid::from_u128(expected_max))
+    );
+    assert_eq!(
+        scanned_min_asc, 4,
+        "{label} MIN ASC should scan the full secondary group window under the current contract",
+    );
+    assert_eq!(
+        scanned_max_desc, 4,
+        "{label} MAX DESC should scan the full secondary group window under the current contract",
+    );
+}
+
+fn assert_secondary_id_extrema_missing_ok_stale_fallback(
+    rows: &[(u128, u32, u32)],
+    stale_ids: &[u128],
+) {
+    seed_stale_secondary_rows(rows, stale_ids);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let expected_min_asc = load
+        .execute(secondary_group_rank_order_plan(
+            MissingRowPolicy::Ignore,
+            OrderDirection::Asc,
+            0,
+        ))
+        .expect("stale-leading MIN ASC baseline execute should succeed")
+        .ids()
+        .next();
+    let expected_max_desc = load
+        .execute(secondary_group_rank_order_plan(
+            MissingRowPolicy::Ignore,
+            OrderDirection::Desc,
+            0,
+        ))
+        .expect("stale-leading MAX DESC baseline execute should succeed")
+        .ids()
+        .next();
+    let (min_asc, scanned_min_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_min_terminal(
+                &load,
+                secondary_group_rank_order_plan(MissingRowPolicy::Ignore, OrderDirection::Asc, 0),
+            )
+            .expect("stale-leading secondary MIN ASC should succeed")
+        });
+    let (max_desc, scanned_max_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_max_terminal(
+                &load,
+                secondary_group_rank_order_plan(MissingRowPolicy::Ignore, OrderDirection::Desc, 0),
+            )
+            .expect("stale-leading secondary MAX DESC should succeed")
+        });
+
+    assert_eq!(
+        min_asc, expected_min_asc,
+        "stale-leading MIN ASC should preserve materialized parity",
+    );
+    assert_eq!(
+        max_desc, expected_max_desc,
+        "stale-leading MAX DESC should preserve materialized parity",
+    );
+    assert!(
+        scanned_min_asc >= 2,
+        "stale-leading MIN ASC should scan past bounded probe and retry unbounded",
+    );
+    assert!(
+        scanned_max_desc >= 2,
+        "stale-leading MAX DESC should scan past bounded probe and retry unbounded",
+    );
+}
+
+fn assert_secondary_id_extrema_strict_stale_corruption(
+    rows: &[(u128, u32, u32)],
+    stale_ids: &[u128],
+) {
+    seed_stale_secondary_rows(rows, stale_ids);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let min_err = execute_min_terminal(
+        &load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Asc, 0),
+    )
+    .expect_err("strict secondary MIN should fail when leading key is stale");
+    let max_err = execute_max_terminal(
+        &load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Desc, 0),
+    )
+    .expect_err("strict secondary MAX should fail when leading key is stale");
+
+    assert_eq!(
+        min_err.class,
+        ErrorClass::Corruption,
+        "strict secondary MIN stale-leading key should classify as corruption",
+    );
+    assert_eq!(
+        max_err.class,
+        ErrorClass::Corruption,
+        "strict secondary MAX stale-leading key should classify as corruption",
+    );
+}
+
+fn assert_secondary_field_extrema_missing_ok_stale_fallback(
+    rows: &[(u128, u32, u32)],
+    stale_ids: &[u128],
+    target_field: &str,
+) {
+    seed_stale_secondary_rows(rows, stale_ids);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let expected_min_by = load
+        .execute(secondary_group_rank_order_plan(
+            MissingRowPolicy::Ignore,
+            OrderDirection::Asc,
+            0,
+        ))
+        .expect("missing-ok field MIN baseline execute should succeed")
+        .ids()
+        .next();
+    let expected_max_by = load
+        .execute(secondary_group_rank_order_plan(
+            MissingRowPolicy::Ignore,
+            OrderDirection::Desc,
+            0,
+        ))
+        .expect("missing-ok field MAX baseline execute should succeed")
+        .ids()
+        .next();
+    let (min_by, scanned_min_by) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_min_by_slot_terminal(
+                &load,
+                secondary_group_rank_order_plan(MissingRowPolicy::Ignore, OrderDirection::Asc, 0),
+                planned_slot::<PushdownParityEntity>(target_field),
+            )
+            .expect("missing-ok field MIN should succeed")
+        });
+    let (max_by, scanned_max_by) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_max_by_slot_terminal(
+                &load,
+                secondary_group_rank_order_plan(MissingRowPolicy::Ignore, OrderDirection::Desc, 0),
+                planned_slot::<PushdownParityEntity>(target_field),
+            )
+            .expect("missing-ok field MAX should succeed")
+        });
+
+    assert_eq!(
+        min_by, expected_min_by,
+        "missing-ok field MIN should preserve materialized parity under stale-leading keys",
+    );
+    assert_eq!(
+        max_by, expected_max_by,
+        "missing-ok field MAX should preserve materialized parity under stale-leading keys",
+    );
+    assert!(
+        scanned_min_by >= 2,
+        "missing-ok field MIN should scan past bounded probe and retry unbounded",
+    );
+    assert!(
+        scanned_max_by >= 2,
+        "missing-ok field MAX should scan past bounded probe and retry unbounded",
+    );
+}
+
+fn assert_secondary_field_extrema_strict_stale_corruption(
+    rows: &[(u128, u32, u32)],
+    stale_ids: &[u128],
+    target_field: &str,
+) {
+    seed_stale_secondary_rows(rows, stale_ids);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let min_err = execute_min_by_slot_terminal(
+        &load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Asc, 0),
+        planned_slot::<PushdownParityEntity>(target_field),
+    )
+    .expect_err("strict field MIN should fail when leading key is stale");
+    let max_err = execute_max_by_slot_terminal(
+        &load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Desc, 0),
+        planned_slot::<PushdownParityEntity>(target_field),
+    )
+    .expect_err("strict field MAX should fail when leading key is stale");
+
+    assert_eq!(
+        min_err.class,
+        ErrorClass::Corruption,
+        "strict field MIN stale-leading key should classify as corruption",
+    );
+    assert_eq!(
+        max_err.class,
+        ErrorClass::Corruption,
+        "strict field MAX stale-leading key should classify as corruption",
+    );
+}
+
 fn seed_unique_index_range_entities(rows: &[(u128, u32)]) {
     reset_store();
     let save = SaveExecutor::<UniqueIndexRangeEntity>::new(DB, false);
@@ -240,6 +602,38 @@ where
     .into_id::<E>()
 }
 
+fn execute_projection_count_distinct_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: PlannedFieldSlot,
+) -> Result<u32, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_projection_boundary(
+        plan,
+        target_field,
+        crate::db::executor::aggregate::ScalarProjectionBoundaryRequest::CountDistinct,
+    )?
+    .into_count()
+}
+
+fn execute_min_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<Option<crate::types::Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Min,
+        },
+    )?
+    .into_id::<E>()
+}
+
 fn execute_max_by_slot_terminal<E>(
     load: &LoadExecutor<E>,
     plan: ExecutablePlan<E>,
@@ -253,6 +647,22 @@ where
         ScalarTerminalBoundaryRequest::IdBySlot {
             kind: AggregateKind::Max,
             target_field,
+        },
+    )?
+    .into_id::<E>()
+}
+
+fn execute_max_terminal<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<Option<crate::types::Id<E>>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_scalar_terminal_request(
+        plan,
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Max,
         },
     )?
     .into_id::<E>()
@@ -302,6 +712,18 @@ where
         ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field },
     )?
     .into_id_pair::<E>()
+}
+
+fn execute_numeric_field_boundary<E>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+    target_field: PlannedFieldSlot,
+    request: ScalarNumericFieldBoundaryRequest,
+) -> Result<Option<crate::types::Decimal>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    load.execute_numeric_field_boundary(plan, target_field, request)
 }
 
 // Execute the minimal executor-side validation that remains meaningful when a
@@ -932,6 +1354,812 @@ fn aggregate_core_secondary_index_max_tie_breaks_primary_key_ascending() {
 }
 
 #[test]
+fn aggregate_core_secondary_index_extrema_strict_single_step_scans_offset_plus_one() {
+    assert_secondary_id_extrema_single_step(
+        &SECONDARY_SINGLE_STEP_STRICT_ROWS,
+        MissingRowPolicy::Error,
+        8_833,
+        8_832,
+        "strict secondary",
+    );
+}
+
+#[test]
+fn aggregate_core_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_plus_one() {
+    assert_secondary_id_extrema_single_step(
+        &SECONDARY_SINGLE_STEP_MISSING_OK_ROWS,
+        MissingRowPolicy::Ignore,
+        8_843,
+        8_842,
+        "missing-ok secondary",
+    );
+}
+
+#[test]
+fn aggregate_core_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back() {
+    assert_secondary_id_extrema_missing_ok_stale_fallback(
+        &SECONDARY_STALE_ID_ROWS,
+        &[8_851, 8_854],
+    );
+}
+
+#[test]
+fn aggregate_core_secondary_index_extrema_strict_stale_leading_surfaces_corruption_error() {
+    assert_secondary_id_extrema_strict_stale_corruption(&SECONDARY_STALE_ID_ROWS, &[8_851, 8_854]);
+}
+
+#[test]
+fn aggregate_core_field_extrema_missing_ok_stale_leading_probe_falls_back() {
+    assert_secondary_field_extrema_missing_ok_stale_fallback(
+        &SECONDARY_STALE_FIELD_ROWS,
+        &[8_261, 8_264],
+        "rank",
+    );
+}
+
+#[test]
+fn aggregate_core_field_extrema_strict_stale_leading_surfaces_corruption_error() {
+    assert_secondary_field_extrema_strict_stale_corruption(
+        &SECONDARY_STALE_FIELD_ROWS,
+        &[8_261, 8_264],
+        "rank",
+    );
+}
+
+#[test]
+fn aggregate_core_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
+    seed_pushdown_entities(&[
+        (8_281, 7, 10),
+        (8_282, 7, 20),
+        (8_283, 7, 30),
+        (8_284, 7, 40),
+        (8_285, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (min_by_asc, scanned_min_by_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_min_by_slot_terminal(
+                &load,
+                secondary_group_rank_order_plan(MissingRowPolicy::Ignore, OrderDirection::Asc, 0),
+                planned_slot::<PushdownParityEntity>("rank"),
+            )
+            .expect("missing-ok secondary MIN(field) eligible shape should succeed")
+        });
+    let (max_by_desc, scanned_max_by_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_max_by_slot_terminal(
+                &load,
+                secondary_group_rank_order_plan(MissingRowPolicy::Ignore, OrderDirection::Desc, 0),
+                planned_slot::<PushdownParityEntity>("rank"),
+            )
+            .expect("missing-ok secondary MAX(field) eligible shape should succeed")
+        });
+
+    assert_eq!(
+        min_by_asc.map(|id| id.key()),
+        Some(Ulid::from_u128(8_281)),
+        "missing-ok secondary MIN(field) eligible shape should return the first ordered candidate",
+    );
+    assert_eq!(
+        max_by_desc.map(|id| id.key()),
+        Some(Ulid::from_u128(8_284)),
+        "missing-ok secondary MAX(field) eligible shape should return the first ordered DESC candidate",
+    );
+    assert_eq!(
+        scanned_min_by_asc, 4,
+        "missing-ok secondary MIN(field) eligible shape should scan the full group window under current contract",
+    );
+    assert_eq!(
+        scanned_max_by_desc, 4,
+        "missing-ok secondary MAX(field) eligible shape should scan the full group window under current contract",
+    );
+}
+
+#[test]
+fn aggregate_core_field_extrema_index_leading_min_uses_one_key_probe_hint() {
+    seed_indexed_metrics_rows(&[(8_511, 10, "a"), (8_512, 10, "b"), (8_513, 30, "c")]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let (min_by_tag, scanned_min_by_tag) =
+        capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+            execute_min_by_slot_terminal(
+                &load,
+                indexed_metrics_tag_index_range_plan(MissingRowPolicy::Ignore),
+                planned_slot::<IndexedMetricsEntity>("tag"),
+            )
+            .expect("index-leading MIN(field) should succeed")
+        });
+
+    assert_eq!(
+        min_by_tag.map(|id| id.key()),
+        Some(Ulid::from_u128(8_511)),
+        "index-leading MIN(field) should use primary-key ascending tie-break inside the first field-value group",
+    );
+    assert_eq!(
+        scanned_min_by_tag, 1,
+        "index-leading MIN(field) should resolve through one-key bounded probe",
+    );
+}
+
+#[test]
+fn aggregate_core_field_extrema_unique_index_leading_max_uses_one_key_probe_hint() {
+    seed_unique_index_range_entities(&[(8_531, 10), (8_532, 20), (8_533, 30)]);
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            vec![],
+            std::ops::Bound::Included(Value::Uint(0)),
+            std::ops::Bound::Excluded(Value::Uint(100)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    let plan = ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let (max_by_code, scanned_max_by_code) =
+        capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
+            execute_max_by_slot_terminal(
+                &load,
+                plan,
+                planned_slot::<UniqueIndexRangeEntity>("code"),
+            )
+            .expect("unique-index MAX(field) should succeed")
+        });
+
+    assert_eq!(
+        max_by_code.map(|id| id.key()),
+        Some(Ulid::from_u128(8_533)),
+        "unique-index MAX(field) should resolve to the highest ordered code",
+    );
+    assert_eq!(
+        scanned_max_by_code, 1,
+        "unique-index MAX(field) should resolve through one-key bounded probe",
+    );
+}
+
+#[test]
+fn aggregate_core_field_extrema_index_leading_min_ignore_stale_probe_retries_unbounded() {
+    seed_indexed_metrics_rows(&[(8_521, 10, "a"), (8_522, 20, "b"), (8_523, 30, "c")]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    remove_indexed_metrics_row_data(8_521);
+
+    let (min_by_tag, scanned_min_by_tag) =
+        capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+            execute_min_by_slot_terminal(
+                &load,
+                indexed_metrics_tag_index_range_plan(MissingRowPolicy::Ignore),
+                planned_slot::<IndexedMetricsEntity>("tag"),
+            )
+            .expect("stale-leading index-leading MIN(field) should succeed in ignore mode")
+        });
+
+    assert_eq!(
+        min_by_tag.map(|id| id.key()),
+        Some(Ulid::from_u128(8_522)),
+        "ignore-mode index-leading MIN(field) should retry unbounded and skip stale leading keys",
+    );
+    assert!(
+        scanned_min_by_tag >= 2,
+        "ignore-mode stale-leading MIN(field) should scan beyond one-key probe due to fallback retry",
+    );
+}
+
+#[test]
+fn aggregate_core_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single_step_probe() {
+    seed_pushdown_entities(&[
+        (8_301, 7, 10),
+        (8_302, 7, 20),
+        (8_303, 7, 30),
+        (8_304, 7, 40),
+        (8_305, 7, 50),
+        (8_306, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let (distinct_min, scanned_distinct_min) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_min_by_slot_terminal(
+                &load,
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                    .filter(u32_eq_predicate("group", 7))
+                    .distinct()
+                    .order_by("rank")
+                    .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
+                    .expect("distinct MIN(field) plan should build"),
+                planned_slot::<PushdownParityEntity>("rank"),
+            )
+            .expect("distinct MIN(field) should succeed")
+        });
+    let (offset_max, scanned_offset_max) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            execute_max_by_slot_terminal(
+                &load,
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                    .filter(u32_eq_predicate("group", 7))
+                    .order_by("rank")
+                    .offset(2)
+                    .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
+                    .expect("offset MAX(field) plan should build"),
+                planned_slot::<PushdownParityEntity>("rank"),
+            )
+            .expect("offset MAX(field) should succeed")
+        });
+
+    assert_eq!(
+        distinct_min.map(|id| id.key()),
+        Some(Ulid::from_u128(8_301)),
+        "distinct MIN(field) should preserve canonical parity",
+    );
+    assert_eq!(
+        offset_max.map(|id| id.key()),
+        Some(Ulid::from_u128(8_305)),
+        "offset MAX(field) should preserve canonical parity",
+    );
+    assert!(
+        scanned_distinct_min >= 2,
+        "distinct MIN(field) should not collapse to single-step probe",
+    );
+    assert!(
+        scanned_offset_max >= 3,
+        "offset MAX(field) should remain bounded by window traversal, not single-step probe",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn aggregate_core_field_terminal_error_classification_matrix() {
+    seed_pushdown_entities(&[(8_291, 7, 10), (8_292, 7, 20), (8_293, 7, 30)]);
+    let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let unknown_field_min_error = execute_min_by_slot_terminal(
+        &pushdown_load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("unknown-field MIN(field) plan should build"),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("unknown field MIN(field) should fail");
+    let unknown_field_median_error = execute_median_by_slot_terminal(
+        &pushdown_load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("unknown-field MEDIAN(field) plan should build"),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("unknown field MEDIAN(field) should fail");
+    let unknown_field_count_distinct_error = execute_projection_count_distinct_boundary(
+        &pushdown_load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("unknown-field COUNT_DISTINCT(field) plan should build"),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("unknown field COUNT_DISTINCT(field) should fail");
+    let unknown_field_min_max_error = execute_min_max_by_slot_terminal(
+        &pushdown_load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("unknown-field MIN_MAX(field) plan should build"),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("unknown field MIN_MAX(field) should fail");
+    let non_numeric_error = execute_numeric_field_boundary(
+        &pushdown_load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("non-numeric SUM(field) plan should build"),
+        planned_slot::<PushdownParityEntity>("label"),
+        ScalarNumericFieldBoundaryRequest::Sum,
+    )
+    .expect_err("non-numeric SUM(field) should fail");
+    remove_pushdown_row_data(8_291);
+    let strict_stale_error = execute_min_by_slot_terminal(
+        &pushdown_load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Asc, 0),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect_err("strict stale-leading MIN(field) should fail");
+    let strict_stale_median_error = execute_median_by_slot_terminal(
+        &pushdown_load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Asc, 0),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect_err("strict stale-leading MEDIAN(field) should fail");
+    let strict_stale_count_distinct_error = execute_projection_count_distinct_boundary(
+        &pushdown_load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Asc, 0),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect_err("strict stale-leading COUNT_DISTINCT(field) should fail");
+    let strict_stale_min_max_error = execute_min_max_by_slot_terminal(
+        &pushdown_load,
+        secondary_group_rank_order_plan(MissingRowPolicy::Error, OrderDirection::Asc, 0),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect_err("strict stale-leading MIN_MAX(field) should fail");
+
+    seed_phase_entities(&[(8_294, 10), (8_295, 20)]);
+    let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let non_orderable_min_error = execute_min_by_slot_terminal(
+        &phase_load,
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("non-orderable MIN(field) plan should build"),
+        planned_slot::<PhaseEntity>("tags"),
+    )
+    .expect_err("non-orderable MIN(field) should fail");
+    let non_orderable_median_error = execute_median_by_slot_terminal(
+        &phase_load,
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("non-orderable MEDIAN(field) plan should build"),
+        planned_slot::<PhaseEntity>("tags"),
+    )
+    .expect_err("non-orderable MEDIAN(field) should fail");
+    let non_orderable_min_max_error = execute_min_max_by_slot_terminal(
+        &phase_load,
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("non-orderable MIN_MAX(field) plan should build"),
+        planned_slot::<PhaseEntity>("tags"),
+    )
+    .expect_err("non-orderable MIN_MAX(field) should fail");
+
+    assert_eq!(
+        unknown_field_min_error.class,
+        ErrorClass::Unsupported,
+        "unknown field MIN(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        unknown_field_median_error.class,
+        ErrorClass::Unsupported,
+        "unknown field MEDIAN(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        unknown_field_count_distinct_error.class,
+        ErrorClass::Unsupported,
+        "unknown field COUNT_DISTINCT(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        unknown_field_min_max_error.class,
+        ErrorClass::Unsupported,
+        "unknown field MIN_MAX(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        non_orderable_min_error.class,
+        ErrorClass::Unsupported,
+        "non-orderable MIN(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        non_orderable_median_error.class,
+        ErrorClass::Unsupported,
+        "non-orderable MEDIAN(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        non_orderable_min_max_error.class,
+        ErrorClass::Unsupported,
+        "non-orderable MIN_MAX(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        non_numeric_error.class,
+        ErrorClass::Unsupported,
+        "non-numeric SUM(field) should classify as Unsupported",
+    );
+    assert_eq!(
+        strict_stale_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading MIN(field) should classify as Corruption",
+    );
+    assert_eq!(
+        strict_stale_median_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading MEDIAN(field) should classify as Corruption",
+    );
+    assert_eq!(
+        strict_stale_count_distinct_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading COUNT_DISTINCT(field) should classify as Corruption",
+    );
+    assert_eq!(
+        strict_stale_min_max_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading MIN_MAX(field) should classify as Corruption",
+    );
+}
+
+#[test]
+fn aggregate_core_sum_distinct_uses_grouped_global_distinct_path() {
+    seed_pushdown_entities(&[
+        (8_0991, 7, 10),
+        (8_0992, 7, 20),
+        (8_0993, 7, 20),
+        (8_0994, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) plan should build");
+
+    let sum_distinct = load
+        .execute_numeric_field_boundary(
+            plan,
+            planned_slot::<PushdownParityEntity>("rank"),
+            ScalarNumericFieldBoundaryRequest::SumDistinct,
+        )
+        .expect("sum_distinct_by(rank) should succeed");
+
+    assert_eq!(
+        sum_distinct,
+        crate::types::Decimal::from_num(30_u64),
+        "sum_distinct_by(rank) should sum unique rank values only",
+    );
+}
+
+#[test]
+fn aggregate_core_avg_distinct_uses_grouped_global_distinct_path() {
+    seed_pushdown_entities(&[
+        (8_1091, 7, 10),
+        (8_1092, 7, 20),
+        (8_1093, 7, 20),
+        (8_1094, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("avg_distinct_by(rank) plan should build");
+
+    let avg_distinct = load
+        .execute_numeric_field_boundary(
+            plan,
+            planned_slot::<PushdownParityEntity>("rank"),
+            ScalarNumericFieldBoundaryRequest::AvgDistinct,
+        )
+        .expect("avg_distinct_by(rank) should succeed");
+
+    assert_eq!(
+        avg_distinct,
+        crate::types::Decimal::from_num(15_u64),
+        "avg_distinct_by(rank) should average unique rank values only",
+    );
+}
+
+#[test]
+fn aggregate_core_sum_distinct_is_insertion_order_invariant() {
+    seed_pushdown_entities(&[
+        (809_911, 7, 10),
+        (809_912, 7, 20),
+        (809_913, 7, 20),
+        (809_914, 7, 30),
+        (809_915, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan_asc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) ASC plan should build");
+    let plan_desc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) DESC plan should build");
+
+    let sum_distinct_asc = load
+        .execute_numeric_field_boundary(
+            plan_asc,
+            planned_slot::<PushdownParityEntity>("rank"),
+            ScalarNumericFieldBoundaryRequest::SumDistinct,
+        )
+        .expect("sum_distinct_by(rank) ASC should succeed");
+    let sum_distinct_desc = load
+        .execute_numeric_field_boundary(
+            plan_desc,
+            planned_slot::<PushdownParityEntity>("rank"),
+            ScalarNumericFieldBoundaryRequest::SumDistinct,
+        )
+        .expect("sum_distinct_by(rank) DESC should succeed");
+
+    assert_eq!(
+        sum_distinct_asc, sum_distinct_desc,
+        "sum_distinct_by(rank) should be invariant to insertion/traversal order",
+    );
+}
+
+#[test]
+fn aggregate_core_sum_distinct_handles_large_values_without_wrap() {
+    seed_pushdown_entities(&[
+        (809_921, 7, u32::MAX),
+        (809_922, 7, u32::MAX - 1),
+        (809_923, 7, u32::MAX),
+        (809_924, 8, 42),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) large-value plan should build");
+
+    let sum_distinct = load
+        .execute_numeric_field_boundary(
+            plan,
+            planned_slot::<PushdownParityEntity>("rank"),
+            ScalarNumericFieldBoundaryRequest::SumDistinct,
+        )
+        .expect("sum_distinct_by(rank) large values should succeed")
+        .expect("sum_distinct_by(rank) should return a value");
+    let expected = crate::types::Decimal::from_num(u64::from(u32::MAX) + u64::from(u32::MAX - 1))
+        .expect("large expected decimal should convert");
+
+    assert_eq!(
+        sum_distinct, expected,
+        "sum_distinct_by(rank) should preserve large-value accumulation without wraparound",
+    );
+}
+
+#[test]
+fn aggregate_core_sum_distinct_preserves_decimal_integer_canonical_scale() {
+    seed_pushdown_entities(&[
+        (809_931, 7, 10),
+        (809_932, 7, 20),
+        (809_933, 7, 20),
+        (809_934, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) canonical-scale plan should build");
+
+    let sum_distinct = load
+        .execute_numeric_field_boundary(
+            plan,
+            planned_slot::<PushdownParityEntity>("rank"),
+            ScalarNumericFieldBoundaryRequest::SumDistinct,
+        )
+        .expect("sum_distinct_by(rank) canonical-scale should succeed")
+        .expect("sum_distinct_by(rank) should return a value");
+
+    assert_eq!(
+        sum_distinct.scale(),
+        0,
+        "sum_distinct_by(rank) should preserve canonical integer decimal scale",
+    );
+}
+
+#[test]
+fn aggregate_core_grouped_having_supported_operator_executes_through_planner_shape() {
+    seed_pushdown_entities(&[(8_1201, 7, 10), (8_1202, 7, 20), (8_1203, 7, 30)]);
+    let session = crate::db::DbSession::new(DB);
+
+    let grouped = session
+        .load::<PushdownParityEntity>()
+        .group_by("group")
+        .expect("group_by(group) should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("having aggregate should build")
+        .execute_grouped()
+        .expect("planner-validated grouped HAVING should execute");
+
+    assert_eq!(
+        grouped.rows().len(),
+        1,
+        "supported grouped HAVING shape should execute with one grouped row for one seeded group",
+    );
+}
+
+#[test]
+fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_is_bypassed() {
+    seed_pushdown_entities(&[(8_1211, 7, 10), (8_1212, 7, 20), (8_1213, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having(
+            crate::db::query::plan::GroupSpec {
+                group_fields: vec![
+                    crate::db::query::plan::FieldSlot::resolve(
+                        <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                        "group",
+                    )
+                    .expect("group field should resolve for bypass fixture"),
+                ],
+                aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                    kind: crate::db::query::plan::AggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+            },
+            Some(crate::db::query::plan::GroupHavingSpec {
+                clauses: vec![crate::db::query::plan::GroupHavingClause {
+                    symbol: crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
+                    op: CompareOp::In,
+                    value: Value::List(vec![Value::Uint(1)]),
+                }],
+            }),
+        );
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let err = load
+        .execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+        .expect_err("bypassed planner shape should fail with executor invariant");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert!(
+        err.message
+            .contains("unsupported grouped HAVING operator reached executor"),
+        "bypassed grouped HAVING operator should fail with executor invariant taxonomy: {err:?}",
+    );
+}
+
+#[test]
+fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() {
+    seed_pushdown_entities(&[(8_1221, 7, 10), (8_1222, 7, 20), (8_1223, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(crate::db::query::plan::GroupSpec {
+            group_fields: Vec::new(),
+            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                kind: crate::db::query::plan::AggregateKind::Exists,
+                target_field: Some("rank".to_string()),
+                distinct: true,
+            }],
+            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+        });
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+    });
+    let err = result.expect_err(
+        "bypassed global DISTINCT grouped shape with unsupported aggregate kind should fail with executor invariant",
+    );
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Planner);
+    assert_eq!(
+        scanned, 0,
+        "bypassed global DISTINCT unsupported aggregate kind should fail before scan-budget consumption",
+    );
+    assert!(
+        err.message
+            .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM/AVG only"),
+        "bypassed global DISTINCT unsupported aggregate kind should fail with planner-policy invariant text: {err:?}",
+    );
+}
+
+#[test]
+fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() {
+    seed_pushdown_entities(&[(8_1231, 7, 10), (8_1232, 7, 20), (8_1233, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let mut grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(crate::db::query::plan::GroupSpec {
+            group_fields: vec![
+                crate::db::query::plan::FieldSlot::resolve(
+                    <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                    "group",
+                )
+                .expect("group field should resolve for bypass fixture"),
+            ],
+            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                kind: crate::db::query::plan::AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+        });
+    grouped.scalar_plan_mut().distinct = true;
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+    });
+    let err = result.expect_err(
+        "bypassed grouped scalar DISTINCT policy violation should fail with executor invariant",
+    );
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_eq!(
+        scanned, 0,
+        "bypassed grouped scalar DISTINCT policy violation should fail before scan-budget consumption",
+    );
+    assert!(
+        err.message
+            .contains("grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"),
+        "bypassed grouped scalar DISTINCT policy violation should fail with planner-policy invariant text: {err:?}",
+    );
+}
+
+#[test]
+fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
+    seed_pushdown_entities(&[(8_1241, 7, 10), (8_1242, 7, 20), (8_1243, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(crate::db::query::plan::GroupSpec {
+            group_fields: vec![
+                crate::db::query::plan::FieldSlot::resolve(
+                    <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                    "group",
+                )
+                .expect("group field should resolve for bypass fixture"),
+            ],
+            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                kind: crate::db::query::plan::AggregateKind::Min,
+                target_field: Some("rank".to_string()),
+                distinct: false,
+            }],
+            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+        });
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+    });
+    let err = result
+        .expect_err("bypassed grouped field-target aggregate should fail with executor invariant");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_eq!(
+        scanned, 0,
+        "bypassed grouped field-target aggregate should fail before scan-budget consumption",
+    );
+    assert!(
+        err.message
+            .contains("grouped field-target aggregate reached executor after planning"),
+        "bypassed grouped field-target aggregate should fail with executor invariant taxonomy: {err:?}",
+    );
+}
+
+#[test]
 fn aggregate_core_nth_by_rank_selects_deterministic_positions() {
     seed_pushdown_entities(&[
         (8_142, 7, 10),
@@ -1009,6 +2237,71 @@ fn aggregate_core_nth_by_rank_selects_deterministic_positions() {
         None,
         "nth_by(rank, 4) should return None when ordinal is outside the result window",
     );
+}
+
+#[test]
+fn aggregate_core_nth_boundary_matrix_respects_window_and_out_of_range() {
+    seed_pushdown_entities(&[
+        (8_171, 7, 10),
+        (8_172, 7, 10),
+        (8_173, 7, 20),
+        (8_174, 7, 30),
+        (8_175, 7, 40),
+        (8_176, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let base_query = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(1)
+            .limit(3)
+    };
+    let expected_response = load
+        .execute(
+            base_query()
+                .plan()
+                .map(ExecutablePlan::from)
+                .expect("nth boundary baseline plan should build"),
+        )
+        .expect("nth boundary baseline execute should succeed");
+
+    for nth in [0usize, 1, 2, 3, usize::MAX] {
+        let actual = execute_nth_by_slot_terminal(
+            &load,
+            base_query()
+                .plan()
+                .map(ExecutablePlan::from)
+                .expect("nth boundary plan should build"),
+            planned_slot::<PushdownParityEntity>("rank"),
+            nth,
+        )
+        .expect("nth boundary aggregate should succeed");
+
+        assert_eq!(
+            actual,
+            expected_nth_by_rank_id(&expected_response, nth),
+            "nth boundary parity failed for n={nth}",
+        );
+    }
+
+    let empty_window_nth_zero = execute_nth_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(50)
+            .limit(3)
+            .plan()
+            .map(ExecutablePlan::from)
+            .expect("empty-window nth plan should build"),
+        planned_slot::<PushdownParityEntity>("rank"),
+        0,
+    )
+    .expect("empty-window nth should succeed");
+
+    assert_eq!(expected_response.len(), 3);
+    assert_eq!(empty_window_nth_zero, None);
 }
 
 #[test]
@@ -1091,6 +2384,46 @@ fn aggregate_core_median_even_window_uses_lower_policy() {
         median.map(|id| id.key()),
         Some(Ulid::from_u128(8_182)),
         "median_by(rank) should use lower-median policy for even-length windows",
+    );
+}
+
+#[test]
+fn aggregate_core_median_order_direction_invariant_on_same_window() {
+    seed_pushdown_entities(&[
+        (8_2051, 7, 10),
+        (8_2052, 7, 20),
+        (8_2053, 7, 20),
+        (8_2054, 7, 40),
+        (8_2055, 7, 50),
+        (8_2056, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let asc_median = execute_median_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .plan()
+            .map(ExecutablePlan::from)
+            .expect("median ASC plan should build"),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect("median_by(rank) ASC should succeed");
+    let desc_median = execute_median_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .plan()
+            .map(ExecutablePlan::from)
+            .expect("median DESC plan should build"),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect("median_by(rank) DESC should succeed");
+
+    assert_eq!(
+        asc_median, desc_median,
+        "median_by(rank) should be invariant to query order direction on the same row window",
     );
 }
 
@@ -1191,6 +2524,185 @@ fn aggregate_core_min_max_matches_individual_extrema() {
         Some(Ulid::from_u128(8_2013)),
         "min_max_by(rank) max tie-break should use primary key ascending",
     );
+}
+
+#[test]
+fn aggregate_core_min_max_metamorphic_matrix_matches_individual_extrema() {
+    seed_pushdown_entities(&[
+        (8_2021, 7, 10),
+        (8_2022, 7, 10),
+        (8_2023, 7, 20),
+        (8_2024, 7, 30),
+        (8_2025, 7, 40),
+        (8_2026, 7, 40),
+        (8_2027, 8, 15),
+        (8_2028, 8, 25),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let overlapping_predicate = Predicate::Or(vec![
+        id_in_predicate(&[8_2021, 8_2022, 8_2023, 8_2024, 8_2025, 8_2026]),
+        id_in_predicate(&[8_2022, 8_2023, 8_2026, 8_2027, 8_2028]),
+    ]);
+
+    for (label, distinct, desc, offset, limit) in [
+        ("asc/no-distinct/unbounded", false, false, 0u32, None),
+        ("asc/no-distinct/windowed", false, false, 1u32, Some(4u32)),
+        ("asc/distinct/windowed", true, false, 1u32, Some(4u32)),
+        ("desc/no-distinct/windowed", false, true, 1u32, Some(4u32)),
+        ("desc/distinct/windowed", true, true, 2u32, Some(3u32)),
+        ("desc/distinct/empty-window", true, true, 50u32, Some(3u32)),
+    ] {
+        let build_query = || {
+            let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(overlapping_predicate.clone());
+            if distinct {
+                query = query.distinct();
+            }
+            query = if desc {
+                query.order_by_desc("id")
+            } else {
+                query.order_by("id")
+            };
+            query = query.offset(offset);
+            if let Some(limit) = limit {
+                query = query.limit(limit);
+            }
+
+            query
+        };
+
+        let min_max = execute_min_max_by_slot_terminal(
+            &load,
+            build_query()
+                .plan()
+                .map(ExecutablePlan::from)
+                .expect("metamorphic min_max plan should build"),
+            planned_slot::<PushdownParityEntity>("rank"),
+        )
+        .expect("metamorphic min_max_by(rank) should succeed");
+        let min_by = execute_min_by_slot_terminal(
+            &load,
+            build_query()
+                .plan()
+                .map(ExecutablePlan::from)
+                .expect("metamorphic min plan should build"),
+            planned_slot::<PushdownParityEntity>("rank"),
+        )
+        .expect("metamorphic min_by(rank) should succeed");
+        let max_by = execute_max_by_slot_terminal(
+            &load,
+            build_query()
+                .plan()
+                .map(ExecutablePlan::from)
+                .expect("metamorphic max plan should build"),
+            planned_slot::<PushdownParityEntity>("rank"),
+        )
+        .expect("metamorphic max_by(rank) should succeed");
+
+        assert_eq!(
+            min_max,
+            min_by.zip(max_by),
+            "metamorphic min_max parity failed for case={label}",
+        );
+    }
+}
+
+#[test]
+fn aggregate_core_min_max_empty_window_returns_none() {
+    seed_pushdown_entities(&[(8_2031, 7, 10), (8_2032, 7, 20), (8_2033, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let min_max = execute_min_max_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .offset(50)
+            .limit(2)
+            .plan()
+            .map(ExecutablePlan::from)
+            .expect("empty-window min_max plan should build"),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect("empty-window min_max_by(rank) should succeed");
+
+    assert_eq!(min_max, None, "empty-window min_max_by should return None");
+}
+
+#[test]
+fn aggregate_core_min_max_single_row_returns_same_id_pair() {
+    seed_pushdown_entities(&[(8_2041, 7, 10), (8_2042, 7, 20), (8_2043, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let min_max = execute_min_max_by_slot_terminal(
+        &load,
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .offset(1)
+            .limit(1)
+            .plan()
+            .map(ExecutablePlan::from)
+            .expect("single-row min_max plan should build"),
+        planned_slot::<PushdownParityEntity>("rank"),
+    )
+    .expect("single-row min_max_by(rank) should succeed");
+
+    assert_eq!(
+        min_max.map(|(min_id, max_id)| (min_id.key(), max_id.key())),
+        Some((Ulid::from_u128(8_2042), Ulid::from_u128(8_2042))),
+        "single-row min_max_by should return the same id for both extrema",
+    );
+}
+
+#[test]
+fn aggregate_core_numeric_field_unknown_target_fails_without_scan() {
+    seed_pushdown_entities(&[(8_101, 7, 10), (8_102, 7, 20)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .plan()
+        .map(ExecutablePlan::from)
+        .expect("numeric field unknown-target plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_numeric_field_boundary(
+            plan,
+            planned_slot::<PushdownParityEntity>("missing_field"),
+            ScalarNumericFieldBoundaryRequest::Sum,
+        )
+    });
+    let Err(err) = result else {
+        panic!("sum_by(missing_field) should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(scanned, 0);
+}
+
+#[test]
+fn aggregate_core_numeric_field_non_numeric_target_fails_without_scan() {
+    seed_pushdown_entities(&[(8_111, 7, 10), (8_112, 7, 20)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .plan()
+        .map(ExecutablePlan::from)
+        .expect("numeric field non-numeric target plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_numeric_field_boundary(
+            plan,
+            planned_slot::<PushdownParityEntity>("label"),
+            ScalarNumericFieldBoundaryRequest::Avg,
+        )
+    });
+    let Err(err) = result else {
+        panic!("avg_by(label) should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(scanned, 0);
 }
 
 #[test]

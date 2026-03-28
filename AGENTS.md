@@ -15,7 +15,7 @@
 * `testing/macro-tests`: Macro and schema contract tests.
 * `testing/pocket-ic`: Pocket-IC integration tests.
 * `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
-* Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.94.0).
+* Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.94.1).
 
 ---
 
@@ -418,7 +418,7 @@ Code is considered non-trivial if it:
 
 ## CI Overview
 
-* Toolchain: Rust `1.94.0` with `rustfmt` and `clippy`.
+* Toolchain: Rust `1.94.1` with `rustfmt` and `clippy`.
 * Checks job (PRs/main): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
 * Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
 * Package cache: clears `~/.cargo/.package-cache` before running cargo.
@@ -487,4 +487,4 @@ Code is considered non-trivial if it:
 * Run `make security-check` before release.
 * Never modify pushed release tags.
 * Pin git dependencies by tag in downstream projects.
-* Ensure local toolchain matches CI (`rustup toolchain install 1.94.0`).
+* Ensure local toolchain matches CI (`rustup toolchain install 1.94.1`).

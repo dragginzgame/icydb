@@ -1908,6 +1908,216 @@ fn build_simple_ordered_page_plan(
         .expect("simple ordered pagination plan should build")
 }
 
+///
+/// DescCursorResumeCase
+///
+/// One DESC cursor-resume parity row for the live pagination owner. Each row
+/// binds one seeded access-shape family to its unbounded DESC baseline.
+///
+
+struct DescCursorResumeCase {
+    label: &'static str,
+    run: fn() -> (Vec<Ulid>, Vec<Ulid>),
+    assert_strict_descending: bool,
+}
+
+fn closed_u32_range_predicate(
+    field: &str,
+    lower_inclusive: u32,
+    upper_inclusive: u32,
+) -> Predicate {
+    Predicate::And(vec![
+        strict_compare_predicate(
+            field,
+            CompareOp::Gte,
+            Value::Uint(u64::from(lower_inclusive)),
+        ),
+        strict_compare_predicate(
+            field,
+            CompareOp::Lte,
+            Value::Uint(u64::from(upper_inclusive)),
+        ),
+    ])
+}
+
+fn collect_desc_cursor_resume_ids(
+    expected_desc_ids: Vec<Ulid>,
+    mut fetch_page: impl FnMut(Option<&str>) -> (Vec<Ulid>, Option<String>),
+) -> (Vec<Ulid>, Vec<Ulid>) {
+    let mut resumed_desc_ids = Vec::new();
+    let mut cursor_token = None::<String>;
+    loop {
+        let (page_ids, next_cursor) = fetch_page(cursor_token.as_deref());
+        resumed_desc_ids.extend(page_ids);
+        match next_cursor {
+            Some(token) => {
+                cursor_token = Some(token);
+            }
+            None => {
+                break;
+            }
+        }
+    }
+
+    (resumed_desc_ids, expected_desc_ids)
+}
+
+fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
+    setup_pagination_test();
+    seed_simple_rows(&[9971, 9972, 9973, 9974, 9975, 9976, 9977, 9978, 9979, 9980]);
+    let session = DbSession::new(DB);
+    let expected_desc_ids = session
+        .load::<SimpleEntity>()
+        .order_by_desc("id")
+        .execute()
+        .expect("unbounded DESC execute should succeed")
+        .ids()
+        .map(|id| id.key())
+        .collect::<Vec<_>>();
+
+    collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
+        let mut paged_query = session.load::<SimpleEntity>().order_by_desc("id").limit(3);
+        if let Some(token) = cursor_token {
+            paged_query = paged_query.cursor(token);
+        }
+        let execution = paged_query
+            .execute_paged()
+            .expect("paged DESC execute should succeed");
+
+        (
+            execution
+                .response()
+                .ids()
+                .map(|id| id.key())
+                .collect::<Vec<_>>(),
+            execution
+                .continuation_cursor()
+                .map(crate::db::encode_cursor),
+        )
+    })
+}
+
+fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
+    setup_pagination_test();
+    seed_pushdown_rows(&[
+        (9981, 7, 40, "g7-r40"),
+        (9982, 7, 30, "g7-r30-a"),
+        (9983, 7, 30, "g7-r30-b"),
+        (9984, 7, 20, "g7-r20-a"),
+        (9985, 7, 20, "g7-r20-b"),
+        (9986, 7, 10, "g7-r10"),
+        (9987, 8, 50, "g8-r50"),
+    ]);
+    let session = DbSession::new(DB);
+    let group_seven = pushdown_group_predicate(7);
+    let expected_desc_ids = session
+        .load::<PushdownParityEntity>()
+        .filter(group_seven.clone())
+        .order_by_desc("rank")
+        .order_by_desc("id")
+        .execute()
+        .expect("unbounded DESC secondary-index execute should succeed")
+        .ids()
+        .map(|id| id.key())
+        .collect::<Vec<_>>();
+
+    collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
+        let mut paged_query = session
+            .load::<PushdownParityEntity>()
+            .filter(group_seven.clone())
+            .order_by_desc("rank")
+            .order_by_desc("id")
+            .limit(2);
+        if let Some(token) = cursor_token {
+            paged_query = paged_query.cursor(token);
+        }
+        let execution = paged_query
+            .execute_paged()
+            .expect("paged DESC secondary-index execute should succeed");
+
+        (
+            execution
+                .response()
+                .ids()
+                .map(|id| id.key())
+                .collect::<Vec<_>>(),
+            execution
+                .continuation_cursor()
+                .map(crate::db::encode_cursor),
+        )
+    })
+}
+
+fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
+    setup_pagination_test();
+    seed_unique_index_range_rows(&[
+        (9991, 200, "c200"),
+        (9992, 201, "c201"),
+        (9993, 202, "c202"),
+        (9994, 203, "c203"),
+        (9995, 204, "c204"),
+        (9996, 205, "c205"),
+    ]);
+    let session = DbSession::new(DB);
+    let range_predicate = closed_u32_range_predicate("code", 201, 206);
+    let expected_desc_ids = session
+        .load::<UniqueIndexRangeEntity>()
+        .filter(range_predicate.clone())
+        .order_by_desc("code")
+        .order_by_desc("id")
+        .execute()
+        .expect("unbounded DESC index-range execute should succeed")
+        .ids()
+        .map(|id| id.key())
+        .collect::<Vec<_>>();
+
+    collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
+        let mut paged_query = session
+            .load::<UniqueIndexRangeEntity>()
+            .filter(range_predicate.clone())
+            .order_by_desc("code")
+            .order_by_desc("id")
+            .limit(2);
+        if let Some(token) = cursor_token {
+            paged_query = paged_query.cursor(token);
+        }
+        let execution = paged_query
+            .execute_paged()
+            .expect("paged DESC index-range execute should succeed");
+
+        (
+            execution
+                .response()
+                .ids()
+                .map(|id| id.key())
+                .collect::<Vec<_>>(),
+            execution
+                .continuation_cursor()
+                .map(crate::db::encode_cursor),
+        )
+    })
+}
+
+fn desc_cursor_resume_cases() -> [DescCursorResumeCase; 3] {
+    [
+        DescCursorResumeCase {
+            label: "simple_desc_cursor_resume",
+            run: run_desc_cursor_resume_simple_case,
+            assert_strict_descending: true,
+        },
+        DescCursorResumeCase {
+            label: "secondary_index_desc_cursor_resume",
+            run: run_desc_cursor_resume_secondary_index_case,
+            assert_strict_descending: false,
+        },
+        DescCursorResumeCase {
+            label: "index_range_desc_cursor_resume",
+            run: run_desc_cursor_resume_index_range_case,
+            assert_strict_descending: false,
+        },
+    ]
+}
+
 fn build_simple_by_ids_ordered_page_plan(
     ids: impl IntoIterator<Item = Ulid>,
     descending: bool,
@@ -5188,6 +5398,28 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
         pushdown_ids.len(),
         "composite range cursor pagination must not emit duplicate rows",
     );
+}
+
+#[test]
+fn desc_cursor_resume_matrix_matches_unbounded_execution() {
+    for case in desc_cursor_resume_cases() {
+        let (resumed_desc_ids, expected_desc_ids) = (case.run)();
+        assert_eq!(
+            resumed_desc_ids, expected_desc_ids,
+            "DESC cursor resume matrix mismatch for case={}",
+            case.label
+        );
+
+        if case.assert_strict_descending {
+            assert!(
+                resumed_desc_ids
+                    .windows(2)
+                    .all(|window| window[0] > window[1]),
+                "DESC cursor resume sequence should stay strictly descending without duplicates for case={}",
+                case.label
+            );
+        }
+    }
 }
 
 #[test]

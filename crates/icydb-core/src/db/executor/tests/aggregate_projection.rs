@@ -1162,6 +1162,76 @@ fn aggregate_projection_covering_index_distinct_non_leading_component_preserves_
 }
 
 #[test]
+fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_route_shapes() {
+    let covering_index_plan = {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let covering_index_mode = covering_index_plan.bytes_by_projection_mode("rank");
+    assert_eq!(
+        covering_index_mode,
+        crate::db::executor::BytesByProjectionMode::CoveringIndex,
+        "bytes-by classifier should mark eligible ordered index-prefix shapes as covering-index",
+    );
+    assert_eq!(
+        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(covering_index_mode),
+        "field_covering_index",
+        "bytes-by classifier labels should remain stable for covering-index mode",
+    );
+
+    let constant_covering_plan =
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7), Value::Uint(20)],
+            },
+            MissingRowPolicy::Ignore,
+        ));
+    let constant_mode = constant_covering_plan.bytes_by_projection_mode("rank");
+    assert_eq!(
+        constant_mode,
+        crate::db::executor::BytesByProjectionMode::CoveringConstant,
+        "bytes-by classifier should mark prefix-bound fields as covering-constant",
+    );
+    assert_eq!(
+        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(constant_mode),
+        "field_covering_constant",
+        "bytes-by classifier labels should remain stable for covering-constant mode",
+    );
+
+    let strict_plan = ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7), Value::Uint(20)],
+        },
+        MissingRowPolicy::Error,
+    ));
+    let strict_mode = strict_plan.bytes_by_projection_mode("rank");
+    assert_eq!(
+        strict_mode,
+        crate::db::executor::BytesByProjectionMode::Materialized,
+        "strict bytes-by classifier should fail closed to materialized mode",
+    );
+    assert_eq!(
+        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(strict_mode),
+        "field_materialized",
+        "bytes-by classifier labels should remain stable for strict materialized mode",
+    );
+}
+
+#[test]
 fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_error_surface() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -1406,6 +1476,73 @@ fn aggregate_projection_missing_field_ranked_projection_parity_matrix() {
         MissingFieldTerminal::BottomKByWithIds,
     ] {
         assert_missing_field_terminal_parity(terminal, "missing-field ranked projection parity");
+    }
+}
+
+#[test]
+fn aggregate_projection_missing_field_projection_terminals_fail_without_scan() {
+    seed_missing_field_parity_fixture();
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let values_err = execute_projection_values_boundary(
+        &load,
+        missing_field_parity_plan(),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("values_by(missing_field) should be rejected");
+    let distinct_values_err = execute_projection_distinct_values_boundary(
+        &load,
+        missing_field_parity_plan(),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("distinct_values_by(missing_field) should be rejected");
+    let values_with_ids_err = execute_projection_values_with_ids_boundary(
+        &load,
+        missing_field_parity_plan(),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("values_by_with_ids(missing_field) should be rejected");
+    let first_value_err = execute_projection_terminal_value_boundary(
+        &load,
+        missing_field_parity_plan(),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+        AggregateKind::First,
+    )
+    .expect_err("first_value_by(missing_field) should be rejected");
+    let last_value_err = execute_projection_terminal_value_boundary(
+        &load,
+        missing_field_parity_plan(),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+        AggregateKind::Last,
+    )
+    .expect_err("last_value_by(missing_field) should be rejected");
+    let count_distinct_err = execute_projection_count_distinct_boundary(
+        &load,
+        missing_field_parity_plan(),
+        planned_slot::<PushdownParityEntity>("missing_field"),
+    )
+    .expect_err("count_distinct_by(missing_field) should be rejected");
+
+    for (label, err) in [
+        ("values_by", &values_err),
+        ("distinct_values_by", &distinct_values_err),
+        ("values_by_with_ids", &values_with_ids_err),
+        ("first_value_by", &first_value_err),
+        ("last_value_by", &last_value_err),
+        ("count_distinct_by", &count_distinct_err),
+    ] {
+        assert_eq!(
+            err.class, values_err.class,
+            "{label} should keep the baseline unknown-field error class",
+        );
+        assert_eq!(
+            err.origin, values_err.origin,
+            "{label} should keep the baseline unknown-field error origin",
+        );
+        assert!(
+            err.message.contains("unknown aggregate target field"),
+            "{label} should preserve explicit unknown-field taxonomy: {err:?}",
+        );
     }
 }
 
