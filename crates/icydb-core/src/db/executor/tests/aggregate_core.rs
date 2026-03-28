@@ -11,13 +11,18 @@ use crate::{
             },
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
-        query::{builder::AggregateExpr, intent::Query, plan::FieldSlot as PlannedFieldSlot},
+        query::{
+            builder::AggregateExpr,
+            explain::ExplainExecutionNodeType,
+            intent::Query,
+            plan::{FieldSlot as PlannedFieldSlot, OrderDirection},
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
-    types::Ulid,
+    types::{Id, Ulid},
     value::Value,
 };
 use std::cell::RefCell;
@@ -124,6 +129,53 @@ fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
         Value::Uint(u64::from(value)),
         CoercionId::Strict,
     ))
+}
+
+fn strict_compare_predicate(field: &str, op: CompareOp, value: Value) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        op,
+        value,
+        CoercionId::Strict,
+    ))
+}
+
+fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_inclusive: u32) -> Predicate {
+    Predicate::And(vec![
+        strict_compare_predicate(
+            field,
+            CompareOp::Gte,
+            Value::Uint(u64::from(lower_inclusive)),
+        ),
+        strict_compare_predicate(
+            field,
+            CompareOp::Lte,
+            Value::Uint(u64::from(upper_inclusive)),
+        ),
+    ])
+}
+
+fn execution_root_node_type<E>(plan: &ExecutablePlan<E>) -> ExplainExecutionNodeType
+where
+    E: EntityKind + EntityValue,
+{
+    plan.explain_load_execution_node_descriptor()
+        .expect("aggregate execution descriptor should build")
+        .node_type()
+}
+
+fn seed_unique_index_range_entities(rows: &[(u128, u32)]) {
+    reset_store();
+    let save = SaveExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+
+    for (id, code) in rows {
+        save.insert(UniqueIndexRangeEntity {
+            id: Ulid::from_u128(*id),
+            code: *code,
+            label: format!("code-{code}"),
+        })
+        .expect("aggregate unique-range seed save should succeed");
+    }
 }
 
 fn execute_min_by_slot_terminal<E>(
@@ -235,6 +287,253 @@ where
     }
 
     Ok(())
+}
+
+///
+/// RankedKOneTerminal
+///
+/// Declares which extrema terminal anchors one k=1 ranked parity row.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RankedKOneTerminal {
+    Top,
+    Bottom,
+}
+
+///
+/// RankedKOneProjection
+///
+/// Declares the projection shape asserted for one k=1 ranked parity row.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RankedKOneProjection {
+    Ids,
+    Values,
+    ValuesWithIds,
+}
+
+///
+/// RankedDirectionResult
+///
+/// Captures the concrete output shape of one ranked terminal so parity can be
+/// asserted across ids, values, and value-with-id projections uniformly.
+///
+
+#[derive(Debug, PartialEq)]
+enum RankedDirectionResult {
+    Ids(Vec<Id<PushdownParityEntity>>),
+    Values(Vec<Value>),
+    ValuesWithIds(Vec<(Id<PushdownParityEntity>, Value)>),
+}
+
+///
+/// RankedKOneCase
+///
+/// One matrix row for k=1 ranked/extrema parity. Each row fixes the seed data,
+/// terminal family, and output projection that must stay aligned.
+///
+
+struct RankedKOneCase {
+    label: &'static str,
+    capability: &'static str,
+    rows: &'static [(u128, u32, u32)],
+    terminal: RankedKOneTerminal,
+    projection: RankedKOneProjection,
+    expected_first_id_tie_break: Option<u128>,
+}
+
+const RANKED_K_ONE_TOP_IDS_ROWS: [(u128, u32, u32); 5] = [
+    (8_3741, 7, 90),
+    (8_3742, 7, 40),
+    (8_3743, 7, 90),
+    (8_3744, 7, 20),
+    (8_3745, 8, 99),
+];
+const RANKED_K_ONE_TOP_VALUES_ROWS: [(u128, u32, u32); 5] = [
+    (8_3811, 7, 90),
+    (8_3812, 7, 40),
+    (8_3813, 7, 90),
+    (8_3814, 7, 20),
+    (8_3815, 8, 99),
+];
+const RANKED_K_ONE_BOTTOM_IDS_ROWS: [(u128, u32, u32); 5] = [
+    (8_3751, 7, 10),
+    (8_3752, 7, 30),
+    (8_3753, 7, 10),
+    (8_3754, 7, 40),
+    (8_3755, 8, 99),
+];
+const RANKED_K_ONE_BOTTOM_VALUES_ROWS: [(u128, u32, u32); 5] = [
+    (8_3821, 7, 10),
+    (8_3822, 7, 30),
+    (8_3823, 7, 10),
+    (8_3824, 7, 40),
+    (8_3825, 8, 99),
+];
+const RANKED_K_ONE_TOP_VALUES_WITH_IDS_ROWS: [(u128, u32, u32); 5] = [
+    (8_3831, 7, 90),
+    (8_3832, 7, 40),
+    (8_3833, 7, 90),
+    (8_3834, 7, 20),
+    (8_3835, 8, 99),
+];
+const RANKED_K_ONE_BOTTOM_VALUES_WITH_IDS_ROWS: [(u128, u32, u32); 5] = [
+    (8_3836, 7, 10),
+    (8_3837, 7, 30),
+    (8_3838, 7, 10),
+    (8_3839, 7, 40),
+    (8_3840, 8, 99),
+];
+
+fn run_ranked_k_one_terminal(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+    terminal: RankedKOneTerminal,
+    projection: RankedKOneProjection,
+) -> Result<RankedDirectionResult, InternalError> {
+    let rank_slot = planned_slot::<PushdownParityEntity>("rank");
+
+    match (terminal, projection) {
+        (RankedKOneTerminal::Top, RankedKOneProjection::Ids) => Ok(RankedDirectionResult::Ids(
+            load.top_k_by_slot(plan, rank_slot, 1)?.ids().collect(),
+        )),
+        (RankedKOneTerminal::Top, RankedKOneProjection::Values) => Ok(
+            RankedDirectionResult::Values(load.top_k_by_values_slot(plan, rank_slot, 1)?),
+        ),
+        (RankedKOneTerminal::Top, RankedKOneProjection::ValuesWithIds) => Ok(
+            RankedDirectionResult::ValuesWithIds(load.top_k_by_with_ids_slot(plan, rank_slot, 1)?),
+        ),
+        (RankedKOneTerminal::Bottom, RankedKOneProjection::Ids) => Ok(RankedDirectionResult::Ids(
+            load.bottom_k_by_slot(plan, rank_slot, 1)?.ids().collect(),
+        )),
+        (RankedKOneTerminal::Bottom, RankedKOneProjection::Values) => Ok(
+            RankedDirectionResult::Values(load.bottom_k_by_values_slot(plan, rank_slot, 1)?),
+        ),
+        (RankedKOneTerminal::Bottom, RankedKOneProjection::ValuesWithIds) => {
+            Ok(RankedDirectionResult::ValuesWithIds(
+                load.bottom_k_by_with_ids_slot(plan, rank_slot, 1)?,
+            ))
+        }
+    }
+}
+
+fn run_ranked_k_one_extrema(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+    terminal: RankedKOneTerminal,
+) -> Result<Option<Id<PushdownParityEntity>>, InternalError> {
+    let rank_slot = planned_slot::<PushdownParityEntity>("rank");
+
+    match terminal {
+        RankedKOneTerminal::Top => execute_max_by_slot_terminal(load, plan, rank_slot),
+        RankedKOneTerminal::Bottom => execute_min_by_slot_terminal(load, plan, rank_slot),
+    }
+}
+
+fn ranked_k_one_projection_from_extrema(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+    extrema_id: Option<Id<PushdownParityEntity>>,
+    projection: RankedKOneProjection,
+) -> Result<RankedDirectionResult, InternalError> {
+    match projection {
+        RankedKOneProjection::Ids => {
+            Ok(RankedDirectionResult::Ids(extrema_id.into_iter().collect()))
+        }
+        RankedKOneProjection::Values => {
+            let projected = if let Some(target_id) = extrema_id {
+                load.execute(plan)?
+                    .into_iter()
+                    .find(|row| row.id() == target_id)
+                    .map(|row| Value::Uint(u64::from(row.entity().rank)))
+                    .into_iter()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            Ok(RankedDirectionResult::Values(projected))
+        }
+        RankedKOneProjection::ValuesWithIds => {
+            let projected = if let Some(target_id) = extrema_id {
+                load.execute(plan)?
+                    .into_iter()
+                    .find(|row| row.id() == target_id)
+                    .map(|row| (target_id, Value::Uint(u64::from(row.entity().rank))))
+                    .into_iter()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            Ok(RankedDirectionResult::ValuesWithIds(projected))
+        }
+    }
+}
+
+fn first_ranked_result_id(result: &RankedDirectionResult) -> Option<Id<PushdownParityEntity>> {
+    match result {
+        RankedDirectionResult::Ids(ids) => ids.first().copied(),
+        RankedDirectionResult::Values(_) => None,
+        RankedDirectionResult::ValuesWithIds(values_with_ids) => {
+            values_with_ids.first().map(|(id, _)| *id)
+        }
+    }
+}
+
+fn ranked_k_one_cases() -> [RankedKOneCase; 6] {
+    [
+        RankedKOneCase {
+            label: "top_k_by_ids",
+            capability: "ranked_ids",
+            rows: &RANKED_K_ONE_TOP_IDS_ROWS,
+            terminal: RankedKOneTerminal::Top,
+            projection: RankedKOneProjection::Ids,
+            expected_first_id_tie_break: Some(8_3741),
+        },
+        RankedKOneCase {
+            label: "top_k_by_values",
+            capability: "ranked_values",
+            rows: &RANKED_K_ONE_TOP_VALUES_ROWS,
+            terminal: RankedKOneTerminal::Top,
+            projection: RankedKOneProjection::Values,
+            expected_first_id_tie_break: None,
+        },
+        RankedKOneCase {
+            label: "bottom_k_by_ids",
+            capability: "ranked_ids",
+            rows: &RANKED_K_ONE_BOTTOM_IDS_ROWS,
+            terminal: RankedKOneTerminal::Bottom,
+            projection: RankedKOneProjection::Ids,
+            expected_first_id_tie_break: Some(8_3751),
+        },
+        RankedKOneCase {
+            label: "bottom_k_by_values",
+            capability: "ranked_values",
+            rows: &RANKED_K_ONE_BOTTOM_VALUES_ROWS,
+            terminal: RankedKOneTerminal::Bottom,
+            projection: RankedKOneProjection::Values,
+            expected_first_id_tie_break: None,
+        },
+        RankedKOneCase {
+            label: "top_k_by_with_ids",
+            capability: "ranked_values_with_ids",
+            rows: &RANKED_K_ONE_TOP_VALUES_WITH_IDS_ROWS,
+            terminal: RankedKOneTerminal::Top,
+            projection: RankedKOneProjection::ValuesWithIds,
+            expected_first_id_tie_break: None,
+        },
+        RankedKOneCase {
+            label: "bottom_k_by_with_ids",
+            capability: "ranked_values_with_ids",
+            rows: &RANKED_K_ONE_BOTTOM_VALUES_WITH_IDS_ROWS,
+            terminal: RankedKOneTerminal::Bottom,
+            projection: RankedKOneProjection::ValuesWithIds,
+            expected_first_id_tie_break: None,
+        },
+    ]
 }
 
 #[test]
