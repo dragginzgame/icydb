@@ -659,7 +659,7 @@ fn runtime_route_consumers_avoid_direct_execution_mode_field_reads() {
         "src/db/executor/pipeline/entrypoints/scalar/mod.rs",
         "src/db/executor/pipeline/entrypoints/scalar/surface.rs",
         "src/db/executor/aggregate/mod.rs",
-        "src/db/executor/explain/descriptor.rs",
+        "src/db/executor/explain/descriptor/mod.rs",
     ];
 
     for relative_path in runtime_consumers {

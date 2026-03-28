@@ -1,8 +1,3 @@
-//! Module: db::executor::explain::descriptor
-//! Responsibility: canonical assembly for executor EXPLAIN descriptor payloads.
-//! Does not own: route-capability derivation or explain rendering output.
-//! Boundary: project immutable execution contracts into stable descriptor fields.
-
 use crate::{
     db::{
         access::{
@@ -13,33 +8,26 @@ use crate::{
         executor::{
             ExecutionPreparation,
             aggregate::AggregateFoldMode,
-            preparation::slot_map_for_model_plan,
             route::{
-                AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
-                FastPathOrder, TopNSeekSpec,
-                build_execution_route_plan_for_aggregate_spec_with_model,
-                build_initial_execution_route_plan_for_load_with_model,
+                ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape, FastPathOrder,
+                TopNSeekSpec,
             },
         },
         predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
         query::{
-            builder::AggregateExpr,
             explain::{
-                ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor,
-                ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                ExplainExecutionOrderingSource, ExplainPredicate, ExplainPropertyMap,
-                write_access_strategy_label,
+                ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
+                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
+                ExplainPropertyMap, write_access_strategy_label,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
                 DistinctExecutionStrategy,
                 expr::{Expr, ProjectionField},
                 index_covering_existing_rows_terminal_eligible,
-                project_access_choice_explain_snapshot,
             },
         },
     },
-    error::InternalError,
     value::Value,
 };
 use std::{
@@ -48,269 +36,7 @@ use std::{
     ops::Bound,
 };
 
-// Assemble one canonical scalar load execution descriptor tree through one
-// model-owned authority path.
-#[inline(never)]
-pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
-    model: &'static crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    // Phase 1: build canonical reusable preparation and route contracts for load mode.
-    let execution_preparation =
-        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
-    let route_shape = route_plan.shape();
-    let predicate_index_capability =
-        execution_preparation_predicate_index_capability(&execution_preparation);
-    let strict_predicate_compatible =
-        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
-    let execution_mode = explain_execution_mode(route_shape);
-
-    // Phase 2: derive one canonical access projection and reuse it across
-    // descriptor assembly instead of re-projecting the chosen route again.
-    let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
-    let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
-    let mut root = access_execution_node_descriptor(access_strategy, execution_mode);
-    annotate_access_root_node_properties(&mut root, &route_plan);
-    annotate_access_choice_node_properties(&mut root, access_choice);
-    let covering_scan = load_covering_scan_eligible(plan, strict_predicate_compatible);
-    root.covering_scan = Some(covering_scan);
-    root.node_properties.insert(
-        "cov_scan_reason",
-        Value::from(load_covering_scan_reason(plan, strict_predicate_compatible)),
-    );
-    if let Some(capability) = predicate_index_capability {
-        root.node_properties.insert(
-            "pred_idx_cap",
-            Value::from(predicate_index_capability_label(capability)),
-        );
-    }
-    annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
-    annotate_fast_path_reason_node_properties(&mut root, &route_plan);
-
-    // Phase 3: project route/planner modifiers in execution order as descriptor children.
-    let explain_predicate = explain_predicate_for_plan(plan);
-    for predicate_stage in predicate_stage_descriptors(
-        explain_predicate,
-        root.access_strategy.as_ref(),
-        strict_predicate_compatible,
-        execution_mode,
-    ) {
-        root.children.push(predicate_stage);
-    }
-    root.children.extend(load_modifier_execution_nodes(
-        plan,
-        &route_plan,
-        execution_mode,
-        route_shape,
-    ));
-
-    Ok(root)
-}
-
-fn load_modifier_execution_nodes(
-    plan: &AccessPlannedQuery,
-    route_plan: &ExecutionRoutePlan,
-    execution_mode: ExplainExecutionMode,
-    route_shape: ExecutionRouteShape,
-) -> Vec<ExplainExecutionNodeDescriptor> {
-    let mut nodes = Vec::new();
-
-    // Phase 1: emit route-owned pushdown and seek modifiers in access execution order.
-    for node in [
-        secondary_order_pushdown_descriptor(route_plan, execution_mode),
-        index_range_limit_pushdown_descriptor(route_plan, execution_mode),
-        top_n_seek_descriptor(route_plan, execution_mode),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        nodes.push(node);
-    }
-
-    // Phase 2: emit planner-owned post-access modifiers that depend on route shape,
-    // distinct strategy, and continuation state.
-    if let Some(node) = order_by_execution_node_descriptor(
-        plan.scalar_plan().order.is_some(),
-        route_shape,
-        execution_mode,
-    ) {
-        nodes.push(node);
-    }
-    if let Some(node) =
-        distinct_execution_node_descriptor(plan.distinct_execution_strategy(), execution_mode)
-    {
-        nodes.push(node);
-    }
-    if let Some(page) = plan.scalar_plan().page.as_ref() {
-        nodes.push(limit_offset_execution_node_descriptor(
-            page,
-            route_plan,
-            execution_mode,
-        ));
-    }
-    if let Some(node) = cursor_resume_execution_node_descriptor(route_plan, execution_mode) {
-        nodes.push(node);
-    }
-
-    nodes
-}
-
-// Assemble canonical verbose diagnostics for one scalar load route through one
-// model-owned authority path.
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
-    model: &'static crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Result<Vec<String>, InternalError> {
-    // Phase 1: build canonical route authority inputs for load mode.
-    let execution_preparation =
-        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
-    let strict_predicate_compatible =
-        execution_preparation_predicate_index_capability(&execution_preparation)
-            == Some(IndexPredicateCapability::FullyIndexable);
-    let projected_fields = plan
-        .projection_spec(model)
-        .fields()
-        .map(projection_field_label)
-        .map(Cow::into_owned)
-        .collect::<Vec<_>>();
-    let projection_pushdown = load_covering_scan_eligible(plan, strict_predicate_compatible);
-    let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
-    let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
-    let mut chosen_label = String::new();
-    write_access_strategy_label(&mut chosen_label, &access_strategy);
-    let rejections = access_choice
-        .rejected
-        .into_iter()
-        .map(|entry| entry.render())
-        .collect::<Vec<_>>();
-
-    // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
-    let mut lines = vec![
-        route_diagnostic_line_debug("execution_mode", &route_plan.shape().execution_mode()),
-        route_diagnostic_line_bool(
-            "continuation_applied",
-            route_plan.continuation().capabilities().applied(),
-        ),
-        route_diagnostic_line_debug("limit", &route_plan.continuation().limit()),
-        route_diagnostic_line_debug("fast_path_order", &route_plan.fast_path_order()),
-        secondary_order_pushdown_verbose_line(&route_plan),
-    ];
-    lines.push(route_fetch_diagnostic_line(
-        "top_n_seek",
-        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
-    ));
-    lines.push(route_fetch_diagnostic_line(
-        "index_range_limit_pushdown",
-        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
-    ));
-    let predicate_stage = if plan.scalar_plan().predicate.is_none() {
-        "none"
-    } else if strict_predicate_compatible {
-        "index_prefilter(strict_all_or_none)"
-    } else {
-        "residual_post_access"
-    };
-    lines.push(descriptor_route_property_line(
-        "diag.r.predicate_stage",
-        predicate_stage,
-    ));
-    lines.push(route_diagnostic_line_debug(
-        "projected_fields",
-        &projected_fields,
-    ));
-    lines.push(route_diagnostic_line_bool(
-        "projection_pushdown",
-        projection_pushdown,
-    ));
-    lines.push(descriptor_route_property_line(
-        "diag.r.access_choice_chosen",
-        &chosen_label,
-    ));
-    lines.push(descriptor_route_property_line(
-        "diag.r.access_choice_chosen_reason",
-        access_choice.chosen_reason.code(),
-    ));
-    lines.push(route_diagnostic_line_debug(
-        "access_choice_alternatives",
-        &access_choice.alternatives,
-    ));
-    lines.push(route_diagnostic_line_debug(
-        "access_choice_rejections",
-        &rejections,
-    ));
-    if let Some(capability) =
-        execution_preparation_predicate_index_capability(&execution_preparation)
-    {
-        lines.push(descriptor_route_property_line(
-            "diag.r.predicate_index_capability",
-            predicate_index_capability_label(capability),
-        ));
-    }
-
-    Ok(lines)
-}
-
-// Assemble one canonical scalar aggregate execution descriptor through one
-// model-owned authority path.
-#[inline(never)]
-pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model(
-    model: &'static crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery,
-    aggregate: AggregateExpr,
-) -> ExplainExecutionDescriptor {
-    let aggregation = aggregate.kind();
-    let projected_field = aggregate.target_field().map(str::to_string);
-
-    // Phase 1: derive one aggregate route plan using precomputed execution preparation.
-    let execution_preparation =
-        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let route_plan = build_execution_route_plan_for_aggregate_spec_with_model(
-        model,
-        plan,
-        aggregate,
-        &execution_preparation,
-    );
-    let route_shape = route_plan.shape();
-
-    // Phase 2: project route-owned ordering + execution semantics into explain fields.
-    let ordering_source = match route_plan.aggregate_seek_spec() {
-        Some(AggregateSeekSpec::First { fetch }) => {
-            ExplainExecutionOrderingSource::IndexSeekFirst { fetch }
-        }
-        Some(AggregateSeekSpec::Last { fetch }) => {
-            ExplainExecutionOrderingSource::IndexSeekLast { fetch }
-        }
-        None if route_shape.is_materialized() => ExplainExecutionOrderingSource::Materialized,
-        None => ExplainExecutionOrderingSource::AccessOrder,
-    };
-    let execution_mode = explain_execution_mode(route_shape);
-    let covering_projection =
-        aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
-    let node_properties = explain_node_properties_for_route(
-        &route_plan,
-        aggregation,
-        projected_field.as_deref(),
-        covering_projection,
-    );
-
-    // Phase 3: emit one stable descriptor payload consumed by explain surfaces.
-    ExplainExecutionDescriptor {
-        access_strategy: ExplainAccessRoute::from_access_plan(&plan.access),
-        // Covering flag reflects index-only aggregate fast-path eligibility for
-        // scalar aggregate terminals.
-        covering_projection,
-        aggregation,
-        execution_mode,
-        ordering_source,
-        limit: route_plan.continuation().limit(),
-        cursor: route_plan.continuation().capabilities().applied(),
-        node_properties,
-    }
-}
-
-const fn empty_execution_node_descriptor(
+pub(in crate::db::executor::explain::descriptor) const fn empty_execution_node_descriptor(
     node_type: ExplainExecutionNodeType,
     execution_mode: ExplainExecutionMode,
 ) -> ExplainExecutionNodeDescriptor {
@@ -331,7 +57,7 @@ const fn empty_execution_node_descriptor(
     }
 }
 
-fn access_execution_node_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn access_execution_node_descriptor(
     access_strategy: ExplainAccessRoute,
     execution_mode: ExplainExecutionMode,
 ) -> ExplainExecutionNodeDescriptor {
@@ -355,7 +81,7 @@ fn access_execution_node_descriptor(
     node
 }
 
-fn annotate_access_root_node_properties(
+pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
@@ -380,14 +106,14 @@ fn annotate_access_root_node_properties(
 
 // Scalar-load covering projection reflects planner-side index-covering
 // existing-row eligibility under current strict predicate contracts.
-fn load_covering_scan_eligible(
+pub(in crate::db::executor::explain::descriptor) fn load_covering_scan_eligible(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
 ) -> bool {
     index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
 }
 
-fn load_covering_scan_reason(
+pub(in crate::db::executor::explain::descriptor) fn load_covering_scan_reason(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
 ) -> &'static str {
@@ -408,7 +134,7 @@ fn load_covering_scan_reason(
     "idx_cover_rows"
 }
 
-fn annotate_projection_pushdown_node_properties(
+pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
@@ -426,7 +152,9 @@ fn annotate_projection_pushdown_node_properties(
         .insert("proj_pushdown", Value::from(covering_scan));
 }
 
-fn projection_field_label(field: &ProjectionField) -> Cow<'_, str> {
+pub(in crate::db::executor::explain::descriptor) fn projection_field_label(
+    field: &ProjectionField,
+) -> Cow<'_, str> {
     match field {
         ProjectionField::Scalar { expr, .. } => projection_expr_label(expr),
     }
@@ -446,7 +174,7 @@ fn projection_expr_label(expr: &Expr) -> Cow<'_, str> {
     }
 }
 
-fn annotate_access_choice_node_properties(
+pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     access_choice: AccessChoiceExplainSnapshot,
 ) {
@@ -479,7 +207,10 @@ fn annotate_access_choice_node_properties(
         .insert("acc_reject", Value::List(rejected));
 }
 
-fn descriptor_route_property_line(line_key: &str, property_value: &str) -> String {
+pub(in crate::db::executor::explain::descriptor) fn descriptor_route_property_line(
+    line_key: &str,
+    property_value: &str,
+) -> String {
     let mut out = String::with_capacity(line_key.len() + property_value.len() + 1);
     out.push_str(line_key);
     out.push('=');
@@ -487,13 +218,19 @@ fn descriptor_route_property_line(line_key: &str, property_value: &str) -> Strin
     out
 }
 
-fn route_diagnostic_line_bool(label: &str, value: bool) -> String {
+pub(in crate::db::executor::explain::descriptor) fn route_diagnostic_line_bool(
+    label: &str,
+    value: bool,
+) -> String {
     let mut out = route_diagnostic_prefix(label);
     out.push_str(if value { "true" } else { "false" });
     out
 }
 
-fn route_diagnostic_line_debug(label: &str, value: &impl Debug) -> String {
+pub(in crate::db::executor::explain::descriptor) fn route_diagnostic_line_debug(
+    label: &str,
+    value: &impl Debug,
+) -> String {
     let mut out = route_diagnostic_prefix(label);
     let _ = write!(out, "{value:?}");
     out
@@ -526,7 +263,7 @@ fn scan_fetch_pushdown(route_plan: &ExecutionRoutePlan) -> Option<usize> {
         .or_else(|| route_plan.index_range_limit_spec.map(|spec| spec.fetch))
 }
 
-fn annotate_cursor_resume_node_properties(
+pub(in crate::db::executor::explain::descriptor) fn annotate_cursor_resume_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
@@ -537,7 +274,7 @@ fn annotate_cursor_resume_node_properties(
     );
 }
 
-fn annotate_fast_path_reason_node_properties(
+pub(in crate::db::executor::explain::descriptor) fn annotate_fast_path_reason_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
@@ -682,7 +419,7 @@ const fn access_node_type(access: &ExplainAccessRoute) -> ExplainExecutionNodeTy
     }
 }
 
-fn secondary_order_pushdown_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_descriptor(
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
@@ -706,7 +443,7 @@ fn secondary_order_pushdown_descriptor(
     Some(node)
 }
 
-fn order_by_execution_node_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn order_by_execution_node_descriptor(
     has_order_by: bool,
     route_shape: ExecutionRouteShape,
     execution_mode: ExplainExecutionMode,
@@ -732,7 +469,7 @@ fn order_by_execution_node_descriptor(
     Some(node)
 }
 
-const fn distinct_execution_node_descriptor(
+pub(in crate::db::executor::explain::descriptor) const fn distinct_execution_node_descriptor(
     strategy: DistinctExecutionStrategy,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
@@ -749,7 +486,7 @@ const fn distinct_execution_node_descriptor(
     }
 }
 
-fn limit_offset_execution_node_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn limit_offset_execution_node_descriptor(
     page: &crate::db::query::plan::PageSpec,
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
@@ -764,7 +501,7 @@ fn limit_offset_execution_node_descriptor(
     node
 }
 
-fn cursor_resume_execution_node_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn cursor_resume_execution_node_descriptor(
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
@@ -780,7 +517,9 @@ fn cursor_resume_execution_node_descriptor(
     Some(node)
 }
 
-fn secondary_order_pushdown_verbose_line(route_plan: &ExecutionRoutePlan) -> String {
+pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_verbose_line(
+    route_plan: &ExecutionRoutePlan,
+) -> String {
     match &route_plan.secondary_pushdown_applicability {
         PushdownApplicability::NotApplicable => {
             "diag.r.secondary_order_pushdown=not_applicable".to_string()
@@ -853,7 +592,7 @@ fn write_secondary_order_pushdown_rejection_label(
     }
 }
 
-fn index_range_limit_pushdown_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn index_range_limit_pushdown_descriptor(
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
@@ -865,7 +604,7 @@ fn index_range_limit_pushdown_descriptor(
     ))
 }
 
-fn top_n_seek_descriptor(
+pub(in crate::db::executor::explain::descriptor) fn top_n_seek_descriptor(
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
@@ -877,7 +616,7 @@ fn top_n_seek_descriptor(
     ))
 }
 
-fn predicate_stage_descriptors(
+pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     explain_predicate: Option<ExplainPredicate>,
     access_strategy: Option<&ExplainAccessRoute>,
     strict_prefilter_compiled: bool,
@@ -911,7 +650,7 @@ fn predicate_stage_descriptors(
     vec![node]
 }
 
-fn execution_preparation_predicate_index_capability(
+pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predicate_index_capability(
     execution_preparation: &ExecutionPreparation,
 ) -> Option<IndexPredicateCapability> {
     execution_preparation
@@ -919,7 +658,9 @@ fn execution_preparation_predicate_index_capability(
         .map(PredicateCapabilityProfile::index)
 }
 
-const fn predicate_index_capability_label(capability: IndexPredicateCapability) -> &'static str {
+pub(in crate::db::executor::explain::descriptor) const fn predicate_index_capability_label(
+    capability: IndexPredicateCapability,
+) -> &'static str {
     match capability {
         IndexPredicateCapability::FullyIndexable => "fully_indexable",
         IndexPredicateCapability::PartiallyIndexable => "partially_indexable",
@@ -1019,14 +760,18 @@ fn index_range_pushdown_predicate_text(
     if out.is_empty() { None } else { Some(out) }
 }
 
-fn explain_predicate_for_plan(plan: &AccessPlannedQuery) -> Option<ExplainPredicate> {
+pub(in crate::db::executor::explain::descriptor) fn explain_predicate_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Option<ExplainPredicate> {
     plan.scalar_plan()
         .predicate
         .as_ref()
         .map(ExplainPredicate::from_predicate)
 }
 
-const fn explain_execution_mode(route_shape: ExecutionRouteShape) -> ExplainExecutionMode {
+pub(in crate::db::executor::explain::descriptor) const fn explain_execution_mode(
+    route_shape: ExecutionRouteShape,
+) -> ExplainExecutionMode {
     if route_shape.is_streaming() {
         ExplainExecutionMode::Streaming
     } else {
@@ -1034,7 +779,7 @@ const fn explain_execution_mode(route_shape: ExecutionRouteShape) -> ExplainExec
     }
 }
 
-fn explain_node_properties_for_route(
+pub(in crate::db::executor::explain::descriptor) fn explain_node_properties_for_route(
     route_plan: &ExecutionRoutePlan,
     aggregation: AggregateKind,
     projected_field: Option<&str>,
@@ -1100,7 +845,7 @@ const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {
 
 // Return whether one scalar aggregate terminal can remain index-only under the
 // current plan and executor preparation contracts.
-fn aggregate_covering_projection_for_terminal(
+pub(in crate::db::executor::explain::descriptor) fn aggregate_covering_projection_for_terminal(
     plan: &AccessPlannedQuery,
     aggregation: AggregateKind,
     execution_preparation: &ExecutionPreparation,
@@ -1122,7 +867,10 @@ fn aggregate_covering_projection_for_terminal(
     }
 }
 
-fn route_fetch_diagnostic_line(label: &str, fetch: Option<usize>) -> String {
+pub(in crate::db::executor::explain::descriptor) fn route_fetch_diagnostic_line(
+    label: &str,
+    fetch: Option<usize>,
+) -> String {
     let mut out = route_diagnostic_prefix(label);
     if let Some(fetch) = fetch {
         let _ = write!(out, "fetch({})", u64_from_usize(fetch));

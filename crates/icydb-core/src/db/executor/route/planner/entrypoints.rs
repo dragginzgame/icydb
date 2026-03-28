@@ -66,12 +66,9 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_
     plan: &AccessPlannedQuery,
     probe_fetch_hint: Option<usize>,
 ) -> Result<ExecutionPlan, InternalError> {
-    let continuation = ScalarContinuationContext::initial();
-
-    Ok(build_execution_route_plan_for_model(
+    Ok(build_initial_execution_route_plan_for_model(
         model,
         plan,
-        &continuation,
         probe_fetch_hint,
         RouteIntent::Load,
     ))
@@ -100,12 +97,9 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_wit
     aggregate: AggregateExpr,
     execution_preparation: &ExecutionPreparation,
 ) -> ExecutionPlan {
-    let continuation = ScalarContinuationContext::initial();
-
-    build_execution_route_plan_for_model(
+    build_initial_execution_route_plan_for_model(
         model,
         plan,
-        &continuation,
         None,
         RouteIntent::Aggregate {
             aggregate,
@@ -155,12 +149,9 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
         plan,
         resolved_index_slots_for_access_path(model, plan.access.resolve_strategy().executable()),
     );
-    let continuation = ScalarContinuationContext::initial();
-
-    build_execution_route_plan_for_model(
+    build_initial_execution_route_plan_for_model(
         model,
         plan,
-        &continuation,
         None,
         RouteIntent::AggregateGrouped {
             grouped_plan_strategy_hint,
@@ -170,6 +161,19 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
                 ),
         },
     )
+}
+
+// Entry points without inbound cursors all share the same initial continuation
+// contract before route-stage derivation.
+fn build_initial_execution_route_plan_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    probe_fetch_hint: Option<usize>,
+    intent: RouteIntent,
+) -> ExecutionRoutePlan {
+    let continuation = ScalarContinuationContext::initial();
+
+    build_execution_route_plan_for_model(model, plan, &continuation, probe_fetch_hint, intent)
 }
 
 // Build one shared execution route contract from intent + feasibility stages.

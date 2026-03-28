@@ -24,6 +24,15 @@ See detailed breakdown:
 
 ---
 
+## [0.66.x] 🧭 - 2026-03-28 - Complexity Hotspot Decomposition
+
+- `0.66.0` keeps row format, SQL behavior, routing, and executor semantics unchanged but turns the main complexity-audit hotspots into smaller owner-local modules, splitting the large persisted-row, access-choice, and execution-descriptor roots into cleaner submodules so future work lands against narrower boundaries instead of continuing to accrete in single branch-heavy files.
+
+See detailed breakdown:
+[docs/changelog/0.66.md](docs/changelog/0.66.md)
+
+---
+
 ## [0.64.x] 🧩 - 2026-03-25 - Structural Mutation API
 
 - `0.64.6` closes the `0.64` line by auditing the public mutation wording, simplifying the remaining user-facing `UpdatePatch` error messages, and explicitly freezing the shipped surface at the single mode-driven `MutationMode` + `UpdatePatch` + `DbSession::mutate_structural(...)` API without extra wrapper layers.

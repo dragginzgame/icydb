@@ -1,13 +1,12 @@
-use super::{CandidateEvaluation, CandidateScore};
-use crate::{
-    db::{
-        predicate::CoercionId,
-        query::plan::access_choice::{
-            evaluate_multi_lookup_candidate, evaluate_prefix_compare_candidate,
-            evaluate_range_candidate,
-        },
-        schema::SchemaInfo,
+use super::{
+    evaluator::{
+        evaluate_multi_lookup_candidate, evaluate_prefix_compare_candidate,
+        evaluate_range_candidate,
     },
+    model::{AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore},
+};
+use crate::{
+    db::{predicate::CoercionId, schema::SchemaInfo},
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
@@ -160,7 +159,7 @@ fn evaluate_prefix_compare_candidate_rejects_text_casefold_on_raw_field_index() 
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::LeadingFieldMismatch),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch),
     );
 }
 
@@ -181,7 +180,7 @@ fn evaluate_prefix_compare_candidate_rejects_text_casefold_for_unsupported_expre
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::LeadingFieldMismatch),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch),
     );
 }
 
@@ -265,7 +264,7 @@ fn evaluate_multi_lookup_candidate_rejects_mixed_literal_set_for_expression_inde
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::InLiteralIncompatible),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::InLiteralIncompatible),
     );
 }
 
@@ -291,7 +290,7 @@ fn evaluate_multi_lookup_candidate_rejects_text_casefold_for_unsupported_express
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::LeadingFieldMismatch),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch),
     );
 }
 
@@ -311,7 +310,7 @@ fn evaluate_range_candidate_rejects_gt_for_expression_index() {
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::OperatorNotRangeSupported),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotRangeSupported),
     );
 }
 
@@ -331,7 +330,7 @@ fn evaluate_range_candidate_rejects_starts_with_for_expression_index() {
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::OperatorNotRangeSupported),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotRangeSupported),
     );
 }
 
@@ -403,7 +402,7 @@ fn evaluate_range_candidate_rejects_text_casefold_starts_with_for_unsupported_ex
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::LeadingFieldMismatch),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch),
     );
 }
 
@@ -423,7 +422,7 @@ fn evaluate_range_candidate_rejects_empty_text_casefold_starts_with_prefix() {
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::StartsWithPrefixInvalid),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::StartsWithPrefixInvalid),
     );
 }
 
@@ -494,6 +493,6 @@ fn evaluate_range_candidate_rejects_eq_range_conflict_on_same_field() {
 
     assert_eq!(
         evaluation,
-        CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::EqRangeConflict),
+        CandidateEvaluation::Rejected(AccessChoiceRejectedReason::EqRangeConflict),
     );
 }

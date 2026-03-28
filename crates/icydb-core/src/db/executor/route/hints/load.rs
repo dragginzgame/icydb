@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::ExecutionKernel,
+        executor::{ContinuationCapabilities, ExecutionKernel},
         query::plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
     },
     model::entity::EntityModel,
@@ -24,8 +24,7 @@ pub(in crate::db::executor::route) fn assess_index_range_limit_pushdown_for_mode
     probe_fetch_hint: Option<usize>,
     capabilities: RouteCapabilities,
 ) -> Option<IndexRangeLimitSpec> {
-    let access_window = *continuation.fetch_access_window();
-    let continuation_capabilities = continuation.capabilities();
+    let (access_window, continuation_capabilities) = continuation_hint_inputs(continuation);
     let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(model, plan);
     capabilities
         .index_range_limit_pushdown_shape_supported
@@ -45,8 +44,7 @@ pub(in crate::db::executor::route) fn load_scan_budget_hint(
     continuation: RouteContinuationPlan,
     capabilities: RouteCapabilities,
 ) -> Option<usize> {
-    let continuation_capabilities = continuation.capabilities();
-    let access_window = *continuation.fetch_access_window();
+    let (access_window, continuation_capabilities) = continuation_hint_inputs(continuation);
     let fetch_hint = bounded_window_fetch_hint(access_window);
 
     plan.access_strategy().load_window_early_stop_hint(
@@ -63,7 +61,7 @@ pub(in crate::db::executor::route) fn top_n_seek_spec_for_model(
     continuation: RouteContinuationPlan,
     capabilities: RouteCapabilities,
 ) -> Option<TopNSeekSpec> {
-    let continuation_capabilities = continuation.capabilities();
+    let (access_window, continuation_capabilities) = continuation_hint_inputs(continuation);
     let logical = plan.scalar_plan();
     let has_order = logical
         .order
@@ -74,9 +72,18 @@ pub(in crate::db::executor::route) fn top_n_seek_spec_for_model(
     capabilities.stream_order_contract_safe.then_some(())?;
     (!continuation_capabilities.applied()).then_some(())?;
 
-    let access_window = *continuation.fetch_access_window();
-
     bounded_window_fetch_hint(access_window).map(TopNSeekSpec::new)
+}
+
+// Load-route hint helpers all read the same continuation snapshot fields, so
+// unpack them once at the module boundary.
+const fn continuation_hint_inputs(
+    continuation: RouteContinuationPlan,
+) -> (AccessWindow, ContinuationCapabilities) {
+    (
+        *continuation.fetch_access_window(),
+        continuation.capabilities(),
+    )
 }
 
 /// Return whether bounded aggregate probe hints are safe for this plan.

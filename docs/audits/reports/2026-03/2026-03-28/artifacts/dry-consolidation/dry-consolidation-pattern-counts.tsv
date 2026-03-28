@@ -1,0 +1,7 @@
+pattern_family	match_count	file_count
+predicate_capability_classification	69	4
+continuation_cursor_contract	117	15
+route_capability_snapshot	136	16
+commit_marker_envelope	61	2
+row_slot_image_staging	70	1
+persisted_slot_payload_helper_ladder	39	1

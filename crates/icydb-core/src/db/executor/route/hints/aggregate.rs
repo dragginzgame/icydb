@@ -40,16 +40,8 @@ pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
     access_window: AccessWindow,
 ) -> Option<usize> {
     let kind = aggregate.kind();
-    let field_target_eligible = match (aggregate.target_field(), kind, direction) {
-        (Some(_), AggregateKind::Min, Direction::Asc) => capabilities.field_min_fast_path_eligible,
-        (Some(_), AggregateKind::Max, Direction::Desc) => {
-            capabilities.field_max_fast_path_eligible
-                && field_target_max_probe_shape_is_tie_free_for_model(model, plan, aggregate)
-        }
-        (Some(_), _, _) => false,
-        (None, _, _) => true,
-    };
-    field_target_eligible.then_some(())?;
+    aggregate_probe_shape_supported_for_model(model, plan, aggregate, direction, capabilities)
+        .then_some(())?;
 
     (aggregate_supports_bounded_probe_hint(kind)
         && direction_allows_physical_fetch_hint(
@@ -59,16 +51,7 @@ pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
         && capabilities.bounded_probe_hint_safe)
         .then_some(())?;
 
-    if access_window.is_zero_window() {
-        Some(0)
-    } else {
-        let offset = access_window.lower_bound();
-        let page_limit = access_window
-            .page_limit()
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-        aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
-    }
+    aggregate_probe_window_fetch_hint(kind, direction, access_window)
 }
 
 pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
@@ -93,6 +76,44 @@ pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
         Direction::Asc => AggregateSeekSpec::First { fetch },
         Direction::Desc => AggregateSeekSpec::Last { fetch },
     })
+}
+
+// Apply the route capability snapshot to the aggregate probe shape before the
+// bounded fetch-hint layer interprets the access window.
+fn aggregate_probe_shape_supported_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    aggregate: &AggregateExpr,
+    direction: Direction,
+    capabilities: RouteCapabilities,
+) -> bool {
+    match (aggregate.target_field(), aggregate.kind(), direction) {
+        (Some(_), AggregateKind::Min, Direction::Asc) => capabilities.field_min_fast_path_eligible,
+        (Some(_), AggregateKind::Max, Direction::Desc) => {
+            capabilities.field_max_fast_path_eligible
+                && field_target_max_probe_shape_is_tie_free_for_model(model, plan, aggregate)
+        }
+        (Some(_), _, _) => false,
+        (None, _, _) => true,
+    }
+}
+
+// Convert one route access window into the bounded aggregate probe fetch hint.
+fn aggregate_probe_window_fetch_hint(
+    kind: AggregateKind,
+    direction: Direction,
+    access_window: AccessWindow,
+) -> Option<usize> {
+    if access_window.is_zero_window() {
+        return Some(0);
+    }
+
+    let offset = access_window.lower_bound();
+    let page_limit = access_window
+        .page_limit()
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+
+    aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
 }
 
 fn field_target_max_probe_shape_is_tie_free_for_model(
