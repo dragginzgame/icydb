@@ -23,11 +23,11 @@ The revived subset is now:
 - `set_access`
 - `stale_secondary`
 
-The still-pruned families are not one homogeneous backlog. They split into three buckets:
+The still-pruned families are not one homogeneous backlog. They now split into two buckets:
 
 1. Delete wrapper/harness files that only existed to aggregate stale suites.
 2. Migrate owner-local tests into the modules that now own the behavior.
-3. Leave the very large matrix families pruned until they can be revived deliberately.
+3. Leave the remaining very large aggregate matrix family pruned until it can be revived deliberately.
 
 ## Delete
 
@@ -71,18 +71,12 @@ These families are large enough that trying to wire them back in wholesale would
   Reason: mixes aggregate planner policy, explain descriptors, covering fast paths, session-matrix behavior, and ranking.
   Recommendation: leave pruned until there is a dedicated aggregate-test consolidation pass. Revive by owner slice, not by re-enabling the old family.
 
-- `crates/icydb-core/src/db/executor/tests/pagination/*.rs`
-  Size: 4944 lines across three files.
-  Reason: heavy use of stale builder helpers and shared fixtures, plus the remaining deep ordering/cursor/index-range matrices.
-  Stale dependencies seen: `AccessPlannedQuery::new_typed(...)`, `cursor_boundary_from_entity(...)`, `execute_paged_with_cursor(...)`, and shared fixture entities from the old root test module.
-  Recommendation: continue by owner slice. The small no-cursor limit-window contracts, the core primary-key cursor resume and fast-vs-fallback parity cases, the first index-range pushdown/fallback plus simple secondary-order parity slices, the first index-range anchor/signature contracts, the composite-budget safe-shape / budget-disable / boundary-parity family, the full range-edge continuation family, the single-field and composite table-driven range parity loops, the unique secondary-range property matrix, and the full distinct family are now live in `db/executor/tests/pagination.rs`; the remaining matrix backlog is now the ordering-permutation / cursor-pk / index-range families.
-
 ## Recommended Order
 
 1. Delete the obsolete wrapper files after their surviving cases are accounted for.
 2. Migrate route-owner tests file by file.
 3. Split `semantics.rs` into owner-local slices.
-4. Only then consider aggregate or pagination matrix revival.
+4. Only then consider aggregate matrix revival.
 
 ## Push Guidance
 
@@ -121,6 +115,29 @@ Reason:
 - The concrete single-field edge semantics now also live in `db/executor/tests/pagination.rs`: between-equivalent ordered parity, min/max tag edge handling, and the concrete unique secondary-range paged-vs-unbounded contract with strict raw-key anchor monotonicity.
 - The remaining `range_edges_trace_matrix.rs` backlog is gone. Its property matrix and both table-driven parity loops now live in `db/executor/tests/pagination.rs`, and the old file has been deleted.
 - The distinct backlog is now gone. Union distinct order/boundary parity, row-distinct DataKey preservation, union distinct boundary-complete resume, distinct DESC secondary boundary-complete resume, distinct DESC secondary fast/fallback parity, distinct DESC primary-key fast/fallback parity, distinct DESC index-range parity, distinct mixed-direction fallback parity, and the distinct offset parity family now all live in `db/executor/tests/pagination.rs`, and the old `pagination/distinct_matrix.rs` file has been deleted.
+- The first ordering-permutation backlog tranche is now also live in `db/executor/tests/pagination.rs`: simple union/intersection child-order permutation parity, mixed-direction union/intersection child-order permutation parity, and the secondary-order trace-label contracts for explicit top-n seek vs non-top-n pushdown.
+- The mixed-direction fallback-vs-uniform rank-unique parity contract is now also live in `db/executor/tests/pagination.rs`: row order, emitted boundaries, and token resumes stay aligned across the mixed-direction fallback lane and the equivalent uniform-direction lane.
+- The mixed-direction resume matrix is now also live in `db/executor/tests/pagination.rs`: resume boundaries are complete across the rank/id and group/rank/id order variants, and paged traversal stays duplicate-free at limits 1, 2, and 3.
+- The remaining table-driven union/intersection permutation loops are now also live in `db/executor/tests/pagination.rs`, and the old `pagination/ordering_permutation_matrix.rs` file has been deleted.
+- The first `cursor_pk` backlog tranche is now also live in `db/executor/tests/pagination.rs`: stable offset-token bytes for the same plan shape, first-page-to-continuation window semantics across asc/desc plus offset variants, by-ids offset resume completeness, and shared-boundary PK fast-vs-fallback parity.
+- The next `cursor_pk` backlog tranche is now also live in `db/executor/tests/pagination.rs`: bounded PK key-range continuation, cursor-past-end empty-page handling, the fail-closed inverted manual key-range invariant, non-top-n PK trace labeling, unsupported PK cursor boundary validation (missing/type/arity mismatch), and the `PhaseEntity` rank-order continuation boundary/signature family.
+- The final `cursor_pk` backlog tranche is now also live in `db/executor/tests/pagination.rs`: PK fast-vs-by-ids shape-signature rejection, shape-local resume parity across asc/desc ordered windows, token replay parity with explicit cross-shape rejection, the secondary offset-resume parity cases, and PK fast-path scan-accounting coverage. The old `pagination/cursor_pk_matrix.rs` file has been deleted.
+- The full `index_range` backlog is now also live in `db/executor/tests/pagination.rs`: descending index-prefix/by-ids parity, prefix-window terminal exhaustion, single-field/composite/unique full-stream direction symmetry, limit matrices, exact-size and terminal-page cursor suppression, index-range limit-pushdown trace and replay parity, residual-filter retry behavior, and the index-only predicate distinct/range/`IN` families. The old `pagination/index_range_matrix.rs` file has been deleted.
 - The fluent explain text/json/verbose adapter contract now lives in `db/session/tests.rs`.
+- The session-facing aggregate projection and ranked terminal contracts now also live in `db/session/tests.rs`: execute/projection parity for `values_by`, `values_by_with_ids`, and `distinct_values_by`; `take(k)` prefix parity; deterministic `top_k_by` / `bottom_k_by` ordering; ranked-row projection parity for value and value-with-id terminals; first/last value projection parity; base-order direction invariance across ranked terminals; and ranked insertion-order invariance.
+- The typed `DbSession` facade slice now also lives in `db/session/tests.rs`: `select_one()` constant/no-metrics behavior, direct `show_indexes(...)` and `describe_entity(...)` payload coverage for plain and indexed session fixtures, and `trace_query(...)` plan-hash/explain parity plus ordered execution summary coverage. Reviving that slice also flushed out one stale expectation from the dead matrix: `trace_query()` guarantees a human-readable selected access hint, not a hard `Index...` strategy label.
+- The typed `DbSession` aggregate-explain slice now also lives in `db/session/tests.rs`: `explain_exists()` standard-route coverage, `explain_not_exists()` alias parity, and `explain_first()` / `explain_last()` order-shape parity on the live session aggregate fixture. Reviving that slice also flushed out a second stale explain assumption from the dead matrix: the stable public contract is the route / execution-mode / node-type family, not legacy `projected_field` or `projection_mode` entries in aggregate execution metadata.
+- The typed `DbSession` execution-explain matrix now also lives in `db/session/tests.rs`: strict indexed predicate prefilter staging, residual predicate staging, and `LIMIT 0` execution-shape behavior are now covered on the live session-local indexed fixture instead of the dead aggregate matrix.
+- The typed `DbSession` execution-descriptor slice now also lives in `db/session/tests.rs`: by-key vs index-prefix vs index-multi root classification, unordered covering-scan eligibility, and ordered limited descriptor-tree structure are now covered on the live session-local fixtures. Reviving that slice flushed out more stale matrix assumptions: the session-facing descriptor contract does not guarantee the old executor-only metadata keys such as `covering_scan_reason`, `scan_direction`, or `order_satisfied_by_index`.
+- The typed `DbSession` seek and execution-surface slice now also lives in `db/session/tests.rs`: indexed `explain_min()` / `explain_max()` seek labels plus fetch contracts, and the strict index-prefix execution text/json surface contract, now both covered on the local indexed aggregate fixture instead of the dead session matrix.
+- The session-owned aggregate terminal parity slice now also lives in `db/session/tests.rs`: `min_by("missing_field")` fail-before-scan behavior, numeric `sum_by("rank")` / `avg_by("rank")` execute parity, and the existing identity/new-field aggregate parity now cover the executor-root duplicates that were still stranded in `aggregate/session_matrix.rs`.
+- The remaining non-temporal session-path slice now also lives in `db/session/tests.rs`: identity-terminal parity, `exists` / `not_exists` / `is_empty` early-stop scan-budget parity, `primary_key IS NULL` zero-scan lowering, and `primary_key IS NULL OR id = ...` branch parity are now covered on the live session aggregate fixture instead of the executor-root matrix.
+- The temporal session-value slice now also lives in `db/session/tests.rs`: entity/value projection typing, grouped temporal keys, distinct temporal projections, first/last scalar projections, value/id pairs, ranked temporal value projections, and ranked row terminals are all now covered on the live `SessionTemporalEntity` fixture. The old `aggregate/session_matrix.rs` file is deleted.
+- The first executor-owned aggregate core slice now lives in `db/executor/tests/aggregate_core.rs`: bypassed field-target executor invariants, unknown ranked target fail-closed behavior across all ranked terminal forms, and non-orderable field-target rejection with zero scan-budget consumption.
+- The first executor-owned aggregate projection slice now lives in `db/executor/tests/aggregate_projection.rs`: `count_distinct_by(...)` effective-window parity, non-orderable/list-order stability, residual-retry scan-budget parity, distinct-modifier window tracking, row-level `values_by(...).distinct()` semantics, `distinct_values_by(...)` effective-window and first-observed-dedup parity, covering constant/index projection parity, covering non-leading distinct-order parity, optional-null and missing-field ranked projection parity, and strict missing-row corruption surfacing for both covering constant and covering index projections.
+- The old `aggregate/projection_matrix.rs` backlog is now gone. Its remaining executor-owned projection scan-budget matrix now lives in `db/executor/tests/aggregate_projection.rs`, and its session-owned projection contracts were already lifted into `db/session/tests.rs`.
+- The session-owned direction/insertion slice from `aggregate/ranked_matrix.rs` is now redundant with live `db/session/tests.rs` coverage and has been trimmed from the pruned file, leaving the remaining ranked backlog focused on executor-owned parity and extrema contracts.
+- The first executor-owned aggregate path slice now lives in `db/executor/tests/aggregate_path.rs`: by-id/by-ids/count/exists window parity, strict missing-row corruption classification, full-scan/key-range/index-range scan-budget bounds, union/intersection path parity, composite direct-vs-fallback scan-accounting, index-range aggregate parity, strict consistency parity, and limit-zero aggregate parity.
+- The session-owned aggregate bytes slice now lives in `db/session/tests.rs`: `bytes()` persisted-row parity, `bytes_by("rank")` encoded-value parity, `explain_bytes_by("rank")` terminal metadata and strict-materialized-mode coverage, empty-window zero handling, and unknown-field fail-before-scan / fail-before-planning behavior. Reviving those tests also flushed out one stale assumption from the dead matrix: `bytes_by(...)` counts canonical serialized field values, not stored slot-envelope bytes.
 - The executor-owned execution-pipeline snapshot family now lives again in `db/executor/tests/semantics.rs`.
 - Reviving that file did not expose a runtime bug. It exposed stale snapshot expectations only: plan-hash, continuation-signature, grouped execution-strategy, and execution-descriptor wording had all drifted with the live executor/query surface.

@@ -2348,6 +2348,31 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
 }
 
 #[test]
+fn route_matrix_aggregate_exists_secondary_order_prefix_shape_stays_materialized() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let route_plan = build_aggregate_route(&plan, AggregateKind::Exists);
+
+    assert_eq!(
+        route_plan.execution_mode,
+        RouteExecutionMode::Materialized,
+        "ordered secondary-prefix EXISTS must stay on the canonical materialized lane",
+    );
+}
+
+#[test]
 fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
     let mut strict_compatible = AccessPlannedQuery::new(
         AccessPath::index_range(

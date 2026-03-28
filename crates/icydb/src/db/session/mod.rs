@@ -799,7 +799,7 @@ mod tests {
         let route = session.sql_statement_route(sql)?;
         if !route.is_show_entities() {
             return Err(unsupported_sql_runtime_error(
-                "SHOW ENTITIES dispatch requires a SHOW ENTITIES or SHOW TABLES statement",
+                "SHOW ENTITIES dispatch requires a SHOW ENTITIES statement",
             ));
         }
 
@@ -1069,23 +1069,6 @@ mod tests {
     }
 
     #[test]
-    fn facade_sql_statement_route_show_tables_classifies_show_entities_surface() {
-        let session = fresh_facade_session();
-
-        let route = session
-            .sql_statement_route("SHOW TABLES")
-            .expect("facade SQL statement route should classify SHOW TABLES");
-
-        assert_eq!(route, SqlStatementRoute::ShowEntities);
-        assert!(route.is_show_entities());
-        assert_eq!(route.entity(), "");
-        assert!(!route.is_show_indexes());
-        assert!(!route.is_show_columns());
-        assert!(!route.is_describe());
-        assert!(!route.is_explain());
-    }
-
-    #[test]
     fn facade_describe_sql_matches_describe_entity_payload() {
         let session = fresh_facade_session();
 
@@ -1141,20 +1124,6 @@ mod tests {
         assert_eq!(
             from_sql, from_typed,
             "facade show_entities_sql should return the same canonical payload as show_entities",
-        );
-    }
-
-    #[test]
-    fn facade_show_entities_sql_show_tables_alias_matches_show_entities_payload() {
-        let session = fresh_facade_session();
-
-        let from_sql = dispatch_show_entities_sql(&session, "SHOW TABLES")
-            .expect("facade show_entities_sql SHOW TABLES alias should succeed");
-        let from_typed = session.show_entities();
-
-        assert_eq!(
-            from_sql, from_typed,
-            "facade show_entities_sql SHOW TABLES alias should return the same canonical payload as show_entities",
         );
     }
 
@@ -1295,7 +1264,6 @@ mod tests {
                 "facade query_from_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade query_from_sql SHOW ENTITIES"),
-            ("SHOW TABLES", "facade query_from_sql SHOW TABLES"),
         ];
 
         // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
@@ -1384,7 +1352,6 @@ mod tests {
                 "facade explain_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade explain_sql SHOW ENTITIES"),
-            ("SHOW TABLES", "facade explain_sql SHOW TABLES"),
         ];
 
         // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
@@ -1415,7 +1382,6 @@ mod tests {
                 "facade describe_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade describe_sql SHOW ENTITIES"),
-            ("SHOW TABLES", "facade describe_sql SHOW TABLES"),
         ];
         let show_indexes_cases = [
             (
@@ -1431,7 +1397,6 @@ mod tests {
                 "facade show_indexes_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade show_indexes_sql SHOW ENTITIES"),
-            ("SHOW TABLES", "facade show_indexes_sql SHOW TABLES"),
         ];
         let show_columns_cases = [
             (
@@ -1447,7 +1412,6 @@ mod tests {
                 "facade show_columns_sql SHOW INDEXES",
             ),
             ("SHOW ENTITIES", "facade show_columns_sql SHOW ENTITIES"),
-            ("SHOW TABLES", "facade show_columns_sql SHOW TABLES"),
         ];
         let show_entities_cases = [
             (

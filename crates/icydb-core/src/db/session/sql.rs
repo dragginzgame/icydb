@@ -274,7 +274,7 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
             "query_from_sql does not accept SHOW COLUMNS statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
-            "query_from_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use execute_sql_dispatch(...)"
+            "query_from_sql does not accept SHOW ENTITIES statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
             "query_from_sql requires one executable SELECT or DELETE statement"
@@ -289,7 +289,7 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
             "explain_sql does not accept SHOW COLUMNS statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
-            "explain_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use execute_sql_dispatch(...)"
+            "explain_sql does not accept SHOW ENTITIES statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::Query | SqlLaneKind::Explain) => {
             "explain_sql requires an EXPLAIN statement"

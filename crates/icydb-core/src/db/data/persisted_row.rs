@@ -749,9 +749,22 @@ fn ensure_slot_value_matches_field_contract(
         ));
     }
 
-    if matches!(field.kind(), FieldKind::Structured { queryable: false })
-        && matches!(field.storage_decode(), FieldStorageDecode::Value)
-    {
+    // `FieldStorageDecode::Value` fields persist the generic `Value` envelope
+    // directly, so storage-side validation must accept structured leaves nested
+    // under collection contracts instead of reusing the predicate literal gate.
+    if matches!(field.storage_decode(), FieldStorageDecode::Value) {
+        if !storage_value_matches_field_kind(field.kind(), value) {
+            return Err(InternalError::persisted_row_field_encode_failed(
+                field.name(),
+                format!(
+                    "field kind {:?} does not accept runtime value {value:?}",
+                    field.kind()
+                ),
+            ));
+        }
+
+        ensure_decimal_scale_matches(field.name(), field.kind(), value)?;
+
         return ensure_value_is_deterministic_for_storage(field.name(), field.kind(), value);
     }
 
@@ -768,6 +781,54 @@ fn ensure_slot_value_matches_field_contract(
 
     ensure_decimal_scale_matches(field.name(), field.kind(), value)?;
     ensure_value_is_deterministic_for_storage(field.name(), field.kind(), value)
+}
+
+// Match one runtime value against the semantic field kind used by value-backed
+// storage. Unlike predicate literals, non-queryable structured leaves are valid
+// persisted payloads when they arrive as canonical `Value::List` / `Value::Map`
+// shapes.
+fn storage_value_matches_field_kind(kind: FieldKind, value: &Value) -> bool {
+    match (kind, value) {
+        (FieldKind::Account, Value::Account(_))
+        | (FieldKind::Blob, Value::Blob(_))
+        | (FieldKind::Bool, Value::Bool(_))
+        | (FieldKind::Date, Value::Date(_))
+        | (FieldKind::Decimal { .. }, Value::Decimal(_))
+        | (FieldKind::Duration, Value::Duration(_))
+        | (FieldKind::Enum { .. }, Value::Enum(_))
+        | (FieldKind::Float32, Value::Float32(_))
+        | (FieldKind::Float64, Value::Float64(_))
+        | (FieldKind::Int, Value::Int(_))
+        | (FieldKind::Int128, Value::Int128(_))
+        | (FieldKind::IntBig, Value::IntBig(_))
+        | (FieldKind::Principal, Value::Principal(_))
+        | (FieldKind::Subaccount, Value::Subaccount(_))
+        | (FieldKind::Text, Value::Text(_))
+        | (FieldKind::Timestamp, Value::Timestamp(_))
+        | (FieldKind::Uint, Value::Uint(_))
+        | (FieldKind::Uint128, Value::Uint128(_))
+        | (FieldKind::UintBig, Value::UintBig(_))
+        | (FieldKind::Ulid, Value::Ulid(_))
+        | (FieldKind::Unit, Value::Unit)
+        | (FieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            storage_value_matches_field_kind(*key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
+            .iter()
+            .all(|item| storage_value_matches_field_kind(*inner, item)),
+        (FieldKind::Map { key, value }, Value::Map(entries)) => {
+            if Value::validate_map_entries(entries.as_slice()).is_err() {
+                return false;
+            }
+
+            entries.iter().all(|(entry_key, entry_value)| {
+                storage_value_matches_field_kind(*key, entry_key)
+                    && storage_value_matches_field_kind(*value, entry_value)
+            })
+        }
+        _ => false,
+    }
 }
 
 // Enforce fixed decimal scales through nested collection/map shapes before a
@@ -2443,6 +2504,16 @@ mod tests {
             FieldStorageDecode::ByKind,
             true,
         )];
+    static STRUCTURED_MAP_VALUE_KIND: FieldKind = FieldKind::Structured { queryable: false };
+    static STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS: [FieldModel; 1] =
+        [FieldModel::new_with_storage_decode(
+            "projects",
+            FieldKind::Map {
+                key: &FieldKind::Principal,
+                value: &STRUCTURED_MAP_VALUE_KIND,
+            },
+            FieldStorageDecode::Value,
+        )];
     static INDEX_MODELS: [&crate::model::index::IndexModel; 0] = [];
     static TEST_MODEL: EntityModel = EntityModel::new(
         "tests::PersistedRowFieldCodecEntity",
@@ -2491,6 +2562,13 @@ mod tests {
         "persisted_row_optional_structured_field_codec_entity",
         &OPTIONAL_STRUCTURED_FIELD_MODELS[0],
         &OPTIONAL_STRUCTURED_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowStructuredMapValueStorageEntity",
+        "persisted_row_structured_map_value_storage_entity",
+        &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS[0],
+        &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS,
         &INDEX_MODELS,
     );
 
@@ -2614,6 +2692,36 @@ mod tests {
             decoded,
             Value::Map(vec![(Value::Text("alpha".to_string()), Value::Uint(7))]),
         );
+    }
+
+    #[test]
+    fn encode_slot_value_from_value_accepts_value_storage_maps_with_structured_values() {
+        let principal = Principal::dummy(7);
+        let project = Value::from_map(vec![
+            (Value::Text("pid".to_string()), Value::Principal(principal)),
+            (
+                Value::Text("status".to_string()),
+                Value::Enum(ValueEnum::new(
+                    "Saved",
+                    Some("design::app::user::customise::project::ProjectStatus"),
+                )),
+            ),
+        ])
+        .expect("project value should normalize into a canonical map");
+        let projects = Value::from_map(vec![(Value::Principal(principal), project)])
+            .expect("outer map should normalize into a canonical map");
+
+        let payload =
+            encode_slot_value_from_value(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, &projects)
+                .expect("encode structured map slot");
+        let decoded = decode_slot_value_from_bytes(
+            &STRUCTURED_MAP_VALUE_STORAGE_MODEL,
+            0,
+            payload.as_slice(),
+        )
+        .expect("decode structured map slot");
+
+        assert_eq!(decoded, projects);
     }
 
     #[test]

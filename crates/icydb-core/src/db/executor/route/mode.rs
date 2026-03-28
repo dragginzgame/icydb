@@ -5,8 +5,10 @@
 
 use crate::db::{
     direction::Direction,
-    query::builder::AggregateExpr,
-    query::plan::{AccessPlannedQuery, ExecutionOrderContract},
+    query::{
+        builder::AggregateExpr,
+        plan::{AccessPlannedQuery, ExecutionOrderContract},
+    },
 };
 
 use crate::db::executor::route::{RouteCapabilities, aggregate_extrema_direction};
@@ -30,9 +32,19 @@ pub(in crate::db::executor) fn aggregate_non_count_streaming_allowed(
         };
     }
 
-    capabilities.stream_order_contract_safe
-        || secondary_pushdown_eligible
-        || index_range_limit_enabled
+    if capabilities.stream_order_contract_safe || index_range_limit_enabled {
+        return true;
+    }
+
+    // Secondary-order pushdown alone is not enough for canonical aggregate
+    // streaming on non-field terminals. Those shapes share the ordered index
+    // access contract with load execution, but stale secondary rows are
+    // reconciled correctly only through the canonical materialized row path.
+    // Keeping this lane materialized preserves aggregate/load parity for
+    // `EXISTS`, `FIRST`, `LAST`, `MIN`, and `MAX` on ordered secondary shapes.
+    let _ = secondary_pushdown_eligible;
+
+    false
 }
 
 // Route-owned load streaming gate.

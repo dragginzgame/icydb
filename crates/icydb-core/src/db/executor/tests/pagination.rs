@@ -8,9 +8,11 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
+        diagnostics::ExecutionOptimization,
         executor::ExecutablePlan,
         executor::pipeline::contracts::{CursorPage, PageCursor},
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+        query::explain::ExplainAccessPath,
         query::plan::{
             AccessPlannedQuery, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
             QueryMode, ScalarPlan,
@@ -22,7 +24,11 @@ use crate::{
     value::Value,
 };
 use proptest::prelude::*;
-use std::{cell::RefCell, collections::BTreeSet, ops::Bound};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    ops::Bound,
+};
 
 ///
 /// PaginationCaptureSink
@@ -46,6 +52,61 @@ impl MetricsSink for PaginationCaptureSink {
     fn record(&self, event: MetricsEvent) {
         self.events.borrow_mut().push(event);
     }
+}
+
+trait PaginationTestEntityId {
+    fn entity_id(&self) -> Ulid;
+}
+
+impl PaginationTestEntityId for IndexedMetricsEntity {
+    fn entity_id(&self) -> Ulid {
+        self.id
+    }
+}
+
+impl PaginationTestEntityId for PushdownParityEntity {
+    fn entity_id(&self) -> Ulid {
+        self.id
+    }
+}
+
+impl PaginationTestEntityId for UniqueIndexRangeEntity {
+    fn entity_id(&self) -> Ulid {
+        self.id
+    }
+}
+
+fn ids_from_items<E>(response: &EntityResponse<E>) -> Vec<Ulid>
+where
+    E: PaginationTestEntityId + crate::traits::EntityKind,
+{
+    response
+        .iter()
+        .map(|row| row.entity_ref().entity_id())
+        .collect()
+}
+
+fn scalar_boundary(cursor: &PageCursor) -> CursorBoundary {
+    cursor
+        .as_scalar()
+        .expect("pagination test cursor should stay scalar")
+        .boundary()
+        .clone()
+}
+
+fn explain_contains_index_range(
+    access: &ExplainAccessPath,
+    expected_index: &str,
+    expected_prefix_len: usize,
+) -> bool {
+    matches!(
+        access,
+        ExplainAccessPath::IndexRange {
+            name,
+            prefix_len,
+            ..
+        } if *name == expected_index && *prefix_len == expected_prefix_len
+    )
 }
 
 fn setup_pagination_test() {
@@ -84,6 +145,14 @@ fn seed_simple_rows(ids: &[u128]) {
             id: Ulid::from_u128(*id),
         })
         .expect("simple pagination seed save should succeed");
+    }
+}
+
+fn seed_phase_rows(rows: &[PhaseEntity]) {
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in rows {
+        save.insert(row.clone())
+            .expect("phase pagination seed save should succeed");
     }
 }
 
@@ -151,6 +220,66 @@ fn build_simple_union_page_plan(
     })
 }
 
+fn build_simple_key_range_page_plan(
+    start: u128,
+    end: u128,
+    direction: OrderDirection,
+    limit: Option<u32>,
+    offset: u32,
+) -> ExecutablePlan<SimpleEntity> {
+    ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), direction)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: limit.map(|limit| PageSpec {
+                limit: Some(limit),
+                offset,
+            }),
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::KeyRange {
+            start: Ulid::from_u128(start),
+            end: Ulid::from_u128(end),
+        })
+        .into_value_plan(),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+    })
+}
+
+fn build_phase_rank_page_plan(descending: bool, limit: u32) -> ExecutablePlan<PhaseEntity> {
+    let base = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore).limit(limit);
+    let ordered = if descending {
+        base.order_by_desc("rank")
+    } else {
+        base.order_by("rank")
+    };
+
+    ordered
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("phase rank page plan should build")
+}
+
+fn execute_phase_rank_page(
+    load: &LoadExecutor<PhaseEntity>,
+    descending: bool,
+    limit: u32,
+    cursor: Option<&[u8]>,
+) -> CursorPage<PhaseEntity> {
+    let plan = build_phase_rank_page_plan(descending, limit);
+    let boundary = build_phase_rank_page_plan(descending, limit)
+        .prepare_cursor(cursor)
+        .expect("phase rank page boundary should plan");
+
+    load.execute_paged_with_cursor(plan, boundary)
+        .expect("phase rank page should execute")
+}
+
 fn execute_page_ids_and_keys_scanned(
     load: &LoadExecutor<SimpleEntity>,
     plan: ExecutablePlan<SimpleEntity>,
@@ -169,6 +298,10 @@ fn execute_page_ids_and_keys_scanned(
 }
 
 fn simple_ids_from_items(items: &crate::db::response::EntityResponse<SimpleEntity>) -> Vec<Ulid> {
+    items.iter().map(|row| row.entity_ref().id).collect()
+}
+
+fn phase_ids_from_items(items: &crate::db::response::EntityResponse<PhaseEntity>) -> Vec<Ulid> {
     items.iter().map(|row| row.entity_ref().id).collect()
 }
 
@@ -208,6 +341,77 @@ fn collect_simple_pages_from_executable_plan(
     }
 
     (ids, boundaries)
+}
+
+fn collect_simple_pages_from_executable_plan_with_tokens(
+    load: &LoadExecutor<SimpleEntity>,
+    build_plan: impl Fn() -> ExecutablePlan<SimpleEntity>,
+    max_pages: usize,
+) -> (Vec<Ulid>, Vec<CursorBoundary>, Vec<Vec<u8>>) {
+    let mut ids = Vec::new();
+    let mut boundaries = Vec::new();
+    let mut tokens = Vec::new();
+    let mut encoded_cursor = None::<Vec<u8>>;
+
+    for _ in 0..max_pages {
+        let boundary_plan = build_plan();
+        let page = load
+            .execute_paged_with_cursor(
+                build_plan(),
+                boundary_plan
+                    .prepare_cursor(encoded_cursor.as_deref())
+                    .expect("simple boundary should plan"),
+            )
+            .expect("simple page should execute");
+        ids.extend(simple_ids_from_items(&page.items));
+
+        let Some(cursor) = page.next_cursor else {
+            break;
+        };
+        let scalar = cursor
+            .as_scalar()
+            .expect("simple pagination should stay on scalar cursors");
+        let token = cursor
+            .encode()
+            .expect("simple continuation cursor should serialize");
+        boundaries.push(scalar.boundary().clone());
+        tokens.push(token.clone());
+        encoded_cursor = Some(token);
+    }
+
+    (ids, boundaries, tokens)
+}
+
+fn assert_simple_resume_suffixes_from_tokens(
+    load: &LoadExecutor<SimpleEntity>,
+    build_plan: &impl Fn() -> ExecutablePlan<SimpleEntity>,
+    tokens: &[Vec<u8>],
+    expected_ids: &[Ulid],
+    context: &str,
+) {
+    for token in tokens {
+        let page = load
+            .execute_paged_with_cursor(
+                build_plan(),
+                build_plan()
+                    .prepare_cursor(Some(token.as_slice()))
+                    .expect("simple token resume should plan"),
+            )
+            .expect("simple token resume should execute");
+        let resumed_ids = simple_ids_from_items(&page.items);
+        let first_resumed_id = *resumed_ids
+            .first()
+            .expect("simple resumed page should contain at least one row");
+        let expected_start = expected_ids
+            .iter()
+            .position(|id| *id == first_resumed_id)
+            .expect("simple resumed id should exist in the expected baseline");
+        assert_eq!(
+            resumed_ids.as_slice(),
+            &expected_ids[expected_start..expected_start.saturating_add(resumed_ids.len())],
+            "{context}: resumed simple page should preserve suffix order",
+        );
+    }
 }
 
 fn seed_pushdown_rows(rows: &[(u128, u32, u32, &str)]) {
@@ -348,6 +552,29 @@ fn pushdown_trace_rows(prefix: u128) -> [(u128, u32, u32, &'static str); 5] {
         (prefix + 3, 7, 20, "g7-r20-b"),
         (prefix + 4, 7, 30, "g7-r30"),
         (prefix + 5, 8, 15, "g8-r15"),
+    ]
+}
+
+fn pushdown_rows_with_group9(prefix: u128) -> [(u128, u32, u32, &'static str); 8] {
+    [
+        (prefix + 1, 7, 10, "g7-r10"),
+        (prefix + 2, 7, 20, "g7-r20-a"),
+        (prefix + 3, 7, 20, "g7-r20-b"),
+        (prefix + 4, 7, 30, "g7-r30"),
+        (prefix + 5, 7, 40, "g7-r40"),
+        (prefix + 6, 9, 10, "g9-r10"),
+        (prefix + 7, 9, 30, "g9-r30"),
+        (prefix + 8, 9, 50, "g9-r50"),
+    ]
+}
+
+fn pushdown_rows_window(prefix: u128) -> [(u128, u32, u32, &'static str); 5] {
+    [
+        (prefix + 1, 7, 10, "g7-r10"),
+        (prefix + 2, 7, 20, "g7-r20"),
+        (prefix + 3, 7, 30, "g7-r30"),
+        (prefix + 4, 8, 10, "g8-r10"),
+        (prefix + 5, 8, 20, "g8-r20"),
     ]
 }
 
@@ -961,6 +1188,158 @@ fn encode_token(cursor: &PageCursor, context: &'static str) -> Vec<u8> {
     cursor.encode().unwrap_or_else(|_| panic!("{context}"))
 }
 
+fn decode_boundary(cursor_bytes: &[u8], context: &'static str) -> CursorBoundary {
+    ContinuationToken::decode(cursor_bytes)
+        .unwrap_or_else(|_| panic!("{context}"))
+        .boundary()
+        .clone()
+}
+
+fn assert_resume_from_terminal_entity_exhausts_range(
+    terminal_entity: &PushdownParityEntity,
+    context: &'static str,
+) {
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(pushdown_group_predicate(7))
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(ExecutablePlan::from)
+        .expect("terminal resume plan should build");
+    let boundary = Some(CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(u64::from(terminal_entity.rank))),
+            CursorBoundarySlot::Present(Value::Ulid(terminal_entity.id)),
+        ],
+    });
+    let page = load
+        .execute_paged_with_cursor(plan, boundary)
+        .expect("terminal resume page should execute");
+
+    assert!(
+        page.items.is_empty(),
+        "{context}: terminal boundary should yield an empty continuation page",
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "{context}: terminal boundary should not emit a continuation cursor",
+    );
+}
+
+fn execute_full_query<E>(query: Query<E>) -> Vec<Ulid>
+where
+    E: crate::db::PersistedRow
+        + crate::traits::EntityKind
+        + crate::traits::EntityPlacement<Canister = TestCanister>
+        + crate::traits::EntityValue
+        + crate::traits::EntityKey<Key = Ulid>
+        + PaginationTestEntityId,
+{
+    let load = LoadExecutor::<E>::new(DB, false);
+    let items = load
+        .execute(
+            query
+                .plan()
+                .map(ExecutablePlan::from)
+                .expect("full-query plan should build"),
+        )
+        .expect("full-query execution should succeed");
+
+    ids_from_items(&items)
+}
+
+fn execute_paged_query_ids<E>(
+    build_query: &impl Fn() -> Query<E>,
+    limit: u32,
+    max_pages: usize,
+) -> Vec<Ulid>
+where
+    E: crate::db::PersistedRow
+        + crate::traits::EntityKind
+        + crate::traits::EntityPlacement<Canister = TestCanister>
+        + crate::traits::EntityValue
+        + crate::traits::EntityKey<Key = Ulid>
+        + PaginationTestEntityId,
+{
+    let load = LoadExecutor::<E>::new(DB, false);
+    let mut encoded_cursor = None::<Vec<u8>>;
+    let mut ids = Vec::new();
+
+    for _ in 0..max_pages {
+        let plan = build_query()
+            .limit(limit)
+            .plan()
+            .map(ExecutablePlan::from)
+            .expect("paged limit-matrix plan should build");
+        let boundary = plan
+            .prepare_cursor(encoded_cursor.as_deref())
+            .expect("paged limit-matrix boundary should plan");
+        let page = load
+            .execute_paged_with_cursor(plan, boundary)
+            .expect("paged limit-matrix execution should succeed");
+        ids.extend(ids_from_items(&page.items));
+
+        let Some(cursor) = page.next_cursor else {
+            break;
+        };
+        encoded_cursor = Some(
+            cursor
+                .encode()
+                .expect("paged limit-matrix cursor should serialize"),
+        );
+    }
+
+    ids
+}
+
+fn assert_limit_matrix<E>(build_query: impl Fn() -> Query<E>, limits: &[u32], max_pages: usize)
+where
+    E: crate::db::PersistedRow
+        + crate::traits::EntityKind
+        + crate::traits::EntityPlacement<Canister = TestCanister>
+        + crate::traits::EntityValue
+        + crate::traits::EntityKey<Key = Ulid>
+        + PaginationTestEntityId,
+{
+    let expected_ids = execute_full_query(build_query());
+    for limit in limits {
+        let paged_ids = execute_paged_query_ids(&build_query, *limit, max_pages);
+        let expected = if *limit == 0 {
+            Vec::new()
+        } else {
+            expected_ids.clone()
+        };
+        assert_eq!(
+            paged_ids, expected,
+            "limit-matrix paged traversal should match the unbounded baseline across all pages for limit={limit}",
+        );
+    }
+}
+
+fn assert_pushdown_parity<E>(
+    build_query: impl Fn() -> Query<E>,
+    fallback_ids: Vec<Ulid>,
+    order: impl Fn(Query<E>) -> Query<E>,
+) where
+    E: crate::db::PersistedRow
+        + crate::traits::EntityKind
+        + crate::traits::EntityPlacement<Canister = TestCanister>
+        + crate::traits::EntityValue
+        + crate::traits::EntityKey<Key = Ulid>
+        + PaginationTestEntityId,
+{
+    let pushdown_ids = execute_full_query(build_query());
+    let fallback_ids = execute_full_query(order(
+        Query::<E>::new(MissingRowPolicy::Ignore).by_ids(fallback_ids.iter().copied()),
+    ));
+
+    assert_eq!(
+        pushdown_ids, fallback_ids,
+        "pushdown and by-ids fallback should return the same full ordered result",
+    );
+}
+
 fn assert_anchor_monotonic(
     anchors: &mut Vec<Vec<u8>>,
     cursor_bytes: &[u8],
@@ -1084,6 +1463,19 @@ fn pushdown_rank_id_boundary(rank: u32, id: u128) -> CursorBoundary {
             CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(id))),
         ],
     }
+}
+
+fn pushdown_group_rank_id_boundary(group: Option<u32>, rank: u32, id: u128) -> CursorBoundary {
+    let mut slots = Vec::new();
+    if let Some(group) = group {
+        slots.push(CursorBoundarySlot::Present(Value::Uint(u64::from(group))));
+    }
+    slots.push(CursorBoundarySlot::Present(Value::Uint(u64::from(rank))));
+    slots.push(CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
+        id,
+    ))));
+
+    CursorBoundary { slots }
 }
 
 fn execute_pushdown_rank_page_asc(
@@ -1327,6 +1719,175 @@ fn ordered_pushdown_ids_with_rank_and_id_direction(
     ordered.into_iter().map(|(_, id)| id).collect()
 }
 
+fn build_rank_unique_pushdown_plan(
+    predicate: Predicate,
+    id_desc: bool,
+    limit: u32,
+) -> ExecutablePlan<PushdownParityEntity> {
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(limit);
+    let query = if id_desc {
+        query.order_by_desc("id")
+    } else {
+        query.order_by("id")
+    };
+
+    query
+        .plan()
+        .map(ExecutablePlan::from)
+        .expect("rank-unique pushdown plan should build")
+}
+
+fn assert_rank_unique_order_pushdown_explain_missing_model_context(
+    predicate: Predicate,
+    id_desc: bool,
+    context: &'static str,
+) {
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("rank");
+    let query = if id_desc {
+        query.order_by_desc("id")
+    } else {
+        query.order_by("id")
+    };
+    let explain = query.explain().expect("rank-unique explain should build");
+
+    assert!(
+        matches!(
+            explain.order_pushdown(),
+            crate::db::query::explain::ExplainOrderPushdown::MissingModelContext
+        ),
+        "{context}: query-layer explain should not evaluate secondary pushdown eligibility",
+    );
+}
+
+fn build_mixed_direction_resume_plan(
+    filter_group: Option<u32>,
+    group_desc: Option<bool>,
+    rank_desc: bool,
+    id_desc: bool,
+    limit: u32,
+) -> ExecutablePlan<PushdownParityEntity> {
+    let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).limit(limit);
+
+    if let Some(group) = filter_group {
+        query = query.filter(pushdown_group_predicate(group));
+    }
+
+    if let Some(desc) = group_desc {
+        query = if desc {
+            query.order_by_desc("group")
+        } else {
+            query.order_by("group")
+        };
+    }
+
+    query = if rank_desc {
+        query.order_by_desc("rank")
+    } else {
+        query.order_by("rank")
+    };
+
+    query = if id_desc {
+        query.order_by_desc("id")
+    } else {
+        query.order_by("id")
+    };
+
+    query
+        .plan()
+        .map(ExecutablePlan::from)
+        .expect("mixed-direction resume plan should build")
+}
+
+///
+/// MixedDirectionResumeCase
+///
+/// Small owner-local fixture describing one mixed-direction ordering/resume
+/// contract in the pagination matrix without reintroducing the old wrapper
+/// harness.
+///
+
+struct MixedDirectionResumeCase {
+    case_name: &'static str,
+    filter_group: Option<u32>,
+    group_desc: Option<bool>,
+    rank_desc: bool,
+    id_desc: bool,
+    expected_ids: Vec<Ulid>,
+}
+
+fn assert_mixed_direction_resume_case(
+    load: &LoadExecutor<PushdownParityEntity>,
+    row_lookup: &BTreeMap<Ulid, (u128, u32, u32)>,
+    case: &MixedDirectionResumeCase,
+) {
+    let build_plan = |limit| {
+        build_mixed_direction_resume_plan(
+            case.filter_group,
+            case.group_desc,
+            case.rank_desc,
+            case.id_desc,
+            limit,
+        )
+    };
+
+    let base_page = load
+        .execute_paged_with_cursor(build_plan(16), None)
+        .expect("mixed-direction base page should execute");
+    let base_ids = pushdown_ids_from_response(&base_page.items);
+    assert_eq!(
+        base_ids, case.expected_ids,
+        "case '{}' should preserve mixed-direction canonical ordering",
+        case.case_name,
+    );
+
+    for (idx, id) in case.expected_ids.iter().copied().enumerate() {
+        let (raw_id, group, rank) = row_lookup
+            .get(&id)
+            .copied()
+            .expect("resume case should only reference seeded rows");
+        let resumed_page = load
+            .execute_paged_with_cursor(
+                build_plan(16),
+                Some(pushdown_group_rank_id_boundary(
+                    case.group_desc.map(|_| group),
+                    rank,
+                    raw_id,
+                )),
+            )
+            .expect("mixed-direction boundary resume should execute");
+        let resumed_ids = pushdown_ids_from_response(&resumed_page.items);
+        assert_eq!(
+            resumed_ids,
+            case.expected_ids[idx + 1..].to_vec(),
+            "case '{}' should resume from the row immediately after the boundary entity",
+            case.case_name,
+        );
+    }
+
+    for limit in [1_u32, 2, 3] {
+        let (paged_ids, _) =
+            collect_pushdown_pages_from_executable_plan(load, || build_plan(limit), 20);
+        assert_eq!(
+            paged_ids, case.expected_ids,
+            "case '{}' with limit={limit} paged traversal should match unbounded mixed-direction ordering",
+            case.case_name,
+        );
+
+        let unique: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            paged_ids.len(),
+            "case '{}' with limit={limit} mixed-direction pagination must not duplicate rows",
+            case.case_name,
+        );
+    }
+}
+
 fn build_simple_ordered_page_plan(
     descending: bool,
     limit: u32,
@@ -1367,6 +1928,287 @@ fn build_simple_by_ids_ordered_page_plan(
         .plan()
         .map(ExecutablePlan::from)
         .expect("simple by-ids ordered pagination plan should build")
+}
+
+fn simple_pagination_keys() -> [u128; 5] {
+    [5, 1, 4, 2, 3]
+}
+
+fn build_simple_fixed_by_ids_ordered_page_plan(
+    keys: &[u128; 5],
+    descending: bool,
+    limit: u32,
+    offset: u32,
+) -> ExecutablePlan<SimpleEntity> {
+    build_simple_by_ids_ordered_page_plan(
+        keys.iter().copied().map(Ulid::from_u128),
+        descending,
+        limit,
+        offset,
+    )
+}
+
+fn execute_simple_fast_and_fallback_seed_pages(
+    load: &LoadExecutor<SimpleEntity>,
+    keys: &[u128; 5],
+    descending: bool,
+    limit: u32,
+    offset: u32,
+) -> (CursorPage<SimpleEntity>, CursorPage<SimpleEntity>) {
+    let fast_page = load
+        .execute_paged_with_cursor(
+            build_simple_ordered_page_plan(descending, limit, offset),
+            None,
+        )
+        .expect("simple fast-path seed page should execute");
+    let fallback_page = load
+        .execute_paged_with_cursor(
+            build_simple_fixed_by_ids_ordered_page_plan(keys, descending, limit, offset),
+            None,
+        )
+        .expect("simple by-ids seed page should execute");
+
+    (fast_page, fallback_page)
+}
+
+fn execute_simple_fast_and_fallback_replay_pages(
+    load: &LoadExecutor<SimpleEntity>,
+    keys: &[u128; 5],
+    descending: bool,
+    limit: u32,
+    offset: u32,
+    fast_cursor: &[u8],
+    fallback_cursor: &[u8],
+) -> (CursorPage<SimpleEntity>, CursorPage<SimpleEntity>) {
+    let fast_page = load
+        .execute_paged_with_cursor(
+            build_simple_ordered_page_plan(descending, limit, offset),
+            build_simple_ordered_page_plan(descending, limit, offset)
+                .prepare_cursor(Some(fast_cursor))
+                .expect("simple fast-path replay cursor should validate"),
+        )
+        .expect("simple fast-path replay page should execute");
+    let fallback_page = load
+        .execute_paged_with_cursor(
+            build_simple_fixed_by_ids_ordered_page_plan(keys, descending, limit, offset),
+            build_simple_fixed_by_ids_ordered_page_plan(keys, descending, limit, offset)
+                .prepare_cursor(Some(fallback_cursor))
+                .expect("simple by-ids replay cursor should validate"),
+        )
+        .expect("simple by-ids replay page should execute");
+
+    (fast_page, fallback_page)
+}
+
+fn assert_simple_token_page1_contracts(
+    case_name: &str,
+    fast_cursor: &PageCursor,
+    fallback_cursor: &PageCursor,
+    fast_token: &[u8],
+    fallback_token: &[u8],
+) {
+    assert_eq!(
+        decode_boundary(fast_token, "fast token replay boundary should decode"),
+        fast_cursor
+            .as_scalar()
+            .expect("fast token replay cursor should stay scalar")
+            .boundary()
+            .clone(),
+        "fast token decode boundary should match emitted boundary for case={case_name}",
+    );
+    assert_eq!(
+        decode_boundary(
+            fallback_token,
+            "fallback token replay boundary should decode"
+        ),
+        fallback_cursor
+            .as_scalar()
+            .expect("fallback token replay cursor should stay scalar")
+            .boundary()
+            .clone(),
+        "fallback token decode boundary should match emitted boundary for case={case_name}",
+    );
+    assert_eq!(
+        fast_cursor
+            .as_scalar()
+            .expect("fast token replay cursor should stay scalar")
+            .boundary(),
+        fallback_cursor
+            .as_scalar()
+            .expect("fallback token replay cursor should stay scalar")
+            .boundary(),
+        "token replay page1 boundaries should match across equivalent shapes for case={case_name}",
+    );
+    assert_ne!(
+        fast_cursor
+            .as_scalar()
+            .expect("fast token replay cursor should stay scalar")
+            .signature(),
+        fallback_cursor
+            .as_scalar()
+            .expect("fallback token replay cursor should stay scalar")
+            .signature(),
+        "token replay page1 signatures must remain shape-specific for case={case_name}",
+    );
+}
+
+fn assert_simple_token_page2_and_cross_shape_contracts(
+    load: &LoadExecutor<SimpleEntity>,
+    keys: &[u128; 5],
+    descending: bool,
+    case_name: &str,
+    fast_token: &[u8],
+    fallback_token: &[u8],
+) {
+    let (fast_page_2, fallback_page_2) = execute_simple_fast_and_fallback_replay_pages(
+        load,
+        keys,
+        descending,
+        2,
+        1,
+        fast_token,
+        fallback_token,
+    );
+    assert_eq!(
+        simple_ids_from_items(&fast_page_2.items),
+        simple_ids_from_items(&fallback_page_2.items),
+        "token replay page2 rows should match across equivalent shapes for case={case_name}",
+    );
+    assert_eq!(
+        fast_page_2.next_cursor.is_some(),
+        fallback_page_2.next_cursor.is_some(),
+        "token replay page2 cursor presence should match across equivalent shapes for case={case_name}",
+    );
+    if let (Some(fast_cursor), Some(fallback_cursor)) =
+        (&fast_page_2.next_cursor, &fallback_page_2.next_cursor)
+    {
+        assert_eq!(
+            fast_cursor
+                .as_scalar()
+                .expect("fast token replay page2 cursor should stay scalar")
+                .boundary()
+                .clone(),
+            fallback_cursor
+                .as_scalar()
+                .expect("fallback token replay page2 cursor should stay scalar")
+                .boundary()
+                .clone(),
+            "token replay page2 boundaries should match across equivalent shapes for case={case_name}",
+        );
+    }
+
+    let fallback_cross_shape_err =
+        build_simple_fixed_by_ids_ordered_page_plan(keys, descending, 2, 1)
+            .prepare_cursor(Some(fast_token))
+            .expect_err("fallback shape should reject fast token");
+    assert!(
+        matches!(
+            fallback_cross_shape_err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "cross-shape fallback token replay should fail with signature mismatch for case={case_name}",
+    );
+
+    let fast_cross_shape_err = build_simple_ordered_page_plan(descending, 2, 1)
+        .prepare_cursor(Some(fallback_token))
+        .expect_err("fast shape should reject fallback token");
+    assert!(
+        matches!(
+            fast_cross_shape_err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "cross-shape fast token replay should fail with signature mismatch for case={case_name}",
+    );
+}
+
+fn build_simple_access_ordered_page_plan(
+    access: AccessPlan<Ulid>,
+    descending: bool,
+    limit: u32,
+) -> ExecutablePlan<SimpleEntity> {
+    ExecutablePlan::new(AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![(
+                    "id".to_string(),
+                    if descending {
+                        OrderDirection::Desc
+                    } else {
+                        OrderDirection::Asc
+                    },
+                )],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(limit),
+                offset: 0,
+            }),
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: access.into_value_plan(),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+    })
+}
+
+fn build_pushdown_access_ordered_page_plan(
+    access: AccessPlan<Ulid>,
+    rank_direction: OrderDirection,
+    id_direction: OrderDirection,
+    limit: u32,
+) -> ExecutablePlan<PushdownParityEntity> {
+    ExecutablePlan::new(AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), rank_direction),
+                    ("id".to_string(), id_direction),
+                ],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(limit),
+                offset: 0,
+            }),
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: access.into_value_plan(),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+    })
+}
+
+fn assert_pushdown_access_permutation_case(
+    build_left_plan: impl Fn() -> ExecutablePlan<PushdownParityEntity>,
+    build_right_plan: impl Fn() -> ExecutablePlan<PushdownParityEntity>,
+    case_name: &'static str,
+) {
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (left_ids, left_boundaries) =
+        collect_pushdown_pages_from_executable_plan(&load, build_left_plan, 20);
+    let (right_ids, right_boundaries) =
+        collect_pushdown_pages_from_executable_plan(&load, build_right_plan, 20);
+
+    assert_eq!(
+        left_ids, right_ids,
+        "{case_name}: child-plan permutation must not change paged row sequence",
+    );
+    assert_eq!(
+        left_boundaries, right_boundaries,
+        "{case_name}: child-plan permutation must not change continuation boundaries",
+    );
 }
 
 #[test]
@@ -1840,6 +2682,285 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         fast_page2.next_cursor.is_some(),
         non_fast_page2.next_cursor.is_some(),
         "descending page2 cursor presence should match between paths",
+    );
+}
+
+#[test]
+fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shape() {
+    setup_pagination_test();
+    seed_simple_rows(&[5, 1, 4, 2, 3]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let query_signature = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("query signature plan should build")
+        .into_inner()
+        .continuation_signature(SimpleEntity::PATH);
+
+    let page_plan_a = build_simple_ordered_page_plan(false, 2, 1);
+    let page_boundary_a = page_plan_a
+        .prepare_cursor(None)
+        .expect("page boundary A should plan");
+    let page_a = load
+        .execute_paged_with_cursor(page_plan_a, page_boundary_a)
+        .expect("page A should execute");
+    let token_a = page_a
+        .next_cursor
+        .as_ref()
+        .expect("page A should emit continuation cursor");
+    let bytes_a = token_a
+        .encode()
+        .expect("continuation cursor A should serialize");
+
+    let page_plan_b = build_simple_ordered_page_plan(false, 2, 1);
+    let page_boundary_b = page_plan_b
+        .prepare_cursor(None)
+        .expect("page boundary B should plan");
+    let page_b = load
+        .execute_paged_with_cursor(page_plan_b, page_boundary_b)
+        .expect("page B should execute");
+    let token_b = page_b
+        .next_cursor
+        .as_ref()
+        .expect("page B should emit continuation cursor");
+    let bytes_b = token_b
+        .encode()
+        .expect("continuation cursor B should serialize");
+
+    assert_eq!(
+        token_a
+            .as_scalar()
+            .expect("page A cursor should stay scalar")
+            .signature(),
+        query_signature,
+        "continuation token must carry the query-derived continuation signature (run A)",
+    );
+    assert_eq!(
+        token_b
+            .as_scalar()
+            .expect("page B cursor should stay scalar")
+            .signature(),
+        query_signature,
+        "continuation token must carry the query-derived continuation signature (run B)",
+    );
+    assert_eq!(
+        bytes_a, bytes_b,
+        "continuation token bytes should remain stable for the same plan shape and dataset",
+    );
+}
+
+#[test]
+fn load_cursor_initial_to_continuation_matrix_covers_direction_and_window_semantics() {
+    setup_pagination_test();
+    seed_simple_rows(&[6, 1, 5, 2, 4, 3, 7]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    for (case_name, descending, offset, limit) in [
+        ("asc_offset0_limit2", false, 0_u32, 2_u32),
+        ("asc_offset1_limit2", false, 1_u32, 2_u32),
+        ("desc_offset0_limit2", true, 0_u32, 2_u32),
+        ("desc_offset1_limit2", true, 1_u32, 2_u32),
+    ] {
+        let build_plan = || build_simple_ordered_page_plan(descending, limit, offset);
+
+        // Phase 1: execute the initial page from an empty cursor boundary.
+        let page_1_plan = build_plan();
+        let page_1_cursor = page_1_plan
+            .prepare_cursor(None)
+            .expect("page-1 cursor should plan");
+        let page_1 = load
+            .execute_paged_with_cursor(page_1_plan, page_1_cursor)
+            .expect("page-1 execution should succeed");
+
+        // Phase 2: derive expected canonical window and assert first-page output.
+        let mut expected_ids = (1_u128..=7).map(Ulid::from_u128).collect::<Vec<_>>();
+        if descending {
+            expected_ids.reverse();
+        }
+        let expected_ids = expected_ids
+            .into_iter()
+            .skip(offset as usize)
+            .collect::<Vec<_>>();
+        let expected_page_1 = expected_ids
+            .iter()
+            .copied()
+            .take(limit as usize)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            simple_ids_from_items(&page_1.items),
+            expected_page_1,
+            "first-page rows must match canonical cursor window for case={case_name}",
+        );
+
+        // Phase 3: resume from continuation and assert strict suffix progression.
+        let expected_page_2 = expected_ids
+            .iter()
+            .copied()
+            .skip(limit as usize)
+            .take(limit as usize)
+            .collect::<Vec<_>>();
+        if expected_page_2.is_empty() {
+            assert!(
+                page_1.next_cursor.is_none(),
+                "terminal first page should not emit continuation for case={case_name}",
+            );
+            continue;
+        }
+
+        let cursor = page_1
+            .next_cursor
+            .expect("non-terminal first page should emit continuation cursor");
+        let page_2_plan = build_plan();
+        let page_2_cursor = page_2_plan
+            .prepare_cursor(Some(
+                cursor
+                    .encode()
+                    .expect("continuation cursor should serialize")
+                    .as_slice(),
+            ))
+            .expect("page-2 cursor should plan");
+        let page_2 = load
+            .execute_paged_with_cursor(page_2_plan, page_2_cursor)
+            .expect("page-2 execution should succeed");
+        assert_eq!(
+            simple_ids_from_items(&page_2.items),
+            expected_page_2,
+            "resumed rows must continue canonical window without offset replay for case={case_name}",
+        );
+    }
+}
+
+#[test]
+fn load_cursor_with_offset_fallback_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+    seed_simple_rows(&[42_201, 42_202, 42_203, 42_204, 42_205, 42_206, 42_207]);
+
+    let fallback_ids = vec![
+        Ulid::from_u128(42_204),
+        Ulid::from_u128(42_201),
+        Ulid::from_u128(42_207),
+        Ulid::from_u128(42_202),
+        Ulid::from_u128(42_206),
+        Ulid::from_u128(42_203),
+        Ulid::from_u128(42_205),
+    ];
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let build_plan = || {
+            build_simple_by_ids_ordered_page_plan(fallback_ids.iter().copied(), descending, 2, 1)
+        };
+
+        let (_seed_page, seed_trace) = load
+            .execute_paged_with_cursor_traced(build_plan(), None)
+            .expect("fallback offset seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization(),
+            None,
+            "fallback by-ids offset shape should remain non-optimized for case={case_name}",
+        );
+
+        let mut expected_ids = fallback_ids.clone();
+        expected_ids.sort();
+        if descending {
+            expected_ids.reverse();
+        }
+        let expected_ids = expected_ids.into_iter().skip(1).collect::<Vec<_>>();
+
+        let (ids, _boundaries, tokens) =
+            collect_simple_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
+        assert_eq!(
+            ids, expected_ids,
+            "fallback offset traversal must preserve canonical order for case={case_name}",
+        );
+        assert_simple_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            &tokens,
+            &expected_ids,
+            case_name,
+        );
+    }
+}
+
+#[test]
+fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundary() {
+    setup_pagination_test();
+
+    // Phase 1: seed rows with non-sorted insertion order.
+    let keys = [7_u128, 1_u128, 6_u128, 2_u128, 5_u128, 3_u128, 4_u128];
+    seed_simple_rows(&keys);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    // Phase 2: capture one canonical cursor boundary from an initial fast-path page.
+    let page1_plan = build_simple_ordered_page_plan(false, 3, 0);
+    let page1_boundary = page1_plan
+        .prepare_cursor(None)
+        .expect("cursor source boundary should plan");
+    let page1 = load
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
+        .expect("cursor source page should execute");
+    let cursor_bytes = page1
+        .next_cursor
+        .as_ref()
+        .expect("cursor source page should emit continuation cursor");
+    let shared_boundary = cursor_bytes
+        .as_scalar()
+        .expect("cursor source page should stay scalar")
+        .boundary()
+        .clone();
+
+    // Phase 3: execute page-2 parity checks with the same typed cursor boundary.
+    let fast_page2_plan = build_simple_ordered_page_plan(false, 2, 0);
+    let fast_page2 = load
+        .execute_paged_with_cursor(fast_page2_plan, Some(shared_boundary.clone()))
+        .expect("fast page2 should execute");
+
+    let non_fast_page2_plan =
+        build_simple_by_ids_ordered_page_plan(keys.into_iter().map(Ulid::from_u128), false, 2, 0);
+    let non_fast_page2 = load
+        .execute_paged_with_cursor(non_fast_page2_plan, Some(shared_boundary))
+        .expect("non-fast page2 should execute");
+
+    let fast_ids = simple_ids_from_items(&fast_page2.items);
+    let non_fast_ids = simple_ids_from_items(&non_fast_page2.items);
+    assert_eq!(
+        fast_ids, non_fast_ids,
+        "fast and non-fast paths must return identical rows for the same cursor boundary",
+    );
+
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        non_fast_page2.next_cursor.is_some(),
+        "cursor presence must match between fast and non-fast paths",
+    );
+
+    let fast_next = fast_page2
+        .next_cursor
+        .as_ref()
+        .expect("fast page2 should emit continuation cursor");
+    let non_fast_next = non_fast_page2
+        .next_cursor
+        .as_ref()
+        .expect("non-fast page2 should emit continuation cursor");
+    let fast_next_boundary = fast_next
+        .as_scalar()
+        .expect("fast page2 cursor should stay scalar")
+        .boundary()
+        .clone();
+    let non_fast_next_boundary = non_fast_next
+        .as_scalar()
+        .expect("non-fast page2 cursor should stay scalar")
+        .boundary()
+        .clone();
+    assert_eq!(
+        &fast_next_boundary, &non_fast_next_boundary,
+        "fast and non-fast paths must emit the same continuation boundary",
     );
 }
 
@@ -2345,6 +3466,956 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         expected_anchor.last_raw_key(),
         "continuation raw-key anchor must match the last emitted row index key",
     );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2, 3, 4, 5]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let page_1_plan = build_simple_key_range_page_plan(2, 4, OrderDirection::Asc, Some(2), 0);
+    let page_1_boundary = page_1_plan
+        .prepare_cursor(None)
+        .expect("pk-range page1 boundary should plan");
+    let page_1 = load
+        .execute_paged_with_cursor(page_1_plan, page_1_boundary)
+        .expect("pk-range page1 should execute");
+    assert_eq!(
+        simple_ids_from_items(&page_1.items),
+        vec![Ulid::from_u128(2), Ulid::from_u128(3)],
+        "key-range page1 should stay inside the declared primary-key bounds",
+    );
+
+    let page_2_plan = build_simple_key_range_page_plan(2, 4, OrderDirection::Asc, Some(2), 0);
+    let page_2_boundary = page_2_plan
+        .prepare_cursor(Some(
+            page_1
+                .next_cursor
+                .as_ref()
+                .expect("pk-range page1 should emit continuation cursor")
+                .encode()
+                .expect("pk-range continuation cursor should serialize")
+                .as_slice(),
+        ))
+        .expect("pk-range page2 boundary should plan");
+    let page_2 = load
+        .execute_paged_with_cursor(page_2_plan, page_2_boundary)
+        .expect("pk-range page2 should execute");
+    assert_eq!(
+        simple_ids_from_items(&page_2.items),
+        vec![Ulid::from_u128(4)],
+        "pk-range continuation should resume within the same declared bounds",
+    );
+    assert!(
+        page_2.next_cursor.is_none(),
+        "final bounded key-range page should not emit continuation",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2, 3]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let page = load
+        .execute_paged_with_cursor(
+            build_simple_key_range_page_plan(1, 2, OrderDirection::Asc, Some(2), 0),
+            Some(CursorBoundary {
+                slots: vec![CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
+                    99,
+                )))],
+            }),
+        )
+        .expect("pk-range cursor past end should execute");
+
+    assert!(
+        page.items.is_empty(),
+        "cursor beyond range end should produce an empty page",
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "empty page should not emit a continuation cursor",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2, 3, 4]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+    for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
+        let err = load
+            .execute_paged_with_cursor_traced(
+                build_simple_key_range_page_plan(4, 2, direction, Some(2), 0),
+                None,
+            )
+            .expect_err("inverted manual key-range should fail closed");
+        assert_eq!(
+            err.class,
+            crate::error::ErrorClass::InvariantViolation,
+            "inverted manual key-range should classify as an invariant violation for case={case_name}",
+        );
+        assert_eq!(
+            err.origin,
+            crate::error::ErrorOrigin::Query,
+            "inverted manual key-range should stay query-owned for case={case_name}",
+        );
+        assert!(
+            err.message.contains("key range start is greater than end"),
+            "inverted manual key-range should report the start/end invariant for case={case_name}: {err:?}",
+        );
+    }
+}
+
+#[test]
+fn load_cursor_pagination_pk_trace_reports_non_top_n_variant_without_page_limit() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2, 3, 4]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("pk non-top-n trace plan should build");
+
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
+        .expect("pk non-top-n trace execution should succeed");
+    let trace = trace.expect("debug trace should be present");
+
+    assert_eq!(
+        trace.optimization(),
+        Some(ExecutionOptimization::PrimaryKey),
+        "unpaged PK ordered shapes should report non-top-n PK optimization labels",
+    );
+    assert_eq!(
+        page.items.len(),
+        4,
+        "unpaged PK ordered execution should return all seeded rows",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_missing_slot_is_unsupported() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = build_simple_ordered_page_plan(false, 1, 0);
+    let err = load
+        .execute_paged_with_cursor(
+            plan,
+            Some(CursorBoundary {
+                slots: vec![CursorBoundarySlot::Missing],
+            }),
+        )
+        .expect_err("missing pk slot should be rejected as unsupported cursor input");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "missing pk slot should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Cursor,
+        "missing pk slot should originate from cursor validation checks",
+    );
+    assert!(
+        err.message
+            .contains("continuation cursor primary key type mismatch"),
+        "missing pk slot should return a clear cursor mismatch message: {err:?}",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_type_mismatch_is_unsupported() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = build_simple_ordered_page_plan(false, 1, 0);
+    let err = load
+        .execute_paged_with_cursor(
+            plan,
+            Some(CursorBoundary {
+                slots: vec![CursorBoundarySlot::Present(Value::Text(
+                    "not-a-ulid".to_string(),
+                ))],
+            }),
+        )
+        .expect_err("pk slot type mismatch should be rejected as unsupported cursor input");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "pk slot mismatch should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Cursor,
+        "pk slot mismatch should originate from cursor validation checks",
+    );
+    assert!(
+        err.message
+            .contains("continuation cursor primary key type mismatch"),
+        "pk slot mismatch should return a clear cursor mismatch message: {err:?}",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_arity_mismatch_is_unsupported() {
+    setup_pagination_test();
+    seed_simple_rows(&[1, 2]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = build_simple_ordered_page_plan(false, 1, 0);
+    let err = load
+        .execute_paged_with_cursor(
+            plan,
+            Some(CursorBoundary {
+                slots: vec![
+                    CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(1))),
+                    CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2))),
+                ],
+            }),
+        )
+        .expect_err("pk slot arity mismatch should be rejected as unsupported cursor input");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "pk slot arity mismatch should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Cursor,
+        "pk slot arity mismatch should originate from cursor validation checks",
+    );
+    assert!(
+        err.message
+            .contains("continuation cursor boundary arity mismatch"),
+        "pk slot arity mismatch should return a clear cursor mismatch message: {err:?}",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_skips_strictly_before_limit() {
+    setup_pagination_test();
+    seed_phase_rows(&[
+        PhaseEntity {
+            id: Ulid::from_u128(1100),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1],
+            label: "r10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1101),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1102),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1103),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![4],
+            label: "r30".to_string(),
+        },
+    ]);
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let page_1 = execute_phase_rank_page(&load, false, 1, None);
+    assert_eq!(page_1.items.len(), 1, "page1 should return one row");
+    assert_eq!(page_1.items[0].entity_ref().id, Ulid::from_u128(1100));
+
+    let page_2 = execute_phase_rank_page(
+        &load,
+        false,
+        1,
+        Some(
+            page_1
+                .next_cursor
+                .as_ref()
+                .expect("page1 should emit a continuation cursor")
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ),
+    );
+    assert_eq!(page_2.items.len(), 1, "page2 should return one row");
+    assert_eq!(
+        page_2.items[0].entity_ref().id,
+        Ulid::from_u128(1101),
+        "cursor boundary must be applied before limit using strict ordering",
+    );
+
+    let page_3 = execute_phase_rank_page(
+        &load,
+        false,
+        1,
+        Some(
+            page_2
+                .next_cursor
+                .as_ref()
+                .expect("page2 should emit a continuation cursor")
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ),
+    );
+    assert_eq!(page_3.items.len(), 1, "page3 should return one row");
+    assert_eq!(
+        page_3.items[0].entity_ref().id,
+        Ulid::from_u128(1102),
+        "strict cursor continuation must advance beyond the last returned row",
+    );
+}
+
+#[test]
+fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
+    setup_pagination_test();
+    seed_phase_rows(&[
+        PhaseEntity {
+            id: Ulid::from_u128(1200),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1],
+            label: "r10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1201),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1202),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1203),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![4],
+            label: "r30".to_string(),
+        },
+    ]);
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let page_1 = execute_phase_rank_page(&load, false, 2, None);
+    assert_eq!(page_1.items.len(), 2, "page1 should return two rows");
+    assert_eq!(page_1.items[0].entity_ref().id, Ulid::from_u128(1200));
+    assert_eq!(
+        page_1.items[1].entity_ref().id,
+        Ulid::from_u128(1201),
+        "page1 second row should be the PK tie-break winner for rank=20",
+    );
+
+    let token = page_1
+        .next_cursor
+        .as_ref()
+        .expect("page1 should include next cursor")
+        .as_scalar()
+        .expect("phase continuation should stay scalar");
+    assert_eq!(
+        token.boundary(),
+        &pushdown_rank_id_boundary(20, 1201),
+        "next cursor must encode the last returned row boundary",
+    );
+
+    let page_2 = execute_phase_rank_page(
+        &load,
+        false,
+        2,
+        Some(
+            page_1
+                .next_cursor
+                .as_ref()
+                .expect("page1 should include next cursor")
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ),
+    );
+    assert_eq!(
+        phase_ids_from_items(&page_2.items),
+        vec![Ulid::from_u128(1202), Ulid::from_u128(1203)],
+        "page2 should resume strictly after page1's final row",
+    );
+    assert!(
+        page_2.next_cursor.is_none(),
+        "final page should not emit a continuation cursor",
+    );
+}
+
+#[test]
+fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
+    setup_pagination_test();
+    seed_phase_rows(&[
+        PhaseEntity {
+            id: Ulid::from_u128(1400),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1],
+            label: "r10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1401),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1402),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1403),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![4],
+            label: "r30".to_string(),
+        },
+    ]);
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let page_1 = execute_phase_rank_page(&load, true, 2, None);
+    assert_eq!(
+        phase_ids_from_items(&page_1.items),
+        vec![Ulid::from_u128(1403), Ulid::from_u128(1401)],
+        "descending page1 should apply rank DESC then canonical PK tie-break",
+    );
+
+    let page_2 = execute_phase_rank_page(
+        &load,
+        true,
+        2,
+        Some(
+            page_1
+                .next_cursor
+                .as_ref()
+                .expect("descending page1 should emit continuation cursor")
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ),
+    );
+    assert_eq!(
+        phase_ids_from_items(&page_2.items),
+        vec![Ulid::from_u128(1402), Ulid::from_u128(1400)],
+        "descending continuation must resume strictly after the boundary row",
+    );
+    assert!(
+        page_2.next_cursor.is_none(),
+        "final descending page should not emit a continuation cursor",
+    );
+}
+
+#[test]
+fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
+    setup_pagination_test();
+    seed_phase_rows(&[
+        PhaseEntity {
+            id: Ulid::from_u128(14_500),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![1],
+            label: "r30".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(14_503),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-c".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(14_501),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(14_502),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![4],
+            label: "r20-b".to_string(),
+        },
+    ]);
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let page = load
+        .execute_paged_with_cursor(
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("rank")
+                .limit(4)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("descending tie-break plan should build"),
+            None,
+        )
+        .expect("descending tie-break page should execute");
+
+    assert_eq!(
+        phase_ids_from_items(&page.items),
+        vec![
+            Ulid::from_u128(14_500),
+            Ulid::from_u128(14_501),
+            Ulid::from_u128(14_502),
+            Ulid::from_u128(14_503),
+        ],
+        "descending primary comparator must preserve canonical PK tie-break ordering",
+    );
+}
+
+#[test]
+fn load_cursor_rejects_signature_mismatch() {
+    setup_pagination_test();
+    seed_phase_rows(&[
+        PhaseEntity {
+            id: Ulid::from_u128(1300),
+            opt_rank: Some(1),
+            rank: 1,
+            tags: vec![1],
+            label: "a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1301),
+            opt_rank: Some(2),
+            rank: 2,
+            tags: vec![2],
+            label: "b".to_string(),
+        },
+    ]);
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let asc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("ascending cursor plan should build");
+    let asc_page = load
+        .execute_paged_with_cursor(
+            asc_plan,
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("rank")
+                .limit(1)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("ascending boundary plan should build")
+                .prepare_cursor(None)
+                .expect("ascending boundary should plan"),
+        )
+        .expect("ascending cursor page should execute");
+    let cursor = asc_page
+        .next_cursor
+        .expect("ascending page should emit cursor");
+
+    let desc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("descending plan should build");
+    let err = desc_plan
+        .prepare_cursor(Some(
+            cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
+        .expect_err("cursor from different canonical plan should be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "planning should reject plan-signature mismatch",
+    );
+}
+
+#[test]
+fn load_cursor_rejects_signature_mismatch_between_pk_fast_and_by_ids_shapes() {
+    setup_pagination_test();
+    let keys = simple_pagination_keys();
+    seed_simple_rows(&keys);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let fast_seed_page = load
+        .execute_paged_with_cursor(build_simple_ordered_page_plan(false, 2, 1), None)
+        .expect("fast seed page should execute");
+    let fast_cursor = fast_seed_page
+        .next_cursor
+        .as_ref()
+        .expect("fast seed page should emit continuation cursor");
+    let fallback_seed_page = load
+        .execute_paged_with_cursor(
+            build_simple_fixed_by_ids_ordered_page_plan(&keys, false, 2, 1),
+            None,
+        )
+        .expect("fallback seed page should execute");
+    let fallback_cursor = fallback_seed_page
+        .next_cursor
+        .as_ref()
+        .expect("fallback seed page should emit continuation cursor");
+    assert_eq!(
+        fast_cursor
+            .as_scalar()
+            .expect("fast seed cursor should stay scalar")
+            .boundary(),
+        fallback_cursor
+            .as_scalar()
+            .expect("fallback seed cursor should stay scalar")
+            .boundary(),
+        "fast and fallback cursor boundaries should match for the same ordered window",
+    );
+
+    let err = build_simple_fixed_by_ids_ordered_page_plan(&keys, false, 2, 1)
+        .prepare_cursor(Some(
+            fast_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
+        .expect_err("cursor from a different access-shape signature should be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "cross-shape cursor replay should fail with signature mismatch",
+    );
+}
+
+#[test]
+fn load_cursor_resume_parity_holds_between_pk_fast_and_by_ids_with_shape_local_tokens() {
+    setup_pagination_test();
+    let keys = simple_pagination_keys();
+    seed_simple_rows(&keys);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let (fast_page_1, fallback_page_1) =
+            execute_simple_fast_and_fallback_seed_pages(&load, &keys, descending, 2, 1);
+        let fast_cursor = fast_page_1
+            .next_cursor
+            .as_ref()
+            .expect("fast page1 should emit continuation cursor");
+        let fallback_cursor = fallback_page_1
+            .next_cursor
+            .as_ref()
+            .expect("fallback page1 should emit continuation cursor");
+
+        assert_eq!(
+            simple_ids_from_items(&fast_page_1.items),
+            simple_ids_from_items(&fallback_page_1.items),
+            "page1 rows should match across equivalent fast/fallback shapes for case={case_name}",
+        );
+        assert_eq!(
+            fast_cursor
+                .as_scalar()
+                .expect("fast page1 cursor should stay scalar")
+                .boundary(),
+            fallback_cursor
+                .as_scalar()
+                .expect("fallback page1 cursor should stay scalar")
+                .boundary(),
+            "page1 cursor boundaries should match across equivalent fast/fallback shapes for case={case_name}",
+        );
+        assert_ne!(
+            fast_cursor
+                .as_scalar()
+                .expect("fast page1 cursor should stay scalar")
+                .signature(),
+            fallback_cursor
+                .as_scalar()
+                .expect("fallback page1 cursor should stay scalar")
+                .signature(),
+            "equivalent semantics across different access shapes must keep distinct continuation signatures for case={case_name}",
+        );
+
+        let fast_token = fast_cursor
+            .encode()
+            .expect("fast continuation cursor should serialize");
+        let fallback_token = fallback_cursor
+            .encode()
+            .expect("fallback continuation cursor should serialize");
+        let (fast_page_2, fallback_page_2) = execute_simple_fast_and_fallback_replay_pages(
+            &load,
+            &keys,
+            descending,
+            2,
+            1,
+            fast_token.as_slice(),
+            fallback_token.as_slice(),
+        );
+
+        assert_eq!(
+            simple_ids_from_items(&fast_page_2.items),
+            simple_ids_from_items(&fallback_page_2.items),
+            "page2 rows should match after local-token replay for case={case_name}",
+        );
+        assert_eq!(
+            fast_page_2.next_cursor.is_some(),
+            fallback_page_2.next_cursor.is_some(),
+            "cursor emission parity should match after page2 replay for case={case_name}",
+        );
+    }
+}
+
+#[test]
+fn load_cursor_token_replay_parity_holds_between_pk_fast_and_by_ids_shapes() {
+    setup_pagination_test();
+    let keys = simple_pagination_keys();
+    seed_simple_rows(&keys);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let (fast_page_1, fallback_page_1) =
+            execute_simple_fast_and_fallback_seed_pages(&load, &keys, descending, 2, 1);
+        let fast_cursor = fast_page_1
+            .next_cursor
+            .as_ref()
+            .expect("fast token replay page1 should emit continuation cursor");
+        let fast_token = encode_token(
+            fast_cursor,
+            "fast token replay cursor should serialize for replay",
+        );
+        let fallback_cursor = fallback_page_1
+            .next_cursor
+            .as_ref()
+            .expect("fallback token replay page1 should emit continuation cursor");
+        let fallback_token = encode_token(
+            fallback_cursor,
+            "fallback token replay cursor should serialize for replay",
+        );
+
+        assert_simple_token_page1_contracts(
+            case_name,
+            fast_cursor,
+            fallback_cursor,
+            fast_token.as_slice(),
+            fallback_token.as_slice(),
+        );
+        assert_simple_token_page2_and_cross_shape_contracts(
+            &load,
+            &keys,
+            descending,
+            case_name,
+            fast_token.as_slice(),
+            fallback_token.as_slice(),
+        );
+    }
+}
+
+#[test]
+fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_001, 7, 10, "g7-r10"),
+        (42_002, 7, 20, "g7-r20-a"),
+        (42_003, 7, 20, "g7-r20-b"),
+        (42_004, 7, 30, "g7-r30"),
+        (42_005, 7, 40, "g7-r40"),
+        (42_006, 8, 10, "g8-r10"),
+        (42_007, 8, 20, "g8-r20"),
+        (42_008, 8, 30, "g8-r30"),
+        (42_009, 9, 10, "g9-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+    let predicate = pushdown_group_predicate(7);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let build_plan = || {
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .limit(2)
+                .offset(1);
+            let ordered = if descending {
+                base.order_by_desc("rank").order_by_desc("id")
+            } else {
+                base.order_by("rank").order_by("id")
+            };
+
+            ordered
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary offset continuation plan should build")
+        };
+
+        let (_seed_page, seed_trace) = load
+            .execute_paged_with_cursor_traced(build_plan(), None)
+            .expect("secondary offset seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization(),
+            None,
+            "materialized secondary offset shape should not emit fast-path optimization for case={case_name}",
+        );
+
+        let expected_ids =
+            ordered_pushdown_ids_with_rank_and_id_direction(&rows, 7, descending, descending)
+                .into_iter()
+                .skip(1)
+                .collect::<Vec<_>>();
+        let (ids, _boundaries, tokens) =
+            collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
+        assert_eq!(
+            ids, expected_ids,
+            "secondary offset traversal must preserve canonical order for case={case_name}",
+        );
+        assert_pushdown_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            &tokens,
+            &expected_ids,
+            case_name,
+        );
+    }
+}
+
+#[test]
+fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_101, 10, "t10-a"),
+        (42_102, 10, "t10-b"),
+        (42_103, 20, "t20-a"),
+        (42_104, 20, "t20-b"),
+        (42_105, 25, "t25"),
+        (42_106, 28, "t28-a"),
+        (42_107, 28, "t28-b"),
+        (42_108, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
+        let build_plan = || {
+            ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("tag".to_string(), direction),
+                            ("id".to_string(), direction),
+                        ],
+                    }),
+                    distinct: false,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(2),
+                        offset: 1,
+                    }),
+                    consistency: MissingRowPolicy::Ignore,
+                }),
+                access: AccessPlan::path(AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(30)),
+                )),
+                projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+            })
+        };
+
+        let (_seed_page, seed_trace) = load
+            .execute_paged_with_cursor_traced(build_plan(), None)
+            .expect("index-range offset seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization(),
+            Some(ExecutionOptimization::IndexRangeLimitPushdown),
+            "index-range offset shape should use limit pushdown for case={case_name}",
+        );
+
+        let expected_ids = ordered_index_candidate_ids_for_direction(&rows, 10, 30, direction)
+            .into_iter()
+            .skip(1)
+            .collect::<Vec<_>>();
+        let (ids, _boundaries, tokens) =
+            collect_indexed_metric_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
+        assert_eq!(
+            ids, expected_ids,
+            "index-range offset traversal must preserve canonical order for case={case_name}",
+        );
+        assert_indexed_metric_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            &tokens,
+            &expected_ids,
+            case_name,
+        );
+    }
+}
+
+#[test]
+fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates() {
+    setup_pagination_test();
+    seed_simple_rows(&[6, 1, 5, 2, 4, 3]);
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let base = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+            .limit(2)
+            .offset(1);
+        let plan = if descending {
+            base.order_by_desc("id")
+        } else {
+            base.order_by("id")
+        }
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("pk fast-path budget plan should build");
+
+        let (_page, trace) = load
+            .execute_paged_with_cursor_traced(plan, None)
+            .expect("pk fast-path budget execution should succeed");
+        let trace = trace.expect("debug trace should be present");
+        assert_eq!(
+            trace.optimization(),
+            Some(ExecutionOptimization::PrimaryKeyTopNSeek),
+            "pk trace should report PK fast path for case={case_name}",
+        );
+        assert_eq!(
+            trace.keys_scanned(),
+            6,
+            "pk fast-path trace should count all access candidates for case={case_name}",
+        );
+    }
 }
 
 #[test]
@@ -5077,6 +7148,2780 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             &index_rows,
             direction,
             case_name,
+        );
+    }
+}
+
+#[test]
+fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries() {
+    setup_pagination_test();
+    seed_simple_rows(&[
+        37_901, 37_902, 37_903, 37_904, 37_905, 37_906, 37_907, 37_908,
+    ]);
+
+    let id1 = Ulid::from_u128(37_901);
+    let id2 = Ulid::from_u128(37_902);
+    let id3 = Ulid::from_u128(37_903);
+    let id4 = Ulid::from_u128(37_904);
+    let id5 = Ulid::from_u128(37_905);
+    let id6 = Ulid::from_u128(37_906);
+    let id7 = Ulid::from_u128(37_907);
+    let id8 = Ulid::from_u128(37_908);
+
+    let build_union_abc = || {
+        build_simple_access_ordered_page_plan(
+            AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
+            ]),
+            true,
+            2,
+        )
+    };
+    let build_union_cab = || {
+        build_simple_access_ordered_page_plan(
+            AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
+            ]),
+            true,
+            2,
+        )
+    };
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_simple_pages_from_executable_plan(&load, build_union_abc, 12);
+    let (ids_cab, boundaries_cab) =
+        collect_simple_pages_from_executable_plan(&load, build_union_cab, 12);
+
+    assert_eq!(
+        ids_abc, ids_cab,
+        "union child-plan order permutation must not change paged row sequence",
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_cab,
+        "union child-plan order permutation must not change continuation boundaries",
+    );
+}
+
+#[test]
+fn load_intersection_child_order_permutation_preserves_rows_and_continuation_boundaries() {
+    setup_pagination_test();
+    seed_simple_rows(&[
+        38_001, 38_002, 38_003, 38_004, 38_005, 38_006, 38_007, 38_008,
+    ]);
+
+    let id1 = Ulid::from_u128(38_001);
+    let id2 = Ulid::from_u128(38_002);
+    let id3 = Ulid::from_u128(38_003);
+    let id4 = Ulid::from_u128(38_004);
+    let id5 = Ulid::from_u128(38_005);
+    let id6 = Ulid::from_u128(38_006);
+    let id7 = Ulid::from_u128(38_007);
+    let id8 = Ulid::from_u128(38_008);
+
+    let build_intersection_abc = || {
+        build_simple_access_ordered_page_plan(
+            AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
+            ]),
+            true,
+            1,
+        )
+    };
+    let build_intersection_bca = || {
+        build_simple_access_ordered_page_plan(
+            AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+            ]),
+            true,
+            1,
+        )
+    };
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_simple_pages_from_executable_plan(&load, build_intersection_abc, 12);
+    let (ids_bca, boundaries_bca) =
+        collect_simple_pages_from_executable_plan(&load, build_intersection_bca, 12);
+
+    assert_eq!(
+        ids_abc, ids_bca,
+        "intersection child-plan order permutation must not change paged row sequence",
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_bca,
+        "intersection child-plan order permutation must not change continuation boundaries",
+    );
+}
+
+#[test]
+fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_direction() {
+    setup_pagination_test();
+
+    let rows = [
+        (40_001, 7, 30, "g7-r30-a"),
+        (40_002, 7, 20, "g7-r20-a"),
+        (40_003, 7, 20, "g7-r20-b"),
+        (40_004, 7, 10, "g7-r10"),
+        (40_005, 7, 30, "g7-r30-b"),
+        (40_006, 7, 40, "g7-r40"),
+        (40_007, 7, 20, "g7-r20-c"),
+        (40_008, 8, 15, "g8-r15"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(40_001);
+    let id2 = Ulid::from_u128(40_002);
+    let id3 = Ulid::from_u128(40_003);
+    let id4 = Ulid::from_u128(40_004);
+    let id5 = Ulid::from_u128(40_005);
+    let id6 = Ulid::from_u128(40_006);
+    let id7 = Ulid::from_u128(40_007);
+    let id8 = Ulid::from_u128(40_008);
+
+    let build_union_abc = || {
+        build_pushdown_access_ordered_page_plan(
+            AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
+            ]),
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            2,
+        )
+    };
+    let build_union_cab = || {
+        build_pushdown_access_ordered_page_plan(
+            AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
+            ]),
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            2,
+        )
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_pushdown_pages_from_executable_plan(&load, build_union_abc, 12);
+    let (ids_cab, boundaries_cab) =
+        collect_pushdown_pages_from_executable_plan(&load, build_union_cab, 12);
+
+    assert_eq!(
+        ids_abc, ids_cab,
+        "mixed-direction union child-plan permutation must not change paged row sequence",
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_cab,
+        "mixed-direction union child-plan permutation must not change continuation boundaries",
+    );
+}
+
+#[test]
+fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under_mixed_direction() {
+    setup_pagination_test();
+
+    let rows = [
+        (40_101, 7, 50, "g7-r50"),
+        (40_102, 7, 40, "g7-r40"),
+        (40_103, 7, 30, "g7-r30-a"),
+        (40_104, 7, 30, "g7-r30-b"),
+        (40_105, 7, 20, "g7-r20-a"),
+        (40_106, 7, 20, "g7-r20-b"),
+        (40_107, 7, 10, "g7-r10"),
+        (40_108, 8, 5, "g8-r5"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(40_101);
+    let id2 = Ulid::from_u128(40_102);
+    let id3 = Ulid::from_u128(40_103);
+    let id4 = Ulid::from_u128(40_104);
+    let id5 = Ulid::from_u128(40_105);
+    let id6 = Ulid::from_u128(40_106);
+    let id7 = Ulid::from_u128(40_107);
+    let id8 = Ulid::from_u128(40_108);
+
+    let build_intersection_abc = || {
+        build_pushdown_access_ordered_page_plan(
+            AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
+            ]),
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            1,
+        )
+    };
+    let build_intersection_bca = || {
+        build_pushdown_access_ordered_page_plan(
+            AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+            ]),
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            1,
+        )
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_pushdown_pages_from_executable_plan(&load, build_intersection_abc, 12);
+    let (ids_bca, boundaries_bca) =
+        collect_pushdown_pages_from_executable_plan(&load, build_intersection_bca, 12);
+
+    assert_eq!(
+        ids_abc, ids_bca,
+        "mixed-direction intersection child-plan permutation must not change paged row sequence",
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_bca,
+        "mixed-direction intersection child-plan permutation must not change continuation boundaries",
+    );
+}
+
+#[test]
+fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_201, 40, "code-40"),
+        (42_202, 10, "code-10"),
+        (42_203, 30, "code-30"),
+        (42_204, 20, "code-20"),
+        (42_205, 50, "code-50"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            values: vec![Value::Uint(20)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, true);
+    let plan = ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
+        .expect("unique secondary top-n trace execution should succeed");
+    let trace = trace.expect("debug trace should be present");
+    assert_eq!(
+        trace.optimization(),
+        Some(ExecutionOptimization::SecondaryOrderTopNSeek),
+        "secondary ordered limit windows should report explicit top-n-assisted secondary optimization",
+    );
+}
+
+#[test]
+fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_301, 10, "code-10"),
+        (42_302, 20, "code-20"),
+        (42_303, 30, "code-30"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            values: vec![Value::Uint(20)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, true);
+    let plan = ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
+        .expect("unique secondary non-top-n trace execution should succeed");
+    let trace = trace.expect("debug trace should be present");
+    assert_eq!(
+        trace.optimization(),
+        Some(ExecutionOptimization::SecondaryOrderPushdown),
+        "unpaged secondary ordered shapes should report non-top-n secondary optimization labels",
+    );
+    assert_eq!(
+        page.items.len(),
+        1,
+        "unpaged secondary ordered execution should return the prefix-matching seeded row",
+    );
+}
+
+#[test]
+fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique() {
+    setup_pagination_test();
+
+    let rows = [
+        (41_901, 8, 5, "g8-r5"),
+        (41_902, 7, 10, "g7-r10"),
+        (41_903, 7, 20, "g7-r20"),
+        (41_904, 7, 30, "g7-r30"),
+        (41_905, 9, 40, "g9-r40"),
+    ];
+    seed_pushdown_rows(&rows);
+    let predicate = pushdown_group_predicate(7);
+    let expected_ids = vec![
+        Ulid::from_u128(41_902),
+        Ulid::from_u128(41_903),
+        Ulid::from_u128(41_904),
+    ];
+    let build_mixed_plan = || build_rank_unique_pushdown_plan(predicate.clone(), true, 2);
+    let build_uniform_plan = || build_rank_unique_pushdown_plan(predicate.clone(), false, 2);
+
+    // Phase 1: query-surface explain still lacks model context, so both shapes
+    // report the same unresolved order-pushdown status there.
+    assert_rank_unique_order_pushdown_explain_missing_model_context(
+        predicate.clone(),
+        true,
+        "mixed-direction",
+    );
+    assert_rank_unique_order_pushdown_explain_missing_model_context(
+        predicate.clone(),
+        false,
+        "uniform-direction",
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    // Phase 2: both shapes still execute through the materialized lane in the
+    // current runtime, so traces should stay fallback-only.
+    let (_seed_mixed, mixed_trace) = load
+        .execute_paged_with_cursor_traced(build_mixed_plan(), None)
+        .expect("mixed-direction seed page should execute");
+    let mixed_trace = mixed_trace.expect("debug trace should be present");
+    assert_eq!(
+        mixed_trace.optimization(),
+        None,
+        "mixed-direction execution should remain fallback-only",
+    );
+
+    let (_seed_uniform, uniform_trace) = load
+        .execute_paged_with_cursor_traced(build_uniform_plan(), None)
+        .expect("uniform-direction seed page should execute");
+    let uniform_trace = uniform_trace.expect("debug trace should be present");
+    assert_eq!(
+        uniform_trace.optimization(),
+        None,
+        "uniform-direction residual-filter execution should remain materialized",
+    );
+
+    // Phase 3: row order, emitted boundaries, and token resumes must all stay
+    // aligned across both paths.
+    let (mixed_ids, mixed_boundaries, mixed_tokens) =
+        collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_mixed_plan, 20);
+    let (uniform_ids, uniform_boundaries, uniform_tokens) =
+        collect_pushdown_pages_from_executable_plan_with_tokens(&load, build_uniform_plan, 20);
+    assert_eq!(
+        mixed_ids, expected_ids,
+        "mixed-direction traversal should preserve expected ordering",
+    );
+    assert_eq!(
+        uniform_ids, expected_ids,
+        "uniform-direction traversal should preserve expected ordering",
+    );
+    assert_eq!(
+        mixed_ids, uniform_ids,
+        "mixed-direction fallback and uniform pushdown should return identical ids",
+    );
+    assert_eq!(
+        mixed_boundaries, uniform_boundaries,
+        "mixed-direction fallback and uniform pushdown should emit identical boundaries",
+    );
+    assert_pushdown_resume_suffixes_from_tokens(
+        &load,
+        &build_mixed_plan,
+        &mixed_tokens,
+        &mixed_ids,
+        "mixed-direction fallback resumes",
+    );
+    assert_pushdown_resume_suffixes_from_tokens(
+        &load,
+        &build_uniform_plan,
+        &uniform_tokens,
+        &uniform_ids,
+        "uniform-direction pushdown resumes",
+    );
+}
+
+#[test]
+fn load_mixed_direction_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = [
+        (39_101, 7, 10, "g7-r10"),
+        (39_102, 7, 20, "g7-r20-a"),
+        (39_103, 7, 20, "g7-r20-b"),
+        (39_104, 7, 30, "g7-r30-a"),
+        (39_105, 7, 30, "g7-r30-b"),
+        (39_106, 7, 40, "g7-r40"),
+        (39_107, 8, 20, "g8-r20"),
+        (39_108, 8, 30, "g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+    let row_lookup = rows
+        .iter()
+        .map(|(id, group, rank, _)| (Ulid::from_u128(*id), (*id, *group, *rank)))
+        .collect::<BTreeMap<_, _>>();
+
+    let id1 = Ulid::from_u128(39_101);
+    let id2 = Ulid::from_u128(39_102);
+    let id3 = Ulid::from_u128(39_103);
+    let id4 = Ulid::from_u128(39_104);
+    let id5 = Ulid::from_u128(39_105);
+    let id6 = Ulid::from_u128(39_106);
+    let id7 = Ulid::from_u128(39_107);
+    let id8 = Ulid::from_u128(39_108);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    for case in [
+        MixedDirectionResumeCase {
+            case_name: "rank_desc_id_asc",
+            filter_group: Some(7),
+            group_desc: None,
+            rank_desc: true,
+            id_desc: false,
+            expected_ids: vec![id6, id4, id5, id2, id3, id1],
+        },
+        MixedDirectionResumeCase {
+            case_name: "rank_asc_id_desc",
+            filter_group: Some(7),
+            group_desc: None,
+            rank_desc: false,
+            id_desc: true,
+            expected_ids: vec![id1, id3, id2, id5, id4, id6],
+        },
+        MixedDirectionResumeCase {
+            case_name: "rank_desc_id_desc",
+            filter_group: Some(7),
+            group_desc: None,
+            rank_desc: true,
+            id_desc: true,
+            expected_ids: vec![id6, id5, id4, id3, id2, id1],
+        },
+        MixedDirectionResumeCase {
+            case_name: "rank_asc_id_asc",
+            filter_group: Some(7),
+            group_desc: None,
+            rank_desc: false,
+            id_desc: false,
+            expected_ids: vec![id1, id2, id3, id4, id5, id6],
+        },
+        MixedDirectionResumeCase {
+            case_name: "group_asc_rank_desc_id_asc",
+            filter_group: None,
+            group_desc: Some(false),
+            rank_desc: true,
+            id_desc: false,
+            expected_ids: vec![id6, id4, id5, id2, id3, id1, id8, id7],
+        },
+        MixedDirectionResumeCase {
+            case_name: "group_desc_rank_asc_id_desc",
+            filter_group: None,
+            group_desc: Some(true),
+            rank_desc: false,
+            id_desc: true,
+            expected_ids: vec![id7, id8, id1, id3, id2, id5, id4, id6],
+        },
+    ] {
+        assert_mixed_direction_resume_case(&load, &row_lookup, &case);
+    }
+}
+
+#[test]
+fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under_mixed_direction() {
+    setup_pagination_test();
+
+    let rows = [
+        (41_001, 7, 60, "g7-r60"),
+        (41_002, 7, 50, "g7-r50-a"),
+        (41_003, 7, 50, "g7-r50-b"),
+        (41_004, 7, 40, "g7-r40"),
+        (41_005, 7, 30, "g7-r30"),
+        (41_006, 7, 20, "g7-r20-a"),
+        (41_007, 7, 20, "g7-r20-b"),
+        (41_008, 8, 70, "g8-r70"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(41_001);
+    let id2 = Ulid::from_u128(41_002);
+    let id3 = Ulid::from_u128(41_003);
+    let id4 = Ulid::from_u128(41_004);
+    let id5 = Ulid::from_u128(41_005);
+    let id6 = Ulid::from_u128(41_006);
+    let id7 = Ulid::from_u128(41_007);
+    let id8 = Ulid::from_u128(41_008);
+
+    for (case_name, rank_direction, id_direction, limit) in [
+        (
+            "rank_desc_id_asc_limit1",
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            1,
+        ),
+        (
+            "rank_desc_id_asc_limit3",
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            3,
+        ),
+        (
+            "rank_asc_id_desc_limit2",
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            2,
+        ),
+    ] {
+        let build_union_abc = || {
+            build_pushdown_access_ordered_page_plan(
+                AccessPlan::Union(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
+                ]),
+                rank_direction,
+                id_direction,
+                limit,
+            )
+        };
+        let build_union_cab = || {
+            build_pushdown_access_ordered_page_plan(
+                AccessPlan::Union(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
+                ]),
+                rank_direction,
+                id_direction,
+                limit,
+            )
+        };
+
+        assert_pushdown_access_permutation_case(build_union_abc, build_union_cab, case_name);
+    }
+}
+
+#[test]
+fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundaries_under_mixed_direction()
+ {
+    setup_pagination_test();
+
+    let rows = [
+        (41_101, 7, 70, "g7-r70"),
+        (41_102, 7, 60, "g7-r60"),
+        (41_103, 7, 50, "g7-r50-a"),
+        (41_104, 7, 50, "g7-r50-b"),
+        (41_105, 7, 40, "g7-r40-a"),
+        (41_106, 7, 40, "g7-r40-b"),
+        (41_107, 7, 30, "g7-r30"),
+        (41_108, 7, 20, "g7-r20"),
+        (41_109, 8, 10, "g8-r10"),
+        (41_110, 8, 5, "g8-r5"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(41_101);
+    let id2 = Ulid::from_u128(41_102);
+    let id3 = Ulid::from_u128(41_103);
+    let id4 = Ulid::from_u128(41_104);
+    let id5 = Ulid::from_u128(41_105);
+    let id6 = Ulid::from_u128(41_106);
+    let id7 = Ulid::from_u128(41_107);
+    let id8 = Ulid::from_u128(41_108);
+    let id9 = Ulid::from_u128(41_109);
+    let id10 = Ulid::from_u128(41_110);
+
+    for (case_name, rank_direction, id_direction, limit) in [
+        (
+            "rank_desc_id_asc_limit1",
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            1,
+        ),
+        (
+            "rank_asc_id_desc_limit2",
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            2,
+        ),
+        (
+            "rank_asc_id_desc_limit3",
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            3,
+        ),
+    ] {
+        let build_intersection_abc = || {
+            build_pushdown_access_ordered_page_plan(
+                AccessPlan::Intersection(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![
+                        id1, id2, id3, id4, id5, id6, id7, id8,
+                    ])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
+                ]),
+                rank_direction,
+                id_direction,
+                limit,
+            )
+        };
+        let build_intersection_bca = || {
+            build_pushdown_access_ordered_page_plan(
+                AccessPlan::Intersection(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![
+                        id1, id2, id3, id4, id5, id6, id7, id8,
+                    ])),
+                ]),
+                rank_direction,
+                id_direction,
+                limit,
+            )
+        };
+
+        assert_pushdown_access_permutation_case(
+            build_intersection_abc,
+            build_intersection_bca,
+            case_name,
+        );
+    }
+}
+
+#[test]
+fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_with_group9(14_000);
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
+
+    let predicate = pushdown_group_predicate(7);
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .explain()
+        .expect("desc explain should build");
+    assert!(
+        matches!(
+            explain.order_pushdown(),
+            crate::db::query::explain::ExplainOrderPushdown::MissingModelContext
+        ),
+        "query-layer explain should not evaluate secondary pushdown eligibility"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let index_path_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("index-path desc page1 plan should build");
+    let index_path_page1 = load
+        .execute_paged_with_cursor(index_path_page1_plan, None)
+        .expect("index-path desc page1 should execute");
+
+    let by_ids_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(group7_ids.iter().copied())
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("by-ids desc page1 plan should build");
+    let by_ids_page1 = load
+        .execute_paged_with_cursor(by_ids_page1_plan, None)
+        .expect("by-ids desc page1 should execute");
+
+    let index_path_page1_ids: Vec<Ulid> = ids_from_items(&index_path_page1.items);
+    let by_ids_page1_ids: Vec<Ulid> = ids_from_items(&by_ids_page1.items);
+    assert_eq!(
+        index_path_page1_ids, by_ids_page1_ids,
+        "descending page1 should match across index-prefix and by-ids paths"
+    );
+
+    let shared_boundary = index_path_page1
+        .next_cursor
+        .as_ref()
+        .expect("index-path desc page1 should emit cursor")
+        .as_scalar()
+        .expect("index-path desc page1 should stay scalar")
+        .boundary()
+        .clone();
+    let index_path_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("index-path desc page2 plan should build");
+    let index_path_page2 = load
+        .execute_paged_with_cursor(index_path_page2_plan, Some(shared_boundary.clone()))
+        .expect("index-path desc page2 should execute");
+
+    let by_ids_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(group7_ids.iter().copied())
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("by-ids desc page2 plan should build");
+    let by_ids_page2 = load
+        .execute_paged_with_cursor(by_ids_page2_plan, Some(shared_boundary))
+        .expect("by-ids desc page2 should execute");
+
+    let index_path_page2_ids: Vec<Ulid> = ids_from_items(&index_path_page2.items);
+    let by_ids_page2_ids: Vec<Ulid> = ids_from_items(&by_ids_page2.items);
+    assert_eq!(
+        index_path_page2_ids, by_ids_page2_ids,
+        "descending page2 should match across index-prefix and by-ids paths"
+    );
+}
+
+#[test]
+fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_window(15_000);
+    seed_pushdown_rows(&rows);
+
+    let predicate = pushdown_group_predicate(7);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("prefix window page1 plan should build");
+    let page1 = load
+        .execute_paged_with_cursor(page1_plan, None)
+        .expect("prefix window page1 should execute");
+
+    let page1_cursor = page1
+        .next_cursor
+        .as_ref()
+        .expect("prefix window page1 should emit continuation cursor");
+    let page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("prefix window page2 plan should build");
+    let page2_boundary = page2_plan
+        .prepare_cursor(Some(
+            page1_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
+        .expect("prefix window page2 boundary should plan");
+    let page2 = load
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
+        .expect("prefix window page2 should execute");
+    assert_eq!(page2.items.len(), 1, "page2 should return final row only");
+    assert!(
+        page2.next_cursor.is_none(),
+        "final prefix window page should not emit continuation cursor"
+    );
+
+    let terminal_entity = page2.items[0].entity_ref();
+    assert_resume_from_terminal_entity_exhausts_range(
+        terminal_entity,
+        "cursor boundary at final prefix row should yield an empty continuation page",
+    );
+}
+
+#[test]
+fn load_single_field_range_pushdown_matches_by_ids_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (18_001, 30, "t30"),
+        (18_002, 10, "t10-a"),
+        (18_003, 10, "t10-b"),
+        (18_004, 20, "t20"),
+        (18_005, 40, "t40"),
+        (18_006, 5, "t5"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 30);
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .explain()
+        .expect("single-field range explain should build");
+    assert!(
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name(), 0),
+        "single-field range should plan an IndexRange access path"
+    );
+
+    let fallback_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
+    assert_pushdown_parity(
+        || {
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("tag")
+        },
+        fallback_ids,
+        |query| query.order_by("tag"),
+    );
+}
+
+#[test]
+fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_with_group9(19_000);
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 30);
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .explain()
+        .expect("composite range explain should build");
+    assert!(
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name(), 1),
+        "composite prefix+range should plan an IndexRange access path"
+    );
+
+    let fallback_ids = pushdown_ids_in_group_rank_range(&rows, 7, 10, 30);
+    assert_pushdown_parity(
+        || {
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("rank")
+        },
+        fallback_ids,
+        |query| query.order_by("rank"),
+    );
+}
+
+#[test]
+fn load_single_field_range_full_asc_reversed_equals_full_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (20_101, 10, "t10"),
+        (20_102, 20, "t20"),
+        (20_103, 30, "t30"),
+        (20_104, 40, "t40"),
+        (20_105, 50, "t50"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 50);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .explain()
+        .expect("single-field asc explain should build");
+    assert!(
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name(), 0),
+        "single-field asc query should plan an IndexRange access path"
+    );
+
+    let asc = load
+        .execute(
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("tag")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("single-field asc plan should build"),
+        )
+        .expect("single-field asc execution should succeed");
+    let desc = load
+        .execute(
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate)
+                .order_by_desc("tag")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("single-field desc plan should build"),
+        )
+        .expect("single-field desc execution should succeed");
+
+    let mut asc_ids = ids_from_items(&asc);
+    asc_ids.reverse();
+
+    assert_eq!(
+        asc_ids,
+        ids_from_items(&desc),
+        "full DESC result stream should match reversed full ASC result stream"
+    );
+}
+
+#[test]
+fn load_composite_range_full_asc_reversed_equals_full_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (20_201, 7, 10, "g7-r10"),
+        (20_202, 7, 20, "g7-r20"),
+        (20_203, 7, 30, "g7-r30"),
+        (20_204, 7, 40, "g7-r40"),
+        (20_205, 7, 50, "g7-r50"),
+        (20_206, 8, 30, "g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 60);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .explain()
+        .expect("composite asc explain should build");
+    assert!(
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name(), 1),
+        "composite asc query should plan an IndexRange access path"
+    );
+
+    let asc = load
+        .execute(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("composite asc plan should build"),
+        )
+        .expect("composite asc execution should succeed");
+    let desc = load
+        .execute(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate)
+                .order_by_desc("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("composite desc plan should build"),
+        )
+        .expect("composite desc execution should succeed");
+
+    let mut asc_ids = ids_from_items(&asc);
+    asc_ids.reverse();
+
+    assert_eq!(
+        asc_ids,
+        ids_from_items(&desc),
+        "full DESC composite stream should match reversed full ASC stream"
+    );
+}
+
+#[test]
+fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (20_301, 10, "c10"),
+        (20_302, 20, "c20"),
+        (20_303, 30, "c30"),
+        (20_304, 40, "c40"),
+        (20_305, 50, "c50"),
+        (20_306, 70, "c70"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let predicate = unique_code_range_predicate(10, 60);
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+
+    let explain = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("code")
+        .explain()
+        .expect("unique asc explain should build");
+    assert!(
+        explain_contains_index_range(
+            explain.access(),
+            UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name(),
+            0
+        ),
+        "unique asc query should plan an IndexRange access path"
+    );
+
+    let asc = load
+        .execute(
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("code")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("unique asc plan should build"),
+        )
+        .expect("unique asc execution should succeed");
+    let desc = load
+        .execute(
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate)
+                .order_by_desc("code")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("unique desc plan should build"),
+        )
+        .expect("unique desc execution should succeed");
+
+    let mut asc_ids = ids_from_items(&asc);
+    asc_ids.reverse();
+
+    assert_eq!(
+        asc_ids,
+        ids_from_items(&desc),
+        "full DESC unique stream should match reversed full ASC stream"
+    );
+}
+
+#[test]
+fn load_single_field_range_limit_matrix_matches_unbounded() {
+    setup_pagination_test();
+
+    let rows = [
+        (31_001, 30, "t30"),
+        (31_002, 10, "t10-a"),
+        (31_003, 10, "t10-b"),
+        (31_004, 20, "t20"),
+        (31_005, 25, "t25"),
+        (31_006, 40, "t40"),
+        (31_007, 5, "t5"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 30);
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .limit(2)
+        .explain()
+        .expect("single-field limit matrix explain should build");
+    assert!(
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name(), 0),
+        "single-field limit matrix should plan an IndexRange access path"
+    );
+
+    assert_limit_matrix(
+        || {
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("tag")
+        },
+        &[0_u32, 1_u32, 2_u32, 4_u32, 16_u32],
+        16,
+    );
+}
+
+#[test]
+fn load_composite_range_limit_matrix_matches_unbounded() {
+    setup_pagination_test();
+
+    let rows = [
+        (32_001, 7, 10, "g7-r10-a"),
+        (32_002, 7, 10, "g7-r10-b"),
+        (32_003, 7, 20, "g7-r20-a"),
+        (32_004, 7, 20, "g7-r20-b"),
+        (32_005, 7, 25, "g7-r25"),
+        (32_006, 7, 30, "g7-r30"),
+        (32_007, 7, 35, "g7-r35"),
+        (32_008, 8, 10, "g8-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 40);
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .explain()
+        .expect("composite limit matrix explain should build");
+    assert!(
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name(), 1),
+        "composite limit matrix should plan an IndexRange access path"
+    );
+
+    assert_limit_matrix(
+        || {
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("rank")
+        },
+        &[0_u32, 1_u32, 2_u32, 3_u32, 16_u32],
+        20,
+    );
+}
+
+#[test]
+fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor() {
+    setup_pagination_test();
+
+    let rows = [
+        (33_001, 10, "t10-a"),
+        (33_002, 10, "t10-b"),
+        (33_003, 20, "t20"),
+        (33_004, 25, "t25"),
+        (33_005, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 30);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let page_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("tag")
+        .limit(4)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("single-field exact-size page plan should build");
+    let planned_cursor = page_plan
+        .prepare_cursor(None)
+        .expect("single-field exact-size cursor should plan");
+    let page = load
+        .execute_paged_with_cursor(page_plan, planned_cursor)
+        .expect("single-field exact-size page should execute");
+
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items);
+    let expected_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
+    assert_eq!(
+        page_ids, expected_ids,
+        "exact-size single-field range page should return the full bounded result set"
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "exact-size single-field range page should not emit a continuation cursor"
+    );
+}
+
+#[test]
+fn load_composite_range_limit_terminal_page_suppresses_cursor() {
+    setup_pagination_test();
+
+    let rows = [
+        (34_001, 7, 10, "g7-r10-a"),
+        (34_002, 7, 10, "g7-r10-b"),
+        (34_003, 7, 20, "g7-r20-a"),
+        (34_004, 7, 20, "g7-r20-b"),
+        (34_005, 7, 25, "g7-r25"),
+        (34_006, 7, 30, "g7-r30"),
+        (34_007, 7, 35, "g7-r35"),
+        (34_008, 8, 10, "g8-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 40);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut page_sizes = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages = pages.saturating_add(1);
+        assert!(pages <= 8, "composite terminal-page test must terminate");
+
+        let page_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(predicate.clone())
+            .order_by("rank")
+            .limit(3)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("composite terminal-page plan should build");
+        let planned_cursor = page_plan
+            .prepare_cursor(cursor.as_deref())
+            .expect("composite terminal-page cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(page_plan, planned_cursor)
+            .expect("composite terminal-page execution should succeed");
+
+        page_sizes.push(page.items.len());
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        cursor = Some(encode_token(
+            &next_cursor,
+            "continuation cursor should serialize for terminal-page resume",
+        ));
+    }
+
+    assert_eq!(
+        page_sizes,
+        vec![3, 3, 1],
+        "composite limited pagination should end with one terminal page item"
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligible_plan() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_001, 10, "t10-a"),
+        (35_002, 10, "t10-b"),
+        (35_003, 20, "t20"),
+        (35_004, 25, "t25"),
+        (35_005, 28, "t28"),
+        (35_006, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
+        .expect("trace limit-pushdown execution should succeed");
+
+    let access_rows = trace.map(|trace| trace.keys_scanned());
+
+    assert_eq!(
+        access_rows,
+        Some(3),
+        "limit=2 index-range pushdown should scan only offset+limit+1 rows in access phase"
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_eligible_plan() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_051, 10, "t10-a"),
+        (35_052, 10, "t10-b"),
+        (35_053, 20, "t20"),
+        (35_054, 25, "t25"),
+        (35_055, 28, "t28"),
+        (35_056, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
+        .expect("trace descending limit-pushdown execution should succeed");
+
+    let access_rows = trace.map(|trace| trace.keys_scanned());
+
+    assert_eq!(
+        access_rows,
+        Some(3),
+        "descending limit=2 index-range pushdown should scan only offset+limit+1 rows in access phase"
+    );
+}
+
+#[test]
+// This migrated matrix case keeps both directions in one runtime contract.
+#[expect(clippy::too_many_lines)]
+fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_and_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_081, 5, "t5-outside"),
+        (35_082, 10, "t10-a"),
+        (35_083, 15, "t15"),
+        (35_084, 20, "t20"),
+        (35_085, 25, "t25"),
+        (35_086, 30, "t30"),
+        (35_087, 35, "t35"),
+        (35_088, 50, "t50-outside"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let cases = [("asc", false), ("desc", true)];
+
+    for (case_name, descending) in cases {
+        let direction = if descending {
+            OrderDirection::Desc
+        } else {
+            OrderDirection::Asc
+        };
+        let build_fast_plan = || {
+            let mut logical = AccessPlannedQuery::new(
+                AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(50)),
+                ),
+                MissingRowPolicy::Ignore,
+            );
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+        let build_fallback_plan = || {
+            let mut logical =
+                AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+            logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+                strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+                strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(50)),
+            ]));
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+
+        let (fast_page1, fast_trace1) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .expect("fast limit-pushdown page1 should execute");
+        let fast_trace1 = fast_trace1.expect("debug trace should be present");
+        let (fallback_page1, fallback_trace1) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .expect("fallback page1 should execute");
+        let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+        assert_eq!(
+            fast_trace1.optimization(),
+            Some(ExecutionOptimization::IndexRangeLimitPushdown),
+            "eligible page1 should report index-range limit pushdown for case={case_name}",
+        );
+        assert_eq!(
+            fallback_trace1.optimization(),
+            None,
+            "fallback page1 should remain non-optimized for case={case_name}",
+        );
+        assert_eq!(
+            ids_from_items(&fast_page1.items),
+            ids_from_items(&fallback_page1.items),
+            "limit-pushdown page1 rows should match fallback for case={case_name}",
+        );
+        assert_eq!(
+            fast_page1.next_cursor.is_some(),
+            fallback_page1.next_cursor.is_some(),
+            "limit-pushdown page1 continuation presence should match fallback for case={case_name}",
+        );
+        let shared_boundary = scalar_boundary(
+            fast_page1
+                .next_cursor
+                .as_ref()
+                .expect("page1 should emit continuation cursor for this matrix"),
+        );
+        let fallback_page1_boundary = scalar_boundary(
+            fallback_page1
+                .next_cursor
+                .as_ref()
+                .expect("fallback page1 should emit continuation cursor for this matrix"),
+        );
+        assert_eq!(
+            shared_boundary, fallback_page1_boundary,
+            "page1 continuation boundary should match fallback for case={case_name}",
+        );
+
+        let (fast_page2, _fast_trace2) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+            .expect("fast continuation replay should execute");
+        let (fallback_page2, _fallback_trace2) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+            .expect("fallback continuation replay should execute");
+        assert_eq!(
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
+            "limit-pushdown continuation replay rows should match fallback for case={case_name}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "limit-pushdown continuation replay cursor presence should match fallback for case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page2.next_cursor, &fallback_page2.next_cursor)
+        {
+            assert_eq!(
+                scalar_boundary(fast_cursor),
+                scalar_boundary(fallback_cursor),
+                "limit-pushdown continuation replay boundary should match fallback for case={case_name}",
+            );
+        }
+    }
+}
+
+#[test]
+// This migrated matrix case keeps replay, decode, and cross-shape rejection together.
+#[expect(clippy::too_many_lines)]
+fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_091, 5, "t5-outside"),
+        (35_092, 10, "t10-a"),
+        (35_093, 15, "t15"),
+        (35_094, 20, "t20"),
+        (35_095, 25, "t25"),
+        (35_096, 30, "t30"),
+        (35_097, 35, "t35"),
+        (35_098, 50, "t50-outside"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let cases = [("asc", false), ("desc", true)];
+
+    for (case_name, descending) in cases {
+        let direction = if descending {
+            OrderDirection::Desc
+        } else {
+            OrderDirection::Asc
+        };
+        let build_fast_plan = || {
+            let mut logical = AccessPlannedQuery::new(
+                AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(50)),
+                ),
+                MissingRowPolicy::Ignore,
+            );
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+        let build_fallback_plan = || {
+            let mut logical =
+                AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+            logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+                strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+                strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(50)),
+            ]));
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+
+        let (fast_page1, _fast_trace1) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .expect("fast token replay page1 should execute");
+        let (fallback_page1, _fallback_trace1) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .expect("fallback token replay page1 should execute");
+        let fast_cursor = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("fast token replay page1 should emit continuation cursor");
+        let fallback_cursor = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback token replay page1 should emit continuation cursor");
+        let fast_token = encode_token(
+            fast_cursor,
+            "fast token replay cursor should serialize for replay",
+        );
+        let fallback_token = encode_token(
+            fallback_cursor,
+            "fallback token replay cursor should serialize for replay",
+        );
+        assert_eq!(
+            decode_boundary(
+                fast_token.as_slice(),
+                "fast token replay boundary should decode",
+            ),
+            scalar_boundary(fast_cursor),
+            "fast token replay boundary decode should match emitted boundary for case={case_name}",
+        );
+        assert_eq!(
+            decode_boundary(
+                fallback_token.as_slice(),
+                "fallback token replay boundary should decode",
+            ),
+            scalar_boundary(fallback_cursor),
+            "fallback token replay boundary decode should match emitted boundary for case={case_name}",
+        );
+
+        let fast_page2_plan = build_fast_plan();
+        let fast_page2_boundary = fast_page2_plan
+            .prepare_cursor(Some(fast_token.as_slice()))
+            .expect("fast token replay boundary should prepare");
+        let (fast_page2, _fast_trace2) = load
+            .execute_paged_with_cursor_traced(fast_page2_plan, fast_page2_boundary)
+            .expect("fast token replay continuation should execute");
+
+        let fallback_page2_plan = build_fallback_plan();
+        let fallback_page2_boundary = fallback_page2_plan
+            .prepare_cursor(Some(fallback_token.as_slice()))
+            .expect("fallback token replay boundary should prepare");
+        let (fallback_page2, _fallback_trace2) = load
+            .execute_paged_with_cursor_traced(fallback_page2_plan, fallback_page2_boundary)
+            .expect("fallback token replay continuation should execute");
+
+        assert_eq!(
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
+            "token replay continuation rows should match fallback for case={case_name}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "token replay continuation cursor presence should match fallback for case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page2.next_cursor, &fallback_page2.next_cursor)
+        {
+            assert_eq!(
+                scalar_boundary(fast_cursor),
+                scalar_boundary(fallback_cursor),
+                "token replay continuation boundary should match fallback for case={case_name}",
+            );
+        }
+
+        let fallback_cross_shape_plan = build_fallback_plan();
+        let fallback_cross_shape_err = fallback_cross_shape_plan
+            .prepare_cursor(Some(fast_token.as_slice()))
+            .expect_err("cross-shape fallback replay should reject fast token");
+        assert!(
+            matches!(
+                fallback_cross_shape_err,
+                crate::db::executor::ExecutorPlanError::Cursor(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    )
+            ),
+            "cross-shape fallback token replay should fail with signature mismatch for case={case_name}",
+        );
+
+        let fast_cross_shape_plan = build_fast_plan();
+        let fast_cross_shape_err = fast_cross_shape_plan
+            .prepare_cursor(Some(fallback_token.as_slice()))
+            .expect_err("cross-shape fast replay should reject fallback token");
+        assert!(
+            matches!(
+                fast_cross_shape_err,
+                crate::db::executor::ExecutorPlanError::Cursor(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    )
+            ),
+            "cross-shape fast token replay should fail with signature mismatch for case={case_name}",
+        );
+    }
+}
+
+#[test]
+fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_101, 10, "t10-a"),
+        (35_102, 20, "t20"),
+        (35_103, 25, "t25"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(0),
+        offset: 0,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
+        .expect("limit=0 trace execution should succeed");
+
+    let access_rows = trace.map(|trace| trace.keys_scanned());
+
+    assert_eq!(
+        access_rows,
+        Some(0),
+        "limit=0 index-range pushdown should not scan access rows"
+    );
+    assert!(
+        page.items.is_empty(),
+        "limit=0 should return an empty page for eligible index-range plans",
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "limit=0 should not emit a continuation cursor",
+    );
+}
+
+#[test]
+fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligible_plan() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_201, 10, "t10-a"),
+        (35_202, 20, "t20"),
+        (35_203, 25, "t25"),
+        (35_204, 28, "t28"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(0),
+        offset: 2,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
+        .expect("limit=0 with offset trace execution should succeed");
+
+    let access_rows = trace.map(|trace| trace.keys_scanned());
+
+    assert_eq!(
+        access_rows,
+        Some(0),
+        "limit=0 should short-circuit access scanning even when offset is non-zero"
+    );
+    assert!(
+        page.items.is_empty(),
+        "limit=0 with offset should return an empty page for eligible index-range plans",
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "limit=0 with offset should not emit a continuation cursor",
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_301, 10, "keep-t10"),
+        (35_302, 12, "keep-t12"),
+        (35_303, 14, "drop-t14"),
+        (35_304, 16, "keep-t16"),
+        (35_305, 18, "keep-t18"),
+        (35_306, 20, "drop-t20"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let label_contains_keep = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("keep".to_string()),
+    };
+    let mut fast_logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(21)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
+    fast_logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fast_logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
+
+    let mut fallback_logical =
+        AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+    fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(21)),
+        label_contains_keep,
+    ]));
+    fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fallback_logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fallback_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fallback_logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(fast_plan, None)
+        .expect("fast residual limit execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .expect("fallback residual limit execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
+        "residual-filter index-range pushdown must preserve fallback row parity",
+    );
+    assert!(
+        fast_trace.keys_scanned() <= 3,
+        "residual-filter fast path should remain within the bounded fetch window when it can satisfy the page (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+    assert_eq!(
+        fast_trace.optimization(),
+        Some(ExecutionOptimization::IndexRangeLimitPushdown),
+        "residual-filter fast path should report index-range limit pushdown when no retry is needed",
+    );
+    assert!(
+        fast_trace.keys_scanned() < fallback_trace.keys_scanned(),
+        "residual-filter index-range pushdown should reduce scanned rows when early bounded candidates satisfy the page (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_401, 10, "drop-t10"),
+        (35_402, 11, "drop-t11"),
+        (35_403, 12, "drop-t12"),
+        (35_404, 13, "keep-t13"),
+        (35_405, 14, "keep-t14"),
+        (35_406, 15, "keep-t15"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let label_contains_keep = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("keep".to_string()),
+    };
+    let mut fast_logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(16)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
+    fast_logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fast_logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
+
+    let mut fallback_logical =
+        AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+    fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(16)),
+        label_contains_keep,
+    ]));
+    fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fallback_logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fallback_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fallback_logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(fast_plan, None)
+        .expect("fast residual underfill execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .expect("fallback residual underfill execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
+        "residual underfill retry path must preserve fallback row parity",
+    );
+    assert_eq!(
+        fast_trace.optimization(),
+        None,
+        "residual underfill should retry without index-range limit pushdown and report fallback optimization outcome",
+    );
+    assert!(
+        fast_trace.keys_scanned() > 3,
+        "residual underfill should rescan beyond the initial bounded fetch window",
+    );
+    assert!(
+        fast_trace.keys_scanned() > fallback_trace.keys_scanned(),
+        "residual underfill retry should report additional scan work beyond canonical fallback (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_fallback_matrix() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_501, 10, "drop-t10"),
+        (35_502, 11, "drop-t11"),
+        (35_503, 12, "drop-t12"),
+        (35_504, 13, "keep-t13"),
+        (35_505, 14, "keep-t14"),
+        (35_506, 15, "keep-t15"),
+        (35_507, 16, "keep-t16"),
+        (35_508, 17, "drop-t17"),
+        (35_509, 18, "keep-t18"),
+        (35_510, 19, "keep-t19"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let cases = [
+        ("bounded-satisfied-without-retry", 13u64, 20u64, 2u32, 0u32),
+        ("bounded-underfill-retry-required", 10u64, 16u64, 2u32, 0u32),
+    ];
+
+    for (case_name, lower, upper, limit, offset) in cases {
+        let label_contains_keep = Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        };
+        let mut fast_logical = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEXED_METRICS_INDEX_MODELS[0],
+                Vec::new(),
+                Bound::Included(Value::Uint(lower)),
+                Bound::Excluded(Value::Uint(upper)),
+            ),
+            MissingRowPolicy::Ignore,
+        );
+        fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
+        fast_logical.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("tag".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        fast_logical.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(limit),
+            offset,
+        });
+        let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
+
+        let mut fallback_logical =
+            AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+        fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+            strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(lower)),
+            strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(upper)),
+            label_contains_keep,
+        ]));
+        fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("tag".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        fallback_logical.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(limit),
+            offset,
+        });
+        let fallback_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fallback_logical);
+
+        let (fast_page, _fast_trace) = load
+            .execute_paged_with_cursor_traced(fast_plan, None)
+            .expect("fast residual matrix execution should succeed");
+        let (fallback_page, _fallback_trace) = load
+            .execute_paged_with_cursor_traced(fallback_plan, None)
+            .expect("fallback residual matrix execution should succeed");
+
+        assert_eq!(
+            ids_from_items(&fast_page.items),
+            ids_from_items(&fallback_page.items),
+            "residual range matrix case should preserve fallback row parity: case={case_name}",
+        );
+        assert_eq!(
+            fast_page.next_cursor.is_some(),
+            fallback_page.next_cursor.is_some(),
+            "residual range matrix case should preserve continuation presence parity: case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page.next_cursor, &fallback_page.next_cursor)
+        {
+            assert_eq!(
+                scalar_boundary(fast_cursor),
+                scalar_boundary(fallback_cursor),
+                "residual range matrix case should preserve continuation boundary parity: case={case_name}",
+            );
+        }
+    }
+}
+
+#[test]
+fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (36_001, 7, 10, "g7-r10"),
+        (36_002, 7, 20, "g7-r20-a"),
+        (36_003, 7, 20, "g7-r20-b"),
+        (36_004, 7, 30, "g7-r30"),
+        (36_005, 7, 40, "g7-r40"),
+        (36_006, 8, 20, "g8-r20"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::Strict,
+    ));
+    let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::NumericWiden,
+    ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_not_20_strict,
+                ]))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("index-shape plan should build"),
+            None,
+        )
+        .expect("index-shape execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    group_eq_fallback,
+                    rank_not_20_fallback,
+                ]))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("fallback plan should build"),
+            None,
+        )
+        .expect("fallback execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
+        "index-only predicate path must preserve fallback result parity",
+    );
+    assert!(
+        fast_trace.index_predicate_applied(),
+        "index-backed strict predicate should activate index-only evaluation"
+    );
+    assert!(
+        !fallback_trace.index_predicate_applied(),
+        "by-ids fallback path must not report index-only predicate activation"
+    );
+    assert!(
+        fast_trace.index_predicate_keys_rejected() > 0,
+        "index-only path should report rejected index keys for non-matching predicate rows",
+    );
+    assert_eq!(
+        fallback_trace.index_predicate_keys_rejected(),
+        0,
+        "fallback path must not report index-only rejected-key counts",
+    );
+    assert_eq!(
+        fast_trace.distinct_keys_deduped(),
+        0,
+        "non-distinct plans must not report DISTINCT dedup activity",
+    );
+    assert_eq!(
+        fallback_trace.distinct_keys_deduped(),
+        0,
+        "non-distinct fallback plans must not report DISTINCT dedup activity",
+    );
+    assert!(
+        fast_trace.keys_scanned() < fallback_trace.keys_scanned(),
+        "index-only predicate activation should reduce scanned rows for this shape",
+    );
+}
+
+#[test]
+// This migrated DISTINCT continuation contract is intentionally kept end-to-end in one test.
+#[expect(clippy::too_many_lines)]
+fn load_index_only_predicate_distinct_continuation_matches_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (36_101, 7, 10, "g7-r10"),
+        (36_102, 7, 20, "g7-r20-a"),
+        (36_103, 7, 20, "g7-r20-b"),
+        (36_104, 7, 30, "g7-r30"),
+        (36_105, 7, 40, "g7-r40"),
+        (36_106, 8, 1, "g8-r1"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::Strict,
+    ));
+    let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::NumericWiden,
+    ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let build_fast_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::And(vec![
+                pushdown_group_predicate(7),
+                rank_not_20_strict.clone(),
+            ]))
+            .order_by("rank")
+            .distinct()
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("fast distinct plan should build")
+    };
+    let build_fallback_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::And(vec![
+                group_eq_fallback.clone(),
+                rank_not_20_fallback.clone(),
+            ]))
+            .order_by("rank")
+            .distinct()
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("fallback distinct plan should build")
+    };
+
+    let (fast_page1, fast_trace1) = load
+        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .expect("fast distinct page1 should execute");
+    let fast_trace1 = fast_trace1.expect("debug trace should be present");
+    let (fallback_page1, fallback_trace1) = load
+        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .expect("fallback distinct page1 should execute");
+    let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page1.items),
+        ids_from_items(&fallback_page1.items),
+        "fast and fallback distinct page1 rows should match",
+    );
+    assert!(
+        fast_trace1.index_predicate_applied() && !fast_trace1.continuation_applied(),
+        "first index-only page should report activation without continuation"
+    );
+    assert!(
+        !fallback_trace1.index_predicate_applied(),
+        "fallback distinct page1 must not report index-only activation"
+    );
+    assert_eq!(
+        fallback_trace1.optimization(),
+        None,
+        "fallback distinct page1 should remain non-optimized",
+    );
+    assert!(
+        fast_trace1.index_predicate_keys_rejected() > 0,
+        "index-only distinct page1 should report rejected index keys",
+    );
+    assert_eq!(
+        fallback_trace1.index_predicate_keys_rejected(),
+        0,
+        "fallback distinct page1 must not report index-only rejected-key counts",
+    );
+    assert_eq!(
+        fast_trace1.distinct_keys_deduped(),
+        fallback_trace1.distinct_keys_deduped(),
+        "fast and fallback distinct page1 should report the same DISTINCT dedup count",
+    );
+
+    let fast_cursor = fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("fast distinct page1 should emit continuation cursor");
+    let fallback_cursor = fallback_page1
+        .next_cursor
+        .as_ref()
+        .expect("fallback distinct page1 should emit continuation cursor");
+    let shared_boundary = scalar_boundary(fast_cursor);
+    assert_eq!(
+        scalar_boundary(fast_cursor),
+        scalar_boundary(fallback_cursor),
+        "fast and fallback distinct page1 cursors should encode the same boundary",
+    );
+
+    let (fast_page2, fast_trace2) = load
+        .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+        .expect("fast distinct page2 should execute");
+    let fast_trace2 = fast_trace2.expect("debug trace should be present");
+    let (fallback_page2, fallback_trace2) = load
+        .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+        .expect("fallback distinct page2 should execute");
+    let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page2.items),
+        ids_from_items(&fallback_page2.items),
+        "fast and fallback distinct page2 rows should match",
+    );
+    assert!(
+        fast_trace2.index_predicate_applied() && fast_trace2.continuation_applied(),
+        "continued index-only page should report both activation and continuation"
+    );
+    assert!(
+        !fallback_trace2.index_predicate_applied(),
+        "fallback distinct page2 must not report index-only activation"
+    );
+    assert_eq!(
+        fallback_trace2.optimization(),
+        None,
+        "fallback distinct page2 should remain non-optimized",
+    );
+    assert_eq!(
+        fallback_trace2.index_predicate_keys_rejected(),
+        0,
+        "fallback distinct page2 must not report index-only rejected-key counts",
+    );
+    assert_eq!(
+        fast_trace2.distinct_keys_deduped(),
+        fallback_trace2.distinct_keys_deduped(),
+        "fast and fallback distinct page2 should report the same DISTINCT dedup count",
+    );
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        fallback_page2.next_cursor.is_some(),
+        "fast and fallback distinct page2 continuation presence should match",
+    );
+}
+
+#[test]
+// This migrated DESC DISTINCT continuation contract is intentionally kept end-to-end in one test.
+#[expect(clippy::too_many_lines)]
+fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (36_201, 7, 10, "g7-r10"),
+        (36_202, 7, 20, "g7-r20-a"),
+        (36_203, 7, 20, "g7-r20-b"),
+        (36_204, 7, 30, "g7-r30"),
+        (36_205, 7, 40, "g7-r40"),
+        (36_206, 8, 1, "g8-r1"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::Strict,
+    ));
+    let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::NumericWiden,
+    ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let build_fast_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::And(vec![
+                pushdown_group_predicate(7),
+                rank_not_20_strict.clone(),
+            ]))
+            .order_by_desc("rank")
+            .distinct()
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("fast descending distinct plan should build")
+    };
+    let build_fallback_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::And(vec![
+                group_eq_fallback.clone(),
+                rank_not_20_fallback.clone(),
+            ]))
+            .order_by_desc("rank")
+            .distinct()
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("fallback descending distinct plan should build")
+    };
+
+    let (fast_page1, fast_trace1) = load
+        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .expect("fast descending distinct page1 should execute");
+    let fast_trace1 = fast_trace1.expect("debug trace should be present");
+    let (fallback_page1, fallback_trace1) = load
+        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .expect("fallback descending distinct page1 should execute");
+    let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page1.items),
+        ids_from_items(&fallback_page1.items),
+        "fast and fallback descending distinct page1 rows should match",
+    );
+    assert!(
+        fast_trace1.index_predicate_applied() && !fast_trace1.continuation_applied(),
+        "first descending index-only page should report activation without continuation"
+    );
+    assert!(
+        !fallback_trace1.index_predicate_applied(),
+        "fallback descending distinct page1 must not report index-only activation"
+    );
+    assert_eq!(
+        fallback_trace1.optimization(),
+        None,
+        "fallback descending distinct page1 should remain non-optimized",
+    );
+
+    let fast_cursor = fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("fast descending distinct page1 should emit continuation cursor");
+    let fallback_cursor = fallback_page1
+        .next_cursor
+        .as_ref()
+        .expect("fallback descending distinct page1 should emit continuation cursor");
+    let shared_boundary = scalar_boundary(fast_cursor);
+    assert_eq!(
+        scalar_boundary(fast_cursor),
+        scalar_boundary(fallback_cursor),
+        "fast and fallback descending distinct page1 cursors should encode the same boundary",
+    );
+
+    let (fast_page2, fast_trace2) = load
+        .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+        .expect("fast descending distinct page2 should execute");
+    let fast_trace2 = fast_trace2.expect("debug trace should be present");
+    let (fallback_page2, fallback_trace2) = load
+        .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+        .expect("fallback descending distinct page2 should execute");
+    let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page2.items),
+        ids_from_items(&fallback_page2.items),
+        "fast and fallback descending distinct page2 rows should match",
+    );
+    assert!(
+        fast_trace2.index_predicate_applied() && fast_trace2.continuation_applied(),
+        "continued descending index-only page should report both activation and continuation"
+    );
+    assert!(
+        !fallback_trace2.index_predicate_applied(),
+        "fallback descending distinct page2 must not report index-only activation"
+    );
+    assert_eq!(
+        fallback_trace2.optimization(),
+        None,
+        "fallback descending distinct page2 should remain non-optimized",
+    );
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        fallback_page2.next_cursor.is_some(),
+        "fast and fallback descending distinct page2 continuation presence should match",
+    );
+}
+
+#[test]
+fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (36_301, 7, 10, "keep-g7-r10"),
+        (36_302, 7, 20, "drop-g7-r20"),
+        (36_303, 7, 20, "keep-g7-r20"),
+        (36_304, 7, 30, "keep-g7-r30"),
+        (36_305, 7, 40, "keep-g7-r40"),
+        (36_306, 7, 50, "keep-g7-r50"),
+        (36_307, 7, 60, "drop-g7-r60"),
+        (36_308, 8, 20, "keep-g8-r20"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let rank_in_strict = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::In,
+        Value::List(vec![Value::Uint(20), Value::Uint(40), Value::Uint(50)]),
+        CoercionId::Strict,
+    ));
+    let rank_in_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::In,
+        Value::List(vec![Value::Uint(20), Value::Uint(40), Value::Uint(50)]),
+        CoercionId::NumericWiden,
+    ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
+    let label_contains_keep = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("keep".to_string()),
+    };
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_in_strict,
+                    label_contains_keep.clone(),
+                ]))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict IN fast plan should build"),
+            None,
+        )
+        .expect("strict IN fast execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    group_eq_fallback,
+                    rank_in_fallback,
+                    label_contains_keep,
+                ]))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("fallback IN plan should build"),
+            None,
+        )
+        .expect("fallback IN execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
+        "strict IN index-only execution must preserve fallback row parity",
+    );
+    assert!(
+        fast_trace.index_predicate_applied(),
+        "strict IN predicate should activate index-only filtering"
+    );
+    assert!(
+        !fallback_trace.index_predicate_applied(),
+        "fallback IN path must keep index-only filtering disabled",
+    );
+    assert!(
+        fast_trace.index_predicate_keys_rejected() > 0,
+        "strict IN index-only path should reject non-matching index keys",
+    );
+    assert_eq!(
+        fallback_trace.index_predicate_keys_rejected(),
+        0,
+        "fallback IN path must not report index-only rejected-key counts",
+    );
+    assert!(
+        fast_trace.keys_scanned() < fallback_trace.keys_scanned(),
+        "strict IN index-only filtering should reduce scanned rows for this shape",
+    );
+}
+
+#[test]
+// This migrated bounded-range DISTINCT matrix keeps asc/desc parity in one runtime test.
+#[expect(clippy::similar_names)]
+#[expect(clippy::too_many_lines)]
+fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallback_for_asc_and_desc()
+{
+    setup_pagination_test();
+
+    let rows = [
+        (36_401, 7, 10, "keep-g7-r10"),
+        (36_402, 7, 20, "drop-g7-r20"),
+        (36_403, 7, 20, "keep-g7-r20"),
+        (36_404, 7, 30, "keep-g7-r30"),
+        (36_405, 7, 40, "drop-g7-r40"),
+        (36_406, 7, 40, "keep-g7-r40"),
+        (36_407, 7, 50, "keep-g7-r50"),
+        (36_408, 8, 30, "keep-g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    for descending in [false, true] {
+        let rank_gte_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Gte,
+            Value::Uint(20),
+            CoercionId::Strict,
+        ));
+        let rank_lte_40_strict = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Lte,
+            Value::Uint(40),
+            CoercionId::Strict,
+        ));
+        let rank_gte_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Gte,
+            Value::Uint(20),
+            CoercionId::NumericWiden,
+        ));
+        let rank_lte_40_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Lte,
+            Value::Uint(40),
+            CoercionId::NumericWiden,
+        ));
+        let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        ));
+        let label_contains_keep = Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        };
+
+        let build_fast_plan = || {
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_gte_20_strict.clone(),
+                    rank_lte_40_strict.clone(),
+                    label_contains_keep.clone(),
+                ]))
+                .distinct()
+                .limit(2);
+
+            if descending {
+                base.order_by_desc("rank")
+                    .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
+                    .expect("fast bounded-range descending plan should build")
+            } else {
+                base.order_by("rank")
+                    .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
+                    .expect("fast bounded-range ascending plan should build")
+            }
+        };
+        let build_fallback_plan = || {
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    group_eq_fallback.clone(),
+                    rank_gte_20_fallback.clone(),
+                    rank_lte_40_fallback.clone(),
+                    label_contains_keep.clone(),
+                ]))
+                .distinct()
+                .limit(2);
+
+            if descending {
+                base.order_by_desc("rank")
+                    .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
+                    .expect("fallback bounded-range descending plan should build")
+            } else {
+                base.order_by("rank")
+                    .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
+                    .expect("fallback bounded-range ascending plan should build")
+            }
+        };
+
+        let (fast_page1, fast_trace1) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .expect("fast bounded-range page1 should execute");
+        let fast_trace1 = fast_trace1.expect("debug trace should be present");
+        let (fallback_page1, fallback_trace1) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .expect("fallback bounded-range page1 should execute");
+        let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+
+        assert_eq!(
+            ids_from_items(&fast_page1.items),
+            ids_from_items(&fallback_page1.items),
+            "fast and fallback bounded-range page1 rows should match for descending={descending}",
+        );
+        assert!(
+            fast_trace1.index_predicate_applied() && !fast_trace1.continuation_applied(),
+            "fast bounded-range page1 should report index-only activation for descending={descending}",
+        );
+        assert!(
+            !fallback_trace1.index_predicate_applied(),
+            "fallback bounded-range page1 must not report index-only activation for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace1.optimization(),
+            None,
+            "fallback bounded-range page1 should remain non-optimized for descending={descending}",
+        );
+        assert!(
+            fast_trace1.index_predicate_keys_rejected() > 0,
+            "fast bounded-range page1 should reject non-matching index keys for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace1.index_predicate_keys_rejected(),
+            0,
+            "fallback bounded-range page1 must not report index-only rejected-key counts for descending={descending}",
+        );
+
+        let fast_cursor = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("fast bounded-range page1 should emit continuation cursor");
+        let fallback_cursor = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback bounded-range page1 should emit continuation cursor");
+        let shared_boundary = scalar_boundary(fast_cursor);
+        assert_eq!(
+            scalar_boundary(fast_cursor),
+            scalar_boundary(fallback_cursor),
+            "fast and fallback bounded-range page1 cursors should match for descending={descending}",
+        );
+
+        let (fast_page2, fast_trace2) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+            .expect("fast bounded-range page2 should execute");
+        let fast_trace2 = fast_trace2.expect("debug trace should be present");
+        let (fallback_page2, fallback_trace2) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+            .expect("fallback bounded-range page2 should execute");
+        let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
+
+        assert_eq!(
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
+            "fast and fallback bounded-range page2 rows should match for descending={descending}",
+        );
+        assert!(
+            fast_trace2.index_predicate_applied() && fast_trace2.continuation_applied(),
+            "fast bounded-range page2 should report activation with continuation for descending={descending}",
+        );
+        assert!(
+            !fallback_trace2.index_predicate_applied(),
+            "fallback bounded-range page2 must not report index-only activation for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace2.optimization(),
+            None,
+            "fallback bounded-range page2 should remain non-optimized for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace2.index_predicate_keys_rejected(),
+            0,
+            "fallback bounded-range page2 must not report index-only rejected-key counts for descending={descending}",
+        );
+        assert_eq!(
+            fast_trace1.distinct_keys_deduped(),
+            fallback_trace1.distinct_keys_deduped(),
+            "fast and fallback bounded-range page1 distinct counts should match for descending={descending}",
+        );
+        assert_eq!(
+            fast_trace2.distinct_keys_deduped(),
+            fallback_trace2.distinct_keys_deduped(),
+            "fast and fallback bounded-range page2 distinct counts should match for descending={descending}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "fast and fallback bounded-range page2 continuation presence should match for descending={descending}",
+        );
+
+        let fast_scanned_total = fast_trace1
+            .keys_scanned()
+            .saturating_add(fast_trace2.keys_scanned());
+        let fallback_scanned_total = fallback_trace1
+            .keys_scanned()
+            .saturating_add(fallback_trace2.keys_scanned());
+        assert!(
+            fast_scanned_total < fallback_scanned_total,
+            "fast bounded-range index-only filtering should reduce total scanned rows for descending={descending}",
         );
     }
 }

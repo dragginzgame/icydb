@@ -162,16 +162,6 @@ fn parse_show_entities_statement() {
 }
 
 #[test]
-fn parse_show_tables_statement_aliases_to_show_entities_lane() {
-    let statement = parse_sql("SHOW TABLES").expect("show tables statement should parse");
-
-    assert_eq!(
-        statement,
-        SqlStatement::ShowEntities(SqlShowEntitiesStatement)
-    );
-}
-
-#[test]
 fn parse_select_statement_with_qualified_identifiers() {
     let statement = parse_sql(
         "SELECT users.name, users.age \
@@ -632,7 +622,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
             "SHOW DATABASES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES",
         ),
         (
             "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",

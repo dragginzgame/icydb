@@ -99,7 +99,6 @@ pub(crate) enum Keyword {
     Select,
     Show,
     Sum,
-    Tables,
     True,
     Union,
     Update,
@@ -148,7 +147,6 @@ impl Keyword {
             Self::Select => "SELECT",
             Self::Show => "SHOW",
             Self::Sum => "SUM",
-            Self::Tables => "TABLES",
             Self::True => "TRUE",
             Self::Union => "UNION",
             Self::Update => "UPDATE",
@@ -463,7 +461,6 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "SELECT" => Some(Keyword::Select),
         "SHOW" => Some(Keyword::Show),
         "SUM" => Some(Keyword::Sum),
-        "TABLES" => Some(Keyword::Tables),
         "TRUE" => Some(Keyword::True),
         "UNION" => Some(Keyword::Union),
         "UPDATE" => Some(Keyword::Update),
@@ -661,7 +658,7 @@ impl SqlTokenCursor {
             Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
             Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
             Some(TokenKind::Keyword(Keyword::Show)) => {
-                Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES")
+                Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES")
             }
             Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
             Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
