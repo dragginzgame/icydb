@@ -9,12 +9,10 @@ use crate::db::{
     query::plan::OrderDirection,
 };
 
-///
-/// ExecutionAccessPathVariant
-///
-/// Coarse access path shape recorded in execution traces.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExecutionAccessPathVariant\n\nCoarse access path shape recorded in execution traces."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionAccessPathVariant {
     ByKey,
@@ -28,12 +26,10 @@ pub enum ExecutionAccessPathVariant {
     Intersection,
 }
 
-///
-/// ExecutionOptimization
-///
-/// Load optimization selected at execution time, if any.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExecutionOptimization\n\nLoad optimization selected at execution time, if any."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionOptimization {
     PrimaryKey,
@@ -43,13 +39,10 @@ pub enum ExecutionOptimization {
     IndexRangeLimitPushdown,
 }
 
-///
-/// ExecutionTrace
-///
-/// Structured execution trace snapshot for one load path.
-/// Captures plan shape and counters without affecting behavior.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExecutionTrace\n\nStructured execution trace snapshot for one load path.\nCaptures plan shape and counters without affecting behavior."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionTrace {
     pub(crate) access_path_variant: ExecutionAccessPathVariant,
@@ -66,13 +59,10 @@ pub struct ExecutionTrace {
     pub(crate) distinct_keys_deduped: u64,
 }
 
-///
-/// ExecutionMetrics
-///
-/// Compact metrics view derived from one `ExecutionTrace`.
-/// Kept small for lightweight observability surfaces.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExecutionMetrics\n\nCompact metrics view derived from one `ExecutionTrace`.\nKept small for lightweight observability surfaces."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionMetrics {
     pub(crate) rows_scanned: u64,

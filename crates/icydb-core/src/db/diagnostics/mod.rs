@@ -27,11 +27,7 @@ pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
 };
 
-///
-/// StorageReport
-/// Live storage snapshot payload.
-///
-
+#[cfg_attr(doc, doc = "StorageReport\n\nLive storage snapshot payload.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct StorageReport {
     pub(crate) storage_data: Vec<DataStoreSnapshot>,
@@ -41,11 +37,10 @@ pub struct StorageReport {
     pub(crate) corrupted_entries: u64,
 }
 
-///
-/// IntegrityTotals
-/// Aggregated integrity-scan counters across all stores.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "IntegrityTotals\n\nAggregated integrity-scan counters across all stores."
+)]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IntegrityTotals {
     pub(crate) data_rows_scanned: u64,
@@ -163,11 +158,10 @@ impl IntegrityTotals {
     }
 }
 
-///
-/// IntegrityStoreSnapshot
-/// Per-store integrity findings and scan counters.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "IntegrityStoreSnapshot\n\nPer-store integrity findings and scan counters."
+)]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IntegrityStoreSnapshot {
     pub(crate) path: String,
@@ -267,11 +261,10 @@ impl IntegrityStoreSnapshot {
     }
 }
 
-///
-/// IntegrityReport
-/// Full integrity-scan output across all registered stores.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "IntegrityReport\n\nFull integrity-scan output across all registered stores."
+)]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IntegrityReport {
     pub(crate) stores: Vec<IntegrityStoreSnapshot>,
@@ -348,11 +341,7 @@ impl StorageReport {
     }
 }
 
-///
-/// DataStoreSnapshot
-/// Data-store snapshot row.
-///
-
+#[cfg_attr(doc, doc = "DataStoreSnapshot\n\nData-store snapshot row.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
@@ -390,11 +379,7 @@ impl DataStoreSnapshot {
     }
 }
 
-///
-/// IndexStoreSnapshot
-/// Index-store snapshot row.
-///
-
+#[cfg_attr(doc, doc = "IndexStoreSnapshot\n\nIndex-store snapshot row.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
@@ -454,11 +439,7 @@ impl IndexStoreSnapshot {
     }
 }
 
-///
-/// EntitySnapshot
-/// Per-entity storage snapshot row.
-///
-
+#[cfg_attr(doc, doc = "EntitySnapshot\n\nPer-entity storage snapshot row.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntitySnapshot {
     pub(crate) store: String,
@@ -547,11 +528,10 @@ impl EntitySnapshot {
     }
 }
 
-///
-/// EntityStats
-/// Internal struct for building per-entity stats before snapshotting.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "EntityStats\n\nInternal struct for building per-entity stats before snapshotting."
+)]
 #[derive(Default)]
 struct EntityStats {
     entries: u64,
@@ -595,10 +575,10 @@ fn storage_report_name_for_hook<'a, C: CanisterKind>(
         .unwrap_or(hooks.entity_path)
 }
 
-/// Build one deterministic storage snapshot with per-entity rollups.
-///
-/// This path is read-only and fail-closed on decode/validation errors by counting
-/// corrupted keys/entries instead of panicking.
+#[cfg_attr(
+    doc,
+    doc = "Build one deterministic storage snapshot with per-entity rollups.\n\nThis path is read-only and fail-closed on decode/validation errors by counting corrupted keys/entries instead of panicking."
+)]
 pub(crate) fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
@@ -722,12 +702,10 @@ pub(crate) fn storage_report<C: CanisterKind>(
     ))
 }
 
-/// Build one deterministic integrity scan over all registered stores.
-///
-/// This scan is read-only and classifies findings as:
-/// - corruption: malformed persisted bytes or inconsistent structural links
-/// - compatibility: persisted payloads outside decode compatibility windows
-/// - misuse: unsupported runtime wiring (for example missing entity hooks)
+#[cfg_attr(
+    doc,
+    doc = "Build one deterministic integrity scan over all registered stores.\n\nThis scan is read-only and classifies findings as:\n- corruption: malformed persisted bytes or inconsistent structural links\n- compatibility: persisted payloads outside decode compatibility windows\n- misuse: unsupported runtime wiring (for example missing entity hooks)"
+)]
 pub(crate) fn integrity_report<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<IntegrityReport, InternalError> {
@@ -736,10 +714,10 @@ pub(crate) fn integrity_report<C: CanisterKind>(
     integrity_report_after_recovery(db)
 }
 
-/// Build one deterministic integrity scan after recovery has already completed.
-///
-/// Callers running inside recovery flow should use this variant to avoid
-/// recursive recovery gating.
+#[cfg_attr(
+    doc,
+    doc = "Build one deterministic integrity scan after recovery has already completed.\n\nCallers running inside recovery flow should use this variant to avoid recursive recovery gating."
+)]
 pub(in crate::db) fn integrity_report_after_recovery<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<IntegrityReport, InternalError> {

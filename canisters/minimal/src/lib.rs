@@ -10,7 +10,7 @@ use icydb::db::sql::SqlQueryResult;
 
 icydb::start!();
 
-/// Query.
+#[cfg_attr(doc, doc = "Query.")]
 #[cfg(feature = "sql")]
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {

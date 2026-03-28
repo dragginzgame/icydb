@@ -10,10 +10,7 @@ use crate::{
 use std::ops::{BitAnd, BitOr};
 use thiserror::Error as ThisError;
 
-///
-/// Predicate
-///
-
+#[cfg_attr(doc, doc = "Predicate")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Predicate {
     True,
@@ -147,13 +144,13 @@ impl BitOr for &Predicate {
     }
 }
 
-/// Neutral predicate model consumed by executor/index layers.
+#[cfg_attr(
+    doc,
+    doc = "Neutral predicate model consumed by executor/index layers."
+)]
 pub(crate) type PredicateExecutionModel = Predicate;
 
-///
-/// CompareOp
-///
-
+#[cfg_attr(doc, doc = "CompareOp")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum CompareOp {
@@ -178,10 +175,7 @@ impl CompareOp {
     }
 }
 
-///
-/// ComparePredicate
-///
-
+#[cfg_attr(doc, doc = "ComparePredicate")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComparePredicate {
     pub(crate) field: String,
@@ -289,12 +283,10 @@ impl ComparePredicate {
     }
 }
 
-///
-/// UnsupportedQueryFeature
-///
-/// Policy-level query features intentionally rejected by the engine.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "UnsupportedQueryFeature\n\nPolicy-level query features intentionally rejected by the engine."
+)]
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum UnsupportedQueryFeature {
     #[error("map field '{field}' is not queryable; use scalar/indexed fields or list entries")]

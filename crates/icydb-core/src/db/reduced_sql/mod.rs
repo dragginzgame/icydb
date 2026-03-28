@@ -7,12 +7,10 @@ use crate::{db::predicate::CompareOp, types::Decimal, value::Value};
 use std::str::FromStr;
 use thiserror::Error as ThisError;
 
-///
-/// SqlParseError
-///
-/// Reduced SQL parser errors shared by standalone predicate parsing and the
-/// statement-level SQL frontend.
-///
+#[cfg_attr(
+    doc,
+    doc = "SqlParseError\n\nReduced SQL parser errors shared by standalone predicate parsing and the statement-level SQL frontend."
+)]
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub(crate) enum SqlParseError {
     #[cfg(feature = "sql")]
@@ -54,11 +52,10 @@ impl SqlParseError {
     }
 }
 
-///
-/// Keyword
-///
-/// Reduced SQL keyword taxonomy shared by predicate parsing and statement parsing.
-///
+#[cfg_attr(
+    doc,
+    doc = "Keyword\n\nReduced SQL keyword taxonomy shared by predicate parsing and statement parsing."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Keyword {
     And,
@@ -470,12 +467,10 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
     }
 }
 
-///
-/// SqlTokenCursor
-///
-/// Shared reduced-SQL token cursor used by standalone predicate parsing and
-/// feature-gated statement parsing.
-///
+#[cfg_attr(
+    doc,
+    doc = "SqlTokenCursor\n\nShared reduced-SQL token cursor used by standalone predicate parsing and feature-gated statement parsing."
+)]
 #[derive(Clone, Debug)]
 pub(crate) struct SqlTokenCursor {
     tokens: Vec<Token>,

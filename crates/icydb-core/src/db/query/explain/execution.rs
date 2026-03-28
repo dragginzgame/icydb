@@ -12,13 +12,10 @@ use crate::{
 };
 use std::fmt::{self, Debug};
 
-///
-/// ExplainPropertyMap
-///
-/// Stable ordered property map for EXPLAIN metadata.
-/// Keeps deterministic key order without `BTreeMap`.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainPropertyMap\n\nStable ordered property map for EXPLAIN metadata.\nKeeps deterministic key order without `BTreeMap`."
+)]
 #[derive(Clone, Default, Eq, PartialEq)]
 pub struct ExplainPropertyMap {
     entries: Vec<(&'static str, Value)>,
@@ -84,12 +81,10 @@ impl Debug for ExplainPropertyMap {
     }
 }
 
-///
-/// ExplainAggregateTerminalRoute
-///
-/// Scalar aggregate route label used by EXPLAIN output.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainAggregateTerminalRoute\n\nScalar aggregate route label used by EXPLAIN output."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainAggregateTerminalRoute {
     Standard,
@@ -97,12 +92,10 @@ pub enum ExplainAggregateTerminalRoute {
     IndexSeekLast { fetch: usize },
 }
 
-///
-/// ExplainAggregateTerminalPlan
-///
-/// Combined EXPLAIN payload for one scalar aggregate request.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainAggregateTerminalPlan\n\nCombined EXPLAIN payload for one scalar aggregate request."
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainAggregateTerminalPlan {
     pub(crate) query: ExplainPlan,
@@ -111,12 +104,10 @@ pub struct ExplainAggregateTerminalPlan {
     pub(crate) execution: ExplainExecutionDescriptor,
 }
 
-///
-/// ExplainExecutionOrderingSource
-///
-/// Ordering-origin label used by execution EXPLAIN output.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainExecutionOrderingSource\n\nOrdering-origin label used by execution EXPLAIN output."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainExecutionOrderingSource {
     AccessOrder,
@@ -125,25 +116,20 @@ pub enum ExplainExecutionOrderingSource {
     IndexSeekLast { fetch: usize },
 }
 
-///
-/// ExplainExecutionMode
-///
-/// Execution mode used by EXPLAIN descriptors.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainExecutionMode\n\nExecution mode used by EXPLAIN descriptors."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainExecutionMode {
     Streaming,
     Materialized,
 }
 
-///
-/// ExplainExecutionDescriptor
-///
-/// Scalar execution descriptor consumed by terminal EXPLAIN surfaces.
-/// Keeps execution projection centralized for renderers.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainExecutionDescriptor\n\nScalar execution descriptor consumed by terminal EXPLAIN surfaces.\nKeeps execution projection centralized for renderers."
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionDescriptor {
     pub(crate) access_strategy: ExplainAccessPath,
@@ -156,12 +142,10 @@ pub struct ExplainExecutionDescriptor {
     pub(crate) node_properties: ExplainPropertyMap,
 }
 
-///
-/// ExplainExecutionNodeType
-///
-/// Execution-node vocabulary for EXPLAIN descriptors.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainExecutionNodeType\n\nExecution-node vocabulary for EXPLAIN descriptors."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainExecutionNodeType {
     ByKeyLookup,
@@ -199,13 +183,10 @@ pub enum ExplainExecutionNodeType {
     SecondaryOrderPushdown,
 }
 
-///
-/// ExplainExecutionNodeDescriptor
-///
-/// Canonical execution-node descriptor for EXPLAIN renderers.
-/// Optional fields are node-family specific.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "ExplainExecutionNodeDescriptor\n\nCanonical execution-node descriptor for EXPLAIN renderers.\nOptional fields are node-family specific."
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionNodeDescriptor {
     pub(crate) node_type: ExplainExecutionNodeType,

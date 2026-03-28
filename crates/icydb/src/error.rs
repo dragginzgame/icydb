@@ -7,11 +7,7 @@ use icydb_core::{
 use serde::Deserialize;
 use thiserror::Error as ThisError;
 
-///
-/// Error
-/// Public error payload.
-///
-
+#[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
 #[derive(CandidType, Debug, Deserialize, ThisError)]
 #[error("{message}")]
 #[serde(rename_all = "snake_case")]
@@ -132,11 +128,7 @@ impl From<ResponseError> for Error {
     }
 }
 
-///
-/// ErrorKind
-/// Public error category.
-///
-
+#[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ErrorKind {
@@ -146,11 +138,7 @@ pub enum ErrorKind {
     Runtime(RuntimeErrorKind),
 }
 
-///
-/// RuntimeErrorKind
-/// Public runtime error class.
-///
-
+#[cfg_attr(doc, doc = "RuntimeErrorKind\n\nPublic runtime error class.")]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum RuntimeErrorKind {
@@ -163,11 +151,7 @@ pub enum RuntimeErrorKind {
     Internal,
 }
 
-///
-/// QueryErrorKind
-/// Public query error class.
-///
-
+#[cfg_attr(doc, doc = "QueryErrorKind\n\nPublic query error class.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum QueryErrorKind {
@@ -193,10 +177,7 @@ pub enum QueryErrorKind {
     NotUnique,
 }
 
-/// ErrorOrigin
-/// Public error origin.
-///
-
+#[cfg_attr(doc, doc = "ErrorOrigin\n\nPublic error origin.")]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ErrorOrigin {

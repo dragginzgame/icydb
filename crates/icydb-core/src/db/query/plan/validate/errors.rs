@@ -175,7 +175,7 @@ pub enum PolicyPlanError {
 
     /// Pagination requires an explicit ordering.
     #[error(
-        "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.\nPagination without a total ordering is non-deterministic.\nAdd an explicit order_by(...) to make the query stable."
+        "Unordered pagination is not allowed.\nLIMIT or OFFSET without ORDER BY is non-deterministic.\nAdd order_by(...) to make the query stable."
     )]
     UnorderedPagination,
 }

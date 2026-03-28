@@ -11,12 +11,10 @@ use candid::CandidType;
 use serde::Deserialize;
 use std::fmt::Write;
 
-///
-/// EntitySchemaDescription
-///
-/// Stable describe payload for one entity model.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "EntitySchemaDescription\n\nStable describe payload for one entity model."
+)]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntitySchemaDescription {
     pub(crate) entity_path: String,
@@ -85,12 +83,10 @@ impl EntitySchemaDescription {
     }
 }
 
-///
-/// EntityFieldDescription
-///
-/// One field entry in a describe payload.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "EntityFieldDescription\n\nOne field entry in a describe payload."
+)]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityFieldDescription {
     pub(crate) name: String,
@@ -136,12 +132,10 @@ impl EntityFieldDescription {
     }
 }
 
-///
-/// EntityIndexDescription
-///
-/// One index entry in a describe payload.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "EntityIndexDescription\n\nOne index entry in a describe payload."
+)]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityIndexDescription {
     pub(crate) name: String,
@@ -179,12 +173,10 @@ impl EntityIndexDescription {
     }
 }
 
-///
-/// EntityRelationDescription
-///
-/// One relation entry in a describe payload.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "EntityRelationDescription\n\nOne relation entry in a describe payload."
+)]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityRelationDescription {
     pub(crate) field: String,
@@ -253,24 +245,17 @@ impl EntityRelationDescription {
     }
 }
 
-///
-/// EntityRelationStrength
-///
-/// Describe relation strength.
-///
-
+#[cfg_attr(doc, doc = "EntityRelationStrength\n\nDescribe relation strength.")]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum EntityRelationStrength {
     Strong,
     Weak,
 }
 
-///
-/// EntityRelationCardinality
-///
-/// Describe relation cardinality.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "EntityRelationCardinality\n\nDescribe relation cardinality."
+)]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum EntityRelationCardinality {
     Single,
@@ -278,7 +263,10 @@ pub enum EntityRelationCardinality {
     Set,
 }
 
-/// Build one stable entity-schema description from one runtime `EntityModel`.
+#[cfg_attr(
+    doc,
+    doc = "Build one stable entity-schema description from one runtime `EntityModel`."
+)]
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
     let mut fields = Vec::with_capacity(model.fields.len());
@@ -323,7 +311,10 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
     )
 }
 
-/// Resolve relation metadata from one field kind, including list/set relation forms.
+#[cfg_attr(
+    doc,
+    doc = "Resolve relation metadata from one field kind, including list/set relation forms."
+)]
 fn relation_from_field_kind(
     field_name: &str,
     kind: &FieldKind,
@@ -375,7 +366,10 @@ fn relation_from_field_kind(
     }
 }
 
-/// Resolve list/set relation metadata only when the collection inner shape is relation.
+#[cfg_attr(
+    doc,
+    doc = "Resolve list/set relation metadata only when the collection inner shape is relation."
+)]
 fn relation_from_collection_relation(
     field_name: &str,
     inner: &FieldKind,
@@ -402,7 +396,10 @@ fn relation_from_collection_relation(
     ))
 }
 
-/// Project runtime relation strength into the describe DTO surface.
+#[cfg_attr(
+    doc,
+    doc = "Project runtime relation strength into the describe DTO surface."
+)]
 const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength {
     match strength {
         RelationStrength::Strong => EntityRelationStrength::Strong,
@@ -410,7 +407,7 @@ const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength
     }
 }
 
-/// Render one stable field-kind label for describe output.
+#[cfg_attr(doc, doc = "Render one stable field-kind label for describe output.")]
 fn summarize_field_kind(kind: &FieldKind) -> String {
     let mut out = String::new();
     write_field_kind_summary(&mut out, kind);
@@ -486,7 +483,10 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
     }
 }
 
-/// Render one stable relation-strength label for field-kind summaries.
+#[cfg_attr(
+    doc,
+    doc = "Render one stable relation-strength label for field-kind summaries."
+)]
 const fn summarize_relation_strength(strength: RelationStrength) -> &'static str {
     match strength {
         RelationStrength::Strong => "strong",

@@ -35,13 +35,10 @@ use crate::{
     value::Value,
 };
 
-///
-/// SqlStatementRoute
-///
-/// Canonical SQL statement routing metadata derived from reduced SQL parser output.
-/// Carries surface kind (`Query` / `Explain` / `Describe` / `ShowIndexes` /
-/// `ShowColumns` / `ShowEntities`) and canonical parsed entity identifier.
-///
+#[cfg_attr(
+    doc,
+    doc = "SqlStatementRoute\n\nCanonical SQL statement routing metadata derived from reduced SQL parser output.\nCarries surface kind (`Query` / `Explain` / `Describe` / `ShowIndexes` / `ShowColumns` / `ShowEntities`) and canonical parsed entity identifier."
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SqlStatementRoute {
     Query { entity: String },
@@ -52,11 +49,10 @@ pub enum SqlStatementRoute {
     ShowEntities,
 }
 
-///
-/// SqlDispatchResult
-///
-/// Unified SQL dispatch payload returned by shared SQL lane execution.
-///
+#[cfg_attr(
+    doc,
+    doc = "SqlDispatchResult\n\nUnified SQL dispatch payload returned by shared SQL lane execution."
+)]
 #[derive(Debug)]
 pub enum SqlDispatchResult {
     Projection {
@@ -71,13 +67,10 @@ pub enum SqlDispatchResult {
     ShowEntities(Vec<String>),
 }
 
-///
-/// SqlParsedStatement
-///
-/// Opaque parsed SQL statement envelope with stable route metadata.
-/// This allows callers to parse once and reuse parsed authority across
-/// route classification and typed dispatch lowering.
-///
+#[cfg_attr(
+    doc,
+    doc = "SqlParsedStatement\n\nOpaque parsed SQL statement envelope with stable route metadata.\nThis allows callers to parse once and reuse parsed authority across route classification and typed dispatch lowering."
+)]
 #[derive(Clone, Debug)]
 pub struct SqlParsedStatement {
     statement: SqlStatement,
@@ -144,15 +137,10 @@ impl SqlParsedStatement {
     }
 }
 
-///
-/// SqlProjectionPayload
-///
-/// Generic-free row-oriented SQL projection payload carried across the shared
-/// SQL dispatch surface.
-/// Keeps SQL `SELECT` results structural so query-lane dispatch does not
-/// rebuild typed response rows before rendering values.
-///
-
+#[cfg_attr(
+    doc,
+    doc = "SqlProjectionPayload\n\nGeneric-free row-oriented SQL projection payload carried across the shared SQL dispatch surface.\nKeeps SQL `SELECT` results structural so query-lane dispatch does not rebuild typed response rows before rendering values."
+)]
 #[derive(Debug)]
 struct SqlProjectionPayload {
     columns: Vec<String>,

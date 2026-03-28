@@ -19,12 +19,7 @@ use crate::{
     value::{Value, ValueEnum},
 };
 
-///
-/// SqlProjectionRows
-///
-/// Render-ready SQL projection rows.
-///
-
+#[cfg_attr(doc, doc = "SqlProjectionRows\n\nRender-ready SQL projection rows.")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SqlProjectionRows {
     columns: Vec<String>,
@@ -68,12 +63,7 @@ impl SqlProjectionRows {
     }
 }
 
-///
-/// SqlQueryRowsOutput
-///
-/// Structured SQL projection payload.
-///
-
+#[cfg_attr(doc, doc = "SqlQueryRowsOutput\n\nStructured SQL projection payload.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryRowsOutput {
     pub entity: String,
@@ -102,11 +92,7 @@ impl SqlQueryRowsOutput {
     }
 }
 
-///
-/// SqlQueryResult
-///
-/// Unified SQL endpoint result.
-///
+#[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
     Projection(SqlQueryRowsOutput),
@@ -155,7 +141,7 @@ impl SqlQueryResult {
     }
 }
 
-/// Validate and normalize SQL endpoint input.
+#[cfg_attr(doc, doc = "Validate and normalize SQL endpoint input.")]
 pub fn normalize_sql_input(sql: &str) -> Result<&str, Error> {
     let sql_trimmed = sql.trim();
     if sql_trimmed.is_empty() {
@@ -169,9 +155,10 @@ pub fn normalize_sql_input(sql: &str) -> Result<&str, Error> {
     Ok(sql_trimmed)
 }
 
-/// Return the wrapped SQL statement text inside one EXPLAIN surface statement.
-///
-/// If `sql` does not begin with EXPLAIN, this returns the trimmed input.
+#[cfg_attr(
+    doc,
+    doc = "Return the wrapped SQL statement text inside one EXPLAIN surface statement.\n\nIf `sql` does not begin with EXPLAIN, this returns the trimmed input."
+)]
 #[must_use]
 pub fn explain_target_sql(sql: &str) -> &str {
     let mut rest = sql.trim_start();
@@ -187,16 +174,19 @@ pub fn explain_target_sql(sql: &str) -> &str {
     rest.trim_start()
 }
 
-/// Return whether two entity identifiers refer to the same logical entity.
-///
-/// Matching is case-insensitive and accepts one schema-qualified side by
-/// comparing the final identifier segment (for example `public.User` vs `User`).
+#[cfg_attr(
+    doc,
+    doc = "Return whether two entity identifiers refer to the same logical entity.\n\nMatching is case-insensitive and accepts one schema-qualified side by comparing the final identifier segment (for example `public.User` vs `User`)."
+)]
 #[must_use]
 pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
     crate::db::identifiers_tail_match(left, right)
 }
 
-/// Build one stable list of SQL entity names from resolved authority.
+#[cfg_attr(
+    doc,
+    doc = "Build one stable list of SQL entity names from resolved authority."
+)]
 #[doc(hidden)]
 #[must_use]
 pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
@@ -206,7 +196,10 @@ pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
         .collect()
 }
 
-/// Execute one generated canister SQL query/explain/describe dispatch entrypoint.
+#[cfg_attr(
+    doc,
+    doc = "Execute one generated canister SQL query/explain/describe dispatch entrypoint."
+)]
 #[doc(hidden)]
 pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
     session: &DbSession<C>,
@@ -381,7 +374,7 @@ fn unsupported_sql_query_surface_statement_error() -> Error {
     Error::new(
         ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
         ErrorOrigin::Query,
-        "query endpoint accepts SELECT, EXPLAIN SELECT, DESCRIBE, and SHOW statements only; use a typed update surface for DELETE",
+        "query endpoint only supports SELECT, EXPLAIN SELECT, DESCRIBE, and SHOW; use update for DELETE",
     )
 }
 
@@ -397,7 +390,7 @@ fn explain_surface_error(sql: &str, model: &'static EntityModel, err: Error) -> 
     let target_sql = explain_target_sql(sql);
     let suggestion = explain_order_hint_sql(target_sql, model.primary_key().name());
     let message = format!(
-        "Cannot EXPLAIN this SQL statement.\n\nReason:\nThe wrapped query uses LIMIT or OFFSET without ORDER BY, so it is non-deterministic and not executable under IcyDB's ordering contract.\n\nSQL:\n{target_sql}\n\nHow to fix:\nAdd an explicit ORDER BY that produces a stable total order, for example:\n{suggestion}",
+        "Cannot EXPLAIN this SQL statement.\n\nReason:\nLIMIT or OFFSET without ORDER BY is non-deterministic.\n\nSQL:\n{target_sql}\n\nHow to fix:\nAdd ORDER BY for a stable total order, for example:\n{suggestion}",
     );
 
     Error::new(
@@ -431,7 +424,7 @@ fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
     format!("EXPLAIN {trimmed} ORDER BY {order_field} ASC")
 }
 
-/// Render one value into a shell-friendly stable text form.
+#[cfg_attr(doc, doc = "Render one value into a shell-friendly stable text form.")]
 #[must_use]
 pub fn render_value_text(value: &Value) -> String {
     match value {
@@ -478,8 +471,10 @@ pub fn render_value_text(value: &Value) -> String {
     }
 }
 
-/// Build one rendered projection row payload from one already-materialized SQL
-/// value grid.
+#[cfg_attr(
+    doc,
+    doc = "Build one rendered projection row payload from one already-materialized SQL value grid."
+)]
 #[must_use]
 pub fn projection_rows_from_values(
     columns: Vec<String>,
@@ -506,7 +501,10 @@ pub fn projection_rows_from_values(
     SqlProjectionRows::new(columns, rendered_rows, row_count)
 }
 
-/// Render one SQL EXPLAIN text payload as endpoint output lines.
+#[cfg_attr(
+    doc,
+    doc = "Render one SQL EXPLAIN text payload as endpoint output lines."
+)]
 #[must_use]
 pub fn render_explain_lines(explain: &str) -> Vec<String> {
     let mut lines = vec!["surface=explain".to_string()];
@@ -515,7 +513,10 @@ pub fn render_explain_lines(explain: &str) -> Vec<String> {
     lines
 }
 
-/// Render one typed `DESCRIBE` payload into deterministic shell output lines.
+#[cfg_attr(
+    doc,
+    doc = "Render one typed `DESCRIBE` payload into deterministic shell output lines."
+)]
 #[must_use]
 pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<String> {
     let mut lines = Vec::new();
@@ -572,7 +573,10 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     lines
 }
 
-/// Render one `SHOW INDEXES` payload into deterministic shell output lines.
+#[cfg_attr(
+    doc,
+    doc = "Render one `SHOW INDEXES` payload into deterministic shell output lines."
+)]
 #[must_use]
 pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String> {
     let mut lines = vec![format!(
@@ -584,7 +588,10 @@ pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String
     lines
 }
 
-/// Render one `SHOW COLUMNS` payload into deterministic shell output lines.
+#[cfg_attr(
+    doc,
+    doc = "Render one `SHOW COLUMNS` payload into deterministic shell output lines."
+)]
 #[must_use]
 pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription]) -> Vec<String> {
     let mut lines = vec![format!(
@@ -604,7 +611,10 @@ pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription
     lines
 }
 
-/// Render one helper-level `SHOW ENTITIES` payload into deterministic lines.
+#[cfg_attr(
+    doc,
+    doc = "Render one helper-level `SHOW ENTITIES` payload into deterministic lines."
+)]
 #[must_use]
 pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
     let mut lines = vec!["surface=entities".to_string()];
@@ -613,7 +623,10 @@ pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
     lines
 }
 
-/// Render one SQL projection payload into pretty table lines for shell output.
+#[cfg_attr(
+    doc,
+    doc = "Render one SQL projection payload into pretty table lines for shell output."
+)]
 #[must_use]
 pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
     // Phase 1: seed surface header and handle empty-projection output.

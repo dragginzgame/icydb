@@ -12,12 +12,7 @@ use canic_cdk::utils::time::now_millis;
 use serde::Deserialize;
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
-///
-/// EventState
-///
-/// Metrics window state.
-///
-
+#[cfg_attr(doc, doc = "EventState\n\nMetrics window state.")]
 #[derive(CandidType, Clone, Debug, Deserialize)]
 pub struct EventState {
     pub(crate) ops: EventOps,
@@ -74,11 +69,7 @@ impl Default for EventState {
     }
 }
 
-///
-/// EventOps
-///
-/// Operation counters.
-///
+#[cfg_attr(doc, doc = "EventOps\n\nOperation counters.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventOps {
     // Executor entrypoints
@@ -236,12 +227,7 @@ impl EventOps {
     }
 }
 
-///
-/// EntityCounters
-///
-/// Per-entity counters.
-///
-
+#[cfg_attr(doc, doc = "EntityCounters\n\nPer-entity counters.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntityCounters {
     pub(crate) load_calls: u64,
@@ -356,11 +342,7 @@ impl EntityCounters {
     }
 }
 
-///
-/// EventPerf
-///
-/// Instruction totals and maxima.
-///
+#[cfg_attr(doc, doc = "EventPerf\n\nInstruction totals and maxima.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventPerf {
     // Instruction totals per executor (ic_cdk::api::performance_counter(1))
@@ -457,12 +439,7 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
     }
 }
 
-///
-/// EventReport
-///
-/// Metrics query payload.
-///
-
+#[cfg_attr(doc, doc = "EventReport\n\nMetrics query payload.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventReport {
     counters: Option<EventState>,
@@ -502,12 +479,7 @@ impl EventReport {
     }
 }
 
-///
-/// EntitySummary
-///
-/// Per-entity metrics summary.
-///
-
+#[cfg_attr(doc, doc = "EntitySummary\n\nPer-entity metrics summary.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EntitySummary {
     path: String,
