@@ -112,7 +112,7 @@ A `Predicate` is defined as:
 * `MapContainsEntry { field, key, value, coercion }`
 
 Map field predicates are intentionally rejected at validation time in the
-current contract (introduced in 0.8.x):
+current contract:
 **map fields are not queryable/indexable**.
 
 #### Comparison Operators

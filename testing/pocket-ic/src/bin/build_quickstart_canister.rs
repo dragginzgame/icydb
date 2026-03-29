@@ -8,7 +8,10 @@ fn main() {
     match stage_canister_for_dfx(canister_name.as_str()) {
         Ok((wasm_path, did_path)) => {
             println!("staged wasm: {}", wasm_path.display());
-            println!("staged did:  {}", did_path.display());
+            match did_path {
+                Some(did_path) => println!("staged did:  {}", did_path.display()),
+                None => println!("staged did:  unavailable"),
+            }
         }
         Err(err) => {
             eprintln!("{err}");

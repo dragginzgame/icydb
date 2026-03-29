@@ -127,6 +127,13 @@ pub(super) fn plan_compare(
             ) {
                 return AccessPlan::full_scan();
             }
+
+            // Keep the starts-with split explicit:
+            // - strict scalar text fields still fail closed because raw field-key
+            //   range ordering is not prefix-safe today
+            // - expression-key lookups that can derive a canonical prefix value
+            //   (for example text-casefold expression indexes) may still lower
+            //   onto the index-range path below
             if let Some(path) = plan_starts_with_compare(model, schema, cmp, query_predicate) {
                 return path;
             }
@@ -184,6 +191,10 @@ fn plan_starts_with_compare(
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
+    // This helper is intentionally narrower than the top-level StartsWith arm.
+    // It exists to preserve the expression-key/text-casefold lowering lane,
+    // not to make strict scalar text-prefix planning look range-safe when the
+    // underlying field-key encoding still is not.
     let field_type = schema.field(&cmp.field)?;
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
     for index in sorted_indexes(model, query_predicate) {

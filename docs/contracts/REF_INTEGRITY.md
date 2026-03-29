@@ -1,6 +1,6 @@
 # Referential Integrity (RI)
 
-## Status (IcyDB 0.10.x)
+## Status
 
 IcyDB enforces referential integrity for **explicitly declared strong
 relations only**.
@@ -16,7 +16,8 @@ This document is **normative**. It defines:
 
 It is not a roadmap.
 
-This specification reflects the shipped 0.10 contract.
+This specification reflects the current shipped contract; the baseline
+originated in the `0.10` line.
 
 ---
 

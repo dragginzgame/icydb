@@ -365,11 +365,15 @@ fn aggregate_count_from_pk_cardinality_with_store(
 
     // Phase 2: read candidate-row cardinality directly from primary storage.
     let available_rows = match path.payload() {
-        ExecutionPathPayload::FullScan => store.with_data(|data| {
-            let store_len = data.len();
+        ExecutionPathPayload::FullScan => {
+            let start_raw = DataKey::lower_bound_for(entity_tag).to_raw()?;
+            let end_raw = DataKey::upper_bound_for(entity_tag).to_raw()?;
 
-            usize::try_from(store_len).unwrap_or(usize::MAX)
-        }),
+            store.with_data(|data| {
+                data.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .count()
+            })
+        }
         ExecutionPathPayload::KeyRange { start, end } => {
             let start_raw = DataKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
             let end_raw = DataKey::try_from_structural_key(entity_tag, end)?.to_raw()?;

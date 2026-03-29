@@ -19,7 +19,7 @@ A query intent represents the caller's desired result without committing to a
 physical access path.
 
 Implementation note: the public facade exposes session-bound wrappers
-(`SessionLoadQuery` and `SessionDeleteQuery`) that wrap `Query<E>` and route
+(`FluentLoadQuery` and `SessionDeleteQuery`) that wrap `Query<E>` and route
 execution through `DbSession`.
 
 Minimum intent surface (conceptual):

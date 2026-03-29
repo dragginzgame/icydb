@@ -174,7 +174,7 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 /// `.dfx/local/canisters/<canister_name>/`.
 ///
 
-pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, PathBuf), String> {
+pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, Option<PathBuf>), String> {
     let root = workspace_root();
     let package_name = package_for_canister_name(canister_name)?;
     let profile = selected_canister_wasm_profile()?;
@@ -201,6 +201,8 @@ pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, PathBuf),
         )
     })?;
 
+    let staged_did_path = dfx_canister_dir.join(format!("{canister_name}.did"));
+
     let candid_output = Command::new("candid-extractor")
         .arg(&staged_wasm_path)
         .output()
@@ -210,15 +212,32 @@ pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, PathBuf),
                 staged_wasm_path.display()
             )
         })?;
+    // Release wasm-size builds now intentionally allow canisters to omit the
+    // `export_candid!()` entrypoint. In that case, keep staging the wasm and
+    // report DID export as unavailable instead of failing the whole size pass.
     if !candid_output.status.success() {
         let stderr = String::from_utf8_lossy(&candid_output.stderr);
+        if stderr.contains("get_candid_pointer") {
+            // Remove any previously staged DID so release size reports do not
+            // accidentally reuse stale export output from an earlier debug build.
+            if staged_did_path.exists() {
+                fs::remove_file(&staged_did_path).map_err(|err| {
+                    format!(
+                        "failed to remove stale staged did {}: {err}",
+                        staged_did_path.display()
+                    )
+                })?;
+            }
+
+            return Ok((staged_wasm_path, None));
+        }
+
         return Err(format!(
             "candid-extractor failed for {}: {stderr}",
             staged_wasm_path.display()
         ));
     }
 
-    let staged_did_path = dfx_canister_dir.join(format!("{canister_name}.did"));
     fs::write(&staged_did_path, &candid_output.stdout).map_err(|err| {
         format!(
             "failed to write candid output to {}: {err}",
@@ -226,5 +245,5 @@ pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, PathBuf),
         )
     })?;
 
-    Ok((staged_wasm_path, staged_did_path))
+    Ok((staged_wasm_path, Some(staged_did_path)))
 }

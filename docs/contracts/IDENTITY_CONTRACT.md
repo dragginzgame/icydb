@@ -1,6 +1,6 @@
-# Identity and Primary Key Contract (Introduced in 0.8.x)
+# Identity and Primary Key Contract
 
-This document freezes identity and primary-key semantics introduced in 0.8.x.
+This document freezes the current identity and primary-key semantics.
 These guarantees remain part of the current contract unless superseded by a
 newer versioned contract document.
 It is a source-of-truth boundary: anything not stated here is not guaranteed.

@@ -2071,6 +2071,24 @@ fn query_from_sql_select_field_projection_lowers_to_scalar_field_selection() {
 }
 
 #[test]
+fn query_from_sql_rejects_computed_text_projection_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .query_from_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+        .expect_err(
+            "query_from_sql should stay on the structural lowered-query lane and reject computed text projection forms",
+        );
+
+    assert!(
+        err.to_string()
+            .contains("query_from_sql does not accept computed text projection"),
+        "query_from_sql should reject computed text projection with an actionable boundary message",
+    );
+}
+
+#[test]
 fn query_from_sql_select_grouped_aggregate_projection_lowers_to_grouped_intent() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2380,6 +2398,295 @@ fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
         row.as_slice(),
         [Value::Text("projection-surface".to_string())],
         "projection SQL response should carry only projected field values in declaration order",
+    );
+}
+
+#[test]
+fn execute_sql_projection_trim_ltrim_rtrim_lower_upper_and_length_dispatch_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "  Ada  ".to_string(),
+            age: 33,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "\tBob".to_string(),
+            age: 21,
+        })
+        .expect("seed insert should succeed");
+
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("computed SQL projection columns should derive");
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("computed SQL projection rows should execute");
+
+    assert_eq!(
+        columns,
+        vec![
+            "TRIM(name)".to_string(),
+            "LTRIM(name)".to_string(),
+            "RTRIM(name)".to_string(),
+            "LOWER(name)".to_string(),
+            "UPPER(name)".to_string(),
+            "LENGTH(name)".to_string(),
+            "age".to_string(),
+        ],
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Text("Ada".to_string()),
+                Value::Text("Ada  ".to_string()),
+                Value::Text("  Ada".to_string()),
+                Value::Text("  ada  ".to_string()),
+                Value::Text("  ADA  ".to_string()),
+                Value::Uint(7),
+                Value::Uint(33),
+            ],
+            vec![
+                Value::Text("Bob".to_string()),
+                Value::Text("Bob".to_string()),
+                Value::Text("\tBob".to_string()),
+                Value::Text("\tbob".to_string()),
+                Value::Text("\tBOB".to_string()),
+                Value::Uint(4),
+                Value::Uint(21),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_projection_left_and_right_dispatch_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "  Ada  ".to_string(),
+            age: 33,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "\tBob".to_string(),
+            age: 21,
+        })
+        .expect("seed insert should succeed");
+
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT LEFT(name, 2), RIGHT(name, 3), LEFT(name, NULL) FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("left/right SQL projection columns should derive");
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT LEFT(name, 2), RIGHT(name, 3), LEFT(name, NULL) FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("left/right SQL projection rows should execute");
+
+    assert_eq!(
+        columns,
+        vec![
+            "LEFT(name, 2)".to_string(),
+            "RIGHT(name, 3)".to_string(),
+            "LEFT(name, NULL)".to_string(),
+        ],
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Text("  ".to_string()),
+                Value::Text("a  ".to_string()),
+                Value::Null,
+            ],
+            vec![
+                Value::Text("\tB".to_string()),
+                Value::Text("Bob".to_string()),
+                Value::Null,
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_projection_starts_ends_and_position_dispatch_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "  Ada  ".to_string(),
+            age: 33,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "\tBob".to_string(),
+            age: 21,
+        })
+        .expect("seed insert should succeed");
+
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT STARTS_WITH(name, ' '), ENDS_WITH(name, 'b'), CONTAINS(name, 'da'), POSITION('da', name), POSITION(NULL, name) FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("text predicate SQL projection columns should derive");
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT STARTS_WITH(name, ' '), ENDS_WITH(name, 'b'), CONTAINS(name, 'da'), POSITION('da', name), POSITION(NULL, name) FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("text predicate SQL projection rows should execute");
+
+    assert_eq!(
+        columns,
+        vec![
+            "STARTS_WITH(name, ' ')".to_string(),
+            "ENDS_WITH(name, 'b')".to_string(),
+            "CONTAINS(name, 'da')".to_string(),
+            "POSITION('da', name)".to_string(),
+            "POSITION(NULL, name)".to_string(),
+        ],
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Bool(true),
+                Value::Uint(4),
+                Value::Null,
+            ],
+            vec![
+                Value::Bool(false),
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Uint(0),
+                Value::Null,
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_projection_replace_dispatch_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "  Ada  ".to_string(),
+            age: 33,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "\tBob".to_string(),
+            age: 21,
+        })
+        .expect("seed insert should succeed");
+
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT REPLACE(name, 'A', 'E'), REPLACE(name, NULL, 'x') FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("replace SQL projection columns should derive");
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT REPLACE(name, 'A', 'E'), REPLACE(name, NULL, 'x') FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("replace SQL projection rows should execute");
+
+    assert_eq!(
+        columns,
+        vec![
+            "REPLACE(name, 'A', 'E')".to_string(),
+            "REPLACE(name, NULL, 'x')".to_string(),
+        ],
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("  Eda  ".to_string()), Value::Null],
+            vec![Value::Text("\tBob".to_string()), Value::Null],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_projection_substring_dispatch_from_session_boundary() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "  Ada  ".to_string(),
+            age: 33,
+        })
+        .expect("seed insert should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::generate(),
+            name: "\tBob".to_string(),
+            age: 21,
+        })
+        .expect("seed insert should succeed");
+
+    let columns = dispatch_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT SUBSTRING(name, 3, 3), SUBSTRING(name, 3), SUBSTRING(name, NULL, 2) FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("substring SQL projection columns should derive");
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT SUBSTRING(name, 3, 3), SUBSTRING(name, 3), SUBSTRING(name, NULL, 2) FROM SessionSqlEntity ORDER BY age DESC",
+    )
+    .expect("substring SQL projection rows should execute");
+
+    assert_eq!(
+        columns,
+        vec![
+            "SUBSTRING(name, 3, 3)".to_string(),
+            "SUBSTRING(name, 3)".to_string(),
+            "SUBSTRING(name, NULL, 2)".to_string(),
+        ],
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Text("Ada".to_string()),
+                Value::Text("Ada  ".to_string()),
+                Value::Null,
+            ],
+            vec![
+                Value::Text("ob".to_string()),
+                Value::Text("ob".to_string()),
+                Value::Null,
+            ],
+        ],
     );
 }
 
@@ -4084,6 +4391,28 @@ fn explain_sql_rejects_distinct_without_pk_projection_in_current_slice() {
 }
 
 #[test]
+fn explain_sql_supports_computed_text_projection_in_dispatch_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age LIMIT 1",
+    );
+
+    let explain = explain
+        .expect("EXPLAIN should support computed text projection on the narrowed dispatch lane");
+    assert!(
+        explain.contains("mode=Load"),
+        "computed text projection explain should still render the base load plan",
+    );
+    assert!(
+        explain.contains("access="),
+        "computed text projection explain should still expose the routed access shape",
+    );
+}
+
+#[test]
 fn explain_sql_rejects_non_explain_statements() {
     reset_session_sql_store();
     let session = sql_session();
@@ -5378,6 +5707,36 @@ fn session_explain_execution_covering_scan_reports_true_for_unordered_strict_ind
         descriptor.covering_scan(),
         Some(true),
         "unordered strict index-prefix load shapes should report covering eligibility",
+    );
+}
+
+#[test]
+fn session_count_full_scan_ignores_other_entities_in_shared_store() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Seed two entity types into the same underlying store so the COUNT fast
+    // path must stay scoped to the requested entity tag.
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+    seed_session_explain_entities(&session, &[(9_501, 7, 10), (9_502, 7, 20)]);
+
+    let expected = session
+        .load::<SessionExplainEntity>()
+        .execute()
+        .expect("shared-store execute should succeed")
+        .count();
+    let actual = session
+        .load::<SessionExplainEntity>()
+        .count()
+        .expect("shared-store count should succeed");
+
+    assert_eq!(
+        actual, expected,
+        "full-scan count must ignore rows that belong to sibling entities sharing the same store",
+    );
+    assert_eq!(
+        actual, 2,
+        "shared-store count should report only the SessionExplainEntity rows",
     );
 }
 

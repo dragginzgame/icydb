@@ -7,7 +7,8 @@ use super::{
     SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
     SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
     SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -61,6 +62,226 @@ fn parse_select_statement_with_predicate_order_and_window() {
             ],
             limit: Some(10),
             offset: Some(5),
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projection_items() {
+    let statement = parse_sql(
+        "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM users",
+    )
+    .expect("text-function projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Trim,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Ltrim,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Rtrim,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Lower,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Upper,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Length,
+                    field: "name".to_string(),
+                    literal: None,
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::Field("age".to_string()),
+            ]),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_left_and_right_projection_items() {
+    let statement = parse_sql("SELECT LEFT(name, 2), RIGHT(name, 3) FROM users")
+        .expect("left/right projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Left,
+                    field: "name".to_string(),
+                    literal: Some(Value::Int(2)),
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Right,
+                    field: "name".to_string(),
+                    literal: Some(Value::Int(3)),
+                    literal2: None,
+                    literal3: None,
+                }),
+            ]),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_starts_ends_and_position_projection_items() {
+    let statement = parse_sql(
+        "SELECT STARTS_WITH(name, 'A'), ENDS_WITH(name, 'z'), CONTAINS(name, 'd'), POSITION('da', name) FROM users",
+    )
+    .expect("text predicate projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::StartsWith,
+                    field: "name".to_string(),
+                    literal: Some(Value::Text("A".to_string())),
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::EndsWith,
+                    field: "name".to_string(),
+                    literal: Some(Value::Text("z".to_string())),
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Contains,
+                    field: "name".to_string(),
+                    literal: Some(Value::Text("d".to_string())),
+                    literal2: None,
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Position,
+                    field: "name".to_string(),
+                    literal: Some(Value::Text("da".to_string())),
+                    literal2: None,
+                    literal3: None,
+                }),
+            ]),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_replace_projection_item() {
+    let statement = parse_sql("SELECT REPLACE(name, 'A', 'E') FROM users")
+        .expect("replace projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::TextFunction(
+                SqlTextFunctionCall {
+                    function: SqlTextFunction::Replace,
+                    field: "name".to_string(),
+                    literal: Some(Value::Text("A".to_string())),
+                    literal2: Some(Value::Text("E".to_string())),
+                    literal3: None,
+                },
+            )]),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_substring_projection_item() {
+    let statement = parse_sql("SELECT SUBSTRING(name, 2, 3), SUBSTRING(name, 2) FROM users")
+        .expect("substring projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Substring,
+                    field: "name".to_string(),
+                    literal: Some(Value::Int(2)),
+                    literal2: Some(Value::Int(3)),
+                    literal3: None,
+                }),
+                SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                    function: SqlTextFunction::Substring,
+                    field: "name".to_string(),
+                    literal: Some(Value::Int(2)),
+                    literal2: None,
+                    literal3: None,
+                }),
+            ]),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
         }),
     );
 }
@@ -611,7 +832,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SELECT \"name\" FROM users", "quoted identifiers"),
         (
             "SELECT len(name) FROM users",
-            "SQL function namespace beyond supported aggregate forms",
+            "SQL function namespace beyond supported aggregate or scalar text projection forms",
         ),
         (
             "SELECT COUNT(DISTINCT age) FROM users",
@@ -670,7 +891,7 @@ fn parse_sql_rejects_unknown_function_namespace() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "SQL function namespace beyond supported aggregate forms"
+            feature: "SQL function namespace beyond supported aggregate or scalar text projection forms"
         }
     );
 }

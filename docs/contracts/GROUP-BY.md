@@ -1,6 +1,6 @@
 # IcyDB GROUP BY Contract
 
-Stability: Frozen in `0.33`  
+Status: Authoritative (grouped baseline originated in `0.33`)  
 Applies to: Planner, Executor, Session API, Response Surface  
 Scope: Behavioral guarantees for grouped query execution
 
@@ -158,12 +158,14 @@ Resuming grouped execution MUST:
 
 ## 7. Response Surface
 
-Grouped results MUST be represented by a distinct response variant:
+Grouped results MUST use a distinct grouped execution surface rather than the
+normal scalar/entity response surface.
 
-`QueryResponse::GroupedRows(...)`
+Current public surfaces include grouped pagination payloads such as
+`PagedGroupedResponse` on the facade and grouped execution payloads in core.
 
-- scalar response variants MUST NOT encode grouped results
-- clients MUST branch explicitly on response type
+- scalar/entity `Response<E>` surfaces MUST NOT encode grouped results
+- clients MUST branch explicitly on grouped vs scalar execution APIs
 - no implicit shape-switching is permitted
 
 ## 8. Error Taxonomy
@@ -210,6 +212,6 @@ No existing scalar method will:
 - explicit response surface
 - deterministic continuation behavior
 
-This contract is frozen as of `0.33`.
+This contract remains current; its baseline semantics originated in `0.33`.
 
 Future changes to grouped semantics MUST update this document.

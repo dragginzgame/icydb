@@ -1,6 +1,6 @@
 # IcyDB Resource Model (Internet Computer)
 
-**Status:** Authoritative (`0.36` baseline)
+**Status:** Authoritative (current baseline; resource model introduced in `0.36`)
 
 All query execution paths must conform to this model.
 
@@ -196,8 +196,8 @@ Executor revalidation must never upgrade execution beyond planner-declared
 eligibility.
 
 Grouped execution mode remains explicit and authoritative at runtime.
-In `0.36.x`, grouped execution is materialized for both ordered and hash
-strategy labels.
+In the current line, grouped execution remains materialized for both ordered
+and hash strategy labels.
 
 ## 6. Scan Budget Contract
 

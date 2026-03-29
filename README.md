@@ -80,18 +80,20 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.64.0`
-- Latest tagged release in this repo: `v0.64.0`
+- Workspace version on `main`: `0.66.0`
+- Latest tagged release in this repo: `v0.66.0`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.64.x` notes: `docs/changelog/0.64.md`
+- Detailed `0.66.x` notes: `docs/changelog/0.66.md`
 
 ---
 
-## 0.64 Highlights
+## Recent Highlights
 
-- The public mutation API is now mode-driven: callers build an `UpdatePatch`, choose `Insert` / `Update` / `Replace`, and still reuse the same typed validation and commit pipeline underneath.
+- `0.66.0` keeps row format, SQL behavior, routing, and executor semantics unchanged while splitting several large owner modules into smaller owner-local boundaries so follow-on work lands against narrower surfaces.
+- The public mutation API remains the mode-driven `UpdatePatch` + `MutationMode` + `mutate_structural(...)` surface introduced in the `0.64` line.
+- Reduced SQL now includes the unified `execute_sql_dispatch` / `sql_dispatch::query(...)` introspection lane plus bounded prefix `LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, and `UPPER(field) LIKE 'prefix%'` lowering.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
-- Repo-managed cargo flows now use IcyDB-local cargo state, which helps keep local build/test/check runs from contending with sibling repositories on the same filesystem.
+- Repo-managed cargo flows use IcyDB-local cargo state, which helps keep local build/test/check runs from contending with sibling repositories on the same filesystem.
 
 ---
 
@@ -121,14 +123,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.64.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.66.0" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.64.0", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.66.0", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*`, SQL session helpers, and generated
@@ -349,7 +351,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.64 Line)
+## Reduced SQL Scope (Current 0.66 Line)
 
 Executable SQL entrypoints:
 
@@ -375,7 +377,7 @@ Out of scope and fail-closed by design:
 - table aliases
 - quoted identifiers
 - window functions
-- `LIKE` forms outside bounded `LOWER(field) LIKE 'prefix%'`
+- `LIKE` patterns outside bounded trailing-wildcard prefix forms (`field LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, `UPPER(field) LIKE 'prefix%'`)
 
 ---
 
@@ -388,13 +390,14 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema-derive` — procedural macros for schema/types.
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
-- `canisters/minimal` — minimal SQL canister harness for wasm footprint auditing.
+- `canisters/minimal`, `canisters/one_simple`, `canisters/one_complex`, `canisters/ten_simple`, `canisters/ten_complex` — SQL canister harnesses used for wasm footprint auditing across small and larger audit fixture sets.
 - `canisters/quickstart` — SQL quickstart canister harness for onboarding and integration flows.
+- `schema/minimal`, `schema/one_simple`, `schema/one_complex`, `schema/ten_simple`, `schema/ten_complex` — matching audit schema fixtures used by the wasm footprint matrix.
 - `schema/quickstart` — SQL quickstart canister schema fixtures.
-- `schema/minimal` — minimal schema fixtures for lightweight wasm audits.
 - `schema/test` — shared schema fixtures for macro/e2e test harnesses.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
+- `testing/wasm-fixtures` — shared generated-surface assertions and helpers for the wasm audit canisters.
 - `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
 
 ---
@@ -407,8 +410,8 @@ the schema surface they need.
 - `schema/quickstart` holds the SQL quickstart canister schema surface.
 - `schema/test` holds shared schema fixtures used by macro/e2e test harnesses.
 - `canisters/quickstart/src/seed` holds deterministic quickstart fixture datasets.
-- `schema/minimal` holds a tiny single-entity schema used by the
-  `canisters/minimal` wasm footprint baseline.
+- `schema/minimal`, `schema/one_simple`, `schema/one_complex`, `schema/ten_simple`, and `schema/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
+- `testing/wasm-fixtures` holds shared generated actor / `sql_dispatch` assertions used across those audit canisters.
 
 This split keeps the wasm audit baseline from absorbing unrelated fixture schema
 weight while preserving full-featured fixtures for test harnesses.
@@ -442,8 +445,8 @@ make clippy     # lint (warnings denied)
 make test       # unit + integration tests
 make fmt        # format workspace
 make build      # release build
-make wasm-size-report   # build/report minimal canister wasm size
-make wasm-audit-report  # write dated wasm+twiggy audit report under docs/audits/reports
+make wasm-size-report   # build/report wasm sizes for minimal + one/ten simple/complex audit canisters
+make wasm-audit-report  # write dated wasm+twiggy audit reports for the audit canisters under docs/audits/reports
 ```
 
 Pre-commit hooks run:
@@ -472,10 +475,10 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ## Current Focus
 
-- Continue expression-index and reduced-SQL hardening with fail-closed behavior.
-- Keep RouteShape/AccessPath authority boundaries stable while reducing executor branching pressure.
-- Continue pipeline containment and continuation/cursor boundary cleanup without widening ownership surfaces.
-- Preserve deterministic local SQL harness flows (`scripts/dev/sql.sh`) and CI parity.
+- Preserve grouped/HAVING, continuation, and resource-model invariants while consolidation work continues behind the same public contracts.
+- Keep complexity hotspots partitioned into owner-local modules instead of letting large mixed roots regrow.
+- Continue numeric and semantic-duplication cleanup without widening public APIs or changing row/query contracts.
+- Preserve deterministic local SQL harness flows (`scripts/dev/sql.sh`), wasm audit baselines, and CI parity.
 - Track active work in `docs/ROADMAP.md` and current design docs under `docs/design/`.
 
 ---

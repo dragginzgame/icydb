@@ -55,6 +55,7 @@ pub(crate) enum SqlProjection {
 pub(crate) enum SqlSelectItem {
     Field(String),
     Aggregate(SqlAggregateCall),
+    TextFunction(SqlTextFunctionCall),
 }
 
 ///
@@ -108,6 +109,99 @@ pub(crate) enum SqlAggregateKind {
 pub(crate) struct SqlAggregateCall {
     pub(crate) kind: SqlAggregateKind,
     pub(crate) field: Option<String>,
+}
+
+///
+/// SqlTextFunction
+///
+/// Reduced text-function taxonomy accepted in scalar SQL projection position.
+/// This remains intentionally narrow and only carries the small staged `0.66`
+/// projection batches.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlTextFunction {
+    Trim,
+    Ltrim,
+    Rtrim,
+    Lower,
+    Upper,
+    Length,
+    Left,
+    Right,
+    StartsWith,
+    EndsWith,
+    Contains,
+    Position,
+    Replace,
+    Substring,
+}
+
+impl SqlTextFunction {
+    /// Resolve one reduced SQL function identifier into one supported unary text function.
+    #[must_use]
+    const fn from_identifier(identifier: &str) -> Option<Self> {
+        if identifier.eq_ignore_ascii_case("trim") {
+            return Some(Self::Trim);
+        }
+        if identifier.eq_ignore_ascii_case("ltrim") {
+            return Some(Self::Ltrim);
+        }
+        if identifier.eq_ignore_ascii_case("rtrim") {
+            return Some(Self::Rtrim);
+        }
+        if identifier.eq_ignore_ascii_case("lower") {
+            return Some(Self::Lower);
+        }
+        if identifier.eq_ignore_ascii_case("upper") {
+            return Some(Self::Upper);
+        }
+        if identifier.eq_ignore_ascii_case("length") {
+            return Some(Self::Length);
+        }
+        if identifier.eq_ignore_ascii_case("left") {
+            return Some(Self::Left);
+        }
+        if identifier.eq_ignore_ascii_case("right") {
+            return Some(Self::Right);
+        }
+        if identifier.eq_ignore_ascii_case("starts_with") {
+            return Some(Self::StartsWith);
+        }
+        if identifier.eq_ignore_ascii_case("ends_with") {
+            return Some(Self::EndsWith);
+        }
+        if identifier.eq_ignore_ascii_case("contains") {
+            return Some(Self::Contains);
+        }
+        if identifier.eq_ignore_ascii_case("position") {
+            return Some(Self::Position);
+        }
+        if identifier.eq_ignore_ascii_case("replace") {
+            return Some(Self::Replace);
+        }
+        if identifier.eq_ignore_ascii_case("substring") {
+            return Some(Self::Substring);
+        }
+        None
+    }
+}
+
+///
+/// SqlTextFunctionCall
+///
+/// Parsed narrow text-function projection item.
+/// Reduced SQL keeps this to one field plus a small fixed literal envelope so
+/// the parser does not open a broad nested expression surface.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlTextFunctionCall {
+    pub(crate) function: SqlTextFunction,
+    pub(crate) field: String,
+    pub(crate) literal: Option<Value>,
+    pub(crate) literal2: Option<Value>,
+    pub(crate) literal3: Option<Value>,
 }
 
 ///
@@ -579,8 +673,14 @@ impl Parser {
 
         let field = self.expect_identifier()?;
         if self.peek_lparen() {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate forms",
+            let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
+                return Err(SqlParseError::unsupported_feature(
+                    "SQL function namespace beyond supported aggregate or scalar text projection forms",
+                ));
+            };
+
+            return Ok(SqlSelectItem::TextFunction(
+                self.parse_text_function_call(function)?,
             ));
         }
 
@@ -620,6 +720,97 @@ impl Parser {
         self.expect_rparen()?;
 
         Ok(SqlAggregateCall { kind, field })
+    }
+
+    fn parse_text_function_call(
+        &mut self,
+        function: SqlTextFunction,
+    ) -> Result<SqlTextFunctionCall, SqlParseError> {
+        self.expect_lparen()?;
+        let (field, literal, literal2, literal3) = match function {
+            SqlTextFunction::Trim
+            | SqlTextFunction::Ltrim
+            | SqlTextFunction::Rtrim
+            | SqlTextFunction::Lower
+            | SqlTextFunction::Upper
+            | SqlTextFunction::Length => (self.expect_identifier()?, None, None, None),
+            SqlTextFunction::Left
+            | SqlTextFunction::Right
+            | SqlTextFunction::StartsWith
+            | SqlTextFunction::EndsWith
+            | SqlTextFunction::Contains => {
+                let field = self.expect_identifier()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(
+                        "',' between text function arguments",
+                        self.peek_kind(),
+                    ));
+                }
+
+                (field, Some(self.parse_literal()?), None, None)
+            }
+            SqlTextFunction::Position => {
+                let literal = self.parse_literal()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(
+                        "',' between text function arguments",
+                        self.peek_kind(),
+                    ));
+                }
+
+                (self.expect_identifier()?, Some(literal), None, None)
+            }
+            SqlTextFunction::Replace => {
+                let field = self.expect_identifier()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(
+                        "',' between text function arguments",
+                        self.peek_kind(),
+                    ));
+                }
+                let from = self.parse_literal()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(
+                        "',' between text function arguments",
+                        self.peek_kind(),
+                    ));
+                }
+
+                (field, Some(from), Some(self.parse_literal()?), None)
+            }
+            SqlTextFunction::Substring => {
+                let field = self.expect_identifier()?;
+                if !self.eat_comma() {
+                    return Err(SqlParseError::expected(
+                        "',' between text function arguments",
+                        self.peek_kind(),
+                    ));
+                }
+                let start = self.parse_literal()?;
+                if !self.eat_comma() {
+                    self.expect_rparen()?;
+
+                    return Ok(SqlTextFunctionCall {
+                        function,
+                        field,
+                        literal: Some(start),
+                        literal2: None,
+                        literal3: None,
+                    });
+                }
+
+                (field, Some(start), Some(self.parse_literal()?), None)
+            }
+        };
+        self.expect_rparen()?;
+
+        Ok(SqlTextFunctionCall {
+            function,
+            field,
+            literal,
+            literal2,
+            literal3,
+        })
     }
 
     fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {

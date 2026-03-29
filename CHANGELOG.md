@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.66.x] 🧭 - 2026-03-28 - Complexity Hotspot Decomposition
+
+- `0.66.1` adds reduced-SQL text projection functions such as `trim`, `lower`, `length`, `substring`, and prefix/suffix helpers on the unified SQL dispatch lane, extends `EXPLAIN` for that same bounded lane, keeps `query_from_sql(...)` intentionally limited to structural queries, fixes shared-store full-scan `count()` so entity counts no longer include sibling rows from the same datastore, and finishes splitting the session SQL runtime into smaller owner-local modules so the new work lands against clearer boundaries.
+- `0.66.0` keeps row format, SQL behavior, routing, and executor semantics unchanged but turns the main complexity-audit hotspots into smaller owner-local modules, splitting the large persisted-row, access-choice, and execution-descriptor roots into cleaner submodules so future work lands against narrower boundaries instead of continuing to accrete in single branch-heavy files.
+
+See detailed breakdown:
+[docs/changelog/0.66.md](docs/changelog/0.66.md)
+
+---
+
 ## [0.65.x] 🧱 - 2026-03-26 - Canonical Row Invariant Hard-Cut
 
 - `0.65.10` keeps rows, SQL behavior, and runtime semantics unchanged but trims more canister wasm by stopping most runtime-facing Rust doc comments from being embedded in normal builds, removing the last macro-emitted docs, and shortening a few especially long SQL/planning error messages that were still retained, cutting shrunk `wasm-release` size from `1,145,951` to `1,137,333` on `minimal` (`8,618` bytes) and from `1,277,482` to `1,268,864` on `one_simple` (`8,618` bytes).
@@ -21,15 +31,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 See detailed breakdown:
 [docs/changelog/0.65.md](docs/changelog/0.65.md)
-
----
-
-## [0.66.x] 🧭 - 2026-03-28 - Complexity Hotspot Decomposition
-
-- `0.66.0` keeps row format, SQL behavior, routing, and executor semantics unchanged but turns the main complexity-audit hotspots into smaller owner-local modules, splitting the large persisted-row, access-choice, and execution-descriptor roots into cleaner submodules so future work lands against narrower boundaries instead of continuing to accrete in single branch-heavy files.
-
-See detailed breakdown:
-[docs/changelog/0.66.md](docs/changelog/0.66.md)
 
 ---
 

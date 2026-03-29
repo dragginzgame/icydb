@@ -25,7 +25,7 @@ use crate::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
             SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
             SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
-            SqlStatement, parse_sql,
+            SqlStatement, SqlTextFunctionCall, parse_sql,
         },
     },
     traits::EntityKind,
@@ -774,7 +774,9 @@ fn lower_scalar_projection_fields(
         .into_iter()
         .map(|item| match item {
             SqlSelectItem::Field(field) => Ok(field),
-            SqlSelectItem::Aggregate(_) => Err(SqlLoweringError::unsupported_select_projection()),
+            SqlSelectItem::Aggregate(_) | SqlSelectItem::TextFunction(_) => {
+                Err(SqlLoweringError::unsupported_select_projection())
+            }
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -1043,6 +1045,9 @@ fn grouped_projection_aggregate_calls(
                 seen_aggregate = true;
                 aggregate_calls.push(aggregate.clone());
             }
+            SqlSelectItem::TextFunction(_) => {
+                return Err(SqlLoweringError::unsupported_select_group_by());
+            }
         }
     }
 
@@ -1190,6 +1195,19 @@ fn normalize_projection_identifiers(
                                 .map(|field| normalize_identifier(field, entity_scope)),
                         })
                     }
+                    SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                        function,
+                        field,
+                        literal,
+                        literal2,
+                        literal3,
+                    }) => SqlSelectItem::TextFunction(SqlTextFunctionCall {
+                        function,
+                        field: normalize_identifier(field, entity_scope),
+                        literal,
+                        literal2,
+                        literal3,
+                    }),
                 })
                 .collect(),
         ),

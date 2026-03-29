@@ -24,9 +24,9 @@ The reduced parser normalizes one statement deterministically before lowering.
 - A trailing statement terminator (`;`) is optional.
 - Multi-statement SQL input is rejected.
 
-## Executable Baseline (Current 0.56 Line)
+## Executable Baseline (Current 0.66 Line)
 
-The current `0.56` line ships a projection-aware scalar SQL subset, constrained
+The current `0.66` line ships a projection-aware scalar SQL subset, constrained
 grouped/global aggregate SQL execution, and dedicated DESCRIBE/SHOW
 INDEXES/SHOW COLUMNS/SHOW ENTITIES (plus `SHOW TABLES` alias) introspection
 lanes. Broader SQL grammar support remains staged behind lowering gates.
@@ -84,10 +84,10 @@ Notes:
 - `SELECT DISTINCT` shapes that do not project primary key remain fail-closed.
 - `EXPLAIN` wrappers are supported for these constrained scalar DISTINCT forms.
 - Field-list projection currently affects normalized intent/planning/fingerprints.
-- `execute_sql(...)` returns entity-shaped `EntityResponse<E>` rows for
-  compatibility.
+- `execute_sql(...)` returns entity-shaped `Response<E>` rows on the public
+  facade.
 - `execute_sql_projection(...)` returns projection-shaped
-  `ProjectionResponse<E>` rows.
+  `ProjectionResponse<E>` rows on the public facade.
 - Scalar pagination still follows existing planner validation
   (for example deterministic ordering requirements).
 - Schema-qualified entity names are executable when the trailing entity segment
@@ -260,9 +260,10 @@ Execution notes:
 - `EXPLAIN SHOW ENTITIES ...` and `EXPLAIN SHOW TABLES ...` remain out of
   scope in this line.
 
-## Generated `sql_dispatch` Boundary (0.56)
+## Generated `sql_dispatch` Boundary (Current 0.66 Line)
 
-Generated canister SQL helpers in this line use one unified query surface.
+Generated canister SQL helpers in the current line use one unified query
+surface.
 
 - `sql_dispatch::query(...)` returns one `SqlQueryResult` enum payload with:
   - `Projection(SqlQueryRowsOutput)`
@@ -320,11 +321,14 @@ Lowering status in this baseline:
   (`execute_sql`, `execute_sql_projection`).
 
 Predicate operators are limited to planner-supported predicate operators.
-The current baseline also supports one bounded casefold prefix SQL family:
+The current baseline also supports bounded trailing-wildcard prefix `LIKE`
+families:
+- `<field> LIKE '<prefix>%'` lowers to strict text prefix predicate intent.
 - `LOWER(<field>) LIKE '<prefix>%'` lowers to text-casefold starts-with
   predicate intent.
-- adjacent `LIKE` forms remain fail-closed (for example plain `<field> LIKE`
-  and non-prefix wildcard shapes).
+- `UPPER(<field>) LIKE '<prefix>%'` lowers to the same bounded casefold
+  prefix intent.
+- non-prefix wildcard shapes remain fail-closed.
 `HAVING` is executable for grouped SQL with a reduced clause shape:
 - clause symbols must be grouped key fields or one aggregate terminal already
   projected in the grouped select list.
@@ -379,7 +383,7 @@ No additional intermediate semantic layer is introduced by this contract.
 - Invalid SQL syntax: parser error.
 - Valid SQL outside this subset: unsupported-feature error.
 - Reduced parser `UnsupportedFeature` labels are contract-stable within the
-  current `0.56` line.
+  current `0.66` line.
   - Session SQL frontends (`query_from_sql`, `execute_sql`,
     `execute_sql_projection`, `execute_sql_grouped`, `execute_sql_aggregate`,
     `explain_sql`, `describe_sql`) preserve those labels in structured query

@@ -1,11 +1,11 @@
-# IcyDB Transaction Semantics (Introduced in 0.9, Current in 0.10.x)
+# IcyDB Transaction Semantics (Current Batch-Helper Contract)
 
 This document defines the explicit write semantics for IcyDB batch helpers in
-the 0.9 series.
+the current line.
 
 It is intentionally narrow: it covers what the current APIs guarantee today.
-The atomic batch surface introduced in 0.9 is strictly single-entity-type; it is not
-multi-entity transaction support.
+The atomic batch surface is strictly single-entity-type; it is not multi-entity
+transaction support.
 
 ---
 

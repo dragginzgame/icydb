@@ -196,9 +196,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.17.3"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ffee1a832c51a6f49d124eeeece377c1f14b42c3bc472b094f386dce178ad3d"
+checksum = "cb471fb50bc8674567131631e8aea009fc320c394a9204e28c344cc5a091c6de"
 dependencies = [
  "candid",
  "derive_more",
@@ -209,18 +209,18 @@ dependencies = [
  "icrc-ledger-types",
  "serde",
  "serde_bytes",
- "sha2 0.10.9",
+ "sha2 0.11.0",
 ]
 
 [[package]]
 name = "canic-memory"
-version = "0.17.3"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd0174e08640c06d99a89c3fd67b87268532cd1f8d40cd3c31f0acf433712cf6"
+checksum = "4cba9743c829a803eb1574d678ab483da191cae20eecbed8d9911b9b7113963e"
 dependencies = [
  "candid",
  "canic-cdk",
- "ctor 0.6.3",
+ "ctor",
  "serde",
  "serde_cbor",
  "thiserror 2.0.18",
@@ -228,9 +228,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.17.3"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "347660cf813c6e77ee4212726798f28af9043e22092e556d69bb479c944cbf20"
+checksum = "439a51cbbb0de8a62be63f62a9ae2b45c56026aec1f6a9e6d9b30bdb42b5ac8c"
 dependencies = [
  "convert_case 0.11.0",
  "derive_more",
@@ -430,22 +430,12 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "424e0138278faeb2b401f174ad17e715c829512d74f3d1e81eb43365c2e0590e"
-dependencies = [
- "ctor-proc-macro",
- "dtor 0.1.1",
-]
-
-[[package]]
-name = "ctor"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
 dependencies = [
  "ctor-proc-macro",
- "dtor 0.3.0",
+ "dtor",
 ]
 
 [[package]]
@@ -556,15 +546,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "dtor"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "404d02eeb088a82cfd873006cb713fe411306c7d182c344905e101fb1167d301"
-dependencies = [
- "dtor-proc-macro",
 ]
 
 [[package]]
@@ -1234,7 +1215,7 @@ dependencies = [
  "canic-cdk",
  "canic-memory",
  "canic-utils",
- "ctor 0.8.0",
+ "ctor",
  "derive_more",
  "icydb-build",
  "icydb-core",

@@ -65,16 +65,11 @@ build_variant() {
 
     DFX_DIR="$ROOT/.dfx/local/canisters/$CANISTER_NAME"
     RAW_WASM="$DFX_DIR/$CANISTER_NAME.wasm"
-    RAW_DID="$DFX_DIR/$CANISTER_NAME.did"
     RAW_GZ_EMITTED="$DFX_DIR/$CANISTER_NAME.wasm.gz"
+    RAW_DID="$DFX_DIR/$CANISTER_NAME.did"
 
     if [[ ! -f "$RAW_WASM" ]]; then
         echo "[wasm-size] expected wasm missing: $RAW_WASM" >&2
-        exit 1
-    fi
-
-    if [[ ! -f "$RAW_DID" ]]; then
-        echo "[wasm-size] expected did missing: $RAW_DID" >&2
         exit 1
     fi
 
@@ -90,7 +85,10 @@ build_variant() {
     SUMMARY_MD="$OUT_DIR/${stem}.summary.md"
 
     cp "$RAW_WASM" "$RAW_COPY"
-    cp "$RAW_DID" "$DID_COPY"
+    rm -f "$DID_COPY"
+    if [[ -f "$RAW_DID" ]]; then
+        cp "$RAW_DID" "$DID_COPY"
+    fi
     gzip -n -9 -c "$RAW_COPY" > "$RAW_GZ_DETERMINISTIC"
 
     if [[ -f "$RAW_GZ_EMITTED" ]]; then
@@ -182,7 +180,8 @@ report = {
     "profile": profile,
     "sql_variant": sql_variant,
     "artifacts": {
-        "did": file_meta(did_path),
+        "did": file_meta(did_path) if did_path.exists() else None,
+        "candid_export": "available" if did_path.exists() else "unavailable",
         "dfx_built_wasm": raw_wasm_meta,
         "dfx_built_wasm_gz_deterministic": raw_gz_meta,
         "dfx_built_wasm_gz_emitted": emitted_gz_meta,
@@ -214,6 +213,10 @@ if emitted_gz_meta is not None:
     summary_lines.append(
         f"| dfx-emitted `.wasm.gz` | {emitted_gz_meta['bytes']} |"
     )
+
+summary_lines.append(
+    f"| candid export | {report['artifacts']['candid_export']} |"
+)
 
 summary_lines.extend(
     [

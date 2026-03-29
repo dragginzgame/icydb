@@ -4,9 +4,11 @@
 
 mod seed;
 
+#[cfg(debug_assertions)]
+use ic_cdk::export_candid;
 #[cfg(feature = "sql")]
 use ic_cdk::query;
-use ic_cdk::{export_candid, update};
+use ic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
 use icydb_testing_quickstart_fixtures::schema::{Character, Order, User};
@@ -298,4 +300,5 @@ mod tests {
     }
 }
 
+#[cfg(debug_assertions)]
 export_candid!();
