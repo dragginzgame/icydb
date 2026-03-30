@@ -6,7 +6,7 @@ use icydb::design::prelude::*;
 /// Minimal canister model used for wasm-footprint SQL auditing.
 ///
 
-#[canister(memory_min = 20, memory_max = 30, commit_memory_id = 22)]
+#[canister(memory_min = 61, memory_max = 71, commit_memory_id = 63)]
 pub struct MinimalCanister {}
 
 ///
@@ -19,7 +19,7 @@ pub struct MinimalCanister {}
 #[store(
     ident = "MINIMAL_STORE",
     canister = "MinimalCanister",
-    data_memory_id = 20,
-    index_memory_id = 21
+    data_memory_id = 61,
+    index_memory_id = 62
 )]
 pub struct MinimalStore {}

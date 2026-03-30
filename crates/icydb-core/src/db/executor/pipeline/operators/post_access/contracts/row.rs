@@ -1,3 +1,8 @@
+//! Module: db::executor::pipeline::operators::post_access::contracts::row
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::operators::post_access::contracts::row.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::executor::{OrderReadableRow, delete::DeleteRow},
     traits::{EntityKind, EntityValue},

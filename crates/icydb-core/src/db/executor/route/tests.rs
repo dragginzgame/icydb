@@ -1,3 +1,8 @@
+//! Module: db::executor::route::tests
+//! Responsibility: module-local ownership and contracts for db::executor::route::tests.
+//! Does not own: production route behavior outside this test module.
+//! Boundary: verifies this module API while keeping fixture details internal.
+
 use super::{
     AGGREGATE_FAST_PATH_ORDER, ExecutionModeRouteCase, FastPathOrder, GroupedExecutionStrategy,
     GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER, RouteExecutionMode, TopNSeekSpec,

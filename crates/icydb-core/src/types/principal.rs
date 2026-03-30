@@ -10,7 +10,7 @@ use crate::{
     },
     value::Value,
 };
-use canic_cdk::candid::{CandidType, Principal as WrappedPrincipal};
+use canic::cdk::candid::{CandidType, Principal as WrappedPrincipal};
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;

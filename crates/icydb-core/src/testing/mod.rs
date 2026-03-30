@@ -6,7 +6,7 @@
 mod entity_tags;
 mod fixtures;
 
-use canic_cdk::structures::{
+use canic::cdk::structures::{
     DefaultMemoryImpl,
     memory::{MemoryId, MemoryManager, VirtualMemory},
 };

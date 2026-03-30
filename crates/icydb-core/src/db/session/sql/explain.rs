@@ -1,3 +1,8 @@
+//! Module: db::session::sql::explain
+//! Responsibility: module-local ownership and contracts for db::session::sql::explain.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         MissingRowPolicy, QueryError,

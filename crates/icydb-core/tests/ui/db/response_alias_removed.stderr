@@ -12,7 +12,7 @@ help: a similar name exists in the module
 help: consider importing one of these items instead
   |
 1 - use icydb_core::db::Response;
-1 + use canic_cdk::call::Response;
+1 + use canic::dto::rpc::Response;
   |
 1 | use icydb_core::db::QueryError::Response;
   |                     ++++++++++++

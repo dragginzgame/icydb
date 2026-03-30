@@ -1,3 +1,8 @@
+//! Module: db::session::sql::surface::lane
+//! Responsibility: module-local ownership and contracts for db::session::sql::surface::lane.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::sql::lowering::{LoweredSqlCommand, LoweredSqlLaneKind, lowered_sql_command_lane};
 
 // Canonical reduced SQL lane kind used by session entrypoint gate checks.

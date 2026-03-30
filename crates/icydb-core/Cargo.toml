@@ -17,7 +17,7 @@ sql = []
 
 [dependencies]
 candid = { workspace = true }
-canic-cdk = { workspace = true }
+canic = { workspace = true }
 canic-memory = { workspace = true }
 canic-utils = { workspace = true }
 derive_more = { workspace = true }

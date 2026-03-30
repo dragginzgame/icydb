@@ -11,7 +11,7 @@ use crate::{
     traits::Storable,
 };
 
-use canic_cdk::structures::{
+use canic::cdk::structures::{
     BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound as StorableBound,
 };
 use canic_utils::hash::Xxh3;

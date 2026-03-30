@@ -1,3 +1,8 @@
+//! Module: db::query::intent::errors::tests
+//! Responsibility: module-local ownership and contracts for db::query::intent::errors::tests.
+//! Does not own: production error behavior outside this test module.
+//! Boundary: verifies this module API while keeping fixture details internal.
+
 use crate::{
     db::query::intent::{IntentError, QueryError, QueryExecutionError},
     error::{ErrorClass, ErrorOrigin, InternalError},

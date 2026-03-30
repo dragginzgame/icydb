@@ -127,19 +127,8 @@ fn store_wiring_tokens(
         });
 
         fn ensure_memory_bootstrap() {
-            static MEMORY_BOOTSTRAPPED: ::std::sync::OnceLock<()> = ::std::sync::OnceLock::new();
-            if MEMORY_BOOTSTRAPPED.get().is_some() {
-                return;
-            }
-
-            // Run the canic-memory eager bootstrap contract before any database
-            // session can trigger recovery or stable-memory access.
-            ::icydb::__reexports::canic_memory::runtime::init_eager_tls();
-            __canic_run_registered_eager_init!();
-            ::icydb::__reexports::canic_memory::runtime::registry::MemoryRegistryRuntime::init(None)
+            ::canic::api::runtime::MemoryRuntimeApi::bootstrap_registry()
                 .expect("generated canister memory registry init should succeed");
-
-            let _ = MEMORY_BOOTSTRAPPED.set(());
         }
 
         #[must_use]

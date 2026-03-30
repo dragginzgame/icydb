@@ -5,7 +5,7 @@
 mod seed;
 
 #[cfg(debug_assertions)]
-use ic_cdk::export_candid;
+use canic::export_candid;
 #[cfg(feature = "sql")]
 use ic_cdk::query;
 use ic_cdk::update;
@@ -60,22 +60,44 @@ mod tests {
     use super::{SqlQueryResult, User, db, sql_dispatch};
     use candid::encode_one;
     use icydb::error::{ErrorKind, RuntimeErrorKind};
+    use icydb_testing_quickstart_fixtures::schema::QuickstartCanister;
+
+    const QUICKSTART_MEMORY_MIN: u8 = 104;
+    const QUICKSTART_MEMORY_MAX: u8 = 154;
+
+    // `MemoryRuntimeApi::bootstrap_registry()` drains one process-global
+    // eager-init queue. In host-parallel unit tests, later test threads can
+    // therefore observe the quickstart canister range as missing on the current
+    // thread even though the queue was already consumed elsewhere. Re-queue the
+    // quickstart application range before each bootstrap-dependent test path so
+    // the generated `db()` bootstrap stays deterministic per test thread.
+    fn ensure_sql_test_memory_range() {
+        ::canic::ic_memory_range!(QUICKSTART_MEMORY_MIN, QUICKSTART_MEMORY_MAX);
+    }
 
     fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
+        ensure_sql_test_memory_range();
         sql_dispatch::query(sql).expect("sql_dispatch query should succeed")
     }
 
     fn dispatch_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
+        ensure_sql_test_memory_range();
         sql_dispatch::query(sql)
     }
 
+    fn test_db() -> icydb::db::DbSession<QuickstartCanister> {
+        ensure_sql_test_memory_range();
+        db()
+    }
+
     fn typed_result_for_sql(sql: &str) -> SqlQueryResult {
-        db().execute_sql_dispatch::<User>(sql)
+        test_db()
+            .execute_sql_dispatch::<User>(sql)
             .expect("typed execute_sql_dispatch should succeed")
     }
 
     fn typed_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
-        db().execute_sql_dispatch::<User>(sql)
+        test_db().execute_sql_dispatch::<User>(sql)
     }
 
     // Compare one sql_dispatch lane payload against the typed `execute_sql_dispatch` path.
@@ -148,7 +170,7 @@ mod tests {
     #[test]
     fn generated_sql_dispatch_explain_text_matches_typed_explain_surface() {
         let sql = "EXPLAIN SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 5";
-        let typed_explain_payload = db()
+        let typed_explain_payload = test_db()
             .execute_sql_dispatch::<User>(sql)
             .expect("typed execute_sql_dispatch should succeed");
         let typed_explain = match typed_explain_payload {
@@ -170,7 +192,7 @@ mod tests {
         let query_sql = "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 5";
         let explain_sql = format!("EXPLAIN {query_sql}");
 
-        let typed_query = db()
+        let typed_query = test_db()
             .query_from_sql::<User>(query_sql)
             .expect("typed query_from_sql should lower");
         let typed_access = format!(
@@ -192,7 +214,7 @@ mod tests {
 
     #[test]
     fn typed_execute_sql_dispatch_supports_show_entities_lane() {
-        let payload = db()
+        let payload = test_db()
             .execute_sql_dispatch::<User>("SHOW ENTITIES")
             .expect("typed execute_sql_dispatch should support SHOW ENTITIES");
 
@@ -274,6 +296,8 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_character_metadata_surfaces_encode_cleanly() {
+        ensure_sql_test_memory_range();
+
         for sql in [
             "DESCRIBE Character",
             "DESCRIBE public.Character",

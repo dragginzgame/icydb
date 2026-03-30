@@ -1,3 +1,8 @@
+//! Module: db::executor::aggregate::numeric::tests
+//! Responsibility: module-local ownership and contracts for db::executor::aggregate::numeric::tests.
+//! Does not own: production aggregate behavior outside this test module.
+//! Boundary: verifies this module API while keeping fixture details internal.
+
 use crate::{
     db::{executor::aggregate::numeric::add_numeric_decimal, numeric::average_decimal_terms},
     types::Decimal,

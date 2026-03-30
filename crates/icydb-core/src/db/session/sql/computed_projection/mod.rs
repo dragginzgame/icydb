@@ -1,3 +1,8 @@
+//! Module: db::session::sql::computed_projection
+//! Responsibility: module-local ownership and contracts for db::session::sql::computed_projection.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 mod eval;
 mod model;
 mod plan;

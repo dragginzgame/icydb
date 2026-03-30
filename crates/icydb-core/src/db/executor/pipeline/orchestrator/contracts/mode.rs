@@ -1,3 +1,8 @@
+//! Module: db::executor::pipeline::orchestrator::contracts::mode
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::orchestrator::contracts::mode.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::executor::RequestedLoadExecutionShape;
 
 ///

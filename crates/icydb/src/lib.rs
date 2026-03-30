@@ -137,7 +137,7 @@ pub mod __macro {
 #[doc(hidden)]
 pub mod __reexports {
     pub use candid;
-    pub use canic_cdk;
+    pub use canic;
     pub use canic_memory;
     pub use ctor;
     pub use derive_more;

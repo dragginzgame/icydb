@@ -1,3 +1,8 @@
+//! Module: db::sql::lowering::tests
+//! Responsibility: module-local ownership and contracts for db::sql::lowering::tests.
+//! Does not own: production SQL lowering behavior outside this test module.
+//! Boundary: verifies this module API while keeping fixture details internal.
+
 use crate::{
     db::{
         executor::ExecutablePlan,

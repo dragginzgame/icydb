@@ -1,9 +1,3 @@
-//! Module: db::identity
-//! Responsibility: module-local ownership and contracts for db::identity.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
-
-#![expect(clippy::cast_possible_truncation)]
 //! Module: identity
 //! Responsibility: validated entity/index naming and stable byte ordering contracts.
 //! Does not own: schema metadata, relation policy, or storage-layer persistence.
@@ -15,6 +9,8 @@
 //! - Stored byte representation is canonical and order-preserving.
 //! - Ordering semantics follow the length-prefixed stored-byte layout, not
 //!   lexicographic string ordering.
+
+#![expect(clippy::cast_possible_truncation)]
 
 #[cfg(test)]
 mod tests;

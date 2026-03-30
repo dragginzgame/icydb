@@ -39,6 +39,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 
 [[package]]
+name = "async-trait"
+version = "0.1.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -60,6 +71,12 @@ dependencies = [
  "instant",
  "rand 0.8.5",
 ]
+
+[[package]]
+name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
 name = "base32"
@@ -195,10 +212,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "canic-cdk"
-version = "0.18.1"
+name = "canic"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb471fb50bc8674567131631e8aea009fc320c394a9204e28c344cc5a091c6de"
+checksum = "aa053e0f81f6945b247e1a25a1666ffb08534fdd55ef418c92b395f357bde7b3"
+dependencies = [
+ "candid",
+ "canic-cdk",
+ "canic-core",
+ "canic-dsl",
+ "canic-dsl-macros",
+ "canic-memory",
+ "canic-utils",
+ "ic-cdk",
+]
+
+[[package]]
+name = "canic-cdk"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d2ae9431ab619281ce2f412489876642a4230c2c67f4577f47f923f8558ceab"
 dependencies = [
  "candid",
  "derive_more",
@@ -213,10 +246,50 @@ dependencies = [
 ]
 
 [[package]]
-name = "canic-memory"
-version = "0.18.1"
+name = "canic-core"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cba9743c829a803eb1574d678ab483da191cae20eecbed8d9911b9b7113963e"
+checksum = "baf3c455ee917a35f623a652ac4b8e1ef11aaf0661705791ab2e2173d8889cf0"
+dependencies = [
+ "async-trait",
+ "candid",
+ "canic-cdk",
+ "canic-memory",
+ "canic-utils",
+ "ctor",
+ "derive_more",
+ "k256",
+ "remain",
+ "serde",
+ "serde_bytes",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "toml",
+]
+
+[[package]]
+name = "canic-dsl"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c48021d398dfc2236f105170ea1bd4bc61f79a9d6cbbf8a471f70eb0b426965"
+
+[[package]]
+name = "canic-dsl-macros"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b7dc8977733c732d9fad9b6b1121d950624b5f028c22cb80fc804725b71335a"
+dependencies = [
+ "canic-dsl",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "canic-memory"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff84dcf5f05387c7fda429b855e0c1503f7865d5105d9593a4058ca812412abb"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -228,9 +301,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439a51cbbb0de8a62be63f62a9ae2b45c56026aec1f6a9e6d9b30bdb42b5ac8c"
+checksum = "baa79f6e13fc5f09dbb69eb2fd41f28919d9ffb6364bac6a08d271e1faef9ab6"
 dependencies = [
  "convert_case 0.11.0",
  "derive_more",
@@ -241,9 +314,10 @@ dependencies = [
 
 [[package]]
 name = "canister_minimal"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
+ "canic",
  "ic-cdk",
  "icydb",
  "icydb-testing-minimal-fixtures",
@@ -252,9 +326,10 @@ dependencies = [
 
 [[package]]
 name = "canister_one_complex"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
+ "canic",
  "ic-cdk",
  "icydb",
  "icydb-testing-one-complex-fixtures",
@@ -263,9 +338,10 @@ dependencies = [
 
 [[package]]
 name = "canister_one_simple"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
+ "canic",
  "ic-cdk",
  "icydb",
  "icydb-testing-one-simple-fixtures",
@@ -274,9 +350,10 @@ dependencies = [
 
 [[package]]
 name = "canister_quickstart"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
+ "canic",
  "ic-cdk",
  "icydb",
  "icydb-testing-quickstart-fixtures",
@@ -285,9 +362,10 @@ dependencies = [
 
 [[package]]
 name = "canister_ten_complex"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
+ "canic",
  "ic-cdk",
  "icydb",
  "icydb-testing-ten-complex-fixtures",
@@ -296,9 +374,10 @@ dependencies = [
 
 [[package]]
 name = "canister_ten_simple"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
+ "canic",
  "ic-cdk",
  "icydb",
  "icydb-testing-ten-simple-fixtures",
@@ -326,6 +405,12 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "const-oid"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "const-oid"
@@ -410,10 +495,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
-name = "crypto-common"
-version = "0.1.7"
+name = "crypto-bigint"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
+dependencies = [
+ "generic-array",
+ "rand_core 0.6.4",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "crypto-common"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
@@ -485,6 +582,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
+name = "der"
+version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
+dependencies = [
+ "const-oid 0.9.6",
+ "zeroize",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -523,7 +630,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
- "crypto-common 0.1.7",
+ "const-oid 0.9.6",
+ "crypto-common 0.1.6",
+ "subtle",
 ]
 
 [[package]]
@@ -533,7 +642,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4850db49bf08e663084f7fb5c87d202ef91a3907271aff24a94eb97ff039153c"
 dependencies = [
  "block-buffer 0.12.0",
- "const-oid",
+ "const-oid 0.10.2",
  "crypto-common 0.2.1",
 ]
 
@@ -570,10 +679,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "ecdsa"
+version = "0.16.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee27f32b5c5292967d2d4a9d7f1e0b0aed2c15daded5a60300e4abb9d8020bca"
+dependencies = [
+ "der",
+ "digest 0.10.7",
+ "elliptic-curve",
+ "rfc6979",
+ "signature",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
+name = "elliptic-curve"
+version = "0.13.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
+dependencies = [
+ "base16ct",
+ "crypto-bigint",
+ "digest 0.10.7",
+ "ff",
+ "generic-array",
+ "group",
+ "rand_core 0.6.4",
+ "sec1",
+ "subtle",
+ "zeroize",
+]
 
 [[package]]
 name = "equivalent"
@@ -605,6 +745,16 @@ name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+
+[[package]]
+name = "ff"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0b50bfb653653f9ca9095b427bed08ab8d75a137839d9ad64eb11810d5b6393"
+dependencies = [
+ "rand_core 0.6.4",
+ "subtle",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -706,12 +856,13 @@ dependencies = [
 
 [[package]]
 name = "generic-array"
-version = "0.14.7"
+version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
 dependencies = [
  "typenum",
  "version_check",
+ "zeroize",
 ]
 
 [[package]]
@@ -759,6 +910,17 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
+name = "group"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
+dependencies = [
+ "ff",
+ "rand_core 0.6.4",
+ "subtle",
+]
 
 [[package]]
 name = "h2"
@@ -813,6 +975,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -1209,10 +1380,10 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
- "canic-cdk",
+ "canic",
  "canic-memory",
  "canic-utils",
  "ctor",
@@ -1231,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1241,10 +1412,10 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
- "canic-cdk",
+ "canic",
  "canic-memory",
  "canic-utils",
  "derive_more",
@@ -1266,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1275,14 +1446,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.66.1"
+version = "0.66.2"
 
 [[package]]
 name = "icydb-schema"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
- "canic-cdk",
+ "canic",
  "darling",
  "derive_more",
  "icydb-primitives",
@@ -1295,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "canic-utils",
@@ -1312,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1323,7 +1494,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1332,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1341,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1350,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-one-complex-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1359,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-one-simple-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1368,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-quickstart-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1377,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-ten-complex-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1386,7 +1557,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-ten-simple-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1395,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-fixtures"
-version = "0.66.1"
+version = "0.66.2"
 dependencies = [
  "icydb",
 ]
@@ -1486,6 +1657,18 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "k256"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6e3919bbaa2945715f0bb6d3934a173d1e9a59ac23767fbaaef277265a7411b"
+dependencies = [
+ "cfg-if",
+ "ecdsa",
+ "elliptic-curve",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2101,6 +2284,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfc6979"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
+dependencies = [
+ "hmac",
+ "subtle",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2251,6 +2444,19 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "sec1"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3e97a565f76233a6003f9f5c54be1d9c5bdfa3eccfb189469f11ec4901c47dc"
+dependencies = [
+ "base16ct",
+ "der",
+ "generic-array",
+ "subtle",
+ "zeroize",
+]
 
 [[package]]
 name = "security-framework"
@@ -2436,6 +2642,16 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "signature"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
+dependencies = [
+ "digest 0.10.7",
+ "rand_core 0.6.4",
 ]
 
 [[package]]

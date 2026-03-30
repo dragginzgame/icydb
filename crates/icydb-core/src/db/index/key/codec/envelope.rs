@@ -7,7 +7,7 @@ use crate::{
     db::index::key::codec::{IndexKey, RawIndexKey},
     traits::Storable,
 };
-use canic_cdk::structures::storable::Bound;
+use canic::cdk::structures::storable::Bound;
 use std::borrow::Cow;
 
 impl RawIndexKey {

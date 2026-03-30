@@ -1,3 +1,8 @@
+//! Module: db::session::write
+//! Responsibility: module-local ownership and contracts for db::session::write.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 #[cfg(test)]
 use crate::db::{DataStore, IndexStore};
 use crate::{

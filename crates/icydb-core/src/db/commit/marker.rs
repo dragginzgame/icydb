@@ -13,7 +13,7 @@ use crate::{
     error::InternalError,
     types::Ulid,
 };
-use canic_cdk::structures::Storable;
+use canic::cdk::structures::Storable;
 use std::borrow::Cow;
 use std::{cell::RefCell, thread::LocalKey};
 

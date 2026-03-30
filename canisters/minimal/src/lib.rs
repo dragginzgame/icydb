@@ -3,7 +3,7 @@
 //!
 
 #[cfg(debug_assertions)]
-use ic_cdk::export_candid;
+use canic::export_candid;
 #[cfg(feature = "sql")]
 use ic_cdk::query;
 #[cfg(feature = "sql")]

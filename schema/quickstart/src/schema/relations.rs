@@ -6,7 +6,7 @@ use icydb::design::prelude::*;
 /// Test-only canister model used by runtime SQL integration harnesses.
 ///
 
-#[canister(memory_min = 50, memory_max = 100, commit_memory_id = 100)]
+#[canister(memory_min = 104, memory_max = 154, commit_memory_id = 154)]
 pub struct QuickstartCanister {}
 
 ///
@@ -18,7 +18,7 @@ pub struct QuickstartCanister {}
 #[store(
     ident = "QUICKSTART_STORE",
     canister = "QuickstartCanister",
-    data_memory_id = 50,
-    index_memory_id = 51
+    data_memory_id = 104,
+    index_memory_id = 105
 )]
 pub struct QuickstartStore {}

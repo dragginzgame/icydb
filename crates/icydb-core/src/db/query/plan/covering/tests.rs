@@ -1,3 +1,8 @@
+//! Module: db::query::plan::covering::tests
+//! Responsibility: module-local ownership and contracts for db::query::plan::covering::tests.
+//! Does not own: production covering-plan behavior outside this test module.
+//! Boundary: verifies this module API while keeping fixture details internal.
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},

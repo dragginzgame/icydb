@@ -1,3 +1,8 @@
+//! Module: db::executor::pipeline::orchestrator::state::context
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::orchestrator::state::context.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::executor::{
     ExecutionTrace,
     pipeline::contracts::{GroupedCursorPage, StructuralCursorPage},

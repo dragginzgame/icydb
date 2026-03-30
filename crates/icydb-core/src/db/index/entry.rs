@@ -12,7 +12,7 @@ use crate::{
     traits::Storable,
     value::Value,
 };
-use canic_cdk::structures::storable::Bound;
+use canic::cdk::structures::storable::Bound;
 use std::{borrow::Cow, collections::BTreeSet};
 use thiserror::Error as ThisError;
 

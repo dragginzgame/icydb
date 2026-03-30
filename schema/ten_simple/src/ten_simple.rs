@@ -7,7 +7,7 @@ use icydb_testing_wasm_fixtures::define_simple_audit_entities;
 /// Ten-entity simple canister model used for wasm-footprint auditing.
 ///
 
-#[canister(memory_min = 50, memory_max = 70, commit_memory_id = 52)]
+#[canister(memory_min = 155, memory_max = 175, commit_memory_id = 157)]
 pub struct TenSimpleCanister {}
 
 ///
@@ -19,8 +19,8 @@ pub struct TenSimpleCanister {}
 #[store(
     ident = "TEN_SIMPLE_STORE",
     canister = "TenSimpleCanister",
-    data_memory_id = 50,
-    index_memory_id = 51
+    data_memory_id = 155,
+    index_memory_id = 156
 )]
 pub struct TenSimpleStore {}
 

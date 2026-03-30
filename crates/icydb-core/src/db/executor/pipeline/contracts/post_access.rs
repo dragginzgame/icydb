@@ -1,3 +1,8 @@
+//! Module: db::executor::pipeline::contracts::post_access
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::post_access.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, QueryMode};
 use core::marker::PhantomData;
 

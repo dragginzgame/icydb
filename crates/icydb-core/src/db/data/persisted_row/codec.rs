@@ -1,3 +1,8 @@
+//! Module: db::data::persisted_row::codec
+//! Responsibility: module-local ownership and contracts for db::data::persisted_row::codec.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     error::InternalError,
     model::field::ScalarCodec,

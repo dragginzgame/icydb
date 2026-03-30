@@ -1,3 +1,8 @@
+//! Module: db::session::tests
+//! Responsibility: module-local ownership and contracts for db::session::tests.
+//! Does not own: production session behavior outside this test module.
+//! Boundary: verifies this module API while keeping fixture details internal.
+
 use super::*;
 use crate::{
     db::{

@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::types::{Ulid, UlidError};
-use canic_cdk::utils::time::now_millis;
+use canic::cdk::utils::time::now_millis;
 use canic_utils::rand::next_u128;
 use std::cell::RefCell;
 
