@@ -10,10 +10,7 @@ use crate::{
         query::{
             builder::aggregate::AggregateExpr,
             intent::StructuralQuery,
-            plan::{
-                AggregateKind,
-                expr::{Expr, ProjectionField, ProjectionSpec},
-            },
+            plan::expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
     model::EntityModel,
@@ -22,16 +19,7 @@ use crate::{
 
 // Render one aggregate expression into a canonical projection column label.
 fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
-    let kind = match aggregate.kind() {
-        AggregateKind::Count => "COUNT",
-        AggregateKind::Sum => "SUM",
-        AggregateKind::Avg => "AVG",
-        AggregateKind::Exists => "EXISTS",
-        AggregateKind::First => "FIRST",
-        AggregateKind::Last => "LAST",
-        AggregateKind::Min => "MIN",
-        AggregateKind::Max => "MAX",
-    };
+    let kind = aggregate.kind().sql_label();
     let distinct = if aggregate.is_distinct() {
         "DISTINCT "
     } else {

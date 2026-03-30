@@ -127,7 +127,17 @@ fn store_wiring_tokens(
         });
 
         fn ensure_memory_bootstrap() {
-            ::canic::api::runtime::MemoryRuntimeApi::bootstrap_registry()
+            use ::icydb::__reexports::canic_memory::runtime::{
+                init_eager_tls, registry::MemoryRegistryRuntime, run_registered_eager_init,
+            };
+
+            if MemoryRegistryRuntime::is_initialized() {
+                return;
+            }
+
+            init_eager_tls();
+            run_registered_eager_init();
+            MemoryRegistryRuntime::init(None)
                 .expect("generated canister memory registry init should succeed");
         }
 

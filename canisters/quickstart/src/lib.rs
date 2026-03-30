@@ -4,11 +4,11 @@
 
 mod seed;
 
-#[cfg(debug_assertions)]
-use canic::export_candid;
+extern crate canic_cdk as ic_cdk;
+
 #[cfg(feature = "sql")]
-use ic_cdk::query;
-use ic_cdk::update;
+use canic_cdk::query;
+use canic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
 use icydb_testing_quickstart_fixtures::schema::{Character, Order, User};
@@ -72,7 +72,10 @@ mod tests {
     // quickstart application range before each bootstrap-dependent test path so
     // the generated `db()` bootstrap stays deterministic per test thread.
     fn ensure_sql_test_memory_range() {
-        ::canic::ic_memory_range!(QUICKSTART_MEMORY_MIN, QUICKSTART_MEMORY_MAX);
+        ::icydb::__reexports::canic_memory::ic_memory_range!(
+            QUICKSTART_MEMORY_MIN,
+            QUICKSTART_MEMORY_MAX
+        );
     }
 
     fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
@@ -324,5 +327,4 @@ mod tests {
     }
 }
 
-#[cfg(debug_assertions)]
-export_candid!();
+canic_cdk::export_candid!();

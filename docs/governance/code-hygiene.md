@@ -244,7 +244,22 @@ match path.kind() {
 }
 ```
 
-## 12. Test Placement
+## 12. Slice Shape And Change Coupling
+
+Routine feature work should preserve delivery velocity by keeping slices narrow.
+
+See [velocity-preservation.md](/home/adam/projects/icydb/docs/governance/velocity-preservation.md)
+for the current enforced rules, including:
+
+- slice-shape file-count limits
+- cross-domain touch limits
+- `Slice-Override` / `Slice-Justification` escape hatch requirements
+- guarded root-module growth checks for parser and session SQL roots
+
+When a change spans parser, lowering/session, build/canister, or integration
+surfaces together, treat that as an exception that must be justified explicitly.
+
+## 13. Test Placement
 
 If tests are split into a separate file, declare `mod tests;` at the top with other module declarations.
 If tests are inline, keep `#[cfg(test)] mod tests { ... }` at the bottom of the module.
@@ -275,7 +290,7 @@ mod tests {
 
 Tests should cover invariants and planner eligibility rules.
 
-## 13. Redundant Code Removal
+## 14. Redundant Code Removal
 
 During maintenance passes, remove:
 
@@ -284,7 +299,7 @@ During maintenance passes, remove:
 - Legacy compatibility logic
 - Outdated comments
 
-## 14. Formatting
+## 15. Formatting
 
 All code should pass the following before committing:
 

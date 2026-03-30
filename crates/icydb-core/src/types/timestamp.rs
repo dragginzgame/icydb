@@ -16,7 +16,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic::cdk::utils::time::now_millis;
+use canic_cdk::utils::time::now_millis;
 use derive_more::{Display, FromStr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{

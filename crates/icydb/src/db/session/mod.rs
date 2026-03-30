@@ -597,7 +597,7 @@ mod tests {
         macros::{canister, entity, store},
         traits::{Path as _, Sanitizer as _},
     };
-    use canic::cdk::structures::{
+    use canic_cdk::structures::{
         DefaultMemoryImpl,
         memory::{MemoryId, MemoryManager, VirtualMemory},
     };

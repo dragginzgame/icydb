@@ -432,6 +432,8 @@ Code is considered non-trivial if it:
 * Codex must never run `git commit` or `git push`; prepare/stage changes and hand off commit/push to the user.
 * Commits: imperative mood, concise scope (e.g., "Fix index serialization").
 * PRs: clear description, rationale, before/after notes; include tests and docs updates.
+* Routine feature PRs should satisfy the slice-shape and domain-span rules in `docs/governance/velocity-preservation.md`.
+* If a PR exceeds the enforced slice-shape limits, include `Slice-Override: yes` and `Slice-Justification: ...` in the PR body.
 * Changelog: update `CHANGELOG.md` for user-visible changes (follow `docs/governance/changelog.md`).
 * In `docs/changelog/0.*.md`, every `## 0.x.y` entry MUST be separated from the next entry by a standalone `---` divider.
 * Releases: use `make patch|minor|major`; never hand-edit tags.

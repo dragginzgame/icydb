@@ -6,6 +6,7 @@
 use crate::{
     db::{
         cursor::ContinuationSignature,
+        direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
         query::plan::semantics::LogicalPushdownEligibility,
     },
@@ -391,6 +392,136 @@ pub enum AggregateKind {
     Max,
     First,
     Last,
+}
+
+impl AggregateKind {
+    /// Return the canonical uppercase SQL/render label for this aggregate kind.
+    #[must_use]
+    pub(in crate::db) const fn sql_label(self) -> &'static str {
+        match self {
+            Self::Count => "COUNT",
+            Self::Sum => "SUM",
+            Self::Avg => "AVG",
+            Self::Exists => "EXISTS",
+            Self::First => "FIRST",
+            Self::Last => "LAST",
+            Self::Min => "MIN",
+            Self::Max => "MAX",
+        }
+    }
+
+    /// Return whether this terminal kind is `COUNT`.
+    #[must_use]
+    pub(crate) const fn is_count(self) -> bool {
+        matches!(self, Self::Count)
+    }
+
+    /// Return whether this terminal kind belongs to the SUM/AVG numeric fold family.
+    #[must_use]
+    pub(in crate::db) const fn is_sum(self) -> bool {
+        matches!(self, Self::Sum | Self::Avg)
+    }
+
+    /// Return whether this terminal kind belongs to the extrema family.
+    #[must_use]
+    pub(in crate::db) const fn is_extrema(self) -> bool {
+        matches!(self, Self::Min | Self::Max)
+    }
+
+    /// Return whether reducer updates for this kind require a decoded id payload.
+    #[must_use]
+    pub(in crate::db) const fn requires_decoded_id(self) -> bool {
+        !matches!(self, Self::Count | Self::Sum | Self::Avg | Self::Exists)
+    }
+
+    /// Return whether grouped aggregate DISTINCT is supported for this kind.
+    #[must_use]
+    pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
+        matches!(
+            self,
+            Self::Count | Self::Min | Self::Max | Self::Sum | Self::Avg
+        )
+    }
+
+    /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.
+    #[must_use]
+    pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
+        matches!(self, Self::Count | Self::Sum | Self::Avg)
+    }
+
+    /// Return the canonical extrema traversal direction for this kind.
+    #[must_use]
+    pub(crate) const fn extrema_direction(self) -> Option<Direction> {
+        match self {
+            Self::Min => Some(Direction::Asc),
+            Self::Max => Some(Direction::Desc),
+            Self::Count | Self::Sum | Self::Avg | Self::Exists | Self::First | Self::Last => None,
+        }
+    }
+
+    /// Return the canonical materialized fold direction for this kind.
+    #[must_use]
+    pub(crate) const fn materialized_fold_direction(self) -> Direction {
+        match self {
+            Self::Min => Direction::Desc,
+            Self::Count
+            | Self::Sum
+            | Self::Avg
+            | Self::Exists
+            | Self::Max
+            | Self::First
+            | Self::Last => Direction::Asc,
+        }
+    }
+
+    /// Return true when this kind can use bounded aggregate probe hints.
+    #[must_use]
+    pub(crate) const fn supports_bounded_probe_hint(self) -> bool {
+        !self.is_count() && !self.is_sum()
+    }
+
+    /// Derive a bounded aggregate probe fetch hint for this kind.
+    #[must_use]
+    pub(crate) fn bounded_probe_fetch_hint(
+        self,
+        direction: Direction,
+        offset: usize,
+        page_limit: Option<usize>,
+    ) -> Option<usize> {
+        match self {
+            Self::Exists | Self::First => Some(offset.saturating_add(1)),
+            Self::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
+            Self::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
+            Self::Last => page_limit.map(|limit| offset.saturating_add(limit)),
+            Self::Count | Self::Sum | Self::Avg | Self::Min | Self::Max => None,
+        }
+    }
+
+    /// Return the explain projection mode label for this kind and projection surface.
+    #[must_use]
+    pub(in crate::db) const fn explain_projection_mode_label(
+        self,
+        has_projected_field: bool,
+        covering_projection: bool,
+    ) -> &'static str {
+        if has_projected_field {
+            if covering_projection {
+                "field_idx"
+            } else {
+                "field_mat"
+            }
+        } else if matches!(self, Self::Min | Self::Max | Self::First | Self::Last) {
+            "entity_term"
+        } else {
+            "scalar_agg"
+        }
+    }
+
+    /// Return whether this terminal kind can remain covering on existing-row plans.
+    #[must_use]
+    pub(in crate::db) const fn supports_covering_existing_rows_terminal(self) -> bool {
+        matches!(self, Self::Count | Self::Exists)
+    }
 }
 
 ///

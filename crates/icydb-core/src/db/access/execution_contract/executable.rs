@@ -5,7 +5,7 @@
 
 use crate::{
     db::access::{
-        dispatch::AccessPathKind,
+        AccessPathKind, ExecutableAccessPathDispatch, dispatch_executable_access_path,
         execution_contract::{
             AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
             ExecutionPathPayload,
@@ -63,14 +63,16 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
     /// Return the canonical execution path kind.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AccessPathKind {
-        match self.payload {
-            ExecutionPathPayload::ByKey(_) => AccessPathKind::ByKey,
-            ExecutionPathPayload::ByKeys(_) => AccessPathKind::ByKeys,
-            ExecutionPathPayload::KeyRange { .. } => AccessPathKind::KeyRange,
-            ExecutionPathPayload::IndexPrefix => AccessPathKind::IndexPrefix,
-            ExecutionPathPayload::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
-            ExecutionPathPayload::IndexRange { .. } => AccessPathKind::IndexRange,
-            ExecutionPathPayload::FullScan => AccessPathKind::FullScan,
+        match dispatch_executable_access_path(self) {
+            ExecutableAccessPathDispatch::ByKey(_) => AccessPathKind::ByKey,
+            ExecutableAccessPathDispatch::ByKeys(_) => AccessPathKind::ByKeys,
+            ExecutableAccessPathDispatch::KeyRange { .. } => AccessPathKind::KeyRange,
+            ExecutableAccessPathDispatch::IndexPrefix => AccessPathKind::IndexPrefix,
+            ExecutableAccessPathDispatch::IndexMultiLookup { .. } => {
+                AccessPathKind::IndexMultiLookup
+            }
+            ExecutableAccessPathDispatch::IndexRange => AccessPathKind::IndexRange,
+            ExecutableAccessPathDispatch::FullScan => AccessPathKind::FullScan,
         }
     }
 

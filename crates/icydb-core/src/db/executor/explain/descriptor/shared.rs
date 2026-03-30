@@ -797,7 +797,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_node_properties_for_
     if let Some(fetch) = route_plan.aggregate_seek_fetch_hint() {
         node_properties.insert("fetch", Value::from(u64_from_usize(fetch)));
     }
-    if matches!(aggregation, AggregateKind::Count) {
+    if aggregation.is_count() {
         node_properties.insert(
             "count_fold",
             Value::from(aggregate_fold_mode_label(route_plan.aggregate_fold_mode)),
@@ -821,24 +821,7 @@ const fn aggregate_projection_mode_label(
     has_projected_field: bool,
     covering_projection: bool,
 ) -> &'static str {
-    if has_projected_field {
-        if covering_projection {
-            "field_idx"
-        } else {
-            "field_mat"
-        }
-    } else {
-        match aggregation {
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::Sum
-            | AggregateKind::Avg => "scalar_agg",
-            AggregateKind::Min
-            | AggregateKind::Max
-            | AggregateKind::First
-            | AggregateKind::Last => "entity_term",
-        }
-    }
+    aggregation.explain_projection_mode_label(has_projected_field, covering_projection)
 }
 
 const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {
@@ -859,16 +842,10 @@ pub(in crate::db::executor::explain::descriptor) fn aggregate_covering_projectio
         execution_preparation_predicate_index_capability(execution_preparation)
             == Some(IndexPredicateCapability::FullyIndexable);
 
-    match aggregation {
-        AggregateKind::Count | AggregateKind::Exists => {
-            index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
-        }
-        AggregateKind::Min
-        | AggregateKind::Max
-        | AggregateKind::First
-        | AggregateKind::Last
-        | AggregateKind::Sum
-        | AggregateKind::Avg => false,
+    if aggregation.supports_covering_existing_rows_terminal() {
+        index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
+    } else {
+        false
     }
 }
 

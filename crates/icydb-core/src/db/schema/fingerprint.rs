@@ -14,7 +14,7 @@ use crate::{
     },
     traits::EntityKind,
 };
-use canic_utils::hash::Xxh3;
+use icydb_utils::Xxh3;
 use sha2::{Digest, Sha256};
 
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 2;
@@ -160,7 +160,7 @@ mod tests {
             index::{IndexExpression, IndexKeyItem, IndexModel},
         },
     };
-    use canic_utils::hash::Xxh3;
+    use icydb_utils::Xxh3;
 
     const INDEX_FIELDS: [&str; 1] = ["active"];
 

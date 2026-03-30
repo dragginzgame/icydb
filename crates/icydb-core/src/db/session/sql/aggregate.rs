@@ -137,7 +137,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
+        if !kind.is_extrema() {
             return Err(QueryError::invariant(
                 "ranked SQL aggregate id helper only supports MIN/MAX",
             ));

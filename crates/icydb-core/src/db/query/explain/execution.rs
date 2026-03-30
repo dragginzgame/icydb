@@ -346,19 +346,27 @@ const fn aggregate_execution_node_type(
             ExplainExecutionNodeType::AggregateSeekLast
         }
         ExplainExecutionOrderingSource::AccessOrder
-        | ExplainExecutionOrderingSource::Materialized => match terminal {
-            AggregateKind::Count => ExplainExecutionNodeType::AggregateCount,
-            AggregateKind::Exists => ExplainExecutionNodeType::AggregateExists,
-            AggregateKind::Min => ExplainExecutionNodeType::AggregateMin,
-            AggregateKind::Max => ExplainExecutionNodeType::AggregateMax,
-            AggregateKind::First => ExplainExecutionNodeType::AggregateFirst,
-            AggregateKind::Last => ExplainExecutionNodeType::AggregateLast,
-            AggregateKind::Sum | AggregateKind::Avg => ExplainExecutionNodeType::AggregateSum,
-        },
+        | ExplainExecutionOrderingSource::Materialized => {
+            ExplainExecutionNodeType::aggregate_terminal(terminal)
+        }
     }
 }
 
 impl ExplainExecutionNodeType {
+    /// Return the canonical execution-node type for one aggregate terminal kind.
+    #[must_use]
+    pub(in crate::db) const fn aggregate_terminal(kind: AggregateKind) -> Self {
+        match kind {
+            AggregateKind::Count => Self::AggregateCount,
+            AggregateKind::Exists => Self::AggregateExists,
+            AggregateKind::Min => Self::AggregateMin,
+            AggregateKind::Max => Self::AggregateMax,
+            AggregateKind::First => Self::AggregateFirst,
+            AggregateKind::Last => Self::AggregateLast,
+            AggregateKind::Sum | AggregateKind::Avg => Self::AggregateSum,
+        }
+    }
+
     /// Return the stable string label used by explain renderers.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

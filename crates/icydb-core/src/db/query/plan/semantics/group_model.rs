@@ -16,44 +16,6 @@ use crate::{
     value::Value,
 };
 
-impl AggregateKind {
-    /// Return whether this terminal kind is `COUNT`.
-    #[must_use]
-    pub(in crate::db) const fn is_count(self) -> bool {
-        AggregateExpr::is_count_kind(self)
-    }
-
-    /// Return whether this terminal kind is `SUM`.
-    #[must_use]
-    pub(in crate::db) const fn is_sum(self) -> bool {
-        AggregateExpr::is_sum_kind(self)
-    }
-
-    /// Return whether this terminal kind belongs to the extrema family.
-    #[must_use]
-    pub(in crate::db) const fn is_extrema(self) -> bool {
-        AggregateExpr::is_extrema_kind(self)
-    }
-
-    /// Return whether reducer updates for this kind require a decoded id payload.
-    #[must_use]
-    pub(in crate::db) const fn requires_decoded_id(self) -> bool {
-        AggregateExpr::requires_decoded_id_kind(self)
-    }
-
-    /// Return whether grouped aggregate DISTINCT is supported for this kind.
-    #[must_use]
-    pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
-        AggregateExpr::supports_grouped_distinct_kind_v1(self)
-    }
-
-    /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.
-    #[must_use]
-    pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
-        AggregateExpr::supports_global_distinct_without_group_keys_kind(self)
-    }
-}
-
 impl GroupAggregateSpec {
     /// Build one grouped aggregate spec from one aggregate expression.
     #[must_use]
@@ -86,8 +48,7 @@ impl GroupAggregateSpec {
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
     pub(in crate::db) const fn streaming_compatible_v1(&self) -> bool {
-        self.target_field.is_none()
-            && (!self.distinct || AggregateExpr::supports_grouped_distinct_kind_v1(self.kind))
+        self.target_field.is_none() && (!self.distinct || self.kind.supports_grouped_distinct_v1())
     }
 }
 

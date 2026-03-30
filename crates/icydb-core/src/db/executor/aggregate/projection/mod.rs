@@ -43,7 +43,7 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::{
-            builder::aggregate::terminal_expr_for_kind,
+            builder::AggregateExpr,
             plan::{
                 CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
                 constant_covering_projection_value_from_access,
@@ -497,7 +497,7 @@ where
         let row_layout = RowLayout::from_model(prepared.authority.model());
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
-            terminal_expr_for_kind(terminal_kind),
+            AggregateExpr::terminal_for_kind(terminal_kind),
         );
         let selected_key = ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_optional_id_terminal(
@@ -731,7 +731,7 @@ where
     ) -> Result<u32, InternalError> {
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
-            terminal_expr_for_kind(AggregateKind::Count),
+            AggregateExpr::terminal_for_kind(AggregateKind::Count),
         );
         ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_count("projection COUNT helper result kind mismatch")
@@ -745,7 +745,7 @@ where
     ) -> Result<bool, InternalError> {
         let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
             prepared,
-            terminal_expr_for_kind(AggregateKind::Exists),
+            AggregateExpr::terminal_for_kind(AggregateKind::Exists),
         );
         ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_exists("projection EXISTS helper result kind mismatch")

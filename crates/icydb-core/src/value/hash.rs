@@ -7,7 +7,7 @@
 mod tests;
 
 use crate::{error::InternalError, traits::Repr, value::Value};
-use canic_utils::hash::Xxh3;
+use icydb_utils::Xxh3;
 
 /// Value-hash format version byte used by canonical digest encoding.
 pub(crate) const VALUE_HASH_VERSION: u8 = 1;

@@ -11,10 +11,10 @@ use crate::{
     traits::Storable,
 };
 
-use canic::cdk::structures::{
+use canic_cdk::structures::{
     BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound as StorableBound,
 };
-use canic_utils::hash::Xxh3;
+use icydb_utils::Xxh3;
 use std::borrow::Cow;
 
 ///

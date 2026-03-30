@@ -14,8 +14,7 @@ sql = ["icydb/sql"]
 
 [dependencies]
 candid = { workspace = true }
-canic = { workspace = true }
-ic-cdk = { workspace = true }
+canic-cdk = { workspace = true }
 icydb = { path = "../../crates/icydb", default-features = false }
 icydb-testing-minimal-fixtures = { workspace = true }
 

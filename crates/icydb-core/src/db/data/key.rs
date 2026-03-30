@@ -12,7 +12,7 @@ use crate::{
     types::EntityTag,
     value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
 };
-use canic::cdk::structures::storable::Bound;
+use canic_cdk::structures::storable::Bound;
 use std::{
     borrow::Cow,
     fmt::{self, Display},

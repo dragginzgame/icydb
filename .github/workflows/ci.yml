@@ -41,6 +41,12 @@ jobs:
         run: |
           echo "POCKET_IC_BIN=$(bash scripts/ci/ensure-pocket-ic-bin.sh)" >> "$GITHUB_ENV"
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
+      - run: bash scripts/ci/check-route-planner-import-boundary.sh
+      - if: github.event_name == 'pull_request'
+        env:
+          SLICE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+          SLICE_HEAD_REF: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/ci/check-slice-shape.sh
       - run: bash scripts/ci/check-index-range-spec-invariants.sh
       - run: bash scripts/ci/check-memory-id-invariants.sh
       - run: bash scripts/ci/check-field-projection-invariants.sh

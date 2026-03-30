@@ -72,6 +72,69 @@ impl<K> AccessPathDispatch<'_, K> {
     }
 }
 
+impl AccessPathKind {
+    /// Return whether this path kind can drive direct PK-stream traversal.
+    #[must_use]
+    pub(in crate::db) const fn supports_pk_stream_access(self) -> bool {
+        matches!(self, Self::KeyRange | Self::FullScan)
+    }
+
+    /// Return whether this path kind supports reverse traversal mechanics.
+    #[must_use]
+    pub(in crate::db) const fn supports_reverse_traversal(self) -> bool {
+        !matches!(self, Self::ByKeys)
+    }
+
+    /// Return whether this path kind can derive count from one pushdown shape.
+    #[must_use]
+    pub(in crate::db) const fn supports_count_pushdown_shape(self) -> bool {
+        matches!(self, Self::KeyRange | Self::FullScan)
+    }
+
+    /// Return whether this path kind supports one primary-scan fetch hint.
+    #[must_use]
+    pub(in crate::db) const fn supports_primary_scan_fetch_hint(self) -> bool {
+        matches!(self, Self::ByKey | Self::KeyRange | Self::FullScan)
+    }
+
+    /// Return whether this path kind is one direct key-addressed access shape.
+    #[must_use]
+    pub(in crate::db) const fn is_key_direct_access(self) -> bool {
+        matches!(self, Self::ByKey | Self::ByKeys)
+    }
+
+    /// Return whether this path kind supports the PK-window bytes fast path.
+    #[must_use]
+    pub(in crate::db) const fn supports_bytes_terminal_primary_key_window(self) -> bool {
+        matches!(self, Self::FullScan | Self::KeyRange)
+    }
+
+    /// Return whether this path kind supports ordered-key-stream bytes fast path.
+    #[must_use]
+    pub(in crate::db) const fn supports_bytes_terminal_ordered_key_stream_window(self) -> bool {
+        matches!(
+            self,
+            Self::ByKey
+                | Self::ByKeys
+                | Self::IndexPrefix
+                | Self::IndexMultiLookup
+                | Self::IndexRange
+        )
+    }
+
+    /// Return whether COUNT can use already-existing PK rows for this path kind.
+    #[must_use]
+    pub(in crate::db) const fn supports_count_terminal_primary_key_existing_rows(self) -> bool {
+        matches!(self, Self::ByKey | Self::ByKeys)
+    }
+
+    /// Return whether top-N seek requires one extra lookahead row for this kind.
+    #[must_use]
+    pub(in crate::db) const fn requires_top_n_seek_lookahead(self) -> bool {
+        matches!(self, Self::ByKeys | Self::IndexMultiLookup)
+    }
+}
+
 /// Dispatch one semantic access path through the canonical borrowed-variant surface.
 #[must_use]
 pub(in crate::db) const fn dispatch_access_path<K>(

@@ -4,7 +4,7 @@
 //! Boundary: commit/executor call into this layer after prevalidation.
 
 use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
-use canic::cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
+use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use derive_more::Deref;
 
 ///

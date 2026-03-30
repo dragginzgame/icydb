@@ -16,7 +16,7 @@ use crate::{
     model::entity::EntityModel,
     traits::Storable,
 };
-use canic::cdk::structures::storable::Bound;
+use canic_cdk::structures::storable::Bound;
 use std::{borrow::Cow, ops::Deref};
 use thiserror::Error as ThisError;
 

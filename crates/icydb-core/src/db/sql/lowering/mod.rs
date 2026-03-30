@@ -144,6 +144,22 @@ pub(crate) struct LoweredSqlGlobalAggregateCommand {
 }
 
 ///
+/// LoweredSqlAggregateShape
+///
+/// Locally validated aggregate-call shape used by SQL lowering to avoid
+/// duplicating `(SqlAggregateKind, field)` validation across lowering lanes.
+///
+
+enum LoweredSqlAggregateShape {
+    CountRows,
+    CountField(String),
+    FieldTarget {
+        kind: SqlAggregateKind,
+        field: String,
+    },
+}
+
+///
 /// SqlGlobalAggregateCommand
 ///
 /// Lowered global SQL aggregate command carrying base query shape plus terminal.
@@ -1004,13 +1020,47 @@ fn lower_global_aggregate_terminal(
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
-    match (aggregate.kind, aggregate.field) {
-        (SqlAggregateKind::Count, None) => Ok(SqlGlobalAggregateTerminal::CountRows),
-        (SqlAggregateKind::Count, Some(field)) => Ok(SqlGlobalAggregateTerminal::CountField(field)),
-        (SqlAggregateKind::Sum, Some(field)) => Ok(SqlGlobalAggregateTerminal::SumField(field)),
-        (SqlAggregateKind::Avg, Some(field)) => Ok(SqlGlobalAggregateTerminal::AvgField(field)),
-        (SqlAggregateKind::Min, Some(field)) => Ok(SqlGlobalAggregateTerminal::MinField(field)),
-        (SqlAggregateKind::Max, Some(field)) => Ok(SqlGlobalAggregateTerminal::MaxField(field)),
+    match lower_sql_aggregate_shape(aggregate)? {
+        LoweredSqlAggregateShape::CountRows => Ok(SqlGlobalAggregateTerminal::CountRows),
+        LoweredSqlAggregateShape::CountField(field) => {
+            Ok(SqlGlobalAggregateTerminal::CountField(field))
+        }
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Sum,
+            field,
+        } => Ok(SqlGlobalAggregateTerminal::SumField(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Avg,
+            field,
+        } => Ok(SqlGlobalAggregateTerminal::AvgField(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Min,
+            field,
+        } => Ok(SqlGlobalAggregateTerminal::MinField(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Max,
+            field,
+        } => Ok(SqlGlobalAggregateTerminal::MaxField(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Count,
+            ..
+        } => Err(SqlLoweringError::unsupported_select_projection()),
+    }
+}
+
+fn lower_sql_aggregate_shape(
+    call: SqlAggregateCall,
+) -> Result<LoweredSqlAggregateShape, SqlLoweringError> {
+    match (call.kind, call.field) {
+        (SqlAggregateKind::Count, None) => Ok(LoweredSqlAggregateShape::CountRows),
+        (SqlAggregateKind::Count, Some(field)) => Ok(LoweredSqlAggregateShape::CountField(field)),
+        (
+            kind @ (SqlAggregateKind::Sum
+            | SqlAggregateKind::Avg
+            | SqlAggregateKind::Min
+            | SqlAggregateKind::Max),
+            Some(field),
+        ) => Ok(LoweredSqlAggregateShape::FieldTarget { kind, field }),
         _ => Err(SqlLoweringError::unsupported_select_projection()),
     }
 }
@@ -1061,14 +1111,29 @@ fn grouped_projection_aggregate_calls(
 fn lower_aggregate_call(
     call: SqlAggregateCall,
 ) -> Result<crate::db::query::builder::AggregateExpr, SqlLoweringError> {
-    match (call.kind, call.field) {
-        (SqlAggregateKind::Count, None) => Ok(count()),
-        (SqlAggregateKind::Count, Some(field)) => Ok(count_by(field)),
-        (SqlAggregateKind::Sum, Some(field)) => Ok(sum(field)),
-        (SqlAggregateKind::Avg, Some(field)) => Ok(avg(field)),
-        (SqlAggregateKind::Min, Some(field)) => Ok(min_by(field)),
-        (SqlAggregateKind::Max, Some(field)) => Ok(max_by(field)),
-        _ => Err(SqlLoweringError::unsupported_select_projection()),
+    match lower_sql_aggregate_shape(call)? {
+        LoweredSqlAggregateShape::CountRows => Ok(count()),
+        LoweredSqlAggregateShape::CountField(field) => Ok(count_by(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Sum,
+            field,
+        } => Ok(sum(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Avg,
+            field,
+        } => Ok(avg(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Min,
+            field,
+        } => Ok(min_by(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Max,
+            field,
+        } => Ok(max_by(field)),
+        LoweredSqlAggregateShape::FieldTarget {
+            kind: SqlAggregateKind::Count,
+            ..
+        } => Err(SqlLoweringError::unsupported_select_projection()),
     }
 }
 

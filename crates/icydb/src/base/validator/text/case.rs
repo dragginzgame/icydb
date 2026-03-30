@@ -1,5 +1,5 @@
 use crate::{design::prelude::*, traits::Validator};
-use canic_utils::case::{Case, Casing};
+use icydb_utils::{Case, Casing};
 
 ///
 /// Kebab

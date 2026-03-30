@@ -1,6 +1,6 @@
 use crate::validate::memory::memory_id_reserved_error;
 use crate::{imp::*, prelude::*};
-use canic_utils::case::{Case, Casing};
+use icydb_utils::{Case, Casing};
 
 ///
 /// Store

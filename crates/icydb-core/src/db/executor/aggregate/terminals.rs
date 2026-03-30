@@ -27,7 +27,7 @@ use crate::{
             route::{CountTerminalFastPathContract, ExistsTerminalFastPathContract},
         },
         index::predicate::IndexPredicateExecution,
-        query::builder::aggregate::{field_target_extrema_expr_for_kind, terminal_expr_for_kind},
+        query::builder::AggregateExpr,
         query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
         registry::StoreHandle,
     },
@@ -205,13 +205,13 @@ where
 {
     op.validate_kernel_request_kind()?;
     let aggregate_expr = match op {
-        PreparedScalarTerminalOp::Count => terminal_expr_for_kind(AggregateKind::Count),
-        PreparedScalarTerminalOp::Exists => terminal_expr_for_kind(AggregateKind::Exists),
-        PreparedScalarTerminalOp::IdTerminal { kind } => terminal_expr_for_kind(kind),
+        PreparedScalarTerminalOp::Count => AggregateExpr::terminal_for_kind(AggregateKind::Count),
+        PreparedScalarTerminalOp::Exists => AggregateExpr::terminal_for_kind(AggregateKind::Exists),
+        PreparedScalarTerminalOp::IdTerminal { kind } => AggregateExpr::terminal_for_kind(kind),
         PreparedScalarTerminalOp::IdBySlot {
             kind,
             target_field_name,
-        } => field_target_extrema_expr_for_kind(kind, &target_field_name),
+        } => AggregateExpr::field_target_extrema_for_kind(kind, &target_field_name),
     };
     let state =
         ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate_expr);

@@ -12,7 +12,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic::cdk::types::Account as IcrcAccount;
+use canic_cdk::types::Account as IcrcAccount;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},

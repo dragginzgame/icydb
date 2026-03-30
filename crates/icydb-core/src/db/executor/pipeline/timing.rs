@@ -7,14 +7,14 @@
 #[cfg(target_arch = "wasm32")]
 #[must_use]
 pub(in crate::db::executor) fn start_execution_timer() -> u64 {
-    canic::cdk::utils::time::now_millis()
+    canic_cdk::utils::time::now_millis()
 }
 
 /// Convert elapsed pipeline duration to microseconds.
 #[cfg(target_arch = "wasm32")]
 #[must_use]
 pub(in crate::db::executor) fn elapsed_execution_micros(execution_started_at_ms: u64) -> u64 {
-    canic::cdk::utils::time::now_millis()
+    canic_cdk::utils::time::now_millis()
         .saturating_sub(execution_started_at_ms)
         .saturating_mul(1_000)
 }

@@ -25,7 +25,7 @@ pub use visitor::*;
 // Standard re-exports for `traits::X` ergonomics
 // -----------------------------------------------------------------------------
 
-pub use canic::cdk::structures::storable::Storable;
+pub use canic_cdk::structures::storable::Storable;
 pub use num_traits::{FromPrimitive as NumFromPrimitive, NumCast, ToPrimitive as NumToPrimitive};
 pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub use std::{

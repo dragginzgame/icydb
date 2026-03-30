@@ -11,7 +11,7 @@ use crate::{
     },
     error::InternalError,
 };
-use canic::cdk::structures::{
+use canic_cdk::structures::{
     Cell as StableCell, DefaultMemoryImpl, Storable,
     memory::{MemoryId, VirtualMemory},
     storable::Bound,

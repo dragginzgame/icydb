@@ -8,7 +8,7 @@
 //! query metrics are non-existent by design under IC query semantics.
 
 use candid::CandidType;
-use canic::cdk::utils::time::now_millis;
+use canic_cdk::utils::time::now_millis;
 use serde::Deserialize;
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 

@@ -3,17 +3,14 @@
 //! Does not own: planner validation or user-facing logical semantics.
 //! Boundary: route/executor runtime interpretation of already-validated plan kinds.
 
-use crate::db::{
-    direction::Direction,
-    query::{builder::AggregateExpr, plan::AggregateKind},
-};
+use crate::db::{direction::Direction, query::plan::AggregateKind};
 
 /// Return the canonical extrema traversal direction for this aggregate kind.
 #[must_use]
 pub(in crate::db::executor) const fn aggregate_extrema_direction(
     kind: AggregateKind,
 ) -> Option<Direction> {
-    AggregateExpr::extrema_direction_for_kind(kind)
+    kind.extrema_direction()
 }
 
 /// Return the canonical non-short-circuit materialized reduction direction.
@@ -21,7 +18,7 @@ pub(in crate::db::executor) const fn aggregate_extrema_direction(
 pub(in crate::db::executor) const fn aggregate_materialized_fold_direction(
     kind: AggregateKind,
 ) -> Direction {
-    AggregateExpr::materialized_fold_direction_for_kind(kind)
+    kind.materialized_fold_direction()
 }
 
 /// Return true when this kind can use bounded aggregate probe hints.
@@ -29,7 +26,7 @@ pub(in crate::db::executor) const fn aggregate_materialized_fold_direction(
 pub(in crate::db::executor) const fn aggregate_supports_bounded_probe_hint(
     kind: AggregateKind,
 ) -> bool {
-    AggregateExpr::supports_bounded_probe_hint_for_kind(kind)
+    kind.supports_bounded_probe_hint()
 }
 
 /// Derive a bounded aggregate probe fetch hint for this kind.
@@ -40,5 +37,5 @@ pub(in crate::db::executor) fn aggregate_bounded_probe_fetch_hint(
     offset: usize,
     page_limit: Option<usize>,
 ) -> Option<usize> {
-    AggregateExpr::bounded_probe_fetch_hint_for_kind(kind, direction, offset, page_limit)
+    kind.bounded_probe_fetch_hint(direction, offset, page_limit)
 }

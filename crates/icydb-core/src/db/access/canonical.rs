@@ -12,7 +12,8 @@
 //! Any change in this module must preserve fingerprint/continuation stability.
 
 use crate::{
-    db::access::{AccessPath, AccessPlan},
+    db::access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
+    model::index::IndexModel,
     value::Value,
 };
 use std::cmp::Ordering;
@@ -237,174 +238,62 @@ impl AccessPath<Value> {
     }
 
     // Compare access paths with a total deterministic ordering.
-    #[expect(clippy::too_many_lines)]
     fn canonical_cmp(&self, right: &Self) -> Ordering {
         let rank = self.canonical_rank().cmp(&right.canonical_rank());
         if rank != Ordering::Equal {
             return rank;
         }
 
-        match self {
-            Self::ByKey(left_key) => {
-                let Self::ByKey(right_key) = right else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
+        // Once the canonical rank matches, only one same-rank variant pairing is valid.
+        match (self, right) {
+            (Self::ByKey(left_key), Self::ByKey(right_key)) => {
                 Value::canonical_cmp(left_key, right_key)
             }
-            Self::ByKeys(left_keys) => {
-                let Self::ByKeys(right_keys) = right else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
+            (Self::ByKeys(left_keys), Self::ByKeys(right_keys)) => {
                 canonical_cmp_value_list(left_keys, right_keys)
             }
-            Self::KeyRange {
-                start: left_start,
-                end: left_end,
-            } => {
-                let Self::KeyRange {
+            (
+                Self::KeyRange {
+                    start: left_start,
+                    end: left_end,
+                },
+                Self::KeyRange {
                     start: right_start,
                     end: right_end,
-                } = right
-                else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
-
-                let cmp = Value::canonical_cmp(left_start, right_start);
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-                Value::canonical_cmp(left_end, right_end)
-            }
-            Self::IndexPrefix {
-                index: left_index,
-                values: left_values,
-            } => {
-                let Self::IndexPrefix {
+                },
+            ) => Self::canonical_cmp_key_range(left_start, left_end, right_start, right_end),
+            (
+                Self::IndexPrefix {
+                    index: left_index,
+                    values: left_values,
+                },
+                Self::IndexPrefix {
                     index: right_index,
                     values: right_values,
-                } = right
-                else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
-
-                let cmp = left_index.name().cmp(right_index.name());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp = left_index.fields().cmp(right_index.fields());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp = left_values.len().cmp(&right_values.len());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                canonical_cmp_value_list(left_values, right_values)
+                },
+            ) => {
+                Self::canonical_cmp_index_prefix(left_index, left_values, right_index, right_values)
             }
-            Self::IndexMultiLookup {
-                index: left_index,
-                values: left_values,
-            } => {
-                let Self::IndexMultiLookup {
+            (
+                Self::IndexMultiLookup {
+                    index: left_index,
+                    values: left_values,
+                },
+                Self::IndexMultiLookup {
                     index: right_index,
                     values: right_values,
-                } = right
-                else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
-
-                let cmp = left_index.name().cmp(right_index.name());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp = left_index.fields().cmp(right_index.fields());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                canonical_cmp_value_list(left_values, right_values)
+                },
+            ) => Self::canonical_cmp_index_multi_lookup(
+                left_index,
+                left_values,
+                right_index,
+                right_values,
+            ),
+            (Self::IndexRange { spec: left_spec }, Self::IndexRange { spec: right_spec }) => {
+                Self::canonical_cmp_index_range(left_spec, right_spec)
             }
-            Self::IndexRange { spec: left_spec } => {
-                let Self::IndexRange { spec: right_spec } = right else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
-
-                let cmp = left_spec.index().name().cmp(right_spec.index().name());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp = left_spec.index().fields().cmp(right_spec.index().fields());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp = left_spec
-                    .prefix_values()
-                    .len()
-                    .cmp(&right_spec.prefix_values().len());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp =
-                    canonical_cmp_value_list(left_spec.prefix_values(), right_spec.prefix_values());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                let cmp = canonical_cmp_value_bound(left_spec.lower(), right_spec.lower());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-
-                canonical_cmp_value_bound(left_spec.upper(), right_spec.upper())
-            }
-            Self::FullScan => {
-                let Self::FullScan = right else {
-                    debug_assert_eq!(
-                        self.canonical_rank(),
-                        right.canonical_rank(),
-                        "canonical access path rank mismatch"
-                    );
-                    return Ordering::Equal;
-                };
-                Ordering::Equal
-            }
+            (Self::FullScan, Self::FullScan) => Ordering::Equal,
+            _ => canonical_cmp_access_path_rank_mismatch(self, right),
         }
     }
 
@@ -427,12 +316,117 @@ impl AccessPath<Value> {
             Self::FullScan => AccessPathRank { tier: 2, detail: 0 },
         }
     }
+
+    // Compare key-range bounds once the variant pairing is already fixed.
+    fn canonical_cmp_key_range(
+        left_start: &Value,
+        left_end: &Value,
+        right_start: &Value,
+        right_end: &Value,
+    ) -> Ordering {
+        let cmp = Value::canonical_cmp(left_start, right_start);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        Value::canonical_cmp(left_end, right_end)
+    }
+
+    // Compare one index-prefix shape after rank + variant pairing succeeds.
+    fn canonical_cmp_index_prefix(
+        left_index: &IndexModel,
+        left_values: &[Value],
+        right_index: &IndexModel,
+        right_values: &[Value],
+    ) -> Ordering {
+        let cmp = canonical_cmp_index_identity(*left_index, *right_index);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        let cmp = left_values.len().cmp(&right_values.len());
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        canonical_cmp_value_list(left_values, right_values)
+    }
+
+    // Compare one index multi-lookup shape after rank + variant pairing succeeds.
+    fn canonical_cmp_index_multi_lookup(
+        left_index: &IndexModel,
+        left_values: &[Value],
+        right_index: &IndexModel,
+        right_values: &[Value],
+    ) -> Ordering {
+        let cmp = canonical_cmp_index_identity(*left_index, *right_index);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        canonical_cmp_value_list(left_values, right_values)
+    }
+
+    // Compare one semantic index-range shape after rank + variant pairing succeeds.
+    fn canonical_cmp_index_range(
+        left_spec: &SemanticIndexRangeSpec,
+        right_spec: &SemanticIndexRangeSpec,
+    ) -> Ordering {
+        let cmp = canonical_cmp_index_identity(*left_spec.index(), *right_spec.index());
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        let cmp = left_spec
+            .prefix_values()
+            .len()
+            .cmp(&right_spec.prefix_values().len());
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        let cmp = canonical_cmp_value_list(left_spec.prefix_values(), right_spec.prefix_values());
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        let cmp = canonical_cmp_value_bound(left_spec.lower(), right_spec.lower());
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        canonical_cmp_value_bound(left_spec.upper(), right_spec.upper())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct AccessPathRank {
     tier: u8,
     detail: u8,
+}
+
+// Guard against impossible same-rank mismatches without duplicating assertions per variant.
+fn canonical_cmp_access_path_rank_mismatch(
+    left: &AccessPath<Value>,
+    right: &AccessPath<Value>,
+) -> Ordering {
+    debug_assert_eq!(
+        left.canonical_rank(),
+        right.canonical_rank(),
+        "canonical access path rank mismatch"
+    );
+
+    Ordering::Equal
+}
+
+// Compare index identity in canonical order before considering payload values.
+fn canonical_cmp_index_identity(left: IndexModel, right: IndexModel) -> Ordering {
+    let cmp = left.name().cmp(right.name());
+    if cmp != Ordering::Equal {
+        return cmp;
+    }
+
+    left.fields().cmp(right.fields())
 }
 
 /// Lexicographic comparison of value lists.

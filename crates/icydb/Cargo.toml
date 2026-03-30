@@ -14,9 +14,8 @@ sql = ["icydb-core/sql"]
 
 [dependencies]
 candid = { workspace = true }
-canic = { workspace = true }
+canic-cdk = { workspace = true }
 canic-memory = { workspace = true }
-canic-utils = { workspace = true }
 ctor = { workspace = true }
 derive_more = { workspace = true }
 icydb-build = { workspace = true }
@@ -24,6 +23,7 @@ icydb-core = { path = "../icydb-core", version = "0.66.3", default-features = fa
 icydb-derive = { workspace = true }
 icydb-schema = { workspace = true }
 icydb-schema-derive = { workspace = true }
+icydb-utils = { workspace = true }
 num-traits = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }

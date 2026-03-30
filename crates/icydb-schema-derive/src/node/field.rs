@@ -1,5 +1,5 @@
 use crate::{prelude::*, validate::reserved::is_reserved_word};
-use canic_utils::case::{Case, Casing};
+use icydb_utils::{Case, Casing};
 use std::slice::Iter;
 
 ///

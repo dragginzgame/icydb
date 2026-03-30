@@ -12,7 +12,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_utils::rand::next_u128;
+use icydb_utils::next_u128;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 
@@ -199,7 +199,7 @@ impl Visitable for Subaccount {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use canic_utils::rand::seed_from;
+    use icydb_utils::seed_from;
 
     const RNG_SEED: [u8; 32] = [7; 32];
 

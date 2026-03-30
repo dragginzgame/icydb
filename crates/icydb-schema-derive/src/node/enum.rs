@@ -1,5 +1,5 @@
 use crate::{imp::*, prelude::*};
-use canic_utils::case::{Case, Casing};
+use icydb_utils::{Case, Casing};
 
 ///
 /// Enum

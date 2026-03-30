@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::types::Ulid;
-use canic_utils::hash::hash_u128;
+use icydb_utils::hash_u128;
 use ulid::Ulid as WrappedUlid;
 
 ///
