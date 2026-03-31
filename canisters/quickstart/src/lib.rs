@@ -2,10 +2,14 @@
 //! Test-only SQL canister used by local and integration test harnesses.
 //!
 
+#[cfg(feature = "sql")]
+mod perf;
 mod seed;
 
 extern crate canic_cdk as ic_cdk;
 
+#[cfg(feature = "sql")]
+use crate::perf::{SqlPerfRequest, SqlPerfSample};
 #[cfg(feature = "sql")]
 use canic_cdk::query;
 use canic_cdk::update;
@@ -27,6 +31,14 @@ fn sql_entities() -> Vec<String> {
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
+}
+
+/// Measure one repeated SQL surface invocation inside wasm and return local
+/// instruction totals plus one compact outcome summary.
+#[cfg(feature = "sql")]
+#[query]
+fn sql_perf(request: SqlPerfRequest) -> Result<SqlPerfSample, icydb::Error> {
+    perf::sample_sql_surface(request)
 }
 
 /// Clear all fixture rows from this canister.

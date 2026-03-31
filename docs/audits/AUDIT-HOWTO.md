@@ -128,7 +128,7 @@ Allowed statuses:
 - `BLOCKED`
 
 For `BLOCKED`, include a concrete reason.
-If blocked by cross-filesystem execution errors (for example `Invalid cross-device link (os error 18)`), record it once and do not retry in the same run.
+If blocked by environment-specific execution errors, record it once and do not retry in the same run.
 
 ### Actionability discipline
 

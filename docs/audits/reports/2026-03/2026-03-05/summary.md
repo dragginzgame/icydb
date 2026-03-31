@@ -100,9 +100,9 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 
 - `bash scripts/ci/check-layer-authority-invariants.sh` -> PASS
 - `bash scripts/ci/check-architecture-text-scan-invariants.sh` -> PASS
-- `cargo test -p icydb-core grouped_plan_rejects_order_without_limit -- --nocapture` -> BLOCKED (`Invalid cross-device link (os error 18)`)
-- `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture` -> BLOCKED (`Invalid cross-device link (os error 18)`)
-- `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> BLOCKED (`Invalid cross-device link (os error 18)`)
+- `cargo test -p icydb-core grouped_plan_rejects_order_without_limit -- --nocapture` -> BLOCKED (local environment issue during test execution)
+- `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture` -> BLOCKED (local environment issue during test execution)
+- `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> BLOCKED (local environment issue during test execution)
 - `cargo fmt --all` -> PASS
 - `cargo check -p icydb-core` -> PASS
 - `cargo test -p icydb-core route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture` -> PASS
@@ -124,4 +124,4 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 - `cargo test -p icydb-core index_range_path_requires_pre_lowered_spec -- --nocapture` -> PASS
 - `cargo test -p icydb-core fast_stream_requires_exact_key_count_hint -- --nocapture` -> PASS
 
-Per repository guidance, cross-filesystem test failures were not retried beyond initial attempts.
+Per repository guidance, environment-blocked test failures were not retried beyond initial attempts.

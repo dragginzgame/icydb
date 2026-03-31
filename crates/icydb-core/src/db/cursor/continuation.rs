@@ -107,7 +107,7 @@ pub(in crate::db) fn next_cursor_for_materialized_rows<K>(
     order: Option<&OrderSpec>,
     page: Option<&PageSpec>,
     rows_len: usize,
-    last_row: Option<&MaterializedCursorRow>,
+    last_row: Option<MaterializedCursorRow>,
     rows_after_cursor: usize,
     cursor_boundary: Option<&CursorBoundary>,
     previous_index_range_anchor: Option<&LoweredKey>,
@@ -185,14 +185,18 @@ pub(in crate::db) fn effective_keep_count_for_limit(
 fn next_cursor_for_row<K>(
     access: &AccessPlan<K>,
     initial_offset: u32,
-    row: &MaterializedCursorRow,
+    row: MaterializedCursorRow,
     direction: Direction,
     signature: ContinuationSignature,
     previous_index_range_anchor: Option<&LoweredKey>,
 ) -> Result<ContinuationToken, InternalError> {
-    let boundary = row.boundary.clone();
+    let MaterializedCursorRow {
+        boundary,
+        index_anchor,
+    } = row;
+
     let token = if let Some((_index, _, _, _)) = access.as_index_range_path() {
-        let Some(last_emitted_raw_key) = row.index_anchor.as_ref() else {
+        let Some(last_emitted_raw_key) = index_anchor.as_ref() else {
             return Err(InternalError::cursor_executor_invariant(
                 "cursor row is not indexable for planned index-range access",
             ));

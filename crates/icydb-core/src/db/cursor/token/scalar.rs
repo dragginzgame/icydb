@@ -13,8 +13,9 @@ use crate::{
 };
 
 use crate::db::cursor::token::{
-    ContinuationTokenWire, CursorTokenVersion, IndexRangeCursorAnchorWire,
-    MAX_CONTINUATION_TOKEN_BYTES, TokenWireError,
+    ContinuationTokenWire, ContinuationTokenWireRef, CursorTokenVersion,
+    IndexRangeCursorAnchorWire, IndexRangeCursorAnchorWireRef, MAX_CONTINUATION_TOKEN_BYTES,
+    TokenWireError,
 };
 
 ///
@@ -86,11 +87,11 @@ impl ContinuationToken {
     pub(crate) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
         let index_range_anchor = self
             .index_range_anchor()
-            .map(IndexRangeCursorAnchorWire::from);
-        let wire = ContinuationTokenWire {
+            .map(IndexRangeCursorAnchorWireRef::from);
+        let wire = ContinuationTokenWireRef {
             version: CursorTokenVersion::V1.encode(),
             signature: self.signature.into_bytes(),
-            boundary: self.boundary.clone(),
+            boundary: &self.boundary,
             direction: self.direction,
             initial_offset: self.initial_offset,
             index_range_anchor,
@@ -138,11 +139,11 @@ impl ContinuationToken {
     ) -> Result<Vec<u8>, TokenWireError> {
         let index_range_anchor = self
             .index_range_anchor()
-            .map(IndexRangeCursorAnchorWire::from);
-        let wire = ContinuationTokenWire {
+            .map(IndexRangeCursorAnchorWireRef::from);
+        let wire = ContinuationTokenWireRef {
             version,
             signature: self.signature.into_bytes(),
-            boundary: self.boundary.clone(),
+            boundary: &self.boundary,
             direction: self.direction,
             initial_offset: self.initial_offset,
             index_range_anchor,

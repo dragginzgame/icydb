@@ -16,7 +16,7 @@ Scope: conformance against `docs/contracts/RESOURCE_MODEL.md`.
 
 ## Targeted Test Evidence
 
-- `cargo test -p icydb-core grouped_plan_rejects_order_without_limit -- --nocapture` -> BLOCKED in this environment (`Invalid cross-device link (os error 18)`)
+- `cargo test -p icydb-core grouped_plan_rejects_order_without_limit -- --nocapture` -> BLOCKED in that environment by a local test-execution issue
 
 ## Counts
 
@@ -26,4 +26,4 @@ Scope: conformance against `docs/contracts/RESOURCE_MODEL.md`.
 
 ## Follow-Ups
 
-1. Re-run grouped resource-contract tests in an environment without cross-filesystem linker issues to reconfirm runtime evidence.
+1. Re-run grouped resource-contract tests in a stable local environment to reconfirm runtime evidence.

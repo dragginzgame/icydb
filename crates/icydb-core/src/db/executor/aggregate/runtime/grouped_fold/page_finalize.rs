@@ -49,7 +49,6 @@ fn finalize_grouped_page_rows(
     let limit = pagination_window.limit();
     let initial_offset_for_page = pagination_window.initial_offset_for_page();
     let mut page_rows = Vec::<GroupedRow>::new();
-    let mut last_emitted_group_key: Option<Vec<Value>> = None;
     let mut has_more = false;
     let mut groups_skipped_for_offset = 0usize;
 
@@ -71,7 +70,6 @@ fn finalize_grouped_page_rows(
                 return Err(GroupedRouteStage::canonical_group_key_must_be_list(&value));
             }
         };
-        last_emitted_group_key = Some(emitted_group_key.clone());
         page_rows.push(GroupedRow::new(emitted_group_key, aggregate_values));
         debug_assert!(
             limit.is_none_or(|bounded_limit| page_rows.len() <= bounded_limit),
@@ -79,8 +77,11 @@ fn finalize_grouped_page_rows(
         );
     }
 
+    // Only clone the final emitted key when pagination actually needs a cursor.
+    // The previous shape cloned every emitted grouped key even when only the
+    // last page boundary was observable.
     let next_cursor_boundary = if has_more {
-        last_emitted_group_key
+        page_rows.last().map(|row| row.group_key().to_vec())
     } else {
         None
     };

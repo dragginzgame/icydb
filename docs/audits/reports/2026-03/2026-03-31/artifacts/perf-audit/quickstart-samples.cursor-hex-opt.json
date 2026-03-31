@@ -1,0 +1,677 @@
+[
+  {
+    "scenario_key": "generated.dispatch.projection.user_name_eq_limit",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 595054,
+      "min_local_instructions": 594437,
+      "max_local_instructions": 595089,
+      "total_local_instructions": 2973610,
+      "avg_local_instructions": 594722,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "projection",
+        "entity": "User",
+        "row_count": 1,
+        "detail_count": 2,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.dispatch.projection.user_name_eq_limit",
+    "sample": {
+      "surface": "TypedDispatchUser",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 616623,
+      "min_local_instructions": 616042,
+      "max_local_instructions": 616623,
+      "total_local_instructions": 3082087,
+      "avg_local_instructions": 616417,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "projection",
+        "entity": "User",
+        "row_count": 1,
+        "detail_count": 2,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.query_from_sql.execute.scalar_limit",
+    "sample": {
+      "surface": "TypedQueryFromSqlUserExecute",
+      "sql": "SELECT * FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 548919,
+      "min_local_instructions": 548919,
+      "max_local_instructions": 550080,
+      "total_local_instructions": 2747904,
+      "avg_local_instructions": 549580,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "typed_response",
+        "entity": "User",
+        "row_count": 2,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql.scalar_limit",
+    "sample": {
+      "surface": "TypedExecuteSqlUser",
+      "sql": "SELECT * FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 548494,
+      "min_local_instructions": 548494,
+      "max_local_instructions": 549655,
+      "total_local_instructions": 2745779,
+      "avg_local_instructions": 549155,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "typed_response",
+        "entity": "User",
+        "row_count": 2,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.describe.user",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "DESCRIBE User",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 26371,
+      "min_local_instructions": 26371,
+      "max_local_instructions": 26384,
+      "total_local_instructions": 131868,
+      "avg_local_instructions": 26373,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "describe",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": 5,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.explain.user_name_eq_limit",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "EXPLAIN SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 184945,
+      "min_local_instructions": 184897,
+      "max_local_instructions": 184945,
+      "total_local_instructions": 924546,
+      "avg_local_instructions": 184909,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "explain",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": 10,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.explain.grouped.user_age_count",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "EXPLAIN SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 177836,
+      "min_local_instructions": 177836,
+      "max_local_instructions": 177989,
+      "total_local_instructions": 889462,
+      "avg_local_instructions": 177892,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "explain",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": 10,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.explain.aggregate.user_count",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "EXPLAIN SELECT COUNT(*) FROM User",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 91598,
+      "min_local_instructions": 91433,
+      "max_local_instructions": 91615,
+      "total_local_instructions": 457670,
+      "avg_local_instructions": 91534,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "explain",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": 10,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql_grouped.user_age_count",
+    "sample": {
+      "surface": "TypedExecuteSqlGroupedUser",
+      "sql": "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 703963,
+      "min_local_instructions": 703190,
+      "max_local_instructions": 703963,
+      "total_local_instructions": 3516777,
+      "avg_local_instructions": 703355,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "grouped_response",
+        "entity": "User",
+        "row_count": 3,
+        "detail_count": null,
+        "has_cursor": false,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql_grouped.user_age_count.having_empty",
+    "sample": {
+      "surface": "TypedExecuteSqlGroupedUser",
+      "sql": "SELECT age, COUNT(*) FROM User GROUP BY age HAVING COUNT(*) > 1000 ORDER BY age ASC LIMIT 10",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 715684,
+      "min_local_instructions": 715110,
+      "max_local_instructions": 717239,
+      "total_local_instructions": 3580382,
+      "avg_local_instructions": 716076,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "grouped_response",
+        "entity": "User",
+        "row_count": 0,
+        "detail_count": null,
+        "has_cursor": false,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql_grouped.user_age_count.limit2.first_page",
+    "sample": {
+      "surface": "TypedExecuteSqlGroupedUser",
+      "sql": "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 731495,
+      "min_local_instructions": 730967,
+      "max_local_instructions": 731495,
+      "total_local_instructions": 3655513,
+      "avg_local_instructions": 731102,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "grouped_response",
+        "entity": "User",
+        "row_count": 2,
+        "detail_count": null,
+        "has_cursor": true,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql_grouped.user_age_count.limit2.second_page",
+    "sample": {
+      "surface": "TypedExecuteSqlGroupedUserSecondPage",
+      "sql": "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 730433,
+      "min_local_instructions": 730426,
+      "max_local_instructions": 730433,
+      "total_local_instructions": 3652137,
+      "avg_local_instructions": 730427,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "grouped_response",
+        "entity": "User",
+        "row_count": 1,
+        "detail_count": null,
+        "has_cursor": false,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql_grouped.user_age_count.invalid_cursor",
+    "sample": {
+      "surface": "TypedExecuteSqlGroupedUser",
+      "sql": "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2",
+      "cursor_token": "zz",
+      "repeat_count": 5,
+      "first_local_instructions": 186169,
+      "min_local_instructions": 185490,
+      "max_local_instructions": 186299,
+      "total_local_instructions": 929614,
+      "avg_local_instructions": 185922,
+      "outcome_stable": true,
+      "outcome": {
+        "success": false,
+        "result_kind": "error",
+        "entity": null,
+        "row_count": null,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": "Query(Plan)",
+        "error_origin": "Query",
+        "error_message": "invalid continuation cursor: invalid hex character at position 1"
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.execute_sql_aggregate.user_count",
+    "sample": {
+      "surface": "TypedExecuteSqlAggregateUser",
+      "sql": "SELECT COUNT(*) FROM User",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 187889,
+      "min_local_instructions": 187889,
+      "max_local_instructions": 187932,
+      "total_local_instructions": 939560,
+      "avg_local_instructions": 187912,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "aggregate_value",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": "Uint(3)",
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.show_indexes.user",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SHOW INDEXES User",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 21581,
+      "min_local_instructions": 21523,
+      "max_local_instructions": 21581,
+      "total_local_instructions": 107673,
+      "avg_local_instructions": 21534,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "show_indexes",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": 2,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.show_columns.user",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SHOW COLUMNS User",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 34870,
+      "min_local_instructions": 34870,
+      "max_local_instructions": 34888,
+      "total_local_instructions": 174368,
+      "avg_local_instructions": 34873,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "show_columns",
+        "entity": "User",
+        "row_count": null,
+        "detail_count": 5,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.show_entities",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SHOW ENTITIES",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 12451,
+      "min_local_instructions": 12450,
+      "max_local_instructions": 12451,
+      "total_local_instructions": 62254,
+      "avg_local_instructions": 12450,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "show_entities",
+        "entity": null,
+        "row_count": null,
+        "detail_count": 3,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.computed_projection.lower_name_limit2",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 66784,
+      "min_local_instructions": 66736,
+      "max_local_instructions": 66828,
+      "total_local_instructions": 333899,
+      "avg_local_instructions": 66779,
+      "outcome_stable": true,
+      "outcome": {
+        "success": false,
+        "result_kind": "error",
+        "entity": null,
+        "row_count": null,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": "Runtime(Unsupported)",
+        "error_origin": "Query",
+        "error_message": "SQL query is not executable in this release: unsupported SQL SELECT projection in this release; executable forms are SELECT *, direct field lists, or constrained grouped aggregate projection shapes"
+      }
+    }
+  },
+  {
+    "scenario_key": "typed.dispatch.computed_projection.lower_name_limit2",
+    "sample": {
+      "surface": "TypedDispatchUser",
+      "sql": "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 591276,
+      "min_local_instructions": 590031,
+      "max_local_instructions": 591276,
+      "total_local_instructions": 2952666,
+      "avg_local_instructions": 590533,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "projection",
+        "entity": "User",
+        "row_count": 2,
+        "detail_count": 1,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "fluent.load.user_order_id_limit2",
+    "sample": {
+      "surface": "FluentLoadUserOrderIdLimit2",
+      "sql": "SELECT * FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 497251,
+      "min_local_instructions": 496558,
+      "max_local_instructions": 497332,
+      "total_local_instructions": 2485498,
+      "avg_local_instructions": 497099,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "typed_response",
+        "entity": "User",
+        "row_count": 2,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "fluent.load.user_name_eq_limit1",
+    "sample": {
+      "surface": "FluentLoadUserNameEqLimit1",
+      "sql": "SELECT * FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 478815,
+      "min_local_instructions": 477827,
+      "max_local_instructions": 479050,
+      "total_local_instructions": 2393167,
+      "avg_local_instructions": 478633,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "typed_response",
+        "entity": "User",
+        "row_count": 1,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "fluent.paged.user_order_id_limit2.first_page",
+    "sample": {
+      "surface": "FluentPagedUserOrderIdLimit2FirstPage",
+      "sql": "SELECT * FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 654019,
+      "min_local_instructions": 654019,
+      "max_local_instructions": 655439,
+      "total_local_instructions": 3273108,
+      "avg_local_instructions": 654621,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "paged_response",
+        "entity": "User",
+        "row_count": 2,
+        "detail_count": null,
+        "has_cursor": true,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "fluent.paged.user_order_id_limit2.second_page",
+    "sample": {
+      "surface": "FluentPagedUserOrderIdLimit2SecondPage",
+      "sql": "SELECT * FROM User ORDER BY id LIMIT 2",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 692572,
+      "min_local_instructions": 689833,
+      "max_local_instructions": 692572,
+      "total_local_instructions": 3456178,
+      "avg_local_instructions": 691235,
+      "outcome_stable": true,
+      "outcome": {
+        "success": true,
+        "result_kind": "paged_response",
+        "entity": "User",
+        "row_count": 1,
+        "detail_count": null,
+        "has_cursor": false,
+        "rendered_value": null,
+        "error_kind": null,
+        "error_origin": null,
+        "error_message": null
+      }
+    }
+  },
+  {
+    "scenario_key": "fluent.paged.user_order_id_limit2.invalid_cursor",
+    "sample": {
+      "surface": "FluentPagedUserOrderIdLimit2InvalidCursor",
+      "sql": "SELECT * FROM User ORDER BY id LIMIT 2",
+      "cursor_token": "zz",
+      "repeat_count": 5,
+      "first_local_instructions": 91364,
+      "min_local_instructions": 90927,
+      "max_local_instructions": 91368,
+      "total_local_instructions": 456251,
+      "avg_local_instructions": 91250,
+      "outcome_stable": true,
+      "outcome": {
+        "success": false,
+        "result_kind": "error",
+        "entity": null,
+        "row_count": null,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": "Query(Plan)",
+        "error_origin": "Query",
+        "error_message": "invalid continuation cursor: invalid hex character at position 1"
+      }
+    }
+  },
+  {
+    "scenario_key": "generated.dispatch.rejection.explain_delete",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "EXPLAIN DELETE FROM User ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 5,
+      "first_local_instructions": 35266,
+      "min_local_instructions": 35266,
+      "max_local_instructions": 35387,
+      "total_local_instructions": 176451,
+      "avg_local_instructions": 35290,
+      "outcome_stable": true,
+      "outcome": {
+        "success": false,
+        "result_kind": "error",
+        "entity": null,
+        "row_count": null,
+        "detail_count": null,
+        "has_cursor": null,
+        "rendered_value": null,
+        "error_kind": "Runtime(Unsupported)",
+        "error_origin": "Query",
+        "error_message": "query endpoint only supports SELECT, EXPLAIN SELECT, DESCRIBE, and SHOW; use update for DELETE"
+      }
+    }
+  }
+]

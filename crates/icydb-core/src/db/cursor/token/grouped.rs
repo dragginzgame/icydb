@@ -12,8 +12,8 @@ use crate::{
 };
 
 use crate::db::cursor::token::{
-    GroupedContinuationTokenWire, GroupedCursorTokenVersion, MAX_GROUPED_CONTINUATION_TOKEN_BYTES,
-    TokenWireError,
+    GroupedContinuationTokenWire, GroupedContinuationTokenWireRef, GroupedCursorTokenVersion,
+    MAX_GROUPED_CONTINUATION_TOKEN_BYTES, TokenWireError,
 };
 
 ///
@@ -64,10 +64,10 @@ impl GroupedContinuationToken {
     }
 
     pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
-        let wire = GroupedContinuationTokenWire {
+        let wire = GroupedContinuationTokenWireRef {
             version: GroupedCursorTokenVersion::V1.encode(),
             signature: self.signature.into_bytes(),
-            last_group_key: self.last_group_key.clone(),
+            last_group_key: self.last_group_key.as_slice(),
             direction: self.direction,
             initial_offset: self.initial_offset,
         };
@@ -80,10 +80,10 @@ impl GroupedContinuationToken {
         &self,
         version: u8,
     ) -> Result<Vec<u8>, TokenWireError> {
-        let wire = GroupedContinuationTokenWire {
+        let wire = GroupedContinuationTokenWireRef {
             version,
             signature: self.signature.into_bytes(),
-            last_group_key: self.last_group_key.clone(),
+            last_group_key: self.last_group_key.as_slice(),
             direction: self.direction,
             initial_offset: self.initial_offset,
         };

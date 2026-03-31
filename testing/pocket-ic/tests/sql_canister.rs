@@ -2,6 +2,7 @@ use candid::{Principal, decode_one, encode_one};
 use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
 use icydb_testing_integration::build_canister;
 use pocket_ic::{PocketIc, PocketIcBuilder};
+use serde::Serialize;
 use std::{
     env, fs,
     path::PathBuf,
@@ -171,6 +172,135 @@ fn query_projection_rows(
     }
 }
 
+///
+/// SqlPerfSurface
+///
+/// Mirror of the quickstart canister perf-surface enum used for Candid decode
+/// and request construction in PocketIC integration tests.
+///
+
+#[derive(candid::CandidType, Clone, Copy, Debug, candid::Deserialize, Serialize)]
+enum SqlPerfSurface {
+    GeneratedDispatch,
+    TypedDispatchUser,
+    TypedQueryFromSqlUserExecute,
+    TypedExecuteSqlUser,
+    TypedExecuteSqlGroupedUser,
+    TypedExecuteSqlGroupedUserSecondPage,
+    TypedExecuteSqlAggregateUser,
+    FluentLoadUserOrderIdLimit2,
+    FluentLoadUserNameEqLimit1,
+    FluentPagedUserOrderIdLimit2FirstPage,
+    FluentPagedUserOrderIdLimit2SecondPage,
+    FluentPagedUserOrderIdLimit2InvalidCursor,
+}
+
+///
+/// SqlPerfRequest
+///
+/// One integration-test request into the quickstart canister perf harness.
+/// This keeps scenario identity explicit in the test runner instead of hiding
+/// request shape inside inline Candid tuples.
+///
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfRequest {
+    surface: SqlPerfSurface,
+    sql: String,
+    cursor_token: Option<String>,
+    repeat_count: u32,
+}
+
+///
+/// SqlPerfOutcome
+///
+/// Compact quickstart perf-harness outcome mirror used by PocketIC tests.
+/// The audit collector only needs stable surface kind and cardinality metadata
+/// here; full SQL payload inspection remains in the main SQL integration tests.
+///
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfOutcome {
+    success: bool,
+    result_kind: String,
+    entity: Option<String>,
+    row_count: Option<u32>,
+    detail_count: Option<u32>,
+    has_cursor: Option<bool>,
+    rendered_value: Option<String>,
+    error_kind: Option<String>,
+    error_origin: Option<String>,
+    error_message: Option<String>,
+}
+
+///
+/// SqlPerfSample
+///
+/// One repeated wasm-side instruction sample returned by the quickstart
+/// canister perf harness.
+///
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfSample {
+    surface: SqlPerfSurface,
+    sql: String,
+    cursor_token: Option<String>,
+    repeat_count: u32,
+    first_local_instructions: u64,
+    min_local_instructions: u64,
+    max_local_instructions: u64,
+    total_local_instructions: u64,
+    avg_local_instructions: u64,
+    outcome_stable: bool,
+    outcome: SqlPerfOutcome,
+}
+
+///
+/// SqlPerfScenario
+///
+/// One named audit scenario captured through the quickstart canister perf
+/// harness.
+///
+
+#[derive(Clone, Debug, Serialize)]
+struct SqlPerfScenario {
+    scenario_key: &'static str,
+    request: SqlPerfRequest,
+}
+
+///
+/// SqlPerfScenarioRow
+///
+/// Serializable row pairing one stable scenario identity with one measured
+/// quickstart perf-harness sample.
+///
+
+#[derive(Clone, Debug, Serialize)]
+struct SqlPerfScenarioRow {
+    scenario_key: &'static str,
+    sample: SqlPerfSample,
+}
+
+fn sql_perf_sample(
+    pic: &PocketIc,
+    canister_id: Principal,
+    request: &SqlPerfRequest,
+) -> SqlPerfSample {
+    let query_bytes = pic
+        .query_call(
+            canister_id,
+            Principal::anonymous(),
+            "sql_perf",
+            encode_one(request).expect("encode sql_perf request"),
+        )
+        .expect("sql_perf query call should return encoded Result");
+
+    let response: Result<SqlPerfSample, icydb::Error> =
+        decode_one(&query_bytes).expect("decode sql_perf response");
+
+    response.expect("sql_perf should succeed for integration scenario")
+}
+
 // Read the stable entity name from one metadata-lane SQL payload.
 const fn metadata_entity_name(payload: &SqlQueryResult) -> Option<&str> {
     match payload {
@@ -297,6 +427,305 @@ fn sql_canister_smoke_flow() {
         );
 
         reset_fixtures(pic, canister_id);
+    });
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn sql_canister_perf_harness_reports_positive_instruction_samples() {
+    run_with_pocket_ic(|pic| {
+        let scenarios = vec![
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.projection.user_name_eq_limit",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.projection.user_name_eq_limit",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.query_from_sql.execute.scalar_limit",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedQueryFromSqlUserExecute,
+                    sql: "SELECT * FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql.scalar_limit",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlUser,
+                    sql: "SELECT * FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.describe.user",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "DESCRIBE User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.explain.user_name_eq_limit",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql:
+                        "EXPLAIN SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.explain.grouped.user_age_count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "EXPLAIN SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.explain.aggregate.user_count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "EXPLAIN SELECT COUNT(*) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_age_count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_age_count.having_empty",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    sql:
+                        "SELECT age, COUNT(*) FROM User GROUP BY age HAVING COUNT(*) > 1000 ORDER BY age ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_age_count.limit2.first_page",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_age_count.limit2.second_page",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUserSecondPage,
+                    sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_age_count.invalid_cursor",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: Some("zz".to_string()),
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    sql: "SELECT COUNT(*) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.show_indexes.user",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SHOW INDEXES User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.show_columns.user",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SHOW COLUMNS User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.show_entities",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SHOW ENTITIES".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.computed_projection.lower_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.computed_projection.lower_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.load.user_order_id_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentLoadUserOrderIdLimit2,
+                    sql: "SELECT * FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.load.user_name_eq_limit1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentLoadUserNameEqLimit1,
+                    sql: "SELECT * FROM User WHERE name = 'alice' ORDER BY id LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.paged.user_order_id_limit2.first_page",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentPagedUserOrderIdLimit2FirstPage,
+                    sql: "SELECT * FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.paged.user_order_id_limit2.second_page",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentPagedUserOrderIdLimit2SecondPage,
+                    sql: "SELECT * FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.paged.user_order_id_limit2.invalid_cursor",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentPagedUserOrderIdLimit2InvalidCursor,
+                    sql: "SELECT * FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: Some("zz".to_string()),
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.rejection.explain_delete",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "EXPLAIN DELETE FROM User ORDER BY id LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+        ];
+        let mut rows = Vec::with_capacity(scenarios.len());
+
+        for scenario in scenarios {
+            let canister_id = install_quickstart_canister(pic);
+            load_default_fixtures(pic, canister_id);
+
+            let sample = sql_perf_sample(pic, canister_id, &scenario.request);
+
+            assert_eq!(
+                sample.repeat_count, scenario.request.repeat_count,
+                "repeat_count must echo request for {}",
+                scenario.scenario_key,
+            );
+            assert!(
+                sample.first_local_instructions > 0,
+                "first instruction sample must be positive for {}: {:?}",
+                scenario.scenario_key,
+                sample,
+            );
+            assert!(
+                sample.min_local_instructions > 0,
+                "min instruction sample must be positive for {}: {:?}",
+                scenario.scenario_key,
+                sample,
+            );
+            assert!(
+                sample.max_local_instructions >= sample.min_local_instructions,
+                "max must be >= min for {}: {:?}",
+                scenario.scenario_key,
+                sample,
+            );
+            assert!(
+                sample.total_local_instructions >= sample.first_local_instructions,
+                "total must cover the first run for {}: {:?}",
+                scenario.scenario_key,
+                sample,
+            );
+            assert!(
+                sample.outcome_stable,
+                "repeated outcome must stay stable for {}: {:?}",
+                scenario.scenario_key, sample,
+            );
+
+            rows.push(SqlPerfScenarioRow {
+                scenario_key: scenario.scenario_key,
+                sample,
+            });
+        }
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&rows)
+                .expect("sql perf scenario rows should serialize to JSON")
+        );
     });
 }
 

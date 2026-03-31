@@ -412,7 +412,7 @@ Code is considered non-trivial if it:
 * Run all tests with `make test`.
 * If `make test` fails during a Codex run, do not run `make test` a second time in that same run unless the user explicitly asks; treat the failure as likely blocked by a build lock or environment contention and report it.
 * In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `testing/macro-tests`.
-* If test execution fails due to cross-filesystem errors (for example `Invalid cross-device link (os error 18)`), notify the user and stop retrying; those tests must be run manually by the user in a working environment.
+* If test execution fails due to environment-specific build or linker issues, notify the user and stop retrying; those tests must be run manually by the user in a working environment.
 
 ---
 

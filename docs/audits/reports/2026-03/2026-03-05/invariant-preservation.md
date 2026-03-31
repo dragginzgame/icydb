@@ -31,7 +31,7 @@ Scope: identity, ordering, structural, mutation, and replay invariants in `icydb
 
 ## Targeted Test Evidence
 
-- `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> BLOCKED in this environment (`Invalid cross-device link (os error 18)`)
+- `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> BLOCKED in that environment by a local test-execution issue
 
 ## Overall Invariant Risk Index
 

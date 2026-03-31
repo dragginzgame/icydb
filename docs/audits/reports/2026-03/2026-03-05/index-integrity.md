@@ -38,7 +38,7 @@ Scope: index ordering, namespace isolation, unique enforcement, reverse-index sy
 
 ## Targeted Test Evidence
 
-- `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture` -> BLOCKED in this environment (`Invalid cross-device link (os error 18)`)
+- `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture` -> BLOCKED in that environment by a local test-execution issue
 
 ## Overall Index Integrity Risk Index
 

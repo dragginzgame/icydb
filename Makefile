@@ -1,4 +1,4 @@
-.PHONY: help version current tags patch minor major release \
+.PHONY: help version tags patch minor major release \
         test build check clippy fmt fmt-check clean install-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
@@ -119,9 +119,6 @@ test: clippy test-unit
 
 test-unit:
 	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --verbose
-
-test-canisters:
-	@echo "Skipping canister tests (disabled)"
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh

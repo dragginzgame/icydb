@@ -30,11 +30,19 @@ pub enum CursorDecodeError {
 /// Encode raw cursor bytes as a lowercase hex token.
 #[must_use]
 pub fn encode_cursor(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    // Keep cursor token emission allocation-bounded and formatting-free.
+    // `write!(..., "{byte:02x}")` re-enters the formatting machinery for every
+    // byte; manual nibble encoding is equivalent on the wire and cheaper on the
+    // hot paged-response path.
     let mut out = String::with_capacity(bytes.len() * 2);
+
     for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
     }
+
     out
 }
 

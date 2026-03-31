@@ -229,7 +229,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         plan.scalar_plan().order.as_ref(),
         plan.scalar_plan().page.as_ref(),
         post_access_rows,
-        last_cursor_row.as_ref(),
+        last_cursor_row,
         rows_after_cursor,
         continuation.post_access_cursor_boundary(),
         continuation.previous_index_range_anchor(),

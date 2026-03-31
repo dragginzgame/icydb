@@ -1,0 +1,26 @@
+{
+  "generated_at_utc": "2026-03-31T08:44:08Z",
+  "branch": "main",
+  "code_snapshot_identifier": "9efaa1bb",
+  "worktree": "dirty",
+  "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+  "platform": "Linux 6.6.87.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun  5 18:30:46 UTC 2025 x86_64 GNU/Linux",
+  "execution_environment": "PocketIC + quickstart test canister",
+  "pocket_ic_bin": "/tmp/pocket-ic-server-13.0.0/pocket-ic",
+  "entities_in_scope": [
+    "User",
+    "Order",
+    "Character"
+  ],
+  "entry_surfaces_in_scope": [
+    "test_canister_sql_dispatch",
+    "execute_sql_dispatch",
+    "query_from_sql_execute_query",
+    "execute_sql",
+    "execute_sql_grouped",
+    "execute_sql_grouped_second_page",
+    "execute_sql_aggregate",
+    "fluent_load",
+    "fluent_paged"
+  ]
+}

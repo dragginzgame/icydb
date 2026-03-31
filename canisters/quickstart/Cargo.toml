@@ -17,6 +17,7 @@ candid = { workspace = true }
 canic-cdk = { workspace = true }
 icydb = { path = "../../crates/icydb", default-features = false }
 icydb-testing-quickstart-fixtures = { workspace = true }
+serde = { workspace = true }
 
 [build-dependencies]
 icydb = { path = "../../crates/icydb", default-features = false }

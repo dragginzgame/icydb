@@ -1,0 +1,97 @@
+2026-03-31T08:44:08Z PERF-0.3-quickstart-pocketic-surface-sampling-expanded
+
+surface_total.generated_dispatch: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.typed_sql_dispatch: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.query_from_sql_execute_query: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.execute_sql: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.execute_sql_grouped: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.execute_sql_grouped_having: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.execute_sql_grouped_second_page: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.execute_sql_grouped_invalid_cursor: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.execute_sql_aggregate: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.fluent_load: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.fluent_paged_first_page: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.fluent_paged_second_page: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.fluent_paged_invalid_cursor: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.explain_grouped: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+surface_total.explain_aggregate: PASS
+  source: quickstart sql_perf harness
+  evidence: authoritative wasm-side totals present
+
+parse_sql: PARTIAL
+  source: included in end-to-end SQL surface totals
+  gap: not phase-isolated
+
+lower_sql: PARTIAL
+  source: included in end-to-end SQL surface totals
+  gap: not phase-isolated
+
+plan_access: PARTIAL
+  source: explain totals plus structural hotspot localization
+  gap: not phase-isolated
+
+execute_access: PARTIAL
+  source: included in end-to-end surface totals
+  gap: access-only totals unavailable
+
+execute_post_access: PARTIAL
+  source: included in end-to-end surface totals
+  gap: post-access-only totals unavailable
+
+cursor_continuation: PARTIAL
+  source: grouped and fluent second-page totals plus invalid-cursor rejection totals present
+  gap: continuation and cursor rejection are measured only as whole-call totals
+
+render_explain: PARTIAL
+  source: scalar, grouped, and aggregate explain totals present
+  gap: render-only split unavailable
+
+map_rejection: PARTIAL
+  source: unsupported and invalid-cursor rejection totals present
+  gap: rejection mapping still combined with full call
+
+compile_runtime: FAIL
+  source: none
+  gap: no direct phase transport

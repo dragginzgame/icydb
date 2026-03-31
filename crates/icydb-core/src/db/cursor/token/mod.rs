@@ -12,8 +12,9 @@ pub(crate) use error::TokenWireError;
 pub(in crate::db) use grouped::GroupedContinuationToken;
 pub(crate) use scalar::ContinuationToken;
 pub(in crate::db::cursor::token) use wire::{
-    ContinuationTokenWire, CursorTokenVersion, GroupedContinuationTokenWire,
-    GroupedCursorTokenVersion, IndexRangeCursorAnchorWire, MAX_CONTINUATION_TOKEN_BYTES,
+    ContinuationTokenWire, ContinuationTokenWireRef, CursorTokenVersion,
+    GroupedContinuationTokenWire, GroupedContinuationTokenWireRef, GroupedCursorTokenVersion,
+    IndexRangeCursorAnchorWire, IndexRangeCursorAnchorWireRef, MAX_CONTINUATION_TOKEN_BYTES,
     MAX_GROUPED_CONTINUATION_TOKEN_BYTES,
 };
 

@@ -23,13 +23,13 @@ Scope: equivalence between normal commit-window execution and recovery replay.
 
 | Scenario | Evidence | Result |
 | ---- | ---- | ---- |
-| Replay repeated | `db::commit::tests::recovery_replay_is_idempotent` | BLOCKED in this environment (`Invalid cross-device link (os error 18)`) |
+| Replay repeated | `db::commit::tests::recovery_replay_is_idempotent` | BLOCKED in that environment by a local test-execution issue |
 | Marker-present startup recovery | `ensure_recovered` logic in `db/commit/recovery.rs` | PASS (static path audit) |
 | Deterministic rebuild ordering | explicit replay + rebuild sequence in recovery | PASS (static path audit) |
 
 ## Targeted Test Evidence
 
-- `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> BLOCKED in this environment (`Invalid cross-device link (os error 18)`)
+- `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> BLOCKED in that environment by a local test-execution issue
 
 ## Overall Recovery Risk Index
 
