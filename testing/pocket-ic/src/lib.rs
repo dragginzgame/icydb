@@ -111,6 +111,65 @@ fn selected_canister_sql_enabled() -> Result<bool, String> {
     }
 }
 
+// Shorten retained source/build paths in release wasm artifacts without
+// changing semantics. These remaps only affect diagnostic path payloads that
+// would otherwise inflate the module data section.
+fn wasm_release_path_trim_flags(root: &Path) -> Vec<String> {
+    let mut flags = vec![format!("--remap-path-prefix={}=/w", root.display())];
+
+    let cargo_home =
+        env::var_os("CARGO_HOME").map_or_else(|| root.join(".cache/cargo/icydb"), PathBuf::from);
+    let registry_src = cargo_home.join("registry").join("src");
+    if let Ok(entries) = fs::read_dir(&registry_src) {
+        for entry in entries.flatten() {
+            let registry_root = entry.path();
+            if registry_root.is_dir() {
+                flags.push(format!(
+                    "--remap-path-prefix={}=/c",
+                    registry_root.display()
+                ));
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("rustc").args(["--print", "sysroot"]).output()
+        && output.status.success()
+    {
+        let sysroot = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if !sysroot.is_empty() {
+            let rust_library = PathBuf::from(sysroot)
+                .join("lib")
+                .join("rustlib")
+                .join("src")
+                .join("rust")
+                .join("library");
+            if rust_library.is_dir() {
+                flags.push(format!("--remap-path-prefix={}=/r", rust_library.display()));
+            }
+        }
+    }
+
+    flags
+}
+
+// Preserve caller-provided rustflags and append any canister-specific flags to
+// the same environment variable Cargo already understands.
+fn append_rustflags(command: &mut Command, extra_flags: &[String]) {
+    if extra_flags.is_empty() {
+        return;
+    }
+
+    let mut combined = env::var("RUSTFLAGS").unwrap_or_default();
+    for flag in extra_flags {
+        if !combined.is_empty() {
+            combined.push(' ');
+        }
+        combined.push_str(flag);
+    }
+
+    command.env("RUSTFLAGS", combined);
+}
+
 fn build_canister_package(
     package_name: &str,
     profile: &str,
@@ -119,6 +178,8 @@ fn build_canister_package(
     let root = workspace_root();
     let sql_enabled = selected_canister_sql_enabled()?;
     let mut cargo = Command::new("cargo");
+
+    // Phase 1: configure the wasm cargo build request.
     cargo.current_dir(&root).args([
         "build",
         "--target",
@@ -134,8 +195,14 @@ fn build_canister_package(
     } else if profile != "debug" {
         cargo.args(["--profile", profile]);
     }
+    if profile == "wasm-release" {
+        append_rustflags(&mut cargo, &wasm_release_path_trim_flags(&root));
+    }
+
+    // Phase 2: run the build and fail loudly if cargo does not succeed.
     run_checked(cargo, context_label)?;
 
+    // Phase 3: resolve the built wasm from the configured target directory.
     let wasm_path = canister_wasm_path(&root, profile, package_name);
     if !wasm_path.is_file() {
         return Err(format!(

@@ -76,14 +76,12 @@ fn decode_optional_relation_storage_key_bytes(
     key_kind: FieldKind,
 ) -> Result<Option<StorageKey>, FieldDecodeError> {
     let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated CBOR value",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after relation field",
+            "typed CBOR: trailing bytes after relation field",
         ));
     }
     if major == 7 && argument == 22 {
@@ -100,9 +98,7 @@ fn decode_relation_storage_key_list_bytes(
     key_kind: FieldKind,
 ) -> Result<Vec<StorageKey>, FieldDecodeError> {
     let Some((major, argument, _cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated CBOR value",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
     };
     if major == 7 && argument == 22 {
         return Ok(Vec::new());
@@ -117,7 +113,7 @@ fn decode_relation_storage_key_list_bytes(
     walk_cbor_array_items(
         raw_bytes,
         "expected CBOR array for list/set field",
-        "typed CBOR decode failed: trailing bytes after list/set field",
+        "typed CBOR: trailing bytes after list/set field",
         (&raw mut state).cast(),
         push_relation_storage_key_item,
     )?;
@@ -172,19 +168,17 @@ fn decode_subaccount_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, F
 // Decode one ULID relation-key payload directly from its persisted CBOR text form.
 fn decode_ulid_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated ulid payload",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated ulid payload"));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after ulid payload",
+            "typed CBOR: trailing bytes after ulid payload",
         ));
     }
     if major != 3 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: invalid type, expected a text string",
+            "typed CBOR: invalid type, expected a text string",
         ));
     }
 
@@ -194,7 +188,7 @@ fn decode_ulid_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDe
         payload_start,
     )?)
     .map(StorageKey::Ulid)
-    .map_err(|_| FieldDecodeError::new("typed CBOR decode failed: invalid ulid string"))
+    .map_err(|_| FieldDecodeError::new("typed CBOR: invalid ulid string"))
 }
 
 // Decode one unit relation-key payload without routing through typed serde.
@@ -202,19 +196,17 @@ pub(super) fn decode_unit_storage_key_bytes(
     raw_bytes: &[u8],
 ) -> Result<StorageKey, FieldDecodeError> {
     let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated unit payload",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated unit payload"));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after unit payload",
+            "typed CBOR: trailing bytes after unit payload",
         ));
     }
     if major != 7 || argument != 22 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: expected null for unit payload",
+            "typed CBOR: expected null for unit payload",
         ));
     }
 
@@ -224,27 +216,25 @@ pub(super) fn decode_unit_storage_key_bytes(
 // Decode one signed storage-key-compatible integer payload directly from CBOR.
 fn decode_int_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDecodeError> {
     let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated CBOR value",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after relation field",
+            "typed CBOR: trailing bytes after relation field",
         ));
     }
 
     let value = match major {
         0 => i64::try_from(argument).map_err(|_| {
             FieldDecodeError::new(format!(
-                "typed CBOR decode failed: integer {argument} out of range for i64",
+                "typed CBOR: integer {argument} out of range for i64",
             ))
         })?,
         1 => {
             let signed = i64::try_from(argument).map_err(|_| {
                 FieldDecodeError::new(format!(
-                    "typed CBOR decode failed: integer -{} out of range for i64",
+                    "typed CBOR: integer -{} out of range for i64",
                     argument.saturating_add(1),
                 ))
             })?;
@@ -253,14 +243,14 @@ fn decode_int_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDec
                 .and_then(|value| value.checked_sub(1))
                 .ok_or_else(|| {
                     FieldDecodeError::new(format!(
-                        "typed CBOR decode failed: integer -{} out of range for i64",
+                        "typed CBOR: integer -{} out of range for i64",
                         argument.saturating_add(1),
                     ))
                 })?
         }
         _ => {
             return Err(FieldDecodeError::new(
-                "typed CBOR decode failed: invalid type, expected an integer",
+                "typed CBOR: invalid type, expected an integer",
             ));
         }
     };
@@ -271,19 +261,17 @@ fn decode_int_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDec
 // Decode one unsigned storage-key-compatible integer payload directly from CBOR.
 fn decode_uint_storage_key_bytes(raw_bytes: &[u8]) -> Result<StorageKey, FieldDecodeError> {
     let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated CBOR value",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after relation field",
+            "typed CBOR: trailing bytes after relation field",
         ));
     }
     if major != 0 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: invalid type, expected an integer",
+            "typed CBOR: invalid type, expected an integer",
         ));
     }
 

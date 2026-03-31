@@ -7,9 +7,11 @@ use crate::db::{
     QueryError,
     sql::lowering::{
         LoweredSqlCommand, LoweredSqlLaneKind, PreparedSqlStatement as CorePreparedSqlStatement,
-        lower_sql_command_from_prepared_statement, lowered_sql_command_lane, prepare_sql_statement,
+        lower_query_surface_command_from_prepared_statement,
+        lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
+        prepare_query_surface_statement, prepare_sql_statement,
     },
-    sql::parser::{SqlExplainStatement, SqlExplainTarget, SqlStatement},
+    sql::parser::{SqlExplainTarget, SqlStatement},
 };
 
 /// Canonical SQL statement routing metadata derived from reduced SQL parser output.
@@ -70,24 +72,6 @@ impl SqlParsedStatement {
         &self.route
     }
 
-    /// Return whether this parsed statement is one delete-like query-surface shape.
-    ///
-    /// The generated canister query lane is intentionally narrower than the
-    /// typed session SQL surface. It must reject both executable `DELETE` and
-    /// `EXPLAIN DELETE` so query-only canister exports do not retain delete
-    /// execution or delete-specific explain handling.
-    #[must_use]
-    pub const fn is_delete_like_query_surface(&self) -> bool {
-        matches!(
-            &self.statement,
-            SqlStatement::Delete(_)
-                | SqlStatement::Explain(SqlExplainStatement {
-                    statement: SqlExplainTarget::Delete(_),
-                    ..
-                })
-        )
-    }
-
     // Prepare this parsed statement for one concrete entity route.
     pub(in crate::db::session::sql) fn prepare(
         &self,
@@ -120,6 +104,20 @@ impl SqlParsedStatement {
                 Err(QueryError::unsupported_query_lane_dispatch())
             }
         }
+    }
+
+    /// Lower this parsed statement into one generated query-surface-only shape.
+    #[inline(never)]
+    pub fn lower_generated_query_surface_for_entity(
+        &self,
+        expected_entity: &'static str,
+        primary_key_field: &str,
+    ) -> Result<LoweredSqlCommand, QueryError> {
+        let prepared = prepare_query_surface_statement(self.statement.clone(), expected_entity)
+            .map_err(QueryError::from_sql_lowering_error)?;
+
+        lower_query_surface_command_from_prepared_statement(prepared, primary_key_field)
+            .map_err(QueryError::from_sql_lowering_error)
     }
 }
 

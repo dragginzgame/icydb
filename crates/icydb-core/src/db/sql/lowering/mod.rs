@@ -235,18 +235,21 @@ pub(crate) enum SqlLoweringError {
     },
 
     #[error(
-        "unsupported SQL SELECT projection in this release; executable forms are SELECT *, direct field lists, or constrained grouped aggregate projection shapes"
+        "unsupported SQL SELECT projection; supported forms are SELECT *, field lists, or grouped aggregate shapes"
     )]
     UnsupportedSelectProjection,
 
-    #[error("unsupported SQL SELECT DISTINCT in this release")]
+    #[error("unsupported SQL SELECT DISTINCT")]
     UnsupportedSelectDistinct,
 
-    #[error("unsupported SQL GROUP BY projection shape in this release")]
+    #[error("unsupported SQL GROUP BY projection shape")]
     UnsupportedSelectGroupBy,
 
-    #[error("unsupported SQL HAVING shape in this release")]
+    #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
+
+    #[error("generated SQL query dispatch requires SELECT or EXPLAIN SELECT")]
+    UnsupportedQuerySurfaceStatement,
 }
 
 impl SqlLoweringError {
@@ -277,6 +280,11 @@ impl SqlLoweringError {
     const fn unsupported_select_having() -> Self {
         Self::UnsupportedSelectHaving
     }
+
+    /// Construct one unsupported query-surface statement SQL lowering error.
+    const fn unsupported_query_surface_statement() -> Self {
+        Self::UnsupportedQuerySurfaceStatement
+    }
 }
 
 ///
@@ -292,6 +300,16 @@ impl SqlLoweringError {
 #[derive(Clone, Debug)]
 pub(crate) struct PreparedSqlStatement {
     statement: SqlStatement,
+}
+
+// Prepared select/explain-only SQL statement for the generated query surface.
+#[derive(Clone, Debug)]
+pub(crate) enum PreparedSqlQuerySurfaceStatement {
+    Select(SqlSelectStatement),
+    Explain {
+        mode: SqlExplainMode,
+        statement: SqlSelectStatement,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -342,6 +360,49 @@ pub(crate) fn lower_sql_command_from_prepared_statement(
     primary_key_field: &str,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     lower_prepared_statement(prepared.statement, primary_key_field)
+}
+
+/// Prepare one parsed SQL statement for the generated query-only canister surface.
+#[inline(never)]
+pub(crate) fn prepare_query_surface_statement(
+    statement: SqlStatement,
+    expected_entity: &'static str,
+) -> Result<PreparedSqlQuerySurfaceStatement, SqlLoweringError> {
+    match statement {
+        SqlStatement::Select(statement) => Ok(PreparedSqlQuerySurfaceStatement::Select(
+            normalize_select_statement_to_expected_entity(statement, expected_entity),
+        )),
+        SqlStatement::Explain(SqlExplainStatement {
+            mode,
+            statement: SqlExplainTarget::Select(select_statement),
+        }) => Ok(PreparedSqlQuerySurfaceStatement::Explain {
+            mode,
+            statement: normalize_select_statement_to_expected_entity(
+                select_statement,
+                expected_entity,
+            ),
+        }),
+        SqlStatement::Explain(SqlExplainStatement {
+            statement: SqlExplainTarget::Delete(_),
+            ..
+        }) => Err(SqlLoweringError::unsupported_query_surface_statement()),
+        SqlStatement::Delete(_)
+        | SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_) => {
+            Err(SqlLoweringError::unsupported_query_surface_statement())
+        }
+    }
+}
+
+/// Lower one prepared SQL statement into one query-surface-only command shape.
+#[inline(never)]
+pub(crate) fn lower_query_surface_command_from_prepared_statement(
+    prepared: PreparedSqlQuerySurfaceStatement,
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, SqlLoweringError> {
+    lower_query_surface_prepared_statement(prepared, primary_key_field)
 }
 
 pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {
@@ -522,10 +583,23 @@ fn prepare_explain_statement(
 }
 
 fn prepare_select_statement(
-    mut statement: SqlSelectStatement,
+    statement: SqlSelectStatement,
     expected_entity: &'static str,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
+
+    Ok(normalize_select_statement_to_expected_entity(
+        statement,
+        expected_entity,
+    ))
+}
+
+fn normalize_select_statement_to_expected_entity(
+    mut statement: SqlSelectStatement,
+    expected_entity: &'static str,
+) -> SqlSelectStatement {
+    // Re-scope parsed identifiers onto the resolved entity surface after the
+    // caller has already established entity ownership for this statement.
     let entity_scope = sql_entity_scope_candidates(statement.entity.as_str(), expected_entity);
     statement.projection =
         normalize_projection_identifiers(statement.projection, entity_scope.as_slice());
@@ -536,7 +610,7 @@ fn prepare_select_statement(
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
     statement.having = normalize_having_clauses(statement.having, entity_scope.as_slice());
 
-    Ok(statement)
+    statement
 }
 
 fn prepare_delete_statement(
@@ -575,6 +649,23 @@ fn lower_prepared_statement(
         }
         SqlStatement::ShowEntities(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowEntities))
+        }
+    }
+}
+
+#[inline(never)]
+fn lower_query_surface_prepared_statement(
+    statement: PreparedSqlQuerySurfaceStatement,
+    primary_key_field: &str,
+) -> Result<LoweredSqlCommand, SqlLoweringError> {
+    match statement {
+        PreparedSqlQuerySurfaceStatement::Select(statement) => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
+                LoweredSqlQuery::Select(lower_select_shape(statement, primary_key_field)?),
+            )))
+        }
+        PreparedSqlQuerySurfaceStatement::Explain { mode, statement } => {
+            lower_explain_select_prepared(statement, mode, primary_key_field)
         }
     }
 }

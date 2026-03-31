@@ -310,6 +310,14 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_show_entities_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "SHOW ENTITIES",
+            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW ENTITIES payloads",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_character_metadata_surfaces_encode_cleanly() {
         ensure_sql_test_memory_range();
 

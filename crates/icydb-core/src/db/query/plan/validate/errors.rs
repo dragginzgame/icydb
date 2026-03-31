@@ -259,11 +259,11 @@ impl CursorPagingPolicyError {
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum GroupPlanError {
     /// HAVING requires GROUP BY grouped plan shape.
-    #[error("HAVING is only supported for GROUP BY queries in this release")]
+    #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
 
     /// Grouped validation entrypoint received a scalar logical plan.
-    #[error("group query validation requires grouped logical plan variant")]
+    #[error("group validation requires grouped plan")]
     GroupedLogicalPlanRequired,
 
     /// GROUP BY requires at least one declared grouping field.
@@ -271,9 +271,7 @@ pub enum GroupPlanError {
     EmptyGroupFields,
 
     /// Global DISTINCT aggregate shapes without GROUP BY are restricted.
-    #[error(
-        "global DISTINCT aggregate without GROUP BY must declare exactly one DISTINCT field-target aggregate in this release"
-    )]
+    #[error("global DISTINCT without GROUP BY requires one DISTINCT field aggregate")]
     GlobalDistinctAggregateShapeUnsupported,
 
     /// GROUP BY requires at least one aggregate terminal.
@@ -289,21 +287,19 @@ pub enum GroupPlanError {
     DuplicateGroupField { field: String },
 
     /// GROUP BY v1 does not accept DISTINCT unless adjacency eligibility is explicit.
-    #[error(
-        "grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"
-    )]
+    #[error("grouped DISTINCT requires ordered-group adjacency proof")]
     DistinctAdjacencyEligibilityRequired,
 
     /// GROUP BY ORDER BY shape must start with grouped-key prefix.
-    #[error("grouped ORDER BY must start with GROUP BY key prefix in this release")]
+    #[error("grouped ORDER BY must start with GROUP BY key prefix")]
     OrderPrefixNotAlignedWithGroupKeys,
 
     /// GROUP BY ORDER BY requires an explicit LIMIT in grouped v1.
-    #[error("grouped ORDER BY requires LIMIT in this release")]
+    #[error("grouped ORDER BY requires LIMIT")]
     OrderRequiresLimit,
 
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
-    #[error("grouped HAVING with DISTINCT is not supported in this release")]
+    #[error("grouped HAVING with DISTINCT is unsupported")]
     DistinctHavingUnsupported,
 
     /// HAVING currently supports compare operators only.

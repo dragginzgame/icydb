@@ -190,10 +190,13 @@ pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
 #[doc(hidden)]
 #[must_use]
 pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
-    authorities
-        .iter()
-        .map(|authority| authority.model().name().to_string())
-        .collect()
+    let mut entities = Vec::with_capacity(authorities.len());
+
+    for authority in authorities {
+        entities.push(authority.model().name().to_string());
+    }
+
+    entities
 }
 
 #[cfg_attr(
@@ -213,11 +216,6 @@ pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
 
     // Phase 2: route the parsed statement through one shared helper.
     match statement {
-        SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. }
-            if parsed.is_delete_like_query_surface() =>
-        {
-            Err(unsupported_sql_query_surface_statement_error())
-        }
         SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. } => {
             query_lane_result_for_statement(session, sql_trimmed, &parsed, statement, authorities)
         }
@@ -230,7 +228,7 @@ pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
         SqlStatementRoute::ShowColumns { .. } => {
             show_columns_result_for_statement(session, statement, authorities)
         }
-        SqlStatementRoute::ShowEntities => Ok(show_entities_result_for_statement(session)),
+        SqlStatementRoute::ShowEntities => Ok(show_entities_result_for_statement(authorities)),
     }
 }
 
@@ -239,10 +237,6 @@ fn authority_for_statement(
     statement: &SqlStatementRoute,
     authorities: &[EntityAuthority],
 ) -> Result<EntityAuthority, Error> {
-    if statement.is_show_entities() {
-        return Err(unsupported_entity_route_statement_error());
-    }
-
     let sql_entity = statement.entity();
     authority_for_entity_name(sql_entity, authorities)
         .ok_or_else(|| unsupported_sql_entity_error(sql_entity, authorities))
@@ -253,10 +247,13 @@ fn authority_for_entity_name(
     entity_name: &str,
     authorities: &[EntityAuthority],
 ) -> Option<EntityAuthority> {
-    authorities
-        .iter()
-        .copied()
-        .find(|authority| identifiers_tail_match(entity_name, authority.model().name()))
+    for authority in authorities {
+        if identifiers_tail_match(entity_name, authority.model().name()) {
+            return Some(*authority);
+        }
+    }
+
+    None
 }
 
 // Execute one shared SQL query/explain lane after routing authority once.
@@ -271,7 +268,7 @@ fn query_lane_result_for_statement<C: CanisterKind>(
     // query/explain statement.
     let authority = authority_for_statement(statement, authorities)?;
     let core_session = session.core_session();
-    let lowered = parsed.lower_query_lane_for_entity(
+    let lowered = parsed.lower_generated_query_surface_for_entity(
         authority.model().name(),
         authority.model().primary_key().name(),
     )?;
@@ -291,12 +288,12 @@ fn query_lane_result_for_statement<C: CanisterKind>(
         });
     }
 
-    let result =
-        core_session.execute_lowered_sql_dispatch_select_for_authority(&lowered, authority)?;
+    let (columns, rows, row_count) =
+        core_session.execute_lowered_sql_projection_for_authority(&lowered, authority)?;
+    let projection = projection_rows_from_values(columns, rows, row_count);
 
-    Ok(DbSession::<C>::map_sql_dispatch_result(
-        result,
-        authority.model().name().to_string(),
+    Ok(SqlQueryResult::Projection(
+        SqlQueryRowsOutput::from_projection(authority.model().name().to_string(), projection),
     ))
 }
 
@@ -342,16 +339,16 @@ fn show_columns_result_for_statement<C: CanisterKind>(
     })
 }
 
-// Render one SHOW ENTITIES result without per-entity authority resolution.
-fn show_entities_result_for_statement<C: CanisterKind>(session: &DbSession<C>) -> SqlQueryResult {
-    let entities = session.show_entities();
+// Render one SHOW ENTITIES result directly from the generated authority table.
+fn show_entities_result_for_statement(authorities: &[EntityAuthority]) -> SqlQueryResult {
+    let entities = generated_sql_entities(authorities);
 
     SqlQueryResult::ShowEntities { entities }
 }
 
 // Build one stable unsupported-entity error using the generated authority table.
 fn unsupported_sql_entity_error(entity_name: &str, authorities: &[EntityAuthority]) -> Error {
-    let supported = generated_sql_entities(authorities).join(", ");
+    let supported = supported_sql_entities_csv(authorities);
 
     Error::new(
         ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
@@ -360,22 +357,20 @@ fn unsupported_sql_entity_error(entity_name: &str, authorities: &[EntityAuthorit
     )
 }
 
-// Reject route resolution for non-entity-scoped statements.
-fn unsupported_entity_route_statement_error() -> Error {
-    Error::new(
-        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        ErrorOrigin::Query,
-        "entity route resolution requires one entity-scoped SQL statement",
-    )
-}
+fn supported_sql_entities_csv(authorities: &[EntityAuthority]) -> String {
+    // Build the supported-entity list directly so the query surface does not
+    // retain an extra `Vec<String>` + `join(", ")` path just for this error.
+    let mut supported = String::new();
 
-// Reject delete-like SQL from the generated canister query lane.
-fn unsupported_sql_query_surface_statement_error() -> Error {
-    Error::new(
-        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        ErrorOrigin::Query,
-        "query endpoint only supports SELECT, EXPLAIN SELECT, DESCRIBE, and SHOW; use update for DELETE",
-    )
+    for (index, authority) in authorities.iter().enumerate() {
+        if index != 0 {
+            supported.push_str(", ");
+        }
+
+        supported.push_str(authority.model().name());
+    }
+
+    supported
 }
 
 // Rewrite unordered-pagination EXPLAIN failures into one actionable canister message.
@@ -429,35 +424,19 @@ fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
 pub fn render_value_text(value: &Value) -> String {
     match value {
         Value::Account(v) => v.to_string(),
-        Value::Blob(v) => format!("0x{}", hex_encode(v)),
+        Value::Blob(v) => render_blob_value(v),
         Value::Bool(v) => v.to_string(),
         Value::Date(v) => v.to_string(),
         Value::Decimal(v) => v.to_string(),
-        Value::Duration(v) => format!("{}ms", v.as_millis()),
+        Value::Duration(v) => render_duration_value(v.as_millis()),
         Value::Enum(v) => render_enum(v),
         Value::Float32(v) => v.to_string(),
         Value::Float64(v) => v.to_string(),
         Value::Int(v) => v.to_string(),
         Value::Int128(v) => v.to_string(),
         Value::IntBig(v) => v.to_string(),
-        Value::List(items) => {
-            let rendered = items
-                .iter()
-                .map(render_value_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{rendered}]")
-        }
-        Value::Map(entries) => {
-            let rendered = entries
-                .iter()
-                .map(|(key, value)| {
-                    format!("{}: {}", render_value_text(key), render_value_text(value))
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{{{rendered}}}")
-        }
+        Value::List(items) => render_list_value(items.as_slice()),
+        Value::Map(entries) => render_map_value(entries.as_slice()),
         Value::Null => "null".to_string(),
         Value::Principal(v) => v.to_string(),
         Value::Subaccount(v) => v.to_string(),
@@ -469,6 +448,54 @@ pub fn render_value_text(value: &Value) -> String {
         Value::Ulid(v) => v.to_string(),
         Value::Unit => "()".to_string(),
     }
+}
+
+fn render_blob_value(bytes: &[u8]) -> String {
+    let mut rendered = String::from("0x");
+    rendered.push_str(hex_encode(bytes).as_str());
+
+    rendered
+}
+
+fn render_duration_value(millis: u64) -> String {
+    let mut rendered = millis.to_string();
+    rendered.push_str("ms");
+
+    rendered
+}
+
+fn render_list_value(items: &[Value]) -> String {
+    let mut rendered = String::from("[");
+
+    for (index, item) in items.iter().enumerate() {
+        if index != 0 {
+            rendered.push_str(", ");
+        }
+
+        rendered.push_str(render_value_text(item).as_str());
+    }
+
+    rendered.push(']');
+
+    rendered
+}
+
+fn render_map_value(entries: &[(Value, Value)]) -> String {
+    let mut rendered = String::from("{");
+
+    for (index, (key, value)) in entries.iter().enumerate() {
+        if index != 0 {
+            rendered.push_str(", ");
+        }
+
+        rendered.push_str(render_value_text(key).as_str());
+        rendered.push_str(": ");
+        rendered.push_str(render_value_text(value).as_str());
+    }
+
+    rendered.push('}');
+
+    rendered
 }
 
 #[cfg_attr(

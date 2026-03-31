@@ -110,7 +110,7 @@ impl LoweredSqlCommand {
         }
 
         Err(QueryError::unsupported_query(
-            "shared EXPLAIN dispatch could not classify the lowered SQL command shape",
+            "shared EXPLAIN dispatch could not classify lowered SQL shape",
         ))
     }
 }

@@ -420,7 +420,7 @@ weight while preserving full-featured fixtures for test harnesses.
 
 ## Observability Endpoints
 
-IcyDB generates these canister methods:
+IcyDB generates these canister methods for every canister:
 
 - `icydb_snapshot()` -> current storage report
 - `icydb_metrics(window_start_ms: Option<u64>)` -> metrics window filter

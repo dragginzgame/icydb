@@ -47,7 +47,7 @@ fn reset_all_clears_state() {
 }
 
 #[test]
-fn report_sorts_entities_by_average_rows() {
+fn report_sorts_entities_by_raw_row_counters() {
     reset_all();
     with_state_mut(|m| {
         m.entities.insert(
@@ -83,11 +83,8 @@ fn report_sorts_entities_by_average_rows() {
         .map(super::state::EntitySummary::path)
         .collect();
 
-    // Order by avg rows per load desc, then rows_loaded desc, then path asc.
-    assert_eq!(paths, ["beta", "alpha", "gamma"]);
-    assert_eq!(summaries[0].avg_rows_per_load(), 5.0);
-    assert_eq!(summaries[1].avg_rows_per_load(), 3.0);
-    assert_eq!(summaries[2].avg_rows_per_load(), 3.0);
+    // Order by rows_loaded desc, then rows_scanned desc, then rows_deleted desc, then path asc.
+    assert_eq!(paths, ["alpha", "gamma", "beta"]);
 }
 
 #[test]
@@ -120,11 +117,11 @@ fn event_report_candid_shape_is_stable() {
         );
     }
 
-    let state_fields = expect_record_fields(crate::metrics::state::EventState::ty());
-    for field in ["ops", "perf", "entities", "window_start_ms"] {
+    let counters_fields = expect_record_fields(crate::metrics::state::EventCounters::ty());
+    for field in ["ops", "perf", "window_start_ms"] {
         assert!(
-            state_fields.iter().any(|candidate| candidate == field),
-            "EventState must keep `{field}` as Candid field key",
+            counters_fields.iter().any(|candidate| candidate == field),
+            "EventCounters must keep `{field}` as Candid field key",
         );
     }
 
@@ -171,12 +168,11 @@ fn entity_summary_candid_shape_is_stable() {
 
     for field in [
         "path",
-        "avg_rows_per_load",
-        "rows_filtered",
-        "rows_aggregated",
-        "rows_emitted",
-        "relation_delete_blocks",
-        "non_atomic_partial_rows_committed",
+        "load_calls",
+        "delete_calls",
+        "rows_loaded",
+        "rows_scanned",
+        "rows_deleted",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),

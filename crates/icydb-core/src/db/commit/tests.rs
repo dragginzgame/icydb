@@ -3311,7 +3311,7 @@ fn prepare_row_commit_rejects_malformed_nonindexed_scalar_field() {
     assert_eq!(err.origin, ErrorOrigin::Serialize);
     assert!(
         err.message
-            .contains("commit marker after row decode failed"),
+            .contains("commit marker after row: row decode failed"),
         "unexpected error: {err:?}",
     );
     assert!(

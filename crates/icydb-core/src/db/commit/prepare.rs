@@ -160,9 +160,7 @@ fn validate_commit_marker_row_for_entity(
     model: &'static EntityModel,
 ) -> Result<(), InternalError> {
     let raw_row = RawRow::from_untrusted_bytes(bytes.to_vec()).map_err(|err| {
-        InternalError::serialize_corruption(format!(
-            "commit marker {label} row decode failed: {err}",
-        ))
+        InternalError::serialize_corruption(format!("commit marker {label} row: {err}",))
     })?;
     let slots = decode_commit_marker_structural_slots(data_key, &raw_row, label, model)?;
 
@@ -170,7 +168,7 @@ fn validate_commit_marker_row_for_entity(
     // malformed non-indexed fields cannot bypass commit preparation.
     for slot in 0..model.fields().len() {
         slots.required_value_by_contract(slot).map_err(|err| {
-            let message = format!("commit marker {label} row decode failed: {err}");
+            let message = format!("commit marker {label} row: {err}");
             if err.class() == ErrorClass::IncompatiblePersistedFormat {
                 InternalError::serialize_incompatible_persisted_format(message)
             } else {
@@ -292,7 +290,7 @@ fn decode_commit_marker_structural_slots<'a>(
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
     let slots = StructuralSlotReader::from_raw_row(row, model).map_err(|err| {
-        let message = format!("commit marker {label} row decode failed: {err}");
+        let message = format!("commit marker {label} row: {err}");
         if err.class() == ErrorClass::IncompatiblePersistedFormat {
             InternalError::serialize_incompatible_persisted_format(message)
         } else {

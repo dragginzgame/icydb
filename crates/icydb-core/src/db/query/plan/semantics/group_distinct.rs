@@ -117,11 +117,9 @@ impl GroupDistinctPolicyReason {
     #[must_use]
     pub(in crate::db) const fn invariant_message(self) -> &'static str {
         match self {
-            Self::DistinctHavingUnsupported => {
-                "grouped HAVING with DISTINCT is not supported in this release"
-            }
+            Self::DistinctHavingUnsupported => "grouped HAVING with DISTINCT is unsupported",
             Self::DistinctAdjacencyEligibilityRequired => {
-                "grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"
+                "grouped DISTINCT requires ordered-group adjacency proof"
             }
             Self::GlobalDistinctHavingUnsupported => {
                 "global DISTINCT grouped aggregate shape does not support HAVING"

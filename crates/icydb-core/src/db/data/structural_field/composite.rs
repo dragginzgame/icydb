@@ -73,7 +73,7 @@ fn decode_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<Value, FieldD
     walk_cbor_array_items(
         raw_bytes,
         "expected CBOR array for list/set field",
-        "typed CBOR decode failed: trailing bytes after list/set field",
+        "typed CBOR: trailing bytes after list/set field",
         (&raw mut state).cast(),
         push_kind_array_item,
     )?;
@@ -92,7 +92,7 @@ fn decode_map_bytes(
     walk_cbor_map_entries(
         raw_bytes,
         "expected CBOR map for map field",
-        "typed CBOR decode failed: trailing bytes after map field",
+        "typed CBOR: trailing bytes after map field",
         (&raw mut state).cast(),
         push_kind_map_entry,
     )?;
@@ -109,10 +109,10 @@ fn decode_enum_bytes(
 ) -> Result<Value, FieldDecodeError> {
     let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
         raw_bytes,
-        "typed CBOR decode failed: truncated CBOR value",
+        "typed CBOR: truncated CBOR value",
         "expected text or one-entry CBOR map for enum field",
         "expected one-entry CBOR map for enum payload variant",
-        "typed CBOR decode failed: trailing bytes after enum field",
+        "typed CBOR: trailing bytes after enum field",
     )?;
 
     if let Some(payload_bytes) = payload_bytes {

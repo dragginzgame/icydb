@@ -14,12 +14,11 @@ mod state;
 
 // re-exports
 pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
-pub use state::EventReport;
+pub use state::{EventCounters, EventReport};
 
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
-#[expect(clippy::float_cmp)]
 mod tests;

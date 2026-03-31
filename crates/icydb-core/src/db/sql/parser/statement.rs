@@ -118,8 +118,7 @@ impl Parser {
             && (statement.limit.is_some() || statement.offset.is_some())
         {
             return Some(SqlParseError::invalid_syntax(
-                "ORDER BY must appear before LIMIT/OFFSET; \
-                 try: SELECT ... ORDER BY <field> [ASC|DESC] LIMIT <n> [OFFSET <n>]",
+                "ORDER BY must appear before LIMIT/OFFSET",
             ));
         }
 
@@ -129,8 +128,7 @@ impl Parser {
     fn delete_clause_order_error(&self, statement: &SqlDeleteStatement) -> Option<SqlParseError> {
         if self.peek_keyword(Keyword::Order) && statement.limit.is_some() {
             return Some(SqlParseError::invalid_syntax(
-                "ORDER BY must appear before LIMIT in DELETE statements; \
-                 try: DELETE ... ORDER BY <field> [ASC|DESC] LIMIT <n>",
+                "ORDER BY must appear before LIMIT in DELETE",
             ));
         }
 

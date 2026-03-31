@@ -145,7 +145,7 @@ impl CommitMarker {
 
     // Build the canonical row-op corruption for key decode failures.
     fn row_op_key_decode_failed(err: impl std::fmt::Display) -> InternalError {
-        InternalError::commit_corruption(format!("row op key decode failed: {err}"))
+        InternalError::commit_corruption(format!("row op key decode: {err}"))
     }
 }
 
@@ -229,7 +229,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
     // Phase 1: parse the fixed marker header before touching any row-op bytes.
     if bytes.len() < COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES {
         return Err(InternalError::commit_corruption(
-            "commit marker payload decode failed: truncated header",
+            "commit marker payload decode: truncated header",
         ));
     }
 
@@ -243,20 +243,16 @@ pub(in crate::db) fn decode_commit_marker_payload(
         let entity_path_bytes =
             read_len_prefixed_bytes(bytes, &mut cursor, "commit marker entity_path")?;
         let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
-            InternalError::commit_corruption(
-                "commit marker payload decode failed: entity_path is not utf-8",
-            )
+            InternalError::commit_corruption("commit marker payload decode: entity_path not utf-8")
         })?;
         let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?.to_vec();
         let flags = *bytes.get(cursor).ok_or_else(|| {
-            InternalError::commit_corruption(
-                "commit marker payload decode failed: truncated row-op flags",
-            )
+            InternalError::commit_corruption("commit marker payload decode: truncated row-op flags")
         })?;
         cursor = cursor.saturating_add(1);
         if flags & !COMMIT_MARKER_FLAG_MASK != 0 {
             return Err(InternalError::commit_corruption(
-                "commit marker payload decode failed: invalid row-op flags",
+                "commit marker payload decode: invalid row-op flags",
             ));
         }
 
@@ -294,7 +290,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
     if cursor != bytes.len() {
         return Err(InternalError::commit_corruption(
-            "commit marker payload decode failed: trailing bytes after payload",
+            "commit marker payload decode: trailing bytes after payload",
         ));
     }
 

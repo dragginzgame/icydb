@@ -10,52 +10,14 @@
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
 use serde::Deserialize;
-use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
+use std::{cell::RefCell, collections::BTreeMap};
 
-#[cfg_attr(doc, doc = "EventState\n\nMetrics window state.")]
-#[derive(CandidType, Clone, Debug, Deserialize)]
-pub struct EventState {
+#[derive(Clone, Debug)]
+pub(crate) struct EventState {
     pub(crate) ops: EventOps,
     pub(crate) perf: EventPerf,
     pub(crate) entities: BTreeMap<String, EntityCounters>,
     pub(crate) window_start_ms: u64,
-}
-
-impl EventState {
-    #[must_use]
-    pub const fn new(
-        ops: EventOps,
-        perf: EventPerf,
-        entities: BTreeMap<String, EntityCounters>,
-        window_start_ms: u64,
-    ) -> Self {
-        Self {
-            ops,
-            perf,
-            entities,
-            window_start_ms,
-        }
-    }
-
-    #[must_use]
-    pub const fn ops(&self) -> &EventOps {
-        &self.ops
-    }
-
-    #[must_use]
-    pub const fn perf(&self) -> &EventPerf {
-        &self.perf
-    }
-
-    #[must_use]
-    pub const fn entities(&self) -> &BTreeMap<String, EntityCounters> {
-        &self.entities
-    }
-
-    #[must_use]
-    pub const fn window_start_ms(&self) -> u64 {
-        self.window_start_ms
-    }
 }
 
 impl Default for EventState {
@@ -227,9 +189,8 @@ impl EventOps {
     }
 }
 
-#[cfg_attr(doc, doc = "EntityCounters\n\nPer-entity counters.")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize)]
-pub struct EntityCounters {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EntityCounters {
     pub(crate) load_calls: u64,
     pub(crate) save_calls: u64,
     pub(crate) delete_calls: u64,
@@ -248,98 +209,6 @@ pub struct EntityCounters {
     pub(crate) unique_violations: u64,
     pub(crate) non_atomic_partial_commits: u64,
     pub(crate) non_atomic_partial_rows_committed: u64,
-}
-
-impl EntityCounters {
-    #[must_use]
-    pub const fn load_calls(&self) -> u64 {
-        self.load_calls
-    }
-
-    #[must_use]
-    pub const fn save_calls(&self) -> u64 {
-        self.save_calls
-    }
-
-    #[must_use]
-    pub const fn delete_calls(&self) -> u64 {
-        self.delete_calls
-    }
-
-    #[must_use]
-    pub const fn rows_loaded(&self) -> u64 {
-        self.rows_loaded
-    }
-
-    #[must_use]
-    pub const fn rows_scanned(&self) -> u64 {
-        self.rows_scanned
-    }
-
-    #[must_use]
-    pub const fn rows_filtered(&self) -> u64 {
-        self.rows_filtered
-    }
-
-    #[must_use]
-    pub const fn rows_aggregated(&self) -> u64 {
-        self.rows_aggregated
-    }
-
-    #[must_use]
-    pub const fn rows_emitted(&self) -> u64 {
-        self.rows_emitted
-    }
-
-    #[must_use]
-    pub const fn rows_deleted(&self) -> u64 {
-        self.rows_deleted
-    }
-
-    #[must_use]
-    pub const fn index_inserts(&self) -> u64 {
-        self.index_inserts
-    }
-
-    #[must_use]
-    pub const fn index_removes(&self) -> u64 {
-        self.index_removes
-    }
-
-    #[must_use]
-    pub const fn reverse_index_inserts(&self) -> u64 {
-        self.reverse_index_inserts
-    }
-
-    #[must_use]
-    pub const fn reverse_index_removes(&self) -> u64 {
-        self.reverse_index_removes
-    }
-
-    #[must_use]
-    pub const fn relation_reverse_lookups(&self) -> u64 {
-        self.relation_reverse_lookups
-    }
-
-    #[must_use]
-    pub const fn relation_delete_blocks(&self) -> u64 {
-        self.relation_delete_blocks
-    }
-
-    #[must_use]
-    pub const fn unique_violations(&self) -> u64 {
-        self.unique_violations
-    }
-
-    #[must_use]
-    pub const fn non_atomic_partial_commits(&self) -> u64 {
-        self.non_atomic_partial_commits
-    }
-
-    #[must_use]
-    pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
-        self.non_atomic_partial_rows_committed
-    }
 }
 
 #[cfg_attr(doc, doc = "EventPerf\n\nInstruction totals and maxima.")]
@@ -442,14 +311,14 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
 #[cfg_attr(doc, doc = "EventReport\n\nMetrics query payload.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventReport {
-    counters: Option<EventState>,
+    counters: Option<EventCounters>,
     entity_counters: Vec<EntitySummary>,
 }
 
 impl EventReport {
     #[must_use]
     pub(crate) const fn new(
-        counters: Option<EventState>,
+        counters: Option<EventCounters>,
         entity_counters: Vec<EntitySummary>,
     ) -> Self {
         Self {
@@ -459,7 +328,7 @@ impl EventReport {
     }
 
     #[must_use]
-    pub const fn counters(&self) -> Option<&EventState> {
+    pub const fn counters(&self) -> Option<&EventCounters> {
         self.counters.as_ref()
     }
 
@@ -469,13 +338,54 @@ impl EventReport {
     }
 
     #[must_use]
-    pub fn into_counters(self) -> Option<EventState> {
+    pub fn into_counters(self) -> Option<EventCounters> {
         self.counters
     }
 
     #[must_use]
     pub fn into_entity_counters(self) -> Vec<EntitySummary> {
         self.entity_counters
+    }
+}
+
+///
+/// EventCounters
+///
+/// Top-level metrics counters returned by `icydb_metrics()`.
+/// This keeps aggregate ops/perf totals while leaving per-entity detail to the
+/// separate `entity_counters` payload.
+///
+
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+pub struct EventCounters {
+    pub(crate) ops: EventOps,
+    pub(crate) perf: EventPerf,
+    pub(crate) window_start_ms: u64,
+}
+
+impl EventCounters {
+    #[must_use]
+    pub(crate) const fn new(ops: EventOps, perf: EventPerf, window_start_ms: u64) -> Self {
+        Self {
+            ops,
+            perf,
+            window_start_ms,
+        }
+    }
+
+    #[must_use]
+    pub const fn ops(&self) -> &EventOps {
+        &self.ops
+    }
+
+    #[must_use]
+    pub const fn perf(&self) -> &EventPerf {
+        &self.perf
+    }
+
+    #[must_use]
+    pub const fn window_start_ms(&self) -> u64 {
+        self.window_start_ms
     }
 }
 
@@ -487,22 +397,7 @@ pub struct EntitySummary {
     delete_calls: u64,
     rows_loaded: u64,
     rows_scanned: u64,
-    rows_filtered: u64,
-    rows_aggregated: u64,
-    rows_emitted: u64,
     rows_deleted: u64,
-    avg_rows_per_load: f64,
-    avg_rows_scanned_per_load: f64,
-    avg_rows_per_delete: f64,
-    index_inserts: u64,
-    index_removes: u64,
-    reverse_index_inserts: u64,
-    reverse_index_removes: u64,
-    relation_reverse_lookups: u64,
-    relation_delete_blocks: u64,
-    unique_violations: u64,
-    non_atomic_partial_commits: u64,
-    non_atomic_partial_rows_committed: u64,
 }
 
 impl EntitySummary {
@@ -532,83 +427,8 @@ impl EntitySummary {
     }
 
     #[must_use]
-    pub const fn rows_filtered(&self) -> u64 {
-        self.rows_filtered
-    }
-
-    #[must_use]
-    pub const fn rows_aggregated(&self) -> u64 {
-        self.rows_aggregated
-    }
-
-    #[must_use]
-    pub const fn rows_emitted(&self) -> u64 {
-        self.rows_emitted
-    }
-
-    #[must_use]
     pub const fn rows_deleted(&self) -> u64 {
         self.rows_deleted
-    }
-
-    #[must_use]
-    pub const fn avg_rows_per_load(&self) -> f64 {
-        self.avg_rows_per_load
-    }
-
-    #[must_use]
-    pub const fn avg_rows_scanned_per_load(&self) -> f64 {
-        self.avg_rows_scanned_per_load
-    }
-
-    #[must_use]
-    pub const fn avg_rows_per_delete(&self) -> f64 {
-        self.avg_rows_per_delete
-    }
-
-    #[must_use]
-    pub const fn index_inserts(&self) -> u64 {
-        self.index_inserts
-    }
-
-    #[must_use]
-    pub const fn index_removes(&self) -> u64 {
-        self.index_removes
-    }
-
-    #[must_use]
-    pub const fn reverse_index_inserts(&self) -> u64 {
-        self.reverse_index_inserts
-    }
-
-    #[must_use]
-    pub const fn reverse_index_removes(&self) -> u64 {
-        self.reverse_index_removes
-    }
-
-    #[must_use]
-    pub const fn relation_reverse_lookups(&self) -> u64 {
-        self.relation_reverse_lookups
-    }
-
-    #[must_use]
-    pub const fn relation_delete_blocks(&self) -> u64 {
-        self.relation_delete_blocks
-    }
-
-    #[must_use]
-    pub const fn unique_violations(&self) -> u64 {
-        self.unique_violations
-    }
-
-    #[must_use]
-    pub const fn non_atomic_partial_commits(&self) -> u64 {
-        self.non_atomic_partial_commits
-    }
-
-    #[must_use]
-    pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
-        self.non_atomic_partial_rows_committed
     }
 }
 
@@ -622,7 +442,6 @@ impl EntitySummary {
 /// IcyDB stores aggregate counters only, so it cannot produce a precise
 /// sub-window report after `state.window_start_ms`.
 #[must_use]
-#[expect(clippy::cast_precision_loss)]
 pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
     let snap = with_state(Clone::clone);
     if let Some(requested_window_start_ms) = window_start_ms
@@ -633,60 +452,30 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
 
     let mut entity_counters: Vec<EntitySummary> = Vec::new();
     for (path, ops) in &snap.entities {
-        let avg_load = if ops.load_calls > 0 {
-            ops.rows_loaded as f64 / ops.load_calls as f64
-        } else {
-            0.0
-        };
-        let avg_scanned = if ops.load_calls > 0 {
-            ops.rows_scanned as f64 / ops.load_calls as f64
-        } else {
-            0.0
-        };
-        let avg_delete = if ops.delete_calls > 0 {
-            ops.rows_deleted as f64 / ops.delete_calls as f64
-        } else {
-            0.0
-        };
-
         entity_counters.push(EntitySummary {
             path: path.clone(),
             load_calls: ops.load_calls,
             delete_calls: ops.delete_calls,
             rows_loaded: ops.rows_loaded,
             rows_scanned: ops.rows_scanned,
-            rows_filtered: ops.rows_filtered,
-            rows_aggregated: ops.rows_aggregated,
-            rows_emitted: ops.rows_emitted,
             rows_deleted: ops.rows_deleted,
-            avg_rows_per_load: avg_load,
-            avg_rows_scanned_per_load: avg_scanned,
-            avg_rows_per_delete: avg_delete,
-            index_inserts: ops.index_inserts,
-            index_removes: ops.index_removes,
-            reverse_index_inserts: ops.reverse_index_inserts,
-            reverse_index_removes: ops.reverse_index_removes,
-            relation_reverse_lookups: ops.relation_reverse_lookups,
-            relation_delete_blocks: ops.relation_delete_blocks,
-            unique_violations: ops.unique_violations,
-            non_atomic_partial_commits: ops.non_atomic_partial_commits,
-            non_atomic_partial_rows_committed: ops.non_atomic_partial_rows_committed,
         });
     }
 
     entity_counters.sort_by(|a, b| {
-        match b
-            .avg_rows_per_load
-            .partial_cmp(&a.avg_rows_per_load)
-            .unwrap_or(Ordering::Equal)
-        {
-            Ordering::Equal => match b.rows_loaded.cmp(&a.rows_loaded) {
-                Ordering::Equal => a.path.cmp(&b.path),
-                other => other,
-            },
-            other => other,
-        }
+        b.rows_loaded
+            .cmp(&a.rows_loaded)
+            .then_with(|| b.rows_scanned.cmp(&a.rows_scanned))
+            .then_with(|| b.rows_deleted.cmp(&a.rows_deleted))
+            .then_with(|| a.path.cmp(&b.path))
     });
 
-    EventReport::new(Some(snap), entity_counters)
+    EventReport::new(
+        Some(EventCounters::new(
+            snap.ops.clone(),
+            snap.perf.clone(),
+            snap.window_start_ms,
+        )),
+        entity_counters,
+    )
 }

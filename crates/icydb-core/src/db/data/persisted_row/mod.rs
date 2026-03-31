@@ -2166,10 +2166,7 @@ mod tests {
         let err = apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch)
             .expect_err("noncanonical rows with missing slots must fail closed");
 
-        assert_eq!(
-            err.message,
-            "row decode failed: missing slot payload: slot=0"
-        );
+        assert_eq!(err.message, "row decode: missing slot payload: slot=0");
     }
 
     #[test]
@@ -2264,7 +2261,7 @@ mod tests {
 
         assert_eq!(
             err.message,
-            "row decode failed: slot count mismatch: expected 2, found 1"
+            "row decode: slot count mismatch: expected 2, found 1"
         );
     }
 
@@ -2292,10 +2289,7 @@ mod tests {
             .err()
             .expect("slot span drift must fail closed");
 
-        assert_eq!(
-            err.message,
-            "row decode failed: slot span exceeds payload length"
-        );
+        assert_eq!(err.message, "row decode: slot span exceeds payload length");
     }
 
     #[test]

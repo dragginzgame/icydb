@@ -741,15 +741,6 @@ mod tests {
         assert_eq!(counters.ops.reverse_index_removes, 2);
         assert_eq!(counters.ops.relation_reverse_lookups, 5);
         assert_eq!(counters.ops.relation_delete_blocks, 1);
-
-        let entity = counters
-            .entities
-            .get("metrics::tests::Entity")
-            .expect("entity counters should be present");
-        assert_eq!(entity.reverse_index_inserts, 3);
-        assert_eq!(entity.reverse_index_removes, 2);
-        assert_eq!(entity.relation_reverse_lookups, 5);
-        assert_eq!(entity.relation_delete_blocks, 1);
     }
 
     #[test]
@@ -776,13 +767,5 @@ mod tests {
         assert_eq!(counters.ops.rows_filtered, 9);
         assert_eq!(counters.ops.rows_aggregated, 4);
         assert_eq!(counters.ops.rows_emitted, 3);
-
-        let entity = counters
-            .entities
-            .get("metrics::tests::Entity")
-            .expect("entity counters should be present");
-        assert_eq!(entity.rows_filtered, 9);
-        assert_eq!(entity.rows_aggregated, 4);
-        assert_eq!(entity.rows_emitted, 3);
     }
 }

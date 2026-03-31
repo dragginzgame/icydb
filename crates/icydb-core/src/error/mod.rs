@@ -1033,7 +1033,7 @@ impl InternalError {
 
     /// Construct the canonical persisted-row decode corruption error.
     pub(crate) fn persisted_row_decode_failed(detail: impl fmt::Display) -> Self {
-        Self::serialize_corruption(format!("row decode failed: {detail}"))
+        Self::serialize_corruption(format!("row decode: {detail}"))
     }
 
     /// Construct the canonical persisted-row field decode corruption error.
@@ -1316,7 +1316,7 @@ impl InternalError {
         detail: impl fmt::Display,
     ) -> Self {
         Self::serialize_corruption(format!(
-            "relation source row decode failed: source={source_path} field={field_name} target={target_path} ({detail})",
+            "relation source row decode: source={source_path} field={field_name} target={target_path} ({detail})",
         ))
     }
 
@@ -1327,7 +1327,7 @@ impl InternalError {
         target_path: &str,
     ) -> Self {
         Self::serialize_corruption(format!(
-            "relation source row decode failed: unsupported scalar relation key: source={source_path} field={field_name} target={target_path}",
+            "relation source row decode: unsupported scalar relation key: source={source_path} field={field_name} target={target_path}",
         ))
     }
 
@@ -1406,9 +1406,7 @@ impl InternalError {
     /// Construct the canonical missing persisted-field decode error.
     #[must_use]
     pub fn missing_persisted_slot(field_name: &'static str) -> Self {
-        Self::serialize_corruption(format!(
-            "row decode failed: missing required field '{field_name}'",
-        ))
+        Self::serialize_corruption(format!("row decode: missing required field '{field_name}'",))
     }
 
     /// Construct an identity-origin corruption error.

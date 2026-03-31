@@ -2115,7 +2115,7 @@ fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() 
     );
     assert!(
         err.message
-            .contains("grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"),
+            .contains("grouped DISTINCT requires ordered-group adjacency proof"),
         "bypassed grouped scalar DISTINCT policy violation should fail with planner-policy invariant text: {err:?}",
     );
 }

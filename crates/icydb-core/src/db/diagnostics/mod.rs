@@ -16,7 +16,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::{ErrorClass, InternalError},
-    traits::{CanisterKind, Repr},
+    traits::CanisterKind,
     types::EntityTag,
 };
 use candid::CandidType;
@@ -449,45 +449,17 @@ pub struct EntitySnapshot {
     pub(crate) entries: u64,
 
     pub(crate) memory_bytes: u64,
-
-    pub(crate) min_key: Option<String>,
-
-    pub(crate) max_key: Option<String>,
 }
 
 impl EntitySnapshot {
     /// Construct one entity-storage snapshot row.
     #[must_use]
-    pub fn new(
-        store: String,
-        path: String,
-        entries: u64,
-        memory_bytes: u64,
-        min_key: Option<StorageKey>,
-        max_key: Option<StorageKey>,
-    ) -> Self {
+    pub const fn new(store: String, path: String, entries: u64, memory_bytes: u64) -> Self {
         Self {
             store,
             path,
             entries,
             memory_bytes,
-            min_key: min_key.map(Self::storage_key_text),
-            max_key: max_key.map(Self::storage_key_text),
-        }
-    }
-
-    // Keep snapshot key rendering local to the diagnostics contract so the
-    // canister DTO does not retain the full `Value` Candid surface.
-    fn storage_key_text(key: StorageKey) -> String {
-        match key {
-            StorageKey::Account(value) => value.to_string(),
-            StorageKey::Int(value) => value.to_string(),
-            StorageKey::Principal(value) => value.to_string(),
-            StorageKey::Subaccount(value) => value.to_string(),
-            StorageKey::Timestamp(value) => value.repr().to_string(),
-            StorageKey::Uint(value) => value.to_string(),
-            StorageKey::Ulid(value) => value.to_string(),
-            StorageKey::Unit => "()".to_string(),
         }
     }
 
@@ -514,18 +486,6 @@ impl EntitySnapshot {
     pub const fn memory_bytes(&self) -> u64 {
         self.memory_bytes
     }
-
-    /// Borrow optional minimum primary key.
-    #[must_use]
-    pub fn min_key(&self) -> Option<&str> {
-        self.min_key.as_deref()
-    }
-
-    /// Borrow optional maximum primary key.
-    #[must_use]
-    pub fn max_key(&self) -> Option<&str> {
-        self.max_key.as_deref()
-    }
 }
 
 #[cfg_attr(
@@ -536,31 +496,15 @@ impl EntitySnapshot {
 struct EntityStats {
     entries: u64,
     memory_bytes: u64,
-    min_key: Option<StorageKey>,
-    max_key: Option<StorageKey>,
 }
 
 impl EntityStats {
-    // Accumulate per-entity counters and keep min/max over entity-local storage keys.
-    fn update(&mut self, dk: &DataKey, value_len: u64) {
+    // Accumulate per-entity entry count and byte footprint for snapshot output.
+    const fn update(&mut self, value_len: u64) {
         self.entries = self.entries.saturating_add(1);
         self.memory_bytes = self
             .memory_bytes
             .saturating_add(DataKey::entry_size_bytes(value_len));
-
-        let k = dk.storage_key();
-
-        match &mut self.min_key {
-            Some(min) if k < *min => *min = k,
-            None => self.min_key = Some(k),
-            _ => {}
-        }
-
-        match &mut self.max_key {
-            Some(max) if k > *max => *max = k,
-            None => self.max_key = Some(k),
-            _ => {}
-        }
     }
 }
 
@@ -614,7 +558,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                     store.memory_bytes(),
                 ));
 
-                // Track per-entity counts, memory, and min/max Keys (not DataKeys)
+                // Track per-entity counts and byte footprint for snapshot output.
                 let mut by_entity: BTreeMap<EntityTag, EntityStats> = BTreeMap::new();
 
                 for entry in store.iter() {
@@ -628,7 +572,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                     by_entity
                         .entry(dk.entity_tag())
                         .or_default()
-                        .update(&dk, value_len);
+                        .update(value_len);
                 }
 
                 for (entity_tag, stats) in by_entity {
@@ -649,8 +593,6 @@ pub(crate) fn storage_report<C: CanisterKind>(
                         path_name,
                         stats.entries,
                         stats.memory_bytes,
-                        stats.min_key,
-                        stats.max_key,
                     ));
                 }
             });

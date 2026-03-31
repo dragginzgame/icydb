@@ -55,14 +55,12 @@ impl RawCommitMarker {
 
     // Build the canonical control-slot canonical-envelope corruption error.
     fn control_slot_canonical_envelope_required() -> InternalError {
-        InternalError::commit_corruption(
-            "commit control-slot decode failed: expected canonical envelope",
-        )
+        InternalError::commit_corruption("commit control-slot decode: expected envelope")
     }
 
     // Build the canonical marker-envelope canonical-envelope corruption error.
     fn marker_canonical_envelope_required() -> InternalError {
-        InternalError::commit_corruption("commit marker decode failed: expected canonical envelope")
+        InternalError::commit_corruption("commit marker decode: expected envelope")
     }
 
     /// Serialize and bound-check a commit marker payload.
@@ -763,7 +761,11 @@ mod tests {
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Store);
         assert!(
-            err.message.contains("row op key decode failed"),
+            err.message.contains("row op key decode"),
+            "unexpected error: {err:?}"
+        );
+        assert!(
+            err.message.contains("invalid primary key"),
             "unexpected error: {err:?}"
         );
     }

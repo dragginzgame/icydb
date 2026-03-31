@@ -462,25 +462,6 @@ fn storage_report_entity_snapshots_are_sorted_by_store_then_path() {
 }
 
 #[test]
-fn storage_report_min_max_key_correctness() {
-    reset_stores();
-
-    insert_data_row(STORE_A_PATH, MINMAX_ENTITY_NAME, StorageKey::Int(9), 1);
-    insert_data_row(STORE_A_PATH, MINMAX_ENTITY_NAME, StorageKey::Int(-5), 1);
-    insert_data_row(STORE_A_PATH, MINMAX_ENTITY_NAME, StorageKey::Int(3), 1);
-
-    let report = diagnostics_report(&[(MINMAX_ENTITY_NAME, MINMAX_ENTITY_PATH)]);
-    let entity_snapshot = report
-        .entity_storage()
-        .iter()
-        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == MINMAX_ENTITY_PATH)
-        .expect("min/max snapshot should exist");
-
-    assert_eq!(entity_snapshot.min_key(), Some("-5"));
-    assert_eq!(entity_snapshot.max_key(), Some("9"));
-}
-
-#[test]
 fn storage_report_corrupted_key_detection() {
     reset_stores();
 
@@ -673,14 +654,7 @@ fn index_store_snapshot_candid_shape_is_stable() {
 fn entity_snapshot_candid_shape_is_stable() {
     let fields = expect_record_fields(EntitySnapshot::ty());
 
-    for field in [
-        "store",
-        "path",
-        "entries",
-        "memory_bytes",
-        "min_key",
-        "max_key",
-    ] {
+    for field in ["store", "path", "entries", "memory_bytes"] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "EntitySnapshot must keep `{field}` as Candid field key",

@@ -742,9 +742,7 @@ fn parse_sql_rejects_select_limit_before_order_with_actionable_message() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "ORDER BY must appear before LIMIT/OFFSET; \
-                      try: SELECT ... ORDER BY <field> [ASC|DESC] LIMIT <n> [OFFSET <n>]"
-                .to_string()
+            message: "ORDER BY must appear before LIMIT/OFFSET".to_string()
         }
     );
 }
@@ -757,9 +755,7 @@ fn parse_sql_rejects_select_offset_before_order_with_actionable_message() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "ORDER BY must appear before LIMIT/OFFSET; \
-                      try: SELECT ... ORDER BY <field> [ASC|DESC] LIMIT <n> [OFFSET <n>]"
-                .to_string()
+            message: "ORDER BY must appear before LIMIT/OFFSET".to_string()
         }
     );
 }
@@ -772,9 +768,7 @@ fn parse_sql_rejects_delete_limit_before_order_with_actionable_message() {
     assert_eq!(
         err,
         super::SqlParseError::InvalidSyntax {
-            message: "ORDER BY must appear before LIMIT in DELETE statements; \
-                      try: DELETE ... ORDER BY <field> [ASC|DESC] LIMIT <n>"
-                .to_string()
+            message: "ORDER BY must appear before LIMIT in DELETE".to_string()
         }
     );
 }

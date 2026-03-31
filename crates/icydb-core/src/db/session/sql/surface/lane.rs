@@ -44,34 +44,34 @@ pub(in crate::db::session::sql) const fn unsupported_sql_lane_message(
 ) -> &'static str {
     match (surface, lane) {
         (SqlSurface::QueryFrom, SqlLaneKind::Explain) => {
-            "query_from_sql does not accept EXPLAIN; use execute_sql_dispatch(...)"
+            "query_from_sql rejects EXPLAIN; use execute_sql_dispatch"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Describe) => {
-            "query_from_sql does not accept DESCRIBE; use execute_sql_dispatch(...)"
+            "query_from_sql rejects DESCRIBE; use execute_sql_dispatch"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowIndexes) => {
-            "query_from_sql does not accept SHOW INDEXES; use execute_sql_dispatch(...)"
+            "query_from_sql rejects SHOW INDEXES; use execute_sql_dispatch"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowColumns) => {
-            "query_from_sql does not accept SHOW COLUMNS; use execute_sql_dispatch(...)"
+            "query_from_sql rejects SHOW COLUMNS; use execute_sql_dispatch"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
-            "query_from_sql does not accept SHOW ENTITIES; use execute_sql_dispatch(...)"
+            "query_from_sql rejects SHOW ENTITIES; use execute_sql_dispatch"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
-            "query_from_sql only accepts SELECT or DELETE"
+            "query_from_sql accepts SELECT or DELETE only"
         }
         (SqlSurface::Explain, SqlLaneKind::Describe) => {
-            "explain_sql does not accept DESCRIBE; use execute_sql_dispatch(...)"
+            "explain_sql rejects DESCRIBE; use execute_sql_dispatch"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowIndexes) => {
-            "explain_sql does not accept SHOW INDEXES; use execute_sql_dispatch(...)"
+            "explain_sql rejects SHOW INDEXES; use execute_sql_dispatch"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowColumns) => {
-            "explain_sql does not accept SHOW COLUMNS; use execute_sql_dispatch(...)"
+            "explain_sql rejects SHOW COLUMNS; use execute_sql_dispatch"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
-            "explain_sql does not accept SHOW ENTITIES; use execute_sql_dispatch(...)"
+            "explain_sql rejects SHOW ENTITIES; use execute_sql_dispatch"
         }
         (SqlSurface::Explain, SqlLaneKind::Query | SqlLaneKind::Explain) => {
             "explain_sql requires EXPLAIN"

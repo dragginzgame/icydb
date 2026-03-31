@@ -21,17 +21,20 @@ use crate::{
         },
     },
     traits::CanisterKind,
+    value::Value,
 };
+
+type SqlProjectionRowParts = (Vec<String>, Vec<Vec<Value>>, u32);
 
 impl<C: CanisterKind> DbSession<C> {
     // Execute one lowered SQL SELECT command entirely through the shared
-    // structural projection path.
+    // structural projection path and keep the result in projection form.
     #[inline(never)]
-    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_select_core(
+    fn execute_lowered_sql_projection_core(
         &self,
         select: &LoweredSelectShape,
         authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
+    ) -> Result<SqlProjectionPayload, QueryError> {
         let structural = apply_lowered_select_shape(
             crate::db::query::intent::StructuralQuery::new(
                 authority.model(),
@@ -42,6 +45,17 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
 
         self.execute_structural_sql_projection(structural, authority)
+    }
+
+    // Execute one lowered SQL SELECT command entirely through the shared
+    // structural projection path and package it for the shared dispatch lane.
+    #[inline(never)]
+    pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_select_core(
+        &self,
+        select: &LoweredSelectShape,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        self.execute_lowered_sql_projection_core(select, authority)
             .map(SqlProjectionPayload::into_dispatch_result)
     }
 
@@ -87,14 +101,14 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one already-lowered shared SQL `SELECT` shape for resolved authority.
     ///
     /// This narrower boundary exists specifically for generated canister query
-    /// surfaces that must not retain delete execution when the public SQL
-    /// export is intentionally query-only.
+    /// surfaces that need projection rows but must not retain delete execution
+    /// through the public query-only export.
     #[doc(hidden)]
-    pub fn execute_lowered_sql_dispatch_select_for_authority(
+    pub fn execute_lowered_sql_projection_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
-    ) -> Result<SqlDispatchResult, QueryError> {
+    ) -> Result<SqlProjectionRowParts, QueryError> {
         let Some(query) = lowered.query() else {
             return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
                 SqlSurface::QueryFrom,
@@ -103,9 +117,9 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         match query {
-            LoweredSqlQuery::Select(select) => {
-                self.execute_lowered_sql_dispatch_select_core(select, authority)
-            }
+            LoweredSqlQuery::Select(select) => self
+                .execute_lowered_sql_projection_core(select, authority)
+                .map(SqlProjectionPayload::into_parts),
             LoweredSqlQuery::Delete(_) => Err(QueryError::unsupported_query(
                 "generated SQL query dispatch requires lowered SELECT",
             )),

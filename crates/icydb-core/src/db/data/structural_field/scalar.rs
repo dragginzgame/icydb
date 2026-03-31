@@ -45,14 +45,12 @@ pub(super) fn decode_scalar_fast_path_bytes(
 
     // Phase 1: parse one bounded scalar payload and preserve explicit nulls.
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated CBOR value",
-        ));
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
     };
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after scalar payload",
+            "typed CBOR: trailing bytes after scalar payload",
         ));
     }
     if major == 7 && argument == 22 {
@@ -101,7 +99,7 @@ fn decode_scalar_fast_path_bytes_kind(
 ) -> Result<Value, FieldDecodeError> {
     if major != 2 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: invalid type, expected a byte string",
+            "typed CBOR: invalid type, expected a byte string",
         ));
     }
 
@@ -112,18 +110,14 @@ fn decode_scalar_fast_path_bytes_kind(
         FieldKind::Int128 => {
             let bytes: [u8; 16] = payload_bytes(raw_bytes, argument, payload_start, "byte string")?
                 .try_into()
-                .map_err(|_| {
-                    FieldDecodeError::new("typed CBOR decode failed: expected 16 bytes")
-                })?;
+                .map_err(|_| FieldDecodeError::new("typed CBOR: expected 16 bytes"))?;
 
             Ok(Value::Int128(Int128::from(i128::from_be_bytes(bytes))))
         }
         FieldKind::Uint128 => {
             let bytes: [u8; 16] = payload_bytes(raw_bytes, argument, payload_start, "byte string")?
                 .try_into()
-                .map_err(|_| {
-                    FieldDecodeError::new("typed CBOR decode failed: expected 16 bytes")
-                })?;
+                .map_err(|_| FieldDecodeError::new("typed CBOR: expected 16 bytes"))?;
 
             Ok(Value::Uint128(Nat128::from(u128::from_be_bytes(bytes))))
         }
@@ -143,16 +137,18 @@ fn decode_scalar_fast_path_text_kind(
 ) -> Result<Value, FieldDecodeError> {
     if major != 3 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: invalid type, expected a text string",
+            "typed CBOR: invalid type, expected a text string",
         ));
     }
 
     let text = decode_text_scalar_bytes(raw_bytes, argument, payload_start)?;
     match kind {
         FieldKind::Text => Ok(Value::Text(text.to_string())),
-        FieldKind::Ulid => Ok(Value::Ulid(Ulid::from_str(text).map_err(|_| {
-            FieldDecodeError::new("typed CBOR decode failed: invalid ulid string")
-        })?)),
+        FieldKind::Ulid => {
+            Ok(Value::Ulid(Ulid::from_str(text).map_err(|_| {
+                FieldDecodeError::new("typed CBOR: invalid ulid string")
+            })?))
+        }
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to text fast-path helper",
         )),
@@ -172,7 +168,7 @@ fn decode_scalar_fast_path_numeric_kind(
             (7, 20) => Ok(Value::Bool(false)),
             (7, 21) => Ok(Value::Bool(true)),
             _ => Err(FieldDecodeError::new(
-                "typed CBOR decode failed: invalid type, expected a bool",
+                "typed CBOR: invalid type, expected a bool",
             )),
         },
         FieldKind::Float32 => {
@@ -185,7 +181,7 @@ fn decode_scalar_fast_path_numeric_kind(
             let integer = decode_cbor_integer(major, argument)?;
             Ok(Value::Int(i64::try_from(integer).map_err(|_| {
                 FieldDecodeError::new(format!(
-                    "typed CBOR decode failed: integer {integer} out of range for i64",
+                    "typed CBOR: integer {integer} out of range for i64",
                 ))
             })?))
         }
@@ -193,7 +189,7 @@ fn decode_scalar_fast_path_numeric_kind(
             let integer = decode_cbor_integer(major, argument)?;
             Ok(Value::Uint(u64::try_from(integer).map_err(|_| {
                 FieldDecodeError::new(format!(
-                    "typed CBOR decode failed: integer {integer} out of range for u64",
+                    "typed CBOR: integer {integer} out of range for u64",
                 ))
             })?))
         }
@@ -212,7 +208,7 @@ fn decode_scalar_fast_path_float32(
 ) -> Result<Value, FieldDecodeError> {
     if major != 7 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: invalid type, expected a float",
+            "typed CBOR: invalid type, expected a float",
         ));
     }
 
@@ -237,7 +233,7 @@ fn decode_scalar_fast_path_float64(
 ) -> Result<Value, FieldDecodeError> {
     if major != 7 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: invalid type, expected a float",
+            "typed CBOR: invalid type, expected a float",
         ));
     }
 

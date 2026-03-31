@@ -90,9 +90,9 @@ fn push_account_field(
 pub(super) fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let text = decode_required_text_payload(raw_bytes, "date")?;
 
-    Date::parse(text).map(Value::Date).ok_or_else(|| {
-        FieldDecodeError::new(format!("typed CBOR decode failed: invalid date: {text}"))
-    })
+    Date::parse(text)
+        .map(Value::Date)
+        .ok_or_else(|| FieldDecodeError::new(format!("typed CBOR: invalid date: {text}")))
 }
 
 // Decode one account payload from its persisted CBOR struct form.
@@ -106,14 +106,14 @@ pub(super) fn decode_account_payload(raw_bytes: &[u8]) -> Result<Account, FieldD
     walk_cbor_map_entries(
         raw_bytes,
         "expected CBOR map for account payload",
-        "typed CBOR decode failed: trailing bytes after account payload",
+        "typed CBOR: trailing bytes after account payload",
         (&raw mut state).cast(),
         push_account_field,
     )?;
 
-    let owner = state.0.ok_or_else(|| {
-        FieldDecodeError::new("typed CBOR decode failed: missing account owner field")
-    })?;
+    let owner = state
+        .0
+        .ok_or_else(|| FieldDecodeError::new("typed CBOR: missing account owner field"))?;
 
     Ok(Account::from_parts(owner, state.1))
 }
@@ -125,11 +125,11 @@ pub(super) fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, Fiel
     let value = match major {
         3 => decode_required_text_payload(raw_bytes, "decimal")?
             .parse::<Decimal>()
-            .map_err(|err| FieldDecodeError::new(format!("typed CBOR decode failed: {err}")))?,
+            .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))?,
         4 => decode_decimal_binary_payload(raw_bytes)?,
         _ => {
             return Err(FieldDecodeError::new(
-                "typed CBOR decode failed: expected decimal text or binary tuple",
+                "typed CBOR: expected decimal text or binary tuple",
             ));
         }
     };
@@ -148,10 +148,10 @@ pub(super) fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, Fie
             argument,
             payload_start,
         )?)
-        .map_err(|err| FieldDecodeError::new(format!("typed CBOR decode failed: {err}")))?,
+        .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))?,
         _ => {
             return Err(FieldDecodeError::new(
-                "typed CBOR decode failed: expected duration millis or string",
+                "typed CBOR: expected duration millis or string",
             ));
         }
     };
@@ -171,9 +171,8 @@ pub(super) fn decode_timestamp_payload(raw_bytes: &[u8]) -> Result<Timestamp, Fi
 
     let value = match major {
         0 | 1 => {
-            let millis = i64::try_from(decode_cbor_integer(major, argument)?).map_err(|_| {
-                FieldDecodeError::new("typed CBOR decode failed: timestamp out of i64 range")
-            })?;
+            let millis = i64::try_from(decode_cbor_integer(major, argument)?)
+                .map_err(|_| FieldDecodeError::new("typed CBOR: timestamp out of i64 range"))?;
             Timestamp::from_millis(millis)
         }
         3 => Timestamp::parse_flexible(decode_text_scalar_bytes(
@@ -181,10 +180,10 @@ pub(super) fn decode_timestamp_payload(raw_bytes: &[u8]) -> Result<Timestamp, Fi
             argument,
             payload_start,
         )?)
-        .map_err(|err| FieldDecodeError::new(format!("typed CBOR decode failed: {err}")))?,
+        .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))?,
         _ => {
             return Err(FieldDecodeError::new(
-                "typed CBOR decode failed: expected unix millis or RFC3339 string",
+                "typed CBOR: expected unix millis or RFC3339 string",
             ));
         }
     };
@@ -220,7 +219,7 @@ pub(super) fn decode_principal_payload(
 ) -> Result<crate::types::Principal, FieldDecodeError> {
     let bytes = decode_required_bytes_payload(raw_bytes, "principal")?;
     crate::types::Principal::try_from_bytes(bytes)
-        .map_err(|err| FieldDecodeError::new(format!("typed CBOR decode failed: {err}")))
+        .map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))
 }
 
 // Decode one subaccount payload from its persisted CBOR sequence or byte-string
@@ -255,12 +254,12 @@ fn decode_optional_subaccount_value(
 fn decode_decimal_binary_payload(raw_bytes: &[u8]) -> Result<Decimal, FieldDecodeError> {
     let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated decimal payload",
+            "typed CBOR: truncated decimal payload",
         ));
     };
     if major != 4 || argument != 2 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: expected decimal binary tuple",
+            "typed CBOR: expected decimal binary tuple",
         ));
     }
 
@@ -270,7 +269,7 @@ fn decode_decimal_binary_payload(raw_bytes: &[u8]) -> Result<Decimal, FieldDecod
     cursor = skip_cbor_value(raw_bytes, cursor)?;
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after decimal payload",
+            "typed CBOR: trailing bytes after decimal payload",
         ));
     }
 
@@ -279,7 +278,7 @@ fn decode_decimal_binary_payload(raw_bytes: &[u8]) -> Result<Decimal, FieldDecod
             .try_into()
             .map_err(|_| {
                 FieldDecodeError::new(
-                    "typed CBOR decode failed: invalid decimal mantissa length: 16 bytes expected",
+                    "typed CBOR: invalid decimal mantissa length: 16 bytes expected",
                 )
             })?;
     let scale = decode_required_u32_payload(&raw_bytes[scale_start..cursor], "decimal scale")?;
@@ -293,12 +292,12 @@ fn decode_bigint_tuple_payload(
 ) -> Result<(BigIntSign, BigUint), FieldDecodeError> {
     let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated bigint payload",
+            "typed CBOR: truncated bigint payload",
         ));
     };
     if major != 4 || argument != 2 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: expected bigint sign/magnitude tuple",
+            "typed CBOR: expected bigint sign/magnitude tuple",
         ));
     }
 
@@ -308,7 +307,7 @@ fn decode_bigint_tuple_payload(
     cursor = skip_cbor_value(raw_bytes, cursor)?;
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after bigint payload",
+            "typed CBOR: trailing bytes after bigint payload",
         ));
     }
 
@@ -327,7 +326,7 @@ fn decode_bigint_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecod
         0 => Ok(BigIntSign::NoSign),
         1 => Ok(BigIntSign::Plus),
         other => Err(FieldDecodeError::new(format!(
-            "typed CBOR decode failed: invalid bigint sign {other}"
+            "typed CBOR: invalid bigint sign {other}"
         ))),
     }
 }
@@ -336,12 +335,12 @@ fn decode_bigint_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecod
 fn decode_biguint_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
     let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated biguint payload",
+            "typed CBOR: truncated biguint payload",
         ));
     };
     if major != 4 {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: expected biguint limb sequence",
+            "typed CBOR: expected biguint limb sequence",
         ));
     }
 
@@ -360,7 +359,7 @@ fn decode_biguint_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError>
 
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: trailing bytes after biguint payload",
+            "typed CBOR: trailing bytes after biguint payload",
         ));
     }
 
@@ -389,7 +388,7 @@ fn decode_required_text_payload<'a>(
     let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, label)?;
     if major != 3 {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR decode failed: expected a text string for {label}"
+            "typed CBOR: expected a text string for {label}"
         )));
     }
 
@@ -405,7 +404,7 @@ fn decode_required_bytes_payload<'a>(
     let (major, argument, payload_start) = parse_complete_top_level_payload(raw_bytes, label)?;
     if major != 2 {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR decode failed: expected a byte string for {label}"
+            "typed CBOR: expected a byte string for {label}"
         )));
     }
 
@@ -421,15 +420,12 @@ fn decode_required_u32_payload(
     let (major, argument, _) = parse_complete_top_level_payload(raw_bytes, label)?;
     if major != 0 {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR decode failed: expected unsigned integer for {label}"
+            "typed CBOR: expected unsigned integer for {label}"
         )));
     }
 
-    u32::try_from(argument).map_err(|_| {
-        FieldDecodeError::new(format!(
-            "typed CBOR decode failed: {label} out of u32 range"
-        ))
-    })
+    u32::try_from(argument)
+        .map_err(|_| FieldDecodeError::new(format!("typed CBOR: {label} out of u32 range")))
 }
 
 // Parse one top-level CBOR payload and enforce that it consumes the whole
@@ -440,14 +436,14 @@ fn parse_complete_top_level_payload(
 ) -> Result<(u8, u64, usize), FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR decode failed: truncated {label} payload"
+            "typed CBOR: truncated {label} payload"
         )));
     };
 
     let end = skip_cbor_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(format!(
-            "typed CBOR decode failed: trailing bytes after {label} payload"
+            "typed CBOR: trailing bytes after {label} payload"
         )));
     }
 
@@ -472,7 +468,7 @@ fn decode_decimal_mantissa_scale(mantissa: i128, scale: u32) -> Result<Decimal, 
         }
         if value % 10 != 0 {
             return Err(FieldDecodeError::new(
-                "typed CBOR decode failed: invalid decimal binary payload",
+                "typed CBOR: invalid decimal binary payload",
             ));
         }
         value /= 10;
@@ -487,7 +483,7 @@ fn decode_decimal_mantissa_scale(mantissa: i128, scale: u32) -> Result<Decimal, 
 fn decode_subaccount_payload_bytes(raw_bytes: &[u8]) -> Result<[u8; 32], FieldDecodeError> {
     let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "typed CBOR decode failed: truncated subaccount payload",
+            "typed CBOR: truncated subaccount payload",
         ));
     };
 
@@ -495,14 +491,12 @@ fn decode_subaccount_payload_bytes(raw_bytes: &[u8]) -> Result<[u8; 32], FieldDe
         2 => decode_required_bytes_payload(raw_bytes, "subaccount")?
             .try_into()
             .map_err(|_| {
-                FieldDecodeError::new(
-                    "typed CBOR decode failed: expected 32 bytes for subaccount payload",
-                )
+                FieldDecodeError::new("typed CBOR: expected 32 bytes for subaccount payload")
             }),
         4 => {
             if argument != 32 {
                 return Err(FieldDecodeError::new(
-                    "typed CBOR decode failed: expected 32-byte array for subaccount payload",
+                    "typed CBOR: expected 32-byte array for subaccount payload",
                 ));
             }
 
@@ -514,29 +508,29 @@ fn decode_subaccount_payload_bytes(raw_bytes: &[u8]) -> Result<[u8; 32], FieldDe
                     parse_tagged_cbor_head(&raw_bytes[item_start..cursor], 0)?
                 else {
                     return Err(FieldDecodeError::new(
-                        "typed CBOR decode failed: truncated subaccount item",
+                        "typed CBOR: truncated subaccount item",
                     ));
                 };
                 if item_major != 0 {
                     return Err(FieldDecodeError::new(
-                        "typed CBOR decode failed: expected unsigned byte in subaccount payload",
+                        "typed CBOR: expected unsigned byte in subaccount payload",
                     ));
                 }
                 *byte = u8::try_from(item_argument).map_err(|_| {
-                    FieldDecodeError::new("typed CBOR decode failed: subaccount byte out of range")
+                    FieldDecodeError::new("typed CBOR: subaccount byte out of range")
                 })?;
             }
 
             if cursor != raw_bytes.len() {
                 return Err(FieldDecodeError::new(
-                    "typed CBOR decode failed: trailing bytes after subaccount payload",
+                    "typed CBOR: trailing bytes after subaccount payload",
                 ));
             }
 
             Ok(bytes)
         }
         _ => Err(FieldDecodeError::new(
-            "typed CBOR decode failed: expected byte string or byte array for subaccount payload",
+            "typed CBOR: expected byte string or byte array for subaccount payload",
         )),
     }
 }
