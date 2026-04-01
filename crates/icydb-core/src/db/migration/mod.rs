@@ -477,7 +477,12 @@ fn execute_migration_step<C: CanisterKind>(
 
     // Phase 2: apply step row ops under commit-window durability semantics.
     finish_commit(commit, |guard| {
-        apply_marker_row_ops(db, &guard.marker.row_ops)
+        apply_marker_row_ops(
+            db,
+            guard
+                .row_ops()
+                .expect("migration commit guard must retain marker row ops"),
+        )
     })
     .map_err(|err| annotate_step_error(plan, step_index, step.name(), err))?;
 

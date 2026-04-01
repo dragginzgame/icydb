@@ -24,7 +24,8 @@ use std::{cell::RefCell, thread::LocalKey};
 // This makes partial mutations deterministic without a WAL.
 
 pub(crate) const COMMIT_LABEL: &str = "CommitMarker";
-const COMMIT_ID_BYTES: usize = 16;
+/// Stored commit-id byte width shared by marker and guard paths.
+pub(in crate::db) const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;
 
@@ -104,9 +105,7 @@ pub(crate) struct CommitMarker {
 impl CommitMarker {
     /// Construct a new commit marker with a fresh commit id.
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
-        let id = Ulid::try_generate()
-            .map_err(InternalError::commit_id_generation_failed)?
-            .to_bytes();
+        let id = generate_commit_id()?;
 
         Ok(Self { id, row_ops })
     }
@@ -156,6 +155,13 @@ const COMMIT_MARKER_FLAG_AFTER: u8 = 0b0000_0010;
 const COMMIT_MARKER_FLAG_MASK: u8 = COMMIT_MARKER_FLAG_BEFORE | COMMIT_MARKER_FLAG_AFTER;
 const COMMIT_MARKER_ROW_COUNT_BYTES: usize = 4;
 
+/// Generate one fresh commit id for marker persistence.
+pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
+    Ulid::try_generate()
+        .map_err(InternalError::commit_id_generation_failed)
+        .map(|ulid| ulid.to_bytes())
+}
+
 /// Encode one commit-marker payload in the canonical binary format.
 pub(in crate::db) fn encode_commit_marker_payload(
     marker: &CommitMarker,
@@ -163,17 +169,7 @@ pub(in crate::db) fn encode_commit_marker_payload(
     // Phase 1: size the output once so commit persistence writes one compact frame.
     let mut capacity = COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES;
     for row_op in &marker.row_ops {
-        capacity = capacity
-            .saturating_add(4 + row_op.entity_path.len())
-            .saturating_add(4 + row_op.key.len())
-            .saturating_add(1)
-            .saturating_add(COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES);
-        if let Some(bytes) = &row_op.before {
-            capacity = capacity.saturating_add(4 + bytes.len());
-        }
-        if let Some(bytes) = &row_op.after {
-            capacity = capacity.saturating_add(4 + bytes.len());
-        }
+        capacity = capacity.saturating_add(commit_row_op_payload_capacity(row_op));
     }
     if capacity > u32::MAX as usize {
         return Err(
@@ -193,33 +189,84 @@ pub(in crate::db) fn encode_commit_marker_payload(
         "commit marker row count",
     )?;
     for row_op in &marker.row_ops {
-        write_len_prefixed_bytes(
-            &mut encoded,
-            row_op.entity_path.as_bytes(),
-            "commit marker entity_path",
-        )?;
-        write_len_prefixed_bytes(&mut encoded, &row_op.key, "commit marker key")?;
-
-        let mut flags = 0_u8;
-        if row_op.before.is_some() {
-            flags |= COMMIT_MARKER_FLAG_BEFORE;
-        }
-        if row_op.after.is_some() {
-            flags |= COMMIT_MARKER_FLAG_AFTER;
-        }
-        encoded.push(flags);
-
-        if let Some(bytes) = &row_op.before {
-            write_len_prefixed_bytes(&mut encoded, bytes, "commit marker before payload")?;
-        }
-        if let Some(bytes) = &row_op.after {
-            write_len_prefixed_bytes(&mut encoded, bytes, "commit marker after payload")?;
-        }
-
-        encoded.extend_from_slice(&row_op.schema_fingerprint);
+        write_commit_row_op(&mut encoded, row_op)?;
     }
 
     Ok(encoded)
+}
+
+/// Encode one single-row commit-marker payload for hot write-lane persistence.
+pub(in crate::db) fn encode_single_row_commit_marker_payload(
+    marker_id: [u8; COMMIT_ID_BYTES],
+    row_op: &CommitRowOp,
+) -> Result<Vec<u8>, InternalError> {
+    // Phase 1: compute the exact one-row frame capacity up front.
+    let capacity = COMMIT_MARKER_ID_BYTES
+        .saturating_add(COMMIT_MARKER_ROW_COUNT_BYTES)
+        .saturating_add(commit_row_op_payload_capacity(row_op));
+    if capacity > u32::MAX as usize {
+        return Err(
+            InternalError::commit_marker_payload_exceeds_u32_length_limit(
+                "commit marker payload",
+                capacity,
+            ),
+        );
+    }
+
+    // Phase 2: encode the single row op directly without the outer row-op loop.
+    let mut encoded = Vec::with_capacity(capacity);
+    encoded.extend_from_slice(&marker_id);
+    write_len_u32(&mut encoded, 1, "commit marker row count")?;
+    write_commit_row_op(&mut encoded, row_op)?;
+
+    Ok(encoded)
+}
+
+// Return the canonical encoded payload size contribution for one row op.
+const fn commit_row_op_payload_capacity(row_op: &CommitRowOp) -> usize {
+    let mut capacity = 4 + row_op.entity_path.len();
+    capacity = capacity
+        .saturating_add(4 + row_op.key.len())
+        .saturating_add(1)
+        .saturating_add(COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES);
+    if let Some(bytes) = &row_op.before {
+        capacity = capacity.saturating_add(4 + bytes.len());
+    }
+    if let Some(bytes) = &row_op.after {
+        capacity = capacity.saturating_add(4 + bytes.len());
+    }
+
+    capacity
+}
+
+// Encode one row op under the canonical marker payload framing.
+fn write_commit_row_op(out: &mut Vec<u8>, row_op: &CommitRowOp) -> Result<(), InternalError> {
+    write_len_prefixed_bytes(
+        out,
+        row_op.entity_path.as_bytes(),
+        "commit marker entity_path",
+    )?;
+    write_len_prefixed_bytes(out, &row_op.key, "commit marker key")?;
+
+    let mut flags = 0_u8;
+    if row_op.before.is_some() {
+        flags |= COMMIT_MARKER_FLAG_BEFORE;
+    }
+    if row_op.after.is_some() {
+        flags |= COMMIT_MARKER_FLAG_AFTER;
+    }
+    out.push(flags);
+
+    if let Some(bytes) = &row_op.before {
+        write_len_prefixed_bytes(out, bytes, "commit marker before payload")?;
+    }
+    if let Some(bytes) = &row_op.after {
+        write_len_prefixed_bytes(out, bytes, "commit marker after payload")?;
+    }
+
+    out.extend_from_slice(&row_op.schema_fingerprint);
+
+    Ok(())
 }
 
 /// Decode one commit-marker payload from the canonical binary format.

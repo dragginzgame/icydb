@@ -5,7 +5,7 @@
 
 use crate::{
     db::commit::{
-        marker::CommitMarker,
+        marker::{COMMIT_ID_BYTES, CommitMarker, CommitRowOp, generate_commit_id},
         store::{CommitStore, with_commit_store, with_commit_store_infallible},
     },
     error::InternalError,
@@ -31,7 +31,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub(crate) struct CommitApplyGuard {
     phase: &'static str,
     finished: bool,
-    rollbacks: Vec<Box<dyn FnOnce()>>,
+    rollback: Option<Box<dyn FnOnce()>>,
 }
 
 impl CommitApplyGuard {
@@ -40,12 +40,23 @@ impl CommitApplyGuard {
         Self {
             phase,
             finished: false,
-            rollbacks: Vec::new(),
+            rollback: None,
         }
     }
 
     pub(crate) fn record_rollback(&mut self, rollback: impl FnOnce() + 'static) {
-        self.rollbacks.push(Box::new(rollback));
+        let rollback = Box::new(rollback);
+
+        // Keep the hot one-rollback case allocation-light while still
+        // preserving reverse-order semantics if a future caller records more
+        // than one cleanup closure.
+        self.rollback = Some(match self.rollback.take() {
+            None => rollback,
+            Some(previous) => Box::new(move || {
+                rollback();
+                previous();
+            }),
+        });
     }
 
     /// Mark the guarded apply phase complete and drop rollback closures.
@@ -58,7 +69,7 @@ impl CommitApplyGuard {
         }
 
         self.finished = true;
-        self.rollbacks.clear();
+        self.rollback = None;
         Ok(())
     }
 
@@ -71,7 +82,7 @@ impl CommitApplyGuard {
         // Best-effort cleanup only:
         // - reverse order to mirror write application
         // - never unwind past this boundary
-        while let Some(rollback) = self.rollbacks.pop() {
+        while let Some(rollback) = self.rollback.take() {
             let _ = catch_unwind(AssertUnwindSafe(rollback));
         }
     }
@@ -94,10 +105,34 @@ impl Drop for CommitApplyGuard {
 
 #[derive(Clone, Debug)]
 pub(crate) struct CommitGuard {
-    pub(crate) marker: CommitMarker,
+    commit_id: [u8; COMMIT_ID_BYTES],
+    marker: Option<CommitMarker>,
 }
 
 impl CommitGuard {
+    // Create one guard that only needs persisted marker identity.
+    const fn for_persisted_id(commit_id: [u8; COMMIT_ID_BYTES]) -> Self {
+        Self {
+            commit_id,
+            marker: None,
+        }
+    }
+
+    /// Retain one full marker for finish-time consumers that need row ops.
+    pub(in crate::db) const fn from_marker(marker: CommitMarker) -> Self {
+        let commit_id = marker.id;
+
+        Self {
+            commit_id,
+            marker: Some(marker),
+        }
+    }
+
+    /// Borrow the retained marker row ops when the caller explicitly needs them.
+    pub(in crate::db) fn row_ops(&self) -> Option<&[CommitRowOp]> {
+        self.marker.as_ref().map(|marker| marker.row_ops.as_slice())
+    }
+
     /// Clear the commit marker without surfacing errors.
     fn clear(self) {
         let _ = self;
@@ -108,17 +143,25 @@ impl CommitGuard {
 /// Persist a commit marker and open the commit window.
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
-        // Phase 1: enforce one in-flight marker at a time.
-        if store.load()?.is_some() {
-            return Err(InternalError::store_invariant(
-                "commit marker already present before begin",
-            ));
-        }
+        // Phase 1: enforce one in-flight marker at a time while preserving any
+        // existing migration-state bytes through the same decoded control slot.
+        let commit_id = marker.id;
+        store.set_if_empty(&marker)?;
 
-        // Phase 2: persist marker authority before any commit-window mutation.
-        store.set(&marker)?;
+        Ok(CommitGuard::for_persisted_id(commit_id))
+    })
+}
 
-        Ok(CommitGuard { marker })
+/// Persist one single-row commit marker and open the commit window.
+pub(crate) fn begin_single_row_commit(row_op: CommitRowOp) -> Result<CommitGuard, InternalError> {
+    with_commit_store(|store| {
+        // Phase 1: generate durable marker identity before any stable write.
+        let commit_id = generate_commit_id()?;
+
+        // Phase 2: persist the single-row marker directly through the hot path.
+        store.set_single_row_op_if_empty(commit_id, &row_op)?;
+
+        Ok(CommitGuard::for_persisted_id(commit_id))
     })
 }
 
@@ -133,7 +176,7 @@ pub(crate) fn begin_commit_with_migration_state(
 ) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
         // Phase 1: enforce one in-flight marker at a time.
-        if store.load()?.is_some() {
+        if !store.marker_is_empty()? {
             return Err(InternalError::store_invariant(
                 "commit marker already present before begin",
             ));
@@ -142,7 +185,7 @@ pub(crate) fn begin_commit_with_migration_state(
         // Phase 2: persist marker + migration step progress atomically.
         store.set_with_migration_state(&marker, migration_state_bytes)?;
 
-        Ok(CommitGuard { marker })
+        Ok(CommitGuard::from_marker(marker))
     })
 }
 
@@ -165,7 +208,7 @@ pub(crate) fn finish_commit(
     // We only clear on success; failures keep the marker durable so recovery can
     // re-run the marker payload instead of losing commit authority.
     let result = apply(&mut guard);
-    let commit_id = guard.marker.id;
+    let commit_id = guard.commit_id;
     if result.is_ok() {
         // Phase 1: successful apply must clear marker authority immediately.
         guard.clear();

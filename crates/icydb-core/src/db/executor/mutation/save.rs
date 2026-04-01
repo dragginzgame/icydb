@@ -7,12 +7,13 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{
-            CanonicalRow, DataKey, PersistedRow, RawRow, UpdatePatch, decode_raw_row_for_entity_key,
-        },
+        data::{CanonicalRow, DataKey, PersistedRow, RawRow, UpdatePatch},
         executor::{
             Context, ExecutorError,
-            mutation::{MutationInput, commit_save_row_ops_with_window, mutation_write_context},
+            mutation::{
+                MutationInput, commit_save_row_ops_with_window,
+                commit_single_save_row_op_with_window, mutation_write_context,
+            },
         },
         schema::commit_schema_fingerprint_for_entity,
     },
@@ -428,12 +429,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
     ) -> Result<(), InternalError> {
-        let (_, decoded) = decode_raw_row_for_entity_key::<E>(data_key, row)?;
-        Self::ensure_entity_invariants(&decoded).map_err(|err| {
-            InternalError::from(ExecutorError::persisted_row_invariant_violation(
-                data_key,
-                &err.message,
-            ))
+        Self::ensure_persisted_row_invariants(data_key, row).map_err(|err| {
+            match (err.class(), err.origin()) {
+                (
+                    crate::error::ErrorClass::Corruption,
+                    crate::error::ErrorOrigin::Serialize | crate::error::ErrorOrigin::Store,
+                ) => err,
+                _ => InternalError::from(ExecutorError::persisted_row_invariant_violation(
+                    data_key,
+                    &err.message,
+                )),
+            }
         })?;
 
         Ok(())
@@ -549,7 +555,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         span: &mut Span<E>,
     ) -> Result<(), InternalError> {
         // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-        commit_save_row_ops_with_window::<E>(db, vec![marker_row_op], "save_row_apply", || {
+        commit_single_save_row_op_with_window::<E>(db, marker_row_op, "save_row_apply", || {
             span.set_rows(1);
         })?;
 

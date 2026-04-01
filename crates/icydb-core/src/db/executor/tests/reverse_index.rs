@@ -1069,9 +1069,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     // Clear the intentionally-bad marker to avoid contaminating later tests.
     let cleanup_marker = CommitMarker::new(Vec::new()).expect("cleanup marker should build");
     crate::db::commit::finish_commit(
-        crate::db::commit::CommitGuard {
-            marker: cleanup_marker,
-        },
+        crate::db::commit::CommitGuard::from_marker(cleanup_marker),
         |_| Ok(()),
     )
     .expect("marker cleanup should succeed");

@@ -5,8 +5,9 @@
 
 use crate::{
     db::commit::{
-        COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
-        decode_commit_marker_payload, encode_commit_marker_payload, memory::commit_memory_id,
+        COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
+        decode_commit_marker_payload, encode_commit_marker_payload,
+        marker::encode_single_row_commit_marker_payload, memory::commit_memory_id,
         validate_commit_marker_shape,
     },
     error::InternalError,
@@ -29,6 +30,19 @@ use std::{borrow::Cow, cell::RefCell};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RawCommitMarker(Vec<u8>);
+
+///
+/// CommitControlSlotRef
+///
+/// Borrowed view of one decoded commit control-slot envelope.
+/// This keeps hot-path marker checks allocation-free while preserving the
+/// same strict control-slot validation contract as the owned decode helper.
+///
+
+struct CommitControlSlotRef<'a> {
+    marker_bytes: &'a [u8],
+    migration_bytes: &'a [u8],
+}
 
 const COMMIT_CONTROL_MAGIC: [u8; 4] = *b"CMCS";
 const COMMIT_CONTROL_STATE_VERSION_CURRENT: u8 = 1;
@@ -77,6 +91,24 @@ impl RawCommitMarker {
         Ok(Self(bytes))
     }
 
+    /// Serialize and bound-check one single-row commit marker payload.
+    fn try_from_single_row_op(
+        marker_id: [u8; 16],
+        row_op: &CommitRowOp,
+    ) -> Result<Self, InternalError> {
+        let bytes = serialize_single_row_commit_marker(marker_id, row_op)?;
+        if bytes.len() > MAX_COMMIT_BYTES as usize {
+            return Err(
+                InternalError::commit_marker_exceeds_max_size_before_persist(
+                    bytes.len(),
+                    MAX_COMMIT_BYTES,
+                ),
+            );
+        }
+
+        Ok(Self(bytes))
+    }
+
     /// Deserialize the stored payload, treating failures as corruption.
     fn try_decode(&self) -> Result<Option<CommitMarker>, InternalError> {
         // Phase 1: fast empty-marker check.
@@ -102,8 +134,19 @@ impl RawCommitMarker {
 // Compatibility contract:
 // - only the canonical control-slot envelope is accepted
 fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), InternalError> {
+    let slot = inspect_commit_control_slot(bytes)?;
+
+    Ok((slot.marker_bytes.to_vec(), slot.migration_bytes.to_vec()))
+}
+
+// Inspect commit control-slot bytes under the canonical envelope without
+// allocating owned marker or migration buffers.
+fn inspect_commit_control_slot(bytes: &[u8]) -> Result<CommitControlSlotRef<'_>, InternalError> {
     if bytes.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok(CommitControlSlotRef {
+            marker_bytes: &[],
+            migration_bytes: &[],
+        });
     }
 
     if bytes.len() > MAX_COMMIT_BYTES as usize {
@@ -154,15 +197,18 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
         .get(cursor..migration_end)
         .ok_or_else(RawCommitMarker::control_slot_canonical_envelope_required)?;
 
-    Ok((marker_bytes.to_vec(), migration_bytes.to_vec()))
+    Ok(CommitControlSlotRef {
+        marker_bytes,
+        migration_bytes,
+    })
 }
 
 // Encode marker + migration payload bytes into the persisted control-slot format.
 fn encode_commit_control_slot(
-    marker_bytes: Vec<u8>,
-    migration_bytes: Vec<u8>,
+    marker_bytes: &[u8],
+    migration_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let encoded = encode_commit_control_slot_bytes(&marker_bytes, &migration_bytes)?;
+    let encoded = encode_commit_control_slot_bytes(marker_bytes, migration_bytes)?;
 
     if encoded.len() > MAX_COMMIT_BYTES as usize {
         return Err(InternalError::commit_control_slot_exceeds_max_size(
@@ -177,6 +223,17 @@ fn encode_commit_control_slot(
 // Serialize a commit marker payload under the canonical versioned envelope.
 fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalError> {
     let marker_payload = encode_commit_marker_payload(marker)?;
+
+    encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &marker_payload)
+}
+
+// Serialize one single-row marker payload under the canonical versioned
+// envelope so hot save/delete opens do not build a Vec-shaped marker wrapper.
+fn serialize_single_row_commit_marker(
+    marker_id: [u8; 16],
+    row_op: &CommitRowOp,
+) -> Result<Vec<u8>, InternalError> {
+    let marker_payload = encode_single_row_commit_marker_payload(marker_id, row_op)?;
 
     encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &marker_payload)
 }
@@ -340,7 +397,7 @@ impl CommitStore {
         marker_bytes: Vec<u8>,
         migration_bytes: Vec<u8>,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_commit_control_slot(marker_bytes, migration_bytes)
+        encode_commit_control_slot(&marker_bytes, &migration_bytes)
     }
 
     /// Encode one raw commit-marker envelope for recovery tests.
@@ -367,16 +424,37 @@ impl CommitStore {
 
     /// Return whether the marker slot is empty without decoding.
     pub(super) fn is_empty(&self) -> bool {
-        decode_commit_control_slot(self.cell.get().as_bytes())
-            .map(|(marker_bytes, _)| marker_bytes.is_empty())
+        inspect_commit_control_slot(self.cell.get().as_bytes())
+            .map(|slot| slot.marker_bytes.is_empty())
             .unwrap_or(false)
     }
 
-    /// Persist one commit marker payload.
-    pub(super) fn set(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
-        let (_, migration_bytes) = decode_commit_control_slot(self.cell.get().as_bytes())?;
+    /// Return whether the marker payload is empty while still validating the
+    /// outer control-slot envelope.
+    pub(super) fn marker_is_empty(&self) -> Result<bool, InternalError> {
+        inspect_commit_control_slot(self.cell.get().as_bytes())
+            .map(|slot| slot.marker_bytes.is_empty())
+    }
+
+    /// Persist one commit marker while proving the current slot has no marker.
+    pub(super) fn set_if_empty(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
+        let migration_bytes = self.require_empty_marker_slot()?;
         let marker_bytes = RawCommitMarker::try_from_marker(marker)?.into_bytes();
-        let encoded = encode_commit_control_slot(marker_bytes, migration_bytes)?;
+        let encoded = encode_commit_control_slot(&marker_bytes, migration_bytes)?;
+
+        self.cell.set(RawCommitMarker(encoded));
+        Ok(())
+    }
+
+    /// Persist one single-row marker while proving the current slot has no marker.
+    pub(super) fn set_single_row_op_if_empty(
+        &mut self,
+        marker_id: [u8; 16],
+        row_op: &CommitRowOp,
+    ) -> Result<(), InternalError> {
+        let migration_bytes = self.require_empty_marker_slot()?;
+        let marker_bytes = RawCommitMarker::try_from_single_row_op(marker_id, row_op)?.into_bytes();
+        let encoded = encode_commit_control_slot(&marker_bytes, migration_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
         Ok(())
@@ -389,7 +467,7 @@ impl CommitStore {
         migration_state_bytes: Vec<u8>,
     ) -> Result<(), InternalError> {
         let marker_bytes = RawCommitMarker::try_from_marker(marker)?.into_bytes();
-        let encoded = encode_commit_control_slot(marker_bytes, migration_state_bytes)?;
+        let encoded = encode_commit_control_slot(&marker_bytes, &migration_state_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
         Ok(())
@@ -409,7 +487,7 @@ impl CommitStore {
     /// Clear persisted migration-state bytes while preserving marker bytes.
     pub(super) fn clear_migration_state_bytes(&mut self) -> Result<(), InternalError> {
         let (marker_bytes, _) = decode_commit_control_slot(self.cell.get().as_bytes())?;
-        let encoded = encode_commit_control_slot(marker_bytes, Vec::new())?;
+        let encoded = encode_commit_control_slot(&marker_bytes, &[])?;
 
         self.cell.set(RawCommitMarker(encoded));
 
@@ -421,11 +499,11 @@ impl CommitStore {
     /// This write is infallible by storage contract and is only used after
     /// successful commit-window completion or successful recovery completion.
     pub(super) fn clear_infallible(&mut self) {
-        let migration_bytes = decode_commit_control_slot(self.cell.get().as_bytes())
-            .map(|(_, migration_bytes)| migration_bytes)
+        let migration_bytes = inspect_commit_control_slot(self.cell.get().as_bytes())
+            .map(|slot| slot.migration_bytes)
             .unwrap_or_default();
 
-        let encoded = encode_commit_control_slot(Vec::new(), migration_bytes)
+        let encoded = encode_commit_control_slot(&[], migration_bytes)
             .unwrap_or_else(|_| RawCommitMarker::empty().into_bytes());
         self.cell.set(RawCommitMarker(encoded));
     }
@@ -434,6 +512,19 @@ impl CommitStore {
     #[cfg(test)]
     pub(super) fn set_raw_marker_bytes_for_tests(&mut self, bytes: Vec<u8>) {
         self.cell.set(RawCommitMarker(bytes));
+    }
+
+    // Decode the control slot once and require that no marker bytes are present
+    // before commit-window open persists a fresh marker.
+    fn require_empty_marker_slot(&self) -> Result<&[u8], InternalError> {
+        let slot = inspect_commit_control_slot(self.cell.get().as_bytes())?;
+        if !slot.marker_bytes.is_empty() {
+            return Err(InternalError::store_invariant(
+                "commit marker already present before begin",
+            ));
+        }
+
+        Ok(slot.migration_bytes)
     }
 }
 
@@ -467,7 +558,7 @@ pub(super) fn with_commit_store<R>(
 
 /// Fast, observational check for marker presence without decoding.
 pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
-    with_commit_store(|store| Ok(!store.is_empty()))
+    with_commit_store(|store| Ok(!store.marker_is_empty()?))
 }
 
 /// Access the commit store without fallible initialization.

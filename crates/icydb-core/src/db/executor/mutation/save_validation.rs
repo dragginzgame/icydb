@@ -6,6 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
+        data::{CanonicalSlotReader, DataKey, RawRow, SlotReader, StructuralSlotReader},
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::{model_has_strong_relation_targets, validate_save_strong_relations},
@@ -45,6 +46,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let schema = Self::schema_info()?;
 
         Self::validate_entity_invariants(entity, schema)
+    }
+
+    // Validate one persisted row against the current write-boundary invariants
+    // without rebuilding a typed entity first.
+    pub(in crate::db::executor::mutation) fn ensure_persisted_row_invariants(
+        data_key: &DataKey,
+        row: &RawRow,
+    ) -> Result<(), InternalError> {
+        let schema = Self::schema_info()?;
+        let row_fields = StructuralSlotReader::from_raw_row(row, E::MODEL)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        Self::validate_structural_row_invariants(&row_fields, schema)
     }
 
     // Cache schema validation results per entity type.
@@ -158,6 +172,56 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             Self::validate_decimal_scale(field.name, &field.kind, &value)?;
 
             // Phase 4: enforce deterministic collection/map encodings at runtime.
+            Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
+        }
+
+        Ok(())
+    }
+
+    // Enforce the persisted-row write invariants directly on the structural row
+    // reader after row-shape and primary-key validation have already succeeded.
+    fn validate_structural_row_invariants(
+        row_fields: &StructuralSlotReader<'_>,
+        schema: &SchemaInfo,
+    ) -> Result<(), InternalError> {
+        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
+            if !row_fields.has(field_index) {
+                return Err(InternalError::mutation_entity_field_missing(
+                    E::PATH,
+                    field.name,
+                    field_is_indexed::<E>(field.name),
+                ));
+            }
+
+            let value = row_fields.required_value_by_contract(field_index)?;
+
+            if matches!(value, Value::Null | Value::Unit) {
+                // Null = absent, Unit = singleton sentinel; both skip type checks.
+                continue;
+            }
+
+            if !field.kind.value_kind().is_queryable() {
+                // Non-queryable structured fields are not planner-addressable.
+                continue;
+            }
+
+            let Some(field_type) = schema.field(field.name) else {
+                // Runtime-only field; treat as non-queryable.
+                continue;
+            };
+
+            if !literal_matches_type(&value, field_type) {
+                return Err(InternalError::mutation_entity_field_type_mismatch(
+                    E::PATH,
+                    field.name,
+                    &value,
+                ));
+            }
+
+            // Phase 1: enforce schema-declared decimal scales at write boundaries.
+            Self::validate_decimal_scale(field.name, &field.kind, &value)?;
+
+            // Phase 2: enforce deterministic collection/map encodings at runtime.
             Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
         }
 

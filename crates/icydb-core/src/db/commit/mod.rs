@@ -40,7 +40,8 @@ use canic_memory::{registry::MemoryRegistryError, runtime::registry::MemoryRegis
 /// Re-exports
 ///
 pub(in crate::db) use guard::{
-    CommitApplyGuard, CommitGuard, begin_commit, begin_commit_with_migration_state, finish_commit,
+    CommitApplyGuard, CommitGuard, begin_commit, begin_commit_with_migration_state,
+    begin_single_row_commit, finish_commit,
 };
 pub use hooks::EntityRuntimeHooks;
 #[cfg(debug_assertions)]

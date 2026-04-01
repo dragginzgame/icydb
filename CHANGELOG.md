@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.67.x] 🧩 - 2026-04-01 - SQL Surface Coherence
 
+- `0.67.1` keeps the SQL and storage feature surface unchanged but reduces fixed one-row write overhead in the shared commit and mutation path, so inserts, updates, and deletes use a bit less instruction budget before any row-specific work even starts.
 - `0.67.0` adds one small SQL coherence slice instead of a broad rewrite: `STARTS_WITH(field, 'x')` now works directly, and the matching `STARTS_WITH(LOWER(field), 'x')` / `STARTS_WITH(UPPER(field), 'X')` forms use the same bounded prefix-search behavior already supported through `LIKE 'prefix%'`, while unsupported wrappers such as `TRIM(...)` still fail closed with stable errors across typed SQL, generated canister SQL, and `EXPLAIN`.
 
 See detailed breakdown:
