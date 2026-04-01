@@ -27,6 +27,9 @@ jq \
       elif .sample.surface == "TypedDispatchUser" then "execute_sql_dispatch"
       elif .sample.surface == "TypedQueryFromSqlUserExecute" then "query_from_sql_execute_query"
       elif .sample.surface == "TypedExecuteSqlUser" then "execute_sql"
+      elif .sample.surface == "TypedInsertUser" then "typed_insert"
+      elif .sample.surface == "TypedUpdateUser" then "typed_update"
+      elif .sample.surface == "FluentDeleteUserOrderIdLimit1Count" then "fluent_delete"
       elif .sample.surface == "TypedExecuteSqlGroupedUser" then "execute_sql_grouped"
       elif .sample.surface == "TypedExecuteSqlGroupedUserSecondPage" then "execute_sql_grouped_second_page"
       elif .sample.surface == "TypedExecuteSqlAggregateUser" then "execute_sql_aggregate"
@@ -38,6 +41,9 @@ jq \
     def query_family:
       if key_has("show_indexes") or key_has("show_columns") or key_has("show_entities") or key_has("describe") then "metadata_lane"
       elif key_has("explain") then "explain"
+      elif key_has("delete") then "delete_mutation"
+      elif key_has("insert") or key_has("update") or key_has("replace") then "write_mutation"
+      elif key_has("starts_with") then "predicate_load"
       elif key_has("computed_projection") then "computed_projection"
       elif key_has("grouped") then "grouped_aggregate"
       elif key_has("aggregate") then "global_aggregate"
@@ -54,6 +60,7 @@ jq \
 
     def predicate_shape:
       if key_has("name_eq") then "name_eq"
+      elif key_has("starts_with") then "starts_with"
       elif key_has("having_empty") then "having_count_gt_1000"
       elif key_has("invalid_cursor") then "invalid_cursor"
       elif (.sample.outcome.success | not) and key_has("rejection") then "unsupported"
@@ -61,7 +68,11 @@ jq \
       end;
 
     def projection_shape:
-      if key_has("computed_projection") then "computed_projection"
+      if .sample.outcome.result_kind == "write_response" then "write_response"
+      elif .sample.outcome.result_kind == "delete_count" then "delete_count_only"
+      elif key_has("computed_projection") then "computed_projection"
+      elif key_has("starts_with") then "field_projection"
+      elif key_has("delete") then "delete_projection"
       elif key_has("projection") then "field_projection"
       elif key_has("grouped") then "group_key_plus_aggregate"
       elif key_has("aggregate") then "scalar_value"
@@ -150,6 +161,9 @@ jq \
       elif .sample.surface == "TypedDispatchUser" then "execute_sql_dispatch"
       elif .sample.surface == "TypedQueryFromSqlUserExecute" then "query_from_sql_execute_query"
       elif .sample.surface == "TypedExecuteSqlUser" then "execute_sql"
+      elif .sample.surface == "TypedInsertUser" then "typed_insert"
+      elif .sample.surface == "TypedUpdateUser" then "typed_update"
+      elif .sample.surface == "FluentDeleteUserOrderIdLimit1Count" then "fluent_delete"
       elif .sample.surface == "TypedExecuteSqlGroupedUser" then "execute_sql_grouped"
       elif .sample.surface == "TypedExecuteSqlGroupedUserSecondPage" then "execute_sql_grouped_second_page"
       elif .sample.surface == "TypedExecuteSqlAggregateUser" then "execute_sql_aggregate"
@@ -160,7 +174,10 @@ jq \
 
     def phase_kind:
       if key_has("explain") then "explain"
+      elif key_has("delete") then "delete_mutation"
+      elif key_has("insert") or key_has("update") or key_has("replace") then "write_mutation"
       elif key_has("invalid_cursor") or key_has("first_page") or key_has("second_page") then "cursor"
+      elif key_has("starts_with") then "predicate"
       elif key_has("computed_projection") then "projection"
       elif key_has("grouped") then "grouped"
       elif key_has("aggregate") then "aggregate"

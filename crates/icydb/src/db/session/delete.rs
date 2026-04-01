@@ -59,6 +59,15 @@ impl<E: PersistedRow> SessionDeleteQuery<'_, E> {
     pub fn trace(&self) -> Result<QueryTracePlan, Error> {
         Ok(self.inner.trace()?)
     }
+
+    /// Execute this delete while returning only the affected-row count.
+    #[doc(hidden)]
+    pub fn execute_count_only(&self) -> Result<u32, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute_count_only()?)
+    }
 }
 
 impl<E: PersistedRow + SingletonEntity> SessionDeleteQuery<'_, E> {

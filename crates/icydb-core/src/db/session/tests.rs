@@ -1183,7 +1183,7 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 7] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
@@ -1205,6 +1205,10 @@ const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
         (
             "SELECT * FROM SessionSqlEntity WHERE UPPER(name) LIKE '%Al'",
             "LIKE patterns beyond trailing '%' prefix form",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al')",
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
         ),
     ]
 }
@@ -2141,6 +2145,105 @@ fn query_from_sql_strict_like_prefix_lowers_to_strict_starts_with_intent() {
 }
 
 #[test]
+fn query_from_sql_direct_starts_with_lowers_to_strict_starts_with_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE STARTS_WITH(name, 'Al')",
+        )
+        .expect("direct STARTS_WITH SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("Al".to_string()),
+        CoercionId::Strict,
+    )));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("direct STARTS_WITH SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent strict starts-with plan should build")
+            .into_inner(),
+        "direct STARTS_WITH SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn query_from_sql_direct_lower_starts_with_lowers_to_casefold_starts_with_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE STARTS_WITH(LOWER(name), 'Al')",
+        )
+        .expect("direct LOWER(field) STARTS_WITH SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("Al".to_string()),
+        CoercionId::TextCasefold,
+    )));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("direct LOWER(field) STARTS_WITH SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "direct LOWER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn query_from_sql_direct_upper_starts_with_lowers_to_casefold_starts_with_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'AL')",
+        )
+        .expect("direct UPPER(field) STARTS_WITH SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("AL".to_string()),
+        CoercionId::TextCasefold,
+    )));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("direct UPPER(field) STARTS_WITH SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "direct UPPER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
 fn query_from_sql_lower_like_prefix_lowers_to_casefold_starts_with_intent() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2292,6 +2395,158 @@ fn execute_sql_entity_strict_like_prefix_matches_projection_rows() {
         .collect::<Vec<_>>();
 
     assert_eq!(entity_projected_names, projected_rows);
+}
+
+#[test]
+fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic uppercase-prefix dataset under the same
+    // secondary text index used by the strict LIKE prefix regression.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    // Phase 2: prove the new direct spelling returns the same indexed
+    // projection rows as the established strict LIKE prefix path.
+    let direct_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
+    )
+    .expect("direct STARTS_WITH projection should execute");
+    let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
+    )
+    .expect("strict LIKE prefix projection should execute");
+
+    assert_eq!(
+        direct_rows, like_rows,
+        "direct STARTS_WITH projection should match the established strict LIKE prefix result set",
+    );
+}
+
+#[test]
+fn execute_sql_entity_direct_starts_with_matches_indexed_like_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic uppercase-prefix dataset under the same
+    // secondary text index used by the strict LIKE prefix regression.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    // Phase 2: prove the direct spelling keeps entity-row execution aligned
+    // with the established strict LIKE prefix path.
+    let direct_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC",
+        )
+        .expect("direct STARTS_WITH entity query should execute");
+    let like_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC",
+        )
+        .expect("strict LIKE prefix entity query should execute");
+
+    assert_eq!(direct_rows.len(), like_rows.len());
+    for (direct, like) in direct_rows.iter().zip(like_rows.iter()) {
+        assert_eq!(
+            direct.entity_ref(),
+            like.entity_ref(),
+            "direct STARTS_WITH entity rows should match strict LIKE prefix entity rows",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_projection_direct_lower_starts_with_matches_indexed_lower_like_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
+    )
+    .expect("LOWER(field) LIKE projection should execute");
+
+    let starts_with_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC",
+    )
+    .expect("direct LOWER(field) STARTS_WITH projection should execute");
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "direct LOWER(field) STARTS_WITH projection should match the established casefold LIKE prefix result set",
+    );
+}
+
+#[test]
+fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let like_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
+        )
+        .expect("UPPER(field) LIKE entity query should execute");
+
+    let starts_with_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC",
+        )
+        .expect("direct UPPER(field) STARTS_WITH entity query should execute");
+
+    assert_eq!(starts_with_rows.len(), like_rows.len());
+    for (starts_with, like) in starts_with_rows.iter().zip(like_rows.iter()) {
+        assert_eq!(
+            starts_with.entity_ref(),
+            like.entity_ref(),
+            "direct UPPER(field) STARTS_WITH entity rows should match the established casefold LIKE prefix entity rows",
+        );
+    }
 }
 
 #[test]

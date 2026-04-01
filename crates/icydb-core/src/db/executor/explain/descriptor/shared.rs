@@ -206,7 +206,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
     let rejected = access_choice
         .rejected
         .into_iter()
-        .map(|entry| Value::from(entry.render()))
+        .map(Value::from)
         .collect();
     node.node_properties
         .insert("acc_reject", Value::List(rejected));

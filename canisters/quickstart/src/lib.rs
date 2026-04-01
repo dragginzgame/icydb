@@ -69,9 +69,8 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
-    use super::{SqlQueryResult, User, db, sql_dispatch};
+    use super::{SqlQueryResult, User, db, fixtures_load_default, sql_dispatch};
     use candid::encode_one;
-    use icydb::error::{ErrorKind, RuntimeErrorKind};
     use icydb_testing_quickstart_fixtures::schema::QuickstartCanister;
 
     const QUICKSTART_MEMORY_MIN: u8 = 104;
@@ -131,6 +130,62 @@ mod tests {
         match (dispatch, typed) {
             (Ok(dispatch), Ok(typed)) => {
                 assert_eq!(dispatch, typed, "{context}");
+            }
+            (Err(dispatch_err), Err(typed_err)) => {
+                assert_eq!(
+                    dispatch_err.kind(),
+                    typed_err.kind(),
+                    "{context}: error kind mismatch",
+                );
+                assert_eq!(
+                    dispatch_err.origin(),
+                    typed_err.origin(),
+                    "{context}: error origin mismatch",
+                );
+            }
+            (dispatch, typed) => {
+                panic!("{context}: dispatch={dispatch:?} typed={typed:?}");
+            }
+        }
+    }
+
+    // Normalize one row-shaped SQL payload for comparisons across fixture
+    // reloads that regenerate primary keys and audit timestamps.
+    fn normalized_mutating_dispatch_payload(payload: SqlQueryResult) -> SqlQueryResult {
+        match payload {
+            SqlQueryResult::Projection(mut rows) => {
+                for row in &mut rows.rows {
+                    for (index, column) in rows.columns.iter().enumerate() {
+                        if matches!(column.as_str(), "id" | "created_at" | "updated_at") {
+                            row[index] = "<dynamic>".to_string();
+                        }
+                    }
+                }
+
+                SqlQueryResult::Projection(rows)
+            }
+            other => other,
+        }
+    }
+
+    // Compare one mutating SQL path across generated and typed dispatch by
+    // reloading the deterministic fixture dataset before each execution.
+    fn assert_delete_dispatch_result_matches_typed(sql: &str, context: &str) {
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload before generated DELETE should succeed");
+        let dispatch = sql_dispatch::query(sql);
+
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload before typed DELETE should succeed");
+        let typed = test_db().execute_sql_dispatch::<User>(sql);
+
+        match (dispatch, typed) {
+            (Ok(dispatch), Ok(typed)) => {
+                assert_eq!(
+                    normalized_mutating_dispatch_payload(dispatch),
+                    normalized_mutating_dispatch_payload(typed),
+                    "{context}",
+                );
             }
             (Err(dispatch_err), Err(typed_err)) => {
                 assert_eq!(
@@ -264,24 +319,98 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_query_rejects_delete_lane() {
-        let err = dispatch_result_for_sql_unchecked("DELETE FROM User ORDER BY id LIMIT 1")
-            .expect_err("query lane should reject DELETE");
-
-        assert_eq!(
-            err.kind(),
-            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
+    fn generated_sql_dispatch_computed_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep computed projection parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_query_rejects_explain_delete_lane() {
-        let err = dispatch_result_for_sql_unchecked("EXPLAIN DELETE FROM User ORDER BY id LIMIT 1")
-            .expect_err("query lane should reject EXPLAIN DELETE");
+    fn generated_sql_dispatch_direct_starts_with_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH parity",
+        );
+    }
 
-        assert_eq!(
-            err.kind(),
-            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
+    #[test]
+    fn generated_sql_dispatch_direct_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_starts_with_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) STARTS_WITH parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_starts_with_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_stays_fail_closed() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH fail-closed parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_explain_stays_fail_closed() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM User WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH EXPLAIN fail-closed parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_computed_projection_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT LOWER(name) FROM User ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep computed projection EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_delete_matches_typed_delete_surface() {
+        assert_delete_dispatch_result_matches_typed(
+            "DELETE FROM User ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_explain_delete_matches_typed_explain_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN DELETE FROM User ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep EXPLAIN DELETE parity",
         );
     }
 

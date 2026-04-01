@@ -191,4 +191,60 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
     }
+
+    /// Execute one parsed reduced SQL statement through the generated canister
+    /// query/explain surface for one already-resolved dynamic authority.
+    ///
+    /// This keeps the canister SQL facade on the same reduced SQL ownership
+    /// boundary as typed dispatch without forcing the outer facade to reopen
+    /// typed-generic routing just to preserve parity for computed projections.
+    #[doc(hidden)]
+    pub fn execute_generated_query_surface_dispatch_for_authority(
+        &self,
+        parsed: &SqlParsedStatement,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        match parsed.route() {
+            SqlStatementRoute::Query { .. } => {
+                if let Some(plan) =
+                    computed_projection::computed_sql_projection_plan(&parsed.statement)?
+                {
+                    return self
+                        .execute_computed_sql_projection_dispatch_for_authority(plan, authority);
+                }
+
+                let lowered = parsed.lower_generated_query_surface_for_entity(
+                    authority.model().name(),
+                    authority.model().primary_key.name,
+                )?;
+
+                self.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+            }
+            SqlStatementRoute::Explain { .. } => {
+                if let Some((mode, plan)) =
+                    computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
+                {
+                    return Self::explain_computed_sql_projection_dispatch_for_authority(
+                        mode, plan, authority,
+                    )
+                    .map(SqlDispatchResult::Explain);
+                }
+
+                let lowered = parsed.lower_generated_query_surface_for_entity(
+                    authority.model().name(),
+                    authority.model().primary_key.name,
+                )?;
+
+                lowered
+                    .explain_for_model(authority.model())
+                    .map(SqlDispatchResult::Explain)
+            }
+            SqlStatementRoute::Describe { .. }
+            | SqlStatementRoute::ShowIndexes { .. }
+            | SqlStatementRoute::ShowColumns { .. }
+            | SqlStatementRoute::ShowEntities => Err(QueryError::unsupported_query(
+                "generated SQL query surface requires query or EXPLAIN statement lanes",
+            )),
+        }
+    }
 }

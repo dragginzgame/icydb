@@ -166,6 +166,15 @@ where
         self.session.execute_query(self.query())
     }
 
+    /// Execute this delete while returning only the affected-row count.
+    #[doc(hidden)]
+    pub fn execute_count_only(&self) -> Result<u32, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session.execute_delete_count(self.query())
+    }
+
     /// Execute and return whether any rows were affected.
     pub fn is_empty(&self) -> Result<bool, QueryError>
     where

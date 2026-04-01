@@ -24,7 +24,7 @@ use crate::{
     value::Value,
 };
 
-type SqlProjectionRowParts = (Vec<String>, Vec<Vec<Value>>, u32);
+type SqlQuerySurfaceRowParts = (Vec<String>, Vec<Vec<Value>>, u32);
 
 impl<C: CanisterKind> DbSession<C> {
     // Execute one lowered SQL SELECT command entirely through the shared
@@ -101,14 +101,14 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one already-lowered shared SQL `SELECT` shape for resolved authority.
     ///
     /// This narrower boundary exists specifically for generated canister query
-    /// surfaces that need projection rows but must not retain delete execution
-    /// through the public query-only export.
+    /// surfaces that need row-shaped SQL payloads without retaining the full
+    /// typed dispatch enum in the outer query facade.
     #[doc(hidden)]
     pub fn execute_lowered_sql_projection_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
-    ) -> Result<SqlProjectionRowParts, QueryError> {
+    ) -> Result<SqlQuerySurfaceRowParts, QueryError> {
         let Some(query) = lowered.query() else {
             return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
                 SqlSurface::QueryFrom,
@@ -120,9 +120,22 @@ impl<C: CanisterKind> DbSession<C> {
             LoweredSqlQuery::Select(select) => self
                 .execute_lowered_sql_projection_core(select, authority)
                 .map(SqlProjectionPayload::into_parts),
-            LoweredSqlQuery::Delete(_) => Err(QueryError::unsupported_query(
-                "generated SQL query dispatch requires lowered SELECT",
-            )),
+            LoweredSqlQuery::Delete(delete) => self
+                .execute_lowered_sql_dispatch_delete_core(delete, authority)
+                .and_then(|dispatch| match dispatch {
+                    SqlDispatchResult::Projection {
+                        columns,
+                        rows,
+                        row_count,
+                    } => Ok((columns, rows, row_count)),
+                    SqlDispatchResult::Explain(_)
+                    | SqlDispatchResult::Describe(_)
+                    | SqlDispatchResult::ShowIndexes(_)
+                    | SqlDispatchResult::ShowColumns(_)
+                    | SqlDispatchResult::ShowEntities(_) => Err(QueryError::unsupported_query(
+                        "generated SQL query dispatch requires row-shaped SELECT or DELETE",
+                    )),
+                }),
         }
     }
 

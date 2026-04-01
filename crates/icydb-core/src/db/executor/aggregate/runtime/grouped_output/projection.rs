@@ -9,7 +9,10 @@ use crate::{
         executor::projection::*,
         query::{
             builder::AggregateExpr,
-            plan::{FieldSlot, PlannedProjectionLayout, expr::ProjectionSpec},
+            plan::{
+                FieldSlot, PlannedProjectionLayout,
+                expr::{Expr, ProjectionField, ProjectionSpec},
+            },
         },
     },
     error::InternalError,
@@ -25,6 +28,16 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     aggregate_exprs: &[AggregateExpr],
     rows: Vec<GroupedRow>,
 ) -> Result<Vec<GroupedRow>, InternalError> {
+    // Phase 1: short-circuit the common grouped identity shape.
+    // Grouped logical plans currently lower to canonical `group fields +
+    // aggregate terminals` projection order, so paying the generic grouped
+    // projection evaluator here only rebuilds rows we already have.
+    if projection_is_identity_grouped_projection(projection, group_fields, aggregate_exprs) {
+        return Ok(rows);
+    }
+
+    // Phase 2: retain the generic grouped projection evaluator for any future
+    // additive grouped projection shape that is not already row-identical.
     let mut projected_rows = Vec::with_capacity(rows.len());
     for row in rows {
         projected_rows.push(project_grouped_row_from_projection(
@@ -38,6 +51,48 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     }
 
     Ok(projected_rows)
+}
+
+// Detect the canonical grouped identity projection so grouped output shaping
+// can return the already-materialized rows unchanged.
+fn projection_is_identity_grouped_projection(
+    projection: &ProjectionSpec,
+    group_fields: &[FieldSlot],
+    aggregate_exprs: &[AggregateExpr],
+) -> bool {
+    if projection.len() != group_fields.len().saturating_add(aggregate_exprs.len()) {
+        return false;
+    }
+
+    let mut projection_fields = projection.fields();
+
+    for expected_group_field in group_fields {
+        let Some(ProjectionField::Scalar { expr, .. }) = projection_fields.next() else {
+            return false;
+        };
+
+        if !matches!(
+            expression_without_alias(expr),
+            Expr::Field(field_id) if field_id.as_str() == expected_group_field.field.as_str()
+        ) {
+            return false;
+        }
+    }
+
+    for expected_aggregate_expr in aggregate_exprs {
+        let Some(ProjectionField::Scalar { expr, .. }) = projection_fields.next() else {
+            return false;
+        };
+
+        if !matches!(
+            expression_without_alias(expr),
+            Expr::Aggregate(actual_aggregate_expr) if actual_aggregate_expr == expected_aggregate_expr
+        ) {
+            return false;
+        }
+    }
+
+    true
 }
 
 // Evaluate one grouped projection expression row and convert it into grouped
@@ -75,6 +130,15 @@ fn project_grouped_row_from_projection(
     ))
 }
 
+// Strip alias wrappers so grouped identity detection compares canonical roots.
+fn expression_without_alias(mut expr: &Expr) -> &Expr {
+    while let Expr::Alias { expr: inner, .. } = expr {
+        expr = inner.as_ref();
+    }
+
+    expr
+}
+
 // Project one stable set of row positions into one cloned value vector. Grouped
 // output layout splitting reuses this for both grouped-key and aggregate payloads.
 fn projected_values_for_positions(
@@ -95,4 +159,65 @@ fn projected_values_for_positions(
     }
 
     Ok(values)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            GroupedRow,
+            executor::aggregate::runtime::grouped_output::project_grouped_rows_from_projection,
+            query::{
+                builder::aggregate::{count, max_by},
+                plan::{
+                    FieldSlot, PlannedProjectionLayout,
+                    expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
+                },
+            },
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn grouped_identity_projection_fast_path_preserves_rows() {
+        let projection = ProjectionSpec::from_fields_for_test(vec![
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("age")),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Aggregate(count()),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Aggregate(max_by("score")),
+                alias: None,
+            },
+        ]);
+        let projection_layout = PlannedProjectionLayout {
+            group_field_positions: vec![0],
+            aggregate_positions: vec![1, 2],
+        };
+        let group_fields = [FieldSlot::from_parts_for_test(0, "age")];
+        let aggregate_exprs = [count(), max_by("score")];
+        let rows = vec![
+            GroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
+            GroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
+        ];
+
+        let projected_rows = project_grouped_rows_from_projection(
+            &projection,
+            &projection_layout,
+            group_fields.as_slice(),
+            aggregate_exprs.as_slice(),
+            rows.clone(),
+        )
+        .expect("grouped identity projection should preserve grouped rows");
+
+        assert_eq!(projected_rows, rows);
+    }
 }

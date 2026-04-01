@@ -806,7 +806,7 @@ mod tests {
         Ok(session.show_entities())
     }
 
-    const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
+    const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 7] {
         [
             (
                 "SELECT * FROM FacadeSqlEntity JOIN other ON FacadeSqlEntity.id = other.id",
@@ -825,6 +825,10 @@ mod tests {
             (
                 "SELECT * FROM FacadeSqlEntity WHERE UPPER(name) LIKE '%Al'",
                 "LIKE patterns beyond trailing '%' prefix form",
+            ),
+            (
+                "SELECT * FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al')",
+                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
             ),
         ]
     }
@@ -959,6 +963,75 @@ mod tests {
         assert!(
             explain.contains("StartsWith") || explain.contains("starts_with"),
             "facade strict LIKE prefix SQL explain should preserve starts-with intent",
+        );
+    }
+
+    #[test]
+    fn facade_query_from_sql_direct_starts_with_lowers_to_load_query_intent() {
+        let session = fresh_facade_session();
+
+        let query = session
+            .query_from_sql::<FacadeSqlEntity>(
+                "SELECT * FROM FacadeSqlEntity WHERE STARTS_WITH(name, 'Al')",
+            )
+            .expect("facade direct STARTS_WITH SQL query should lower");
+        assert!(
+            matches!(query.mode(), core::db::QueryMode::Load(_)),
+            "facade direct STARTS_WITH SQL should lower to load query mode",
+        );
+        let explain = query
+            .explain()
+            .expect("facade direct STARTS_WITH SQL explain should build")
+            .render_text_canonical();
+        assert!(
+            explain.contains("StartsWith") || explain.contains("starts_with"),
+            "facade direct STARTS_WITH SQL explain should preserve starts-with intent",
+        );
+    }
+
+    #[test]
+    fn facade_query_from_sql_direct_lower_starts_with_lowers_to_load_query_intent() {
+        let session = fresh_facade_session();
+
+        let query = session
+            .query_from_sql::<FacadeSqlEntity>(
+                "SELECT * FROM FacadeSqlEntity WHERE STARTS_WITH(LOWER(name), 'Al')",
+            )
+            .expect("facade direct LOWER(field) STARTS_WITH SQL query should lower");
+        assert!(
+            matches!(query.mode(), core::db::QueryMode::Load(_)),
+            "facade direct LOWER(field) STARTS_WITH SQL should lower to load query mode",
+        );
+        let explain = query
+            .explain()
+            .expect("facade direct LOWER(field) STARTS_WITH SQL explain should build")
+            .render_text_canonical();
+        assert!(
+            explain.contains("StartsWith") || explain.contains("starts_with"),
+            "facade direct LOWER(field) STARTS_WITH SQL explain should preserve starts-with intent",
+        );
+    }
+
+    #[test]
+    fn facade_query_from_sql_direct_upper_starts_with_lowers_to_load_query_intent() {
+        let session = fresh_facade_session();
+
+        let query = session
+            .query_from_sql::<FacadeSqlEntity>(
+                "SELECT * FROM FacadeSqlEntity WHERE STARTS_WITH(UPPER(name), 'AL')",
+            )
+            .expect("facade direct UPPER(field) STARTS_WITH SQL query should lower");
+        assert!(
+            matches!(query.mode(), core::db::QueryMode::Load(_)),
+            "facade direct UPPER(field) STARTS_WITH SQL should lower to load query mode",
+        );
+        let explain = query
+            .explain()
+            .expect("facade direct UPPER(field) STARTS_WITH SQL explain should build")
+            .render_text_canonical();
+        assert!(
+            explain.contains("StartsWith") || explain.contains("starts_with"),
+            "facade direct UPPER(field) STARTS_WITH SQL explain should preserve starts-with intent",
         );
     }
 
@@ -1276,6 +1349,37 @@ mod tests {
     }
 
     #[test]
+    fn facade_query_from_sql_rejects_computed_text_projection_in_current_lane() {
+        let session = fresh_facade_session();
+
+        // Phase 1: keep the public facade on the same structural-only contract
+        // as the core `query_from_sql(...)` boundary.
+        let err = session
+            .query_from_sql::<FacadeSqlEntity>("SELECT TRIM(name) FROM FacadeSqlEntity")
+            .expect_err(
+                "facade query_from_sql should reject computed text projection on the structural-only lane",
+            );
+
+        // Phase 2: assert the facade preserves the actionable boundary message
+        // instead of silently widening into dispatch-owned computed semantics.
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade query_from_sql computed text projection",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade query_from_sql computed text projection",
+        );
+        assert!(
+            err.to_string()
+                .contains("query_from_sql does not accept computed text projection"),
+            "facade query_from_sql should preserve the computed projection boundary message",
+        );
+    }
+
+    #[test]
     fn facade_execute_sql_preserves_unsupported_runtime_contract() {
         let session = fresh_facade_session();
 
@@ -1297,6 +1401,23 @@ mod tests {
                 "facade execute_sql_projection",
             );
         }
+    }
+
+    #[test]
+    fn facade_scalar_sql_surfaces_reject_global_aggregate_execution_in_current_lane() {
+        let session = fresh_facade_session();
+        let sql = "SELECT COUNT(*) FROM FacadeSqlEntity";
+
+        // Phase 1: keep scalar row-shaped execution fail-closed for global
+        // aggregate SQL so the dedicated aggregate lane remains explicit.
+        assert_unsupported_sql_runtime_result(
+            session.execute_sql::<FacadeSqlEntity>(sql),
+            "facade execute_sql global aggregate",
+        );
+        assert_unsupported_sql_runtime_result(
+            session.execute_sql_dispatch::<FacadeSqlEntity>(sql),
+            "facade execute_sql_dispatch global aggregate",
+        );
     }
 
     #[test]

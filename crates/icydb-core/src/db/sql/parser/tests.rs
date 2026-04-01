@@ -453,6 +453,105 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
 }
 
 #[test]
+fn parse_select_statement_with_direct_starts_with_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE STARTS_WITH(name, 'Al') \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("direct STARTS_WITH select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Al".to_string()),
+                CoercionId::Strict,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_direct_lower_starts_with_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE STARTS_WITH(LOWER(name), 'Al') \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("direct LOWER(field) STARTS_WITH select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Al".to_string()),
+                CoercionId::TextCasefold,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_direct_upper_starts_with_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE STARTS_WITH(UPPER(name), 'AL') \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("direct UPPER(field) STARTS_WITH select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("AL".to_string()),
+                CoercionId::TextCasefold,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_lower_like_prefix_predicate() {
     let statement = parse_sql(
         "SELECT * FROM users \
@@ -846,6 +945,10 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         (
             "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
             "LIKE patterns beyond trailing '%' prefix form",
+        ),
+        (
+            "SELECT * FROM users WHERE STARTS_WITH(TRIM(name), 'Al')",
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
         ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),

@@ -58,6 +58,27 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_query_dyn(mode, plan)
     }
 
+    /// Execute one typed delete query and return only the affected-row count.
+    #[doc(hidden)]
+    pub fn execute_delete_count<E>(&self, query: &Query<E>) -> Result<u32, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        // Phase 1: fail closed if the caller routes a non-delete query here.
+        if !query.mode().is_delete() {
+            return Err(QueryError::unsupported_query(
+                "delete count execution requires delete query mode",
+            ));
+        }
+
+        // Phase 2: compile typed delete intent into one executable plan contract.
+        let plan = query.plan()?.into_executable();
+
+        // Phase 3: execute the shared delete core while skipping response-row materialization.
+        self.with_metrics(|| self.delete_executor::<E>().execute_count(plan))
+            .map_err(QueryError::execute)
+    }
+
     /// Execute one scalar query from one pre-built executable contract.
     ///
     /// This is the shared compiled-plan entry boundary used by the typed

@@ -4,32 +4,6 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 ///
-/// AccessChoiceExplainRejected
-///
-/// Planner-projected rejected index candidate plus deterministic reason code.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct AccessChoiceExplainRejected {
-    pub(in crate::db) index_name: &'static str,
-    pub(in crate::db) reason: AccessChoiceRejectedReason,
-}
-
-impl AccessChoiceExplainRejected {
-    #[must_use]
-    pub(in crate::db) fn render(&self) -> String {
-        let reason = self.reason.code();
-        let mut out =
-            String::with_capacity("index:".len() + self.index_name.len() + 1 + reason.len());
-        out.push_str("index:");
-        out.push_str(self.index_name);
-        out.push('=');
-        out.push_str(reason);
-        out
-    }
-}
-
-///
 /// AccessChoiceExplainSnapshot
 ///
 /// Planner-owned access-choice explain projection consumed by executor
@@ -40,7 +14,7 @@ impl AccessChoiceExplainRejected {
 pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) chosen_reason: AccessChoiceSelectedReason,
     pub(in crate::db) alternatives: Vec<&'static str>,
-    pub(in crate::db) rejected: Vec<AccessChoiceExplainRejected>,
+    pub(in crate::db) rejected: Vec<String>,
 }
 
 ///
@@ -144,6 +118,17 @@ impl AccessChoiceRejectedReason {
             Self::ExactMatchPreferred => "exact_match_preferred",
             Self::LexicographicTiebreak => "lexicographic_tiebreak",
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn render_for_index(self, index_name: &'static str) -> String {
+        let reason = self.code();
+        let mut out = String::with_capacity("index:".len() + index_name.len() + 1 + reason.len());
+        out.push_str("index:");
+        out.push_str(index_name);
+        out.push('=');
+        out.push_str(reason);
+        out
     }
 }
 

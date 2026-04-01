@@ -248,7 +248,9 @@ pub(crate) enum SqlLoweringError {
     #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
 
-    #[error("generated SQL query dispatch requires SELECT or EXPLAIN SELECT")]
+    #[error(
+        "generated SQL query dispatch requires SELECT, DELETE, EXPLAIN SELECT, or EXPLAIN DELETE"
+    )]
     UnsupportedQuerySurfaceStatement,
 }
 
@@ -302,13 +304,18 @@ pub(crate) struct PreparedSqlStatement {
     statement: SqlStatement,
 }
 
-// Prepared select/explain-only SQL statement for the generated query surface.
+// Prepared query/explain-only SQL statement for the generated query surface.
 #[derive(Clone, Debug)]
 pub(crate) enum PreparedSqlQuerySurfaceStatement {
     Select(SqlSelectStatement),
-    Explain {
+    Delete(SqlDeleteStatement),
+    ExplainSelect {
         mode: SqlExplainMode,
         statement: SqlSelectStatement,
+    },
+    ExplainDelete {
+        mode: SqlExplainMode,
+        statement: SqlDeleteStatement,
     },
 }
 
@@ -372,10 +379,13 @@ pub(crate) fn prepare_query_surface_statement(
         SqlStatement::Select(statement) => Ok(PreparedSqlQuerySurfaceStatement::Select(
             normalize_select_statement_to_expected_entity(statement, expected_entity),
         )),
+        SqlStatement::Delete(statement) => Ok(PreparedSqlQuerySurfaceStatement::Delete(
+            prepare_delete_statement(statement, expected_entity)?,
+        )),
         SqlStatement::Explain(SqlExplainStatement {
             mode,
             statement: SqlExplainTarget::Select(select_statement),
-        }) => Ok(PreparedSqlQuerySurfaceStatement::Explain {
+        }) => Ok(PreparedSqlQuerySurfaceStatement::ExplainSelect {
             mode,
             statement: normalize_select_statement_to_expected_entity(
                 select_statement,
@@ -383,11 +393,13 @@ pub(crate) fn prepare_query_surface_statement(
             ),
         }),
         SqlStatement::Explain(SqlExplainStatement {
-            statement: SqlExplainTarget::Delete(_),
-            ..
-        }) => Err(SqlLoweringError::unsupported_query_surface_statement()),
-        SqlStatement::Delete(_)
-        | SqlStatement::Describe(_)
+            mode,
+            statement: SqlExplainTarget::Delete(delete_statement),
+        }) => Ok(PreparedSqlQuerySurfaceStatement::ExplainDelete {
+            mode,
+            statement: prepare_delete_statement(delete_statement, expected_entity)?,
+        }),
+        SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_) => {
@@ -664,8 +676,17 @@ fn lower_query_surface_prepared_statement(
                 LoweredSqlQuery::Select(lower_select_shape(statement, primary_key_field)?),
             )))
         }
-        PreparedSqlQuerySurfaceStatement::Explain { mode, statement } => {
+        PreparedSqlQuerySurfaceStatement::Delete(statement) => Ok(LoweredSqlCommand(
+            LoweredSqlCommandInner::Query(LoweredSqlQuery::Delete(lower_delete_shape(statement))),
+        )),
+        PreparedSqlQuerySurfaceStatement::ExplainSelect { mode, statement } => {
             lower_explain_select_prepared(statement, mode, primary_key_field)
+        }
+        PreparedSqlQuerySurfaceStatement::ExplainDelete { mode, statement } => {
+            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
+                mode,
+                query: LoweredSqlQuery::Delete(lower_delete_shape(statement)),
+            }))
         }
     }
 }

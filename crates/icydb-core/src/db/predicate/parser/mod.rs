@@ -14,6 +14,9 @@ use crate::{
     value::Value,
 };
 
+const DIRECT_STARTS_WITH_NON_FIELD_FEATURE: &str =
+    "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers";
+
 // Track the accepted reduced-SQL text wrappers that lower onto shared
 // casefolded text predicate semantics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +52,14 @@ impl PredicateFieldOperand {
             Self::Wrapped { wrapper, .. } => Err(SqlParseError::unsupported_feature(
                 wrapper.unsupported_feature(),
             )),
+        }
+    }
+
+    // Map one bounded predicate operand to its canonical field/coercion pair.
+    fn into_field_and_coercion(self) -> (String, CoercionId) {
+        match self {
+            Self::Plain(field) => (field, CoercionId::Strict),
+            Self::Wrapped { field, .. } => (field, CoercionId::TextCasefold),
         }
     }
 }
@@ -124,6 +135,12 @@ fn parse_predicate_primary(cursor: &mut SqlTokenCursor) -> Result<Predicate, Sql
         cursor.expect_rparen()?;
 
         return Ok(predicate);
+    }
+
+    if cursor.peek_identifier_keyword("STARTS_WITH")
+        && matches!(cursor.peek_next_kind(), Some(TokenKind::LParen))
+    {
+        return parse_starts_with_predicate(cursor);
     }
 
     parse_field_predicate(cursor)
@@ -208,15 +225,48 @@ fn parse_like_prefix_predicate(
             "LIKE patterns beyond trailing '%' prefix form",
         ));
     };
-    let (field, coercion) = match operand {
-        PredicateFieldOperand::Plain(field) => (field, CoercionId::Strict),
-        PredicateFieldOperand::Wrapped { field, .. } => (field, CoercionId::TextCasefold),
-    };
+    let (field, coercion) = operand.into_field_and_coercion();
 
     Ok(Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::StartsWith,
         Value::Text(prefix.to_string()),
+        coercion,
+    )))
+}
+
+// Parse one bounded direct `STARTS_WITH(...)` predicate spelling.
+// This remains intentionally narrow: it accepts only plain fields plus the
+// same LOWER/UPPER casefold wrappers already supported on the reduced `LIKE`
+// prefix family, and it does not open generic SQL function predicates.
+fn parse_starts_with_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlParseError> {
+    let _ = cursor.eat_identifier_keyword("STARTS_WITH");
+    cursor.expect_lparen()?;
+
+    // Keep the direct spelling exact and structural: the first argument may be
+    // one plain field identifier or one bounded LOWER/UPPER field wrapper.
+    let operand = parse_predicate_field_operand(cursor)?;
+
+    if matches!(cursor.peek_kind(), Some(TokenKind::LParen)) {
+        return Err(SqlParseError::unsupported_feature(
+            DIRECT_STARTS_WITH_NON_FIELD_FEATURE,
+        ));
+    }
+    expect_predicate_argument_comma(cursor, "',' between STARTS_WITH arguments")?;
+
+    let Some(TokenKind::StringLiteral(prefix)) = cursor.bump() else {
+        return Err(SqlParseError::expected(
+            "string literal second argument to STARTS_WITH",
+            cursor.peek_kind(),
+        ));
+    };
+    cursor.expect_rparen()?;
+    let (field, coercion) = operand.into_field_and_coercion();
+
+    Ok(Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        CompareOp::StartsWith,
+        Value::Text(prefix),
         coercion,
     )))
 }
@@ -231,6 +281,17 @@ fn parse_wrapped_field_operand(
     cursor.expect_rparen()?;
 
     Ok(PredicateFieldOperand::Wrapped { field, wrapper })
+}
+
+fn expect_predicate_argument_comma(
+    cursor: &mut SqlTokenCursor,
+    context: &'static str,
+) -> Result<(), SqlParseError> {
+    if cursor.eat_comma() {
+        return Ok(());
+    }
+
+    Err(SqlParseError::expected(context, cursor.peek_kind()))
 }
 
 // Parse one IN / NOT IN list predicate into one canonical predicate compare.

@@ -24,9 +24,7 @@ use crate::{
                         chosen_access_shape_projection, chosen_selection_reason,
                         evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
                     },
-                    model::{
-                        AccessChoiceExplainRejected, AccessChoiceFamily, AccessChoiceSelectedReason,
-                    },
+                    model::{AccessChoiceFamily, AccessChoiceSelectedReason},
                 },
             },
         },
@@ -96,13 +94,13 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
             self::model::CandidateEvaluation::Eligible(score) => {
                 alternatives.push(index_name);
                 eligible_other_scores.push(score);
-                rejected.push(AccessChoiceExplainRejected {
-                    index_name,
-                    reason: ranked_rejection_reason(family, score, chosen_score),
-                });
+                rejected.push(
+                    ranked_rejection_reason(family, score, chosen_score)
+                        .render_for_index(index_name),
+                );
             }
             self::model::CandidateEvaluation::Rejected(reason) => {
-                rejected.push(AccessChoiceExplainRejected { index_name, reason });
+                rejected.push(reason.render_for_index(index_name));
             }
         }
     }

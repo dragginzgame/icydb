@@ -85,6 +85,19 @@ impl CommitInputs {
     }
 }
 
+///
+/// DecodedCommitRows
+///
+/// Reusable structural slot readers for one commit-marker row transition.
+/// This keeps commit-preflight row decoding on one owned pass so validation and
+/// forward-index planning do not each rebuild the same slot-reader state.
+///
+
+struct DecodedCommitRows<'a> {
+    old_slots: Option<StructuralSlotReader<'a>>,
+    new_slots: Option<StructuralSlotReader<'a>>,
+}
+
 /// Prepare a typed row-level commit op against nongeneric structural readers.
 pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     E: EntityKind + EntityValue,
@@ -127,57 +140,21 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     prepare_row_commit_for_entity_with_structural_readers::<E>(db, op, &context, &context)
 }
 
-// Fully decode commit-marker row payloads after structural authority has been
-// confirmed so malformed non-indexed fields still fail closed without letting
-// miswired hooks report the wrong entity contract.
-fn validate_commit_marker_rows(
+// Decode both optional commit-marker row images through the structural row
+// boundary once so malformed fields fail closed before index planning.
+fn decode_commit_marker_rows_for_preflight<'a>(
     data_key: &DataKey,
-    before: Option<&RawRow>,
-    after: Option<&RawRow>,
+    before: Option<&'a RawRow>,
+    after: Option<&'a RawRow>,
     model: &'static EntityModel,
-) -> Result<(), InternalError> {
-    // Phase 1: validate the optional "before" row against the structural slot
-    // contract for the resolved entity model when the marker carries one.
-    if let Some(before) = before {
-        validate_commit_marker_row_for_entity(data_key, before.as_bytes(), "before", model)?;
-    }
+) -> Result<DecodedCommitRows<'a>, InternalError> {
+    let old_slots = decode_optional_commit_marker_row_slots(data_key, before, "before", model)?;
+    let new_slots = decode_optional_commit_marker_row_slots(data_key, after, "after", model)?;
 
-    // Phase 2: validate the optional "after" row the same way so commit apply
-    // never persists a row image that queries cannot later decode.
-    if let Some(after) = after {
-        validate_commit_marker_row_for_entity(data_key, after.as_bytes(), "after", model)?;
-    }
-
-    Ok(())
-}
-
-// Decode one commit-marker row image against the structural row contract and
-// annotate failures with the row-op phase label.
-fn validate_commit_marker_row_for_entity(
-    data_key: &DataKey,
-    bytes: &[u8],
-    label: &'static str,
-    model: &'static EntityModel,
-) -> Result<(), InternalError> {
-    let raw_row = RawRow::from_untrusted_bytes(bytes.to_vec()).map_err(|err| {
-        InternalError::serialize_corruption(format!("commit marker {label} row: {err}",))
-    })?;
-    let slots = decode_commit_marker_structural_slots(data_key, &raw_row, label, model)?;
-
-    // Phase 1: decode every declared slot through the field contract so
-    // malformed non-indexed fields cannot bypass commit preparation.
-    for slot in 0..model.fields().len() {
-        slots.required_value_by_contract(slot).map_err(|err| {
-            let message = format!("commit marker {label} row: {err}");
-            if err.class() == ErrorClass::IncompatiblePersistedFormat {
-                InternalError::serialize_incompatible_persisted_format(message)
-            } else {
-                InternalError::serialize_corruption(message)
-            }
-        })?;
-    }
-
-    Ok(())
+    Ok(DecodedCommitRows {
+        old_slots,
+        new_slots,
+    })
 }
 
 // Keep the full commit-preparation body out of the thin wrapper entrypoints so
@@ -197,28 +174,30 @@ where
     // decode runs so miswired hooks fail on path/schema mismatch first.
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
 
-    // Phase 2: once authority is confirmed, validate the persisted row images
-    // against that resolved model before index planning or apply.
-    validate_commit_marker_rows(
-        &structural.data_key,
-        structural.old_row.as_ref(),
-        structural.new_row.as_ref(),
-        authority.model,
-    )?;
-
-    // Phase 3: derive forward index work from the validated structural rows.
-    let index_plan = if authority.model.indexes().is_empty() {
-        empty_forward_index_plan()
-    } else {
-        prepare_forward_index_commit_leaf(
-            db,
-            &authority,
-            row_reader,
-            index_reader,
+    // Phase 2: decode the persisted row images once through the structural
+    // slot-reader boundary before any forward-index planning runs.
+    let index_plan = {
+        let mut decoded = decode_commit_marker_rows_for_preflight(
             &structural.data_key,
             structural.old_row.as_ref(),
             structural.new_row.as_ref(),
-        )?
+            authority.model,
+        )?;
+
+        // Phase 3: derive forward index work from the already validated
+        // structural rows when the entity owns secondary indexes.
+        if authority.model.indexes().is_empty() {
+            empty_forward_index_plan()
+        } else {
+            prepare_forward_index_commit_leaf(
+                db,
+                &authority,
+                row_reader,
+                index_reader,
+                &structural.data_key,
+                &mut decoded,
+            )?
+        }
     };
 
     finalize_row_commit_structural(db, index_reader, authority, structural, index_plan)
@@ -239,17 +218,12 @@ fn prepare_forward_index_commit_leaf<C>(
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
     data_key: &DataKey,
-    old_row: Option<&RawRow>,
-    new_row: Option<&RawRow>,
+    decoded: &mut DecodedCommitRows<'_>,
 ) -> Result<IndexMutationPlan, InternalError>
 where
     C: crate::traits::CanisterKind,
 {
     let storage_key = data_key.storage_key();
-    let mut old_slots =
-        decode_optional_commit_marker_row_slots(data_key, old_row, "before", authority.model)?;
-    let mut new_slots =
-        decode_optional_commit_marker_row_slots(data_key, new_row, "after", authority.model)?;
 
     plan_index_mutation_for_slot_reader_structural(
         db,
@@ -258,12 +232,14 @@ where
         authority.model,
         row_reader,
         index_reader,
-        old_row.map(|_| storage_key),
-        old_slots
+        decoded.old_slots.as_ref().map(|_| storage_key),
+        decoded
+            .old_slots
             .as_mut()
             .map(|slots| slots as &mut dyn CanonicalSlotReader),
-        new_row.map(|_| storage_key),
-        new_slots
+        decoded.new_slots.as_ref().map(|_| storage_key),
+        decoded
+            .new_slots
             .as_mut()
             .map(|slots| slots as &mut dyn CanonicalSlotReader),
     )

@@ -268,32 +268,24 @@ fn query_lane_result_for_statement<C: CanisterKind>(
     // query/explain statement.
     let authority = authority_for_statement(statement, authorities)?;
     let core_session = session.core_session();
-    let lowered = parsed.lower_generated_query_surface_for_entity(
-        authority.model().name(),
-        authority.model().primary_key().name(),
-    )?;
 
-    // Phase 2: execute the lowered query lane on the core session directly so
-    // the canister SQL facade does not retain extra hidden prepare/lower/execute
-    // forwarders just for generated dispatch.
-    if matches!(statement, SqlStatementRoute::Explain { .. }) {
-        let explain = lowered
-            .explain_for_model(authority.model())
-            .map_err(Error::from)
-            .map_err(|err| explain_surface_error(sql, authority.model(), err))?;
+    // Phase 2: execute the generated query/explain lane on the core session
+    // directly so the canister SQL facade inherits the same reduced SQL
+    // semantics as typed dispatch, including computed text projection support.
+    let dispatch = core_session
+        .execute_generated_query_surface_dispatch_for_authority(parsed, authority)
+        .map_err(Error::from)
+        .map_err(|err| {
+            if matches!(statement, SqlStatementRoute::Explain { .. }) {
+                explain_surface_error(sql, authority.model(), err)
+            } else {
+                err
+            }
+        })?;
 
-        return Ok(SqlQueryResult::Explain {
-            entity: authority.model().name().to_string(),
-            explain,
-        });
-    }
-
-    let (columns, rows, row_count) =
-        core_session.execute_lowered_sql_projection_for_authority(&lowered, authority)?;
-    let projection = projection_rows_from_values(columns, rows, row_count);
-
-    Ok(SqlQueryResult::Projection(
-        SqlQueryRowsOutput::from_projection(authority.model().name().to_string(), projection),
+    Ok(DbSession::<C>::map_sql_dispatch_result(
+        dispatch,
+        authority.model().name().to_string(),
     ))
 }
 

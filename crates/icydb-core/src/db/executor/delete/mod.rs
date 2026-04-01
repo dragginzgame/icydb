@@ -124,6 +124,19 @@ where
 }
 
 ///
+/// DeleteCountPreparation
+///
+/// Delete leaf output for count-only execution.
+/// Keeps rollback rows for commit preparation while avoiding typed response-row
+/// materialization when the caller only needs the affected-row count.
+///
+
+struct DeleteCountPreparation {
+    row_count: u32,
+    rollback_rows: Vec<(RawDataKey, RawRow)>,
+}
+
+///
 /// DeleteProjection
 ///
 /// Structural SQL delete payload after row resolution, delete-only post-access
@@ -325,6 +338,46 @@ where
     })
 }
 
+// Decode, filter, and package only rollback rows when the caller needs delete
+// mutation effects without typed response-row materialization.
+fn prepare_typed_delete_count<E>(
+    prepared: &PreparedDeleteExecutionState,
+    data_rows: Vec<DataRow>,
+) -> Result<DeleteCountPreparation, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    // Phase 1: decode structural access rows into typed delete candidates.
+    let mut rows = decode_rows::<E>(data_rows)?;
+
+    // Phase 2: apply typed delete post-access filtering and ordering.
+    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
+        prepared.authority.entity.model(),
+        &prepared.logical_plan,
+        &mut rows,
+        prepared.execution_preparation.compiled_predicate(),
+    )?;
+    let _ = stats.delete_was_limited;
+    let _ = stats.rows_after_cursor;
+
+    // Phase 3: retain only rollback rows and the final affected-row count.
+    let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
+    let mut rollback_rows = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        let rollback_row = row.raw.take().ok_or_else(|| {
+            InternalError::store_internal("missing raw row for delete rollback".to_string())
+        })?;
+        let rollback_key = row.key.to_raw()?;
+
+        rollback_rows.push((rollback_key, rollback_row));
+    }
+
+    Ok(DeleteCountPreparation {
+        row_count,
+        rollback_rows,
+    })
+}
+
 // Decode, filter, and package structural delete rows for SQL projection payloads.
 #[cfg(feature = "sql")]
 fn prepare_structural_delete_rows(
@@ -371,7 +424,7 @@ fn prepare_structural_delete_rows(
 #[inline(never)]
 fn prepare_delete_commit<C>(
     db: &Db<C>,
-    store: StoreHandle,
+    _store: StoreHandle,
     authority: &DeleteExecutionAuthority,
     rollback_rows: &[(RawDataKey, RawRow)],
 ) -> Result<PreparedDeleteCommit, InternalError>
@@ -385,10 +438,7 @@ where
         .collect::<BTreeSet<_>>();
     db.validate_delete_strong_relations(authority.entity.entity_path(), &deleted_target_keys)?;
 
-    // Phase 2: force store resolution before the commit window begins.
-    store.with_data(|_| ());
-
-    // Phase 3: assemble mechanical delete commit row ops.
+    // Phase 2: assemble mechanical delete commit row ops.
     let row_ops = rollback_rows
         .iter()
         .map(|(raw_key, raw_row)| {
@@ -727,6 +777,81 @@ where
             );
 
             Ok(projection)
+        })()
+    }
+
+    /// Execute one delete plan and return only the affected-row count.
+    pub(in crate::db) fn execute_count(
+        self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<u32, InternalError> {
+        // Phase 1: enforce delete entrypoint plan-shape invariants immediately.
+        if plan.is_grouped() {
+            return Err(InternalError::delete_executor_grouped_unsupported());
+        }
+
+        if !plan.mode().is_delete() {
+            return Err(InternalError::delete_executor_delete_plan_required());
+        }
+
+        (|| {
+            // Phase 2: prepare authority and delete execution inputs once.
+            let authority = DeleteExecutionAuthority::for_type::<E>();
+            let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+            let index_range_specs = plan.index_range_specs()?.to_vec();
+            let logical_plan = plan.into_plan();
+            let prepared = prepare_delete_execution_state(
+                authority,
+                logical_plan,
+                index_prefix_specs,
+                index_range_specs,
+            )?;
+            let ctx = mutation_write_context::<E>(&self.db)?;
+            let store = ctx.structural_store()?;
+
+            let mut span = Span::<E>::new(ExecKind::Delete);
+            record_plan_metrics(&prepared.logical_plan.access);
+
+            // Phase 3: resolve structural access rows before typed delete semantics run.
+            let data_rows = resolve_delete_candidate_rows(store, &prepared)?;
+            record_rows_scanned_for_path(prepared.authority.entity.entity_path(), data_rows.len());
+
+            // Phase 4: keep relation validation and commit assembly while skipping
+            // typed response-row materialization.
+            let counted = prepare_typed_delete_count::<E>(&prepared, data_rows)?;
+            if counted.row_count == 0 {
+                set_rows_from_len(&mut span, 0);
+                return Ok(0);
+            }
+
+            let commit = prepare_delete_commit(
+                &self.db,
+                store,
+                &prepared.authority,
+                &counted.rollback_rows,
+            )?;
+            if self.db.has_runtime_hooks() {
+                commit_delete_row_ops_with_window_for_path(
+                    &self.db,
+                    prepared.authority.entity.entity_path(),
+                    commit.row_ops,
+                    "delete_row_apply",
+                )?;
+            } else {
+                commit_delete_row_ops_with_window::<E>(
+                    &self.db,
+                    commit.row_ops,
+                    "delete_row_apply",
+                )?;
+            }
+
+            // Phase 5: return only the final affected-row count.
+            set_rows_from_len(
+                &mut span,
+                usize::try_from(counted.row_count).unwrap_or(usize::MAX),
+            );
+
+            Ok(counted.row_count)
         })()
     }
 }

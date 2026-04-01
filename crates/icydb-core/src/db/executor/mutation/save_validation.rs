@@ -20,7 +20,7 @@ use crate::{
 };
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     sync::{Mutex, OnceLock},
 };
 
@@ -122,19 +122,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        let indexed_fields = if E::MODEL.indexes().is_empty() {
-            None
-        } else {
-            Some(indexed_field_set::<E>())
-        };
         for (field_index, field) in E::MODEL.fields.iter().enumerate() {
             let value = entity.get_value_by_index(field_index).ok_or_else(|| {
                 InternalError::mutation_entity_field_missing(
                     E::PATH,
                     field.name,
-                    indexed_fields
-                        .as_ref()
-                        .is_some_and(|fields| fields.contains(field.name)),
+                    field_is_indexed::<E>(field.name),
                 )
             })?;
 
@@ -323,12 +316,10 @@ impl CachedInvariant {
     }
 }
 
-// Build the set of fields referenced by indexes for an entity.
-fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
-    let mut fields = BTreeSet::new();
-    for index in E::MODEL.indexes() {
-        fields.extend(index.fields().iter().copied());
-    }
-
-    fields
+// Check whether the missing field participates in any declared index.
+fn field_is_indexed<E: EntityKind>(field_name: &str) -> bool {
+    E::MODEL
+        .indexes()
+        .iter()
+        .any(|index| index.fields().contains(&field_name))
 }

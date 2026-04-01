@@ -78,3 +78,59 @@ fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
         ))
     );
 }
+
+#[test]
+fn parse_sql_predicate_direct_starts_with_lowers_to_strict_starts_with_intent() {
+    let predicate = parse_sql_predicate("STARTS_WITH(name, 'Al')")
+        .expect("direct STARTS_WITH predicate should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        ))
+    );
+}
+
+#[test]
+fn parse_sql_predicate_direct_wrapped_starts_with_lowers_to_casefold_intent() {
+    let lower = parse_sql_predicate("STARTS_WITH(LOWER(name), 'Al')")
+        .expect("direct LOWER(field) STARTS_WITH predicate should parse");
+    let upper = parse_sql_predicate("STARTS_WITH(UPPER(name), 'AL')")
+        .expect("direct UPPER(field) STARTS_WITH predicate should parse");
+
+    assert_eq!(
+        lower,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::TextCasefold,
+        ))
+    );
+    assert_eq!(
+        upper,
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ))
+    );
+}
+
+#[test]
+fn parse_sql_predicate_direct_starts_with_rejects_non_casefold_wrapper_argument() {
+    let err = parse_sql_predicate("STARTS_WITH(TRIM(name), 'Al')")
+        .expect_err("non-casefold direct STARTS_WITH first argument should stay fail-closed");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::UnsupportedFeature {
+            feature: "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+        }
+    );
+}

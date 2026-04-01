@@ -444,6 +444,104 @@ fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_inte
 }
 
 #[test]
+fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_intent() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al')",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("direct STARTS_WITH SQL query should lower");
+    let SqlCommand::Query(sql_query) = command else {
+        panic!("expected lowered query command");
+    };
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("direct STARTS_WITH SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent strict starts-with plan should build")
+            .into_inner(),
+        "direct STARTS_WITH SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_direct_lower_starts_with_parity_matches_casefold_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(LOWER(name), 'Al')",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("direct LOWER(field) STARTS_WITH SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("direct LOWER(field) STARTS_WITH SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "direct LOWER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_direct_upper_starts_with_parity_matches_casefold_starts_with_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(UPPER(name), 'AL')",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("direct UPPER(field) STARTS_WITH SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    );
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("direct UPPER(field) STARTS_WITH SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "direct UPPER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
 fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE 'Al%'",

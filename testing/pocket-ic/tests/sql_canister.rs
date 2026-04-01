@@ -185,6 +185,9 @@ enum SqlPerfSurface {
     TypedDispatchUser,
     TypedQueryFromSqlUserExecute,
     TypedExecuteSqlUser,
+    TypedInsertUser,
+    TypedUpdateUser,
+    FluentDeleteUserOrderIdLimit1Count,
     TypedExecuteSqlGroupedUser,
     TypedExecuteSqlGroupedUserSecondPage,
     TypedExecuteSqlAggregateUser,
@@ -431,6 +434,144 @@ fn sql_canister_smoke_flow() {
 }
 
 #[test]
+fn sql_canister_query_lane_supports_delete_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let deleted_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "DELETE FROM User ORDER BY id LIMIT 1",
+            "query DELETE should return deleted projection rows",
+        );
+
+        assert_eq!(deleted_rows.entity, "User");
+        assert_eq!(deleted_rows.row_count, 1);
+        assert_eq!(deleted_rows.rows.len(), 1);
+        assert!(
+            !deleted_rows.columns.is_empty(),
+            "DELETE projection should keep canonical entity columns",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_computed_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2",
+            "query computed projection should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["LOWER(name)".to_string()]);
+        assert_eq!(
+            rows.rows,
+            vec![vec!["alice".to_string()], vec!["bob".to_string()],],
+        );
+        assert_eq!(rows.row_count, 2);
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_direct_starts_with_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+            "query direct STARTS_WITH predicate should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_direct_lower_starts_with_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "query direct LOWER(field) STARTS_WITH predicate should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "query direct UPPER(field) STARTS_WITH predicate should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_rejects_non_casefold_wrapped_direct_starts_with_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let err = query_result(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+        )
+        .expect_err("query non-casefold wrapped direct STARTS_WITH should fail closed");
+
+        assert!(
+            matches!(
+                err.kind(),
+                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
+            ),
+            "non-casefold wrapped direct STARTS_WITH should map to Runtime::Unsupported: {err:?}",
+        );
+        assert!(
+            err.message().contains(
+                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+            ),
+            "non-casefold wrapped direct STARTS_WITH should preserve the stable unsupported-feature detail: {err:?}",
+        );
+    });
+}
+
+#[test]
 #[expect(clippy::too_many_lines)]
 fn sql_canister_perf_harness_reports_positive_instruction_samples() {
     run_with_pocket_ic(|pic| {
@@ -573,6 +714,33 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.insert.user_single",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertUser,
+                    sql: "INSERT User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.update.user_single",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedUpdateUser,
+                    sql: "UPDATE User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.delete.user_order_id_limit1.count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count,
+                    sql: "DELETE FROM User ORDER BY id LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "generated.dispatch.show_indexes.user",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
@@ -609,10 +777,70 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "generated.dispatch.predicate.starts_with_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.predicate.lower_starts_with_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.predicate.upper_starts_with_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.computed_projection.lower_name_limit2",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
                     sql: "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.predicate.starts_with_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.predicate.lower_starts_with_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.predicate.upper_starts_with_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2"
+                        .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
                 },
@@ -663,12 +891,30 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.rejection.explain_delete",
+                scenario_key: "generated.dispatch.explain_delete",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "EXPLAIN DELETE FROM User ORDER BY id LIMIT 1".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.delete",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "DELETE FROM User ORDER BY id LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.delete",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "DELETE FROM User ORDER BY id LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
                 },
             },
         ];

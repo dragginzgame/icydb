@@ -26,10 +26,11 @@ The reduced parser normalizes one statement deterministically before lowering.
 
 ## Executable Baseline (Current 0.66 Line)
 
-The current `0.66` line ships a projection-aware scalar SQL subset, constrained
-grouped/global aggregate SQL execution, and dedicated DESCRIBE/SHOW
-INDEXES/SHOW COLUMNS/SHOW ENTITIES (plus `SHOW TABLES` alias) introspection
-lanes. Broader SQL grammar support remains staged behind lowering gates.
+The current `0.66` line ships a projection-aware scalar SQL subset,
+dispatch-owned computed text projection, constrained grouped/global aggregate
+SQL execution, and dedicated DESCRIBE/SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES
+(plus `SHOW TABLES` alias) introspection lanes. Broader SQL grammar support
+remains staged behind lowering gates.
 
 ### SELECT
 
@@ -75,6 +76,27 @@ Notes:
 
 - `SELECT *` is executable.
 - Direct field-list projection lowering is executable.
+- Dispatch-oriented SQL surfaces also execute one bounded computed text
+  projection family:
+  - `TRIM`
+  - `LTRIM`
+  - `RTRIM`
+  - `LOWER`
+  - `UPPER`
+  - `LENGTH`
+  - `LEFT`
+  - `RIGHT`
+  - `STARTS_WITH`
+  - `ENDS_WITH`
+  - `CONTAINS`
+  - `POSITION`
+  - `REPLACE`
+  - `SUBSTRING`
+- This computed projection family is currently available through
+  `execute_sql_dispatch(...)`, `EXPLAIN` on the dispatch lane, and generated
+  `sql_dispatch::query(...)`.
+- `query_from_sql(...)` remains structural-only and rejects computed text
+  projection.
 - Entity-qualified field identifiers are executable and normalized to canonical
   planner field names (for example `Entity.field`, `schema.Entity.field`).
 - Constrained scalar DISTINCT is executable:
@@ -86,8 +108,8 @@ Notes:
 - Field-list projection currently affects normalized intent/planning/fingerprints.
 - `execute_sql(...)` returns entity-shaped `Response<E>` rows on the public
   facade.
-- `execute_sql_projection(...)` returns projection-shaped
-  `ProjectionResponse<E>` rows on the public facade.
+- `execute_sql_dispatch(...)` returns projection-shaped
+  `SqlQueryResult::Projection` payloads for row-producing SQL surfaces.
 - Scalar pagination still follows existing planner validation
   (for example deterministic ordering requirements).
 - Schema-qualified entity names are executable when the trailing entity segment
@@ -113,8 +135,8 @@ Grouped SQL execution notes:
   matching `GROUP BY` fields.
 - Grouped SQL also supports normalized qualified identifiers (`schema.Entity`,
   `Entity.field`) under the same grouped validation constraints.
-- Scalar/projection SQL execution APIs (`execute_sql`, `execute_sql_projection`)
-  continue to reject global aggregate projection without `GROUP BY`.
+- Non-grouped SQL execution APIs (`execute_sql`, `execute_sql_dispatch`) continue
+  to reject global aggregate projection without `GROUP BY`.
 
 Global aggregate executable shape:
 
@@ -188,10 +210,11 @@ DESCRIBE <entity>
 
 Execution notes:
 
-- DESCRIBE SQL uses the dedicated session introspection API
-  `describe_sql::<E>(...)`.
-- DESCRIBE returns canonical typed schema payload
-  `EntitySchemaDescription`.
+- DESCRIBE SQL is available through `execute_sql_dispatch::<E>(...)` and
+  generated `sql_dispatch::query(...)`.
+- DESCRIBE returns canonical typed schema payload `EntitySchemaDescription`.
+- Direct non-SQL schema introspection remains available through
+  `describe_entity::<E>()`.
 - DESCRIBE entity matching follows the same trailing-segment rule used by
   other SQL surfaces (`public.Entity` matches model `Entity`).
 - DESCRIBE is a dedicated introspection lane and does not lower into
@@ -208,8 +231,8 @@ SHOW INDEXES <entity>
 
 Execution notes:
 
-- `SHOW INDEXES` SQL uses the dedicated session introspection API
-  `show_indexes_sql::<E>(...)`.
+- `SHOW INDEXES` SQL is available through `execute_sql_dispatch::<E>(...)` and
+  generated `sql_dispatch::query(...)`.
 - `SHOW INDEXES` returns the canonical index-listing payload from
   `show_indexes::<E>()`.
 - `SHOW INDEXES` entity matching follows the same trailing-segment rule used by
@@ -228,8 +251,8 @@ SHOW COLUMNS <entity>
 
 Execution notes:
 
-- `SHOW COLUMNS` SQL uses the dedicated session introspection API
-  `show_columns_sql::<E>(...)`.
+- `SHOW COLUMNS` SQL is available through `execute_sql_dispatch::<E>(...)` and
+  generated `sql_dispatch::query(...)`.
 - `SHOW COLUMNS` returns canonical field descriptors from
   `show_columns::<E>()`.
 - `SHOW COLUMNS` entity matching follows the same trailing-segment rule used by
@@ -249,8 +272,8 @@ SHOW TABLES
 
 Execution notes:
 
-- `SHOW ENTITIES` SQL uses the dedicated session introspection API
-  `show_entities_sql(...)`.
+- `SHOW ENTITIES` / `SHOW TABLES` SQL is available through
+  `execute_sql_dispatch::<E>(...)` and generated `sql_dispatch::query(...)`.
 - `SHOW TABLES` is a bounded alias that lowers to the same dedicated
   show-entities lane and payload.
 - `SHOW ENTITIES`/`SHOW TABLES` return canonical runtime entity names from
@@ -265,6 +288,17 @@ Execution notes:
 Generated canister SQL helpers in the current line use one unified query
 surface.
 
+- `sql_dispatch::query(...)` accepts the public generated SQL subset:
+  - row-producing `SELECT`
+  - row-producing `DELETE`
+  - computed text projection on the query lane
+  - `EXPLAIN SELECT`
+  - `EXPLAIN DELETE`
+  - `DESCRIBE`
+  - `SHOW INDEXES`
+  - `SHOW COLUMNS`
+  - `SHOW ENTITIES`
+  - `SHOW TABLES`
 - `sql_dispatch::query(...)` returns one `SqlQueryResult` enum payload with:
   - `Projection(SqlQueryRowsOutput)`
   - `Explain { entity, explain }`
@@ -275,6 +309,32 @@ surface.
 - `SqlQueryResult` renders deterministic shell output via:
   - `SqlQueryResult::render_lines()`
   - `SqlQueryResult::render_text()`
+- The generated helper keeps one narrower internal query/explain core, but the
+  public generated canister facade also owns the metadata lanes listed above.
+
+## Surface Split Notes (Current 0.66 Line)
+
+The current `0.66` SQL line intentionally keeps a few public surface splits.
+
+- `query_from_sql(...)` is the structural-only boundary:
+  - accepts lowered `SELECT` / `DELETE` intent
+  - can build grouped structural query intent
+  - rejects computed text projection
+  - rejects `EXPLAIN`
+  - rejects `DESCRIBE` / `SHOW *`
+- `execute_sql(...)` remains the entity-row execution boundary for reduced
+  `SELECT` / `DELETE`.
+- `execute_sql_dispatch(...)` is the main typed unified SQL payload surface:
+  - executes row-producing `SELECT` / `DELETE`
+  - executes computed text projection
+  - renders `EXPLAIN`
+  - handles `DESCRIBE` / `SHOW *`
+- `execute_sql_grouped(...)` remains the grouped execution boundary.
+- `execute_sql_aggregate(...)` remains the constrained global aggregate
+  execution boundary.
+- generated `sql_dispatch::query(...)` mirrors the dispatch-style public SQL
+  surface for canister consumers, including computed projection and metadata
+  lanes.
 
 ## Parsed but Lowering-Gated (Follow-Up Slices)
 
@@ -318,7 +378,7 @@ Lowering status in this baseline:
   `execute_sql_aggregate(...)` and only for the constrained terminal set listed
   above.
 - Global aggregates remain lowering-gated for scalar/projection SQL surfaces
-  (`execute_sql`, `execute_sql_projection`).
+  (`execute_sql`, `execute_sql_dispatch`).
 
 Predicate operators are limited to planner-supported predicate operators.
 The current baseline also supports bounded trailing-wildcard prefix `LIKE`
@@ -328,6 +388,17 @@ families:
   predicate intent.
 - `UPPER(<field>) LIKE '<prefix>%'` lowers to the same bounded casefold
   prefix intent.
+- direct predicate spellings are executable and lower to the same bounded
+  planner-bearing prefix intent:
+  - `WHERE STARTS_WITH(<field>, '<prefix>')` stays strict
+  - `WHERE STARTS_WITH(LOWER(<field>), '<prefix>')` lowers to text-casefold
+    prefix intent
+  - `WHERE STARTS_WITH(UPPER(<field>), '<prefix>')` lowers to the same bounded
+    casefold prefix intent
+- broader direct predicate-function spellings remain out of scope:
+  - non-casefold wrappers such as `WHERE STARTS_WITH(TRIM(field), value)`
+  - generic text-function predicates beyond the bounded direct
+    `STARTS_WITH(...)` family above
 - non-prefix wildcard shapes remain fail-closed.
 `HAVING` is executable for grouped SQL with a reduced clause shape:
 - clause symbols must be grouped key fields or one aggregate terminal already
@@ -360,9 +431,9 @@ families:
 - CTEs (`WITH`)
 - window functions
 - quoted identifiers
-- SQL function namespace beyond supported aggregate terminals
 - multi-statement input
-- projection expressions beyond direct fields and supported aggregate terminals
+- SQL function namespaces and generic expression forms beyond the current
+  bounded computed text projection family and supported aggregate terminals
 - SQL dialect extensions not represented in current query intent/planner model
 
 ## Lowering Contract
@@ -384,9 +455,9 @@ No additional intermediate semantic layer is introduced by this contract.
 - Valid SQL outside this subset: unsupported-feature error.
 - Reduced parser `UnsupportedFeature` labels are contract-stable within the
   current `0.66` line.
-  - Session SQL frontends (`query_from_sql`, `execute_sql`,
-    `execute_sql_projection`, `execute_sql_grouped`, `execute_sql_aggregate`,
-    `explain_sql`, `describe_sql`) preserve those labels in structured query
+  - Session and generated SQL frontends (`query_from_sql`, `execute_sql`,
+    `execute_sql_dispatch`, `execute_sql_grouped`, `execute_sql_aggregate`,
+    generated `sql_dispatch::query`) preserve those labels in structured query
     error detail.
 - Valid SQL parsed but non-executable in this baseline: lowering-gated
   unsupported error.

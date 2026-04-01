@@ -176,11 +176,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
     let mut chosen_label = String::new();
     write_access_strategy_label(&mut chosen_label, &access_strategy);
-    let rejections = access_choice
-        .rejected
-        .into_iter()
-        .map(|entry| entry.render())
-        .collect::<Vec<_>>();
+    let rejections = access_choice.rejected.into_iter().collect::<Vec<_>>();
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![

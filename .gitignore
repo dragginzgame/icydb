@@ -11,6 +11,7 @@
 # IDEs
 /.idea
 /.code
+.codex
 
 # IC
 deps/

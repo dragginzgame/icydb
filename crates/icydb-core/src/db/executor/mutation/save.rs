@@ -453,9 +453,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let (marker_row_op, _data_key) =
                 Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
 
-            // Preflight data store availability before index mutations.
-            ctx.with_store(|_| ())?;
-
             // Stage-2 commit protocol:
             // - preflight row-op preparation before persisting the marker
             // - then apply prepared row ops mechanically.
@@ -505,7 +502,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             schema_fingerprint,
         );
 
-        ctx.with_store(|_| ())?;
         Self::commit_single_row(&self.db, marker_row_op, &mut span)?;
 
         Ok(entity)

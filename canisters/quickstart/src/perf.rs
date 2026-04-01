@@ -9,7 +9,7 @@ use icydb::{
     db::sql::{SqlQueryResult, normalize_sql_input},
     db::{
         query::Predicate,
-        response::{PagedGroupedResponse, PagedResponse, Response},
+        response::{PagedGroupedResponse, PagedResponse, Response, WriteResponse},
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     value::Value,
@@ -33,6 +33,9 @@ pub enum SqlPerfSurface {
     TypedDispatchUser,
     TypedQueryFromSqlUserExecute,
     TypedExecuteSqlUser,
+    TypedInsertUser,
+    TypedUpdateUser,
+    FluentDeleteUserOrderIdLimit1Count,
     TypedExecuteSqlGroupedUser,
     TypedExecuteSqlGroupedUserSecondPage,
     TypedExecuteSqlAggregateUser,
@@ -241,6 +244,45 @@ fn measure_fluent_paged_second_page() -> (u64, SqlPerfOutcome) {
     (0, outcome)
 }
 
+fn perf_insert_user() -> User {
+    User {
+        name: "perf-insert-user".to_string(),
+        age: 29,
+        ..Default::default()
+    }
+}
+
+fn perf_update_users() -> (User, User) {
+    let base = User {
+        name: "perf-update-before".to_string(),
+        age: 33,
+        ..Default::default()
+    };
+    let inserted = base.clone();
+    let updated = User {
+        name: "perf-update-after".to_string(),
+        age: 34,
+        ..base
+    };
+
+    (inserted, updated)
+}
+
+fn measure_typed_update_user() -> (u64, SqlPerfOutcome) {
+    let (inserted, updated) = perf_update_users();
+    let outcome = match db().insert(inserted) {
+        Ok(_) => {
+            return measure_surface_call(|| {
+                db().update(updated)
+                    .map_or_else(outcome_from_error, outcome_from_write_response)
+            });
+        }
+        Err(err) => outcome_from_error(err),
+    };
+
+    (0, outcome)
+}
+
 fn measure_once(
     surface: SqlPerfSurface,
     sql: &str,
@@ -264,6 +306,18 @@ fn measure_once(
         SqlPerfSurface::TypedExecuteSqlUser => measure_surface_call(|| {
             db().execute_sql::<User>(sql)
                 .map_or_else(outcome_from_error, outcome_from_response)
+        }),
+        SqlPerfSurface::TypedInsertUser => measure_surface_call(|| {
+            db().insert(perf_insert_user())
+                .map_or_else(outcome_from_error, outcome_from_write_response)
+        }),
+        SqlPerfSurface::TypedUpdateUser => measure_typed_update_user(),
+        SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count => measure_surface_call(|| {
+            db().delete::<User>()
+                .order_by("id")
+                .limit(1)
+                .execute_count_only()
+                .map_or_else(outcome_from_error, outcome_from_delete_count)
         }),
         SqlPerfSurface::TypedExecuteSqlGroupedUser => measure_surface_call(|| {
             db().execute_sql_grouped::<User>(sql, cursor_token)
@@ -472,6 +526,38 @@ fn outcome_from_value(result: Value) -> SqlPerfOutcome {
         detail_count: None,
         has_cursor: None,
         rendered_value: Some(format!("{result:?}")),
+        error_kind: None,
+        error_origin: None,
+        error_message: None,
+    }
+}
+
+fn outcome_from_write_response(result: WriteResponse<User>) -> SqlPerfOutcome {
+    let _ = result.id();
+
+    SqlPerfOutcome {
+        success: true,
+        result_kind: "write_response".to_string(),
+        entity: Some("User".to_string()),
+        row_count: Some(1),
+        detail_count: None,
+        has_cursor: None,
+        rendered_value: None,
+        error_kind: None,
+        error_origin: None,
+        error_message: None,
+    }
+}
+
+fn outcome_from_delete_count(row_count: u32) -> SqlPerfOutcome {
+    SqlPerfOutcome {
+        success: true,
+        result_kind: "delete_count".to_string(),
+        entity: Some("User".to_string()),
+        row_count: Some(row_count),
+        detail_count: None,
+        has_cursor: None,
+        rendered_value: None,
         error_kind: None,
         error_origin: None,
         error_message: None,
