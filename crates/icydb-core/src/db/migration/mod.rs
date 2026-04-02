@@ -124,11 +124,13 @@ impl MigrationRowOp {
     }
 }
 
-impl From<MigrationRowOp> for CommitRowOp {
-    fn from(op: MigrationRowOp) -> Self {
-        Self::new(
+impl TryFrom<MigrationRowOp> for CommitRowOp {
+    type Error = InternalError;
+
+    fn try_from(op: MigrationRowOp) -> Result<Self, Self::Error> {
+        Self::try_new_bytes(
             op.entity_path,
-            op.key,
+            op.key.as_slice(),
             op.before,
             op.after,
             op.schema_fingerprint,
@@ -156,7 +158,10 @@ impl MigrationStep {
         name: impl Into<String>,
         row_ops: Vec<MigrationRowOp>,
     ) -> Result<Self, InternalError> {
-        let commit_row_ops = row_ops.into_iter().map(CommitRowOp::from).collect();
+        let commit_row_ops = row_ops
+            .into_iter()
+            .map(CommitRowOp::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
         Self::new(name, commit_row_ops)
     }
 
@@ -440,7 +445,7 @@ fn encode_durable_cursor_state(
         migration_id: plan.id().to_string(),
         migration_version: plan.version(),
         step_index,
-        last_applied_row_key: last_applied_row_op.map(|row_op| row_op.key.clone()),
+        last_applied_row_key: last_applied_row_op.map(|row_op| row_op.key.as_bytes().to_vec()),
     };
 
     encode_persisted_migration_state(&state)

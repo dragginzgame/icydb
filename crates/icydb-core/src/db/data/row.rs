@@ -9,7 +9,7 @@ use crate::{
         data::{
             DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader, UpdatePatch,
             apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-            persisted_row::canonical_row_from_serialized_update_patch,
+            canonical_row_from_entity, persisted_row::canonical_row_from_serialized_update_patch,
         },
     },
     error::InternalError,
@@ -19,9 +19,6 @@ use crate::{
 use canic_cdk::structures::storable::Bound;
 use std::{borrow::Cow, ops::Deref};
 use thiserror::Error as ThisError;
-
-#[cfg(test)]
-use crate::db::data::serialize_entity_slots_as_update_patch;
 
 ///
 /// DataRow
@@ -46,7 +43,7 @@ impl CanonicalRow {
     }
 
     /// Consume the write-capability wrapper back into the underlying raw row.
-    pub(in crate::db::data) fn into_raw_row(self) -> RawRow {
+    pub(in crate::db) fn into_raw_row(self) -> RawRow {
         self.0
     }
 
@@ -56,16 +53,12 @@ impl CanonicalRow {
         &self.0
     }
 
-    /// Encode one entity into canonical persisted row bytes for write-path tests.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
+    /// Encode one full typed entity into canonical persisted row bytes.
+    pub(in crate::db) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
     where
         E: PersistedRow,
     {
-        let serialized_patch = serialize_entity_slots_as_update_patch(entity)?;
-
-        Self::from_serialized_update_patch(E::MODEL, &serialized_patch)
+        canonical_row_from_entity(entity)
     }
 
     /// Build one canonical row from one serialized structural patch that
@@ -152,9 +145,7 @@ impl RawRow {
     where
         E: PersistedRow,
     {
-        let serialized_patch = serialize_entity_slots_as_update_patch(entity)?;
-        CanonicalRow::from_serialized_update_patch(E::MODEL, &serialized_patch)
-            .map(CanonicalRow::into_raw_row)
+        CanonicalRow::from_entity(entity).map(CanonicalRow::into_raw_row)
     }
 
     /// Build one raw row from one serialized structural patch that already

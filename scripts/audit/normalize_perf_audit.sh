@@ -28,6 +28,8 @@ jq \
       elif .sample.surface == "TypedQueryFromSqlUserExecute" then "query_from_sql_execute_query"
       elif .sample.surface == "TypedExecuteSqlUser" then "execute_sql"
       elif .sample.surface == "TypedInsertUser" then "typed_insert"
+      elif (.sample.surface | startswith("TypedInsertManyAtomicUser")) then "typed_insert_many_atomic"
+      elif (.sample.surface | startswith("TypedInsertManyNonAtomicUser")) then "typed_insert_many_non_atomic"
       elif .sample.surface == "TypedUpdateUser" then "typed_update"
       elif .sample.surface == "FluentDeleteUserOrderIdLimit1Count" then "fluent_delete"
       elif .sample.surface == "TypedExecuteSqlGroupedUser" then "execute_sql_grouped"
@@ -69,6 +71,7 @@ jq \
 
     def projection_shape:
       if .sample.outcome.result_kind == "write_response" then "write_response"
+      elif .sample.outcome.result_kind == "write_batch_response" then "write_batch_response"
       elif .sample.outcome.result_kind == "delete_count" then "delete_count_only"
       elif key_has("computed_projection") then "computed_projection"
       elif key_has("starts_with") then "field_projection"
@@ -162,6 +165,8 @@ jq \
       elif .sample.surface == "TypedQueryFromSqlUserExecute" then "query_from_sql_execute_query"
       elif .sample.surface == "TypedExecuteSqlUser" then "execute_sql"
       elif .sample.surface == "TypedInsertUser" then "typed_insert"
+      elif (.sample.surface | startswith("TypedInsertManyAtomicUser")) then "typed_insert_many_atomic"
+      elif (.sample.surface | startswith("TypedInsertManyNonAtomicUser")) then "typed_insert_many_non_atomic"
       elif .sample.surface == "TypedUpdateUser" then "typed_update"
       elif .sample.surface == "FluentDeleteUserOrderIdLimit1Count" then "fluent_delete"
       elif .sample.surface == "TypedExecuteSqlGroupedUser" then "execute_sql_grouped"

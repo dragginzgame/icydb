@@ -746,7 +746,7 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
     let row = RawRow::from_entity(&entity).expect("row encoding should succeed for preflight test");
     let row_op = CommitRowOp::new(
         UniqueEmailEntity::PATH,
-        data_key.as_bytes().to_vec(),
+        data_key,
         None,
         Some(row.as_bytes().to_vec()),
         commit_schema_fingerprint_for_entity::<UniqueEmailEntity>(),
@@ -820,7 +820,7 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         .expect("row encoding should succeed for generation guard test");
     let row_op = CommitRowOp::new(
         UniqueEmailEntity::PATH,
-        data_key.as_bytes().to_vec(),
+        data_key,
         None,
         Some(row.as_bytes().to_vec()),
         commit_schema_fingerprint_for_entity::<UniqueEmailEntity>(),
@@ -1275,6 +1275,10 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
         .counters()
         .expect("metrics counters should exist after atomic success");
     assert_eq!(
+        after_atomic_success.ops.save_calls, 1,
+        "atomic batch success should count as one save execution call",
+    );
+    assert_eq!(
         after_atomic_success.ops.index_inserts, 2,
         "atomic success should emit index inserts for all committed rows",
     );
@@ -1298,6 +1302,10 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
     let after_atomic_failure = after_atomic_failure_report
         .counters()
         .expect("metrics counters should exist after atomic failure");
+    assert_eq!(
+        after_atomic_failure.ops.save_calls, 1,
+        "atomic batch failure should still count as one attempted save execution call",
+    );
     assert_eq!(
         after_atomic_failure.ops.index_inserts, 0,
         "atomic pre-commit failure must not emit index insert deltas",
@@ -1330,6 +1338,10 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
     let after_non_atomic_partial = after_non_atomic_partial_report
         .counters()
         .expect("metrics counters should exist after non-atomic partial failure");
+    assert_eq!(
+        after_non_atomic_partial.ops.save_calls, 2,
+        "non-atomic batch should count one seed save plus one batch save call",
+    );
     assert_eq!(
         after_non_atomic_partial.ops.index_inserts, 2,
         "non-atomic path should count seed insert + committed prefix insert",

@@ -186,6 +186,12 @@ enum SqlPerfSurface {
     TypedQueryFromSqlUserExecute,
     TypedExecuteSqlUser,
     TypedInsertUser,
+    TypedInsertManyAtomicUser10,
+    TypedInsertManyAtomicUser100,
+    TypedInsertManyAtomicUser1000,
+    TypedInsertManyNonAtomicUser10,
+    TypedInsertManyNonAtomicUser100,
+    TypedInsertManyNonAtomicUser1000,
     TypedUpdateUser,
     FluentDeleteUserOrderIdLimit1Count,
     TypedExecuteSqlGroupedUser,
@@ -718,6 +724,60 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedInsertUser,
                     sql: "INSERT User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.insert_many_atomic.user_10",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertManyAtomicUser10,
+                    sql: "INSERT MANY User ATOMIC x10".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.insert_many_atomic.user_100",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertManyAtomicUser100,
+                    sql: "INSERT MANY User ATOMIC x100".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.insert_many_atomic.user_1000",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertManyAtomicUser1000,
+                    sql: "INSERT MANY User ATOMIC x1000".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.insert_many_non_atomic.user_10",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertManyNonAtomicUser10,
+                    sql: "INSERT MANY User NON_ATOMIC x10".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.insert_many_non_atomic.user_100",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertManyNonAtomicUser100,
+                    sql: "INSERT MANY User NON_ATOMIC x100".to_string(),
+                    cursor_token: None,
+                    repeat_count: 1,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.insert_many_non_atomic.user_1000",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedInsertManyNonAtomicUser1000,
+                    sql: "INSERT MANY User NON_ATOMIC x1000".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
                 },

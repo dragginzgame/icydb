@@ -9,7 +9,9 @@ use icydb::{
     db::sql::{SqlQueryResult, normalize_sql_input},
     db::{
         query::Predicate,
-        response::{PagedGroupedResponse, PagedResponse, Response, WriteResponse},
+        response::{
+            PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
+        },
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     value::Value,
@@ -34,6 +36,12 @@ pub enum SqlPerfSurface {
     TypedQueryFromSqlUserExecute,
     TypedExecuteSqlUser,
     TypedInsertUser,
+    TypedInsertManyAtomicUser10,
+    TypedInsertManyAtomicUser100,
+    TypedInsertManyAtomicUser1000,
+    TypedInsertManyNonAtomicUser10,
+    TypedInsertManyNonAtomicUser100,
+    TypedInsertManyNonAtomicUser1000,
     TypedUpdateUser,
     FluentDeleteUserOrderIdLimit1Count,
     TypedExecuteSqlGroupedUser,
@@ -252,6 +260,22 @@ fn perf_insert_user() -> User {
     }
 }
 
+fn perf_insert_user_for_batch(batch_size: u32, offset: u32) -> User {
+    let age_offset = i32::try_from(offset % 50).expect("offset modulo 50 must fit in i32");
+
+    User {
+        name: format!("perf-insert-user-{batch_size}-{offset}"),
+        age: 20 + age_offset,
+        ..Default::default()
+    }
+}
+
+fn perf_insert_user_batch(batch_size: u32) -> Vec<User> {
+    (0..batch_size)
+        .map(|offset| perf_insert_user_for_batch(batch_size, offset))
+        .collect()
+}
+
 fn perf_update_users() -> (User, User) {
     let base = User {
         name: "perf-update-before".to_string(),
@@ -283,6 +307,20 @@ fn measure_typed_update_user() -> (u64, SqlPerfOutcome) {
     (0, outcome)
 }
 
+fn measure_typed_insert_many_atomic_user(batch_size: u32) -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().insert_many_atomic(perf_insert_user_batch(batch_size))
+            .map_or_else(outcome_from_error, outcome_from_write_batch_response)
+    })
+}
+
+fn measure_typed_insert_many_non_atomic_user(batch_size: u32) -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().insert_many_non_atomic(perf_insert_user_batch(batch_size))
+            .map_or_else(outcome_from_error, outcome_from_write_batch_response)
+    })
+}
+
 fn measure_once(
     surface: SqlPerfSurface,
     sql: &str,
@@ -311,6 +349,20 @@ fn measure_once(
             db().insert(perf_insert_user())
                 .map_or_else(outcome_from_error, outcome_from_write_response)
         }),
+        SqlPerfSurface::TypedInsertManyAtomicUser10 => measure_typed_insert_many_atomic_user(10),
+        SqlPerfSurface::TypedInsertManyAtomicUser100 => measure_typed_insert_many_atomic_user(100),
+        SqlPerfSurface::TypedInsertManyAtomicUser1000 => {
+            measure_typed_insert_many_atomic_user(1000)
+        }
+        SqlPerfSurface::TypedInsertManyNonAtomicUser10 => {
+            measure_typed_insert_many_non_atomic_user(10)
+        }
+        SqlPerfSurface::TypedInsertManyNonAtomicUser100 => {
+            measure_typed_insert_many_non_atomic_user(100)
+        }
+        SqlPerfSurface::TypedInsertManyNonAtomicUser1000 => {
+            measure_typed_insert_many_non_atomic_user(1000)
+        }
         SqlPerfSurface::TypedUpdateUser => measure_typed_update_user(),
         SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count => measure_surface_call(|| {
             db().delete::<User>()
@@ -540,6 +592,21 @@ fn outcome_from_write_response(result: WriteResponse<User>) -> SqlPerfOutcome {
         result_kind: "write_response".to_string(),
         entity: Some("User".to_string()),
         row_count: Some(1),
+        detail_count: None,
+        has_cursor: None,
+        rendered_value: None,
+        error_kind: None,
+        error_origin: None,
+        error_message: None,
+    }
+}
+
+fn outcome_from_write_batch_response(result: WriteBatchResponse<User>) -> SqlPerfOutcome {
+    SqlPerfOutcome {
+        success: true,
+        result_kind: "write_batch_response".to_string(),
+        entity: Some("User".to_string()),
+        row_count: Some(checked_perf_count(result.len(), "write batch row count")),
         detail_count: None,
         has_cursor: None,
         rendered_value: None,

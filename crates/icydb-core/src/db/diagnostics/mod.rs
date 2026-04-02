@@ -743,7 +743,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
 
             let marker_row = CommitRowOp::new(
                 hooks.entity_path,
-                raw_key.as_bytes().to_vec(),
+                raw_key,
                 None,
                 Some(entry.value().as_bytes().to_vec()),
                 crate::db::schema::commit_schema_fingerprint_for_model(

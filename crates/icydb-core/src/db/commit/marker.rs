@@ -14,8 +14,7 @@ use crate::{
     types::Ulid,
 };
 use canic_cdk::structures::Storable;
-use std::borrow::Cow;
-use std::{cell::RefCell, thread::LocalKey};
+use std::{borrow::Cow, cell::RefCell, thread::LocalKey};
 
 // Commit-marker durability invariant:
 // - Persist one marker before any stable mutation.
@@ -44,8 +43,8 @@ pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CommitRowOp {
-    pub(crate) entity_path: String,
-    pub(crate) key: Vec<u8>,
+    pub(crate) entity_path: Cow<'static, str>,
+    pub(crate) key: RawDataKey,
     pub(crate) before: Option<Vec<u8>>,
     pub(crate) after: Option<Vec<u8>>,
     pub(crate) schema_fingerprint: CommitSchemaFingerprint,
@@ -55,8 +54,8 @@ impl CommitRowOp {
     /// Construct a row-level commit operation.
     #[must_use]
     pub(crate) fn new(
-        entity_path: impl Into<String>,
-        key: Vec<u8>,
+        entity_path: impl Into<Cow<'static, str>>,
+        key: RawDataKey,
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
         schema_fingerprint: CommitSchemaFingerprint,
@@ -68,6 +67,28 @@ impl CommitRowOp {
             after,
             schema_fingerprint,
         }
+    }
+
+    /// Construct one row-level commit operation from raw key bytes.
+    ///
+    /// This is the decode and migration boundary for callers that still own
+    /// opaque key bytes rather than a typed `RawDataKey`.
+    pub(crate) fn try_new_bytes(
+        entity_path: impl Into<Cow<'static, str>>,
+        key: &[u8],
+        before: Option<Vec<u8>>,
+        after: Option<Vec<u8>>,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Result<Self, InternalError> {
+        let (raw_key, _) = decode_data_key(key)?;
+
+        Ok(Self::new(
+            entity_path,
+            raw_key,
+            before,
+            after,
+            schema_fingerprint,
+        ))
     }
 }
 
@@ -134,14 +155,6 @@ impl CommitMarker {
         ))
     }
 
-    // Build the canonical row-op corruption for invalid key length.
-    fn row_op_key_length_invalid(len: usize) -> InternalError {
-        InternalError::commit_corruption(format!(
-            "row op key has invalid length: {len} bytes (expected {})",
-            DataKey::STORED_SIZE_USIZE,
-        ))
-    }
-
     // Build the canonical row-op corruption for key decode failures.
     fn row_op_key_decode_failed(err: impl std::fmt::Display) -> InternalError {
         InternalError::commit_corruption(format!("row op key decode: {err}"))
@@ -163,14 +176,12 @@ pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], Inter
 }
 
 /// Encode one commit-marker payload in the canonical binary format.
+#[cfg(test)]
 pub(in crate::db) fn encode_commit_marker_payload(
     marker: &CommitMarker,
 ) -> Result<Vec<u8>, InternalError> {
     // Phase 1: size the output once so commit persistence writes one compact frame.
-    let mut capacity = COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES;
-    for row_op in &marker.row_ops {
-        capacity = capacity.saturating_add(commit_row_op_payload_capacity(row_op));
-    }
+    let capacity = commit_marker_payload_capacity(marker);
     if capacity > u32::MAX as usize {
         return Err(
             InternalError::commit_marker_payload_exceeds_u32_length_limit(
@@ -182,28 +193,19 @@ pub(in crate::db) fn encode_commit_marker_payload(
 
     // Phase 2: emit one length-delimited frame for deterministic recovery replay.
     let mut encoded = Vec::with_capacity(capacity);
-    encoded.extend_from_slice(&marker.id);
-    write_len_u32(
-        &mut encoded,
-        marker.row_ops.len(),
-        "commit marker row count",
-    )?;
-    for row_op in &marker.row_ops {
-        write_commit_row_op(&mut encoded, row_op)?;
-    }
+    write_commit_marker_payload(&mut encoded, marker)?;
 
     Ok(encoded)
 }
 
 /// Encode one single-row commit-marker payload for hot write-lane persistence.
+#[cfg(test)]
 pub(in crate::db) fn encode_single_row_commit_marker_payload(
     marker_id: [u8; COMMIT_ID_BYTES],
     row_op: &CommitRowOp,
 ) -> Result<Vec<u8>, InternalError> {
     // Phase 1: compute the exact one-row frame capacity up front.
-    let capacity = COMMIT_MARKER_ID_BYTES
-        .saturating_add(COMMIT_MARKER_ROW_COUNT_BYTES)
-        .saturating_add(commit_row_op_payload_capacity(row_op));
+    let capacity = single_row_commit_marker_payload_capacity(row_op);
     if capacity > u32::MAX as usize {
         return Err(
             InternalError::commit_marker_payload_exceeds_u32_length_limit(
@@ -215,18 +217,60 @@ pub(in crate::db) fn encode_single_row_commit_marker_payload(
 
     // Phase 2: encode the single row op directly without the outer row-op loop.
     let mut encoded = Vec::with_capacity(capacity);
-    encoded.extend_from_slice(&marker_id);
-    write_len_u32(&mut encoded, 1, "commit marker row count")?;
-    write_commit_row_op(&mut encoded, row_op)?;
+    write_single_row_commit_marker_payload(&mut encoded, marker_id, row_op)?;
 
     Ok(encoded)
 }
 
+/// Return the canonical one-row marker payload size without allocating it.
+pub(in crate::db) fn single_row_commit_marker_payload_capacity(row_op: &CommitRowOp) -> usize {
+    COMMIT_MARKER_ID_BYTES
+        .saturating_add(COMMIT_MARKER_ROW_COUNT_BYTES)
+        .saturating_add(commit_row_op_payload_capacity(row_op))
+}
+
+/// Return the canonical multi-row marker payload size without allocating it.
+pub(in crate::db) fn commit_marker_payload_capacity(marker: &CommitMarker) -> usize {
+    let mut capacity = COMMIT_MARKER_ID_BYTES + COMMIT_MARKER_ROW_COUNT_BYTES;
+    for row_op in &marker.row_ops {
+        capacity = capacity.saturating_add(commit_row_op_payload_capacity(row_op));
+    }
+
+    capacity
+}
+
+// Write the canonical one-row marker payload into an existing output buffer.
+pub(in crate::db) fn write_single_row_commit_marker_payload(
+    out: &mut Vec<u8>,
+    marker_id: [u8; COMMIT_ID_BYTES],
+    row_op: &CommitRowOp,
+) -> Result<(), InternalError> {
+    out.extend_from_slice(&marker_id);
+    write_len_u32(out, 1, "commit marker row count")?;
+    write_commit_row_op(out, row_op)?;
+
+    Ok(())
+}
+
+// Write the canonical multi-row marker payload into an existing output buffer.
+pub(in crate::db) fn write_commit_marker_payload(
+    out: &mut Vec<u8>,
+    marker: &CommitMarker,
+) -> Result<(), InternalError> {
+    out.extend_from_slice(&marker.id);
+    write_len_u32(out, marker.row_ops.len(), "commit marker row count")?;
+    for row_op in &marker.row_ops {
+        write_commit_row_op(out, row_op)?;
+    }
+
+    Ok(())
+}
+
 // Return the canonical encoded payload size contribution for one row op.
-const fn commit_row_op_payload_capacity(row_op: &CommitRowOp) -> usize {
+fn commit_row_op_payload_capacity(row_op: &CommitRowOp) -> usize {
     let mut capacity = 4 + row_op.entity_path.len();
     capacity = capacity
-        .saturating_add(4 + row_op.key.len())
+        .saturating_add(4 + DataKey::STORED_SIZE_USIZE)
         .saturating_add(1)
         .saturating_add(COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES);
     if let Some(bytes) = &row_op.before {
@@ -246,7 +290,7 @@ fn write_commit_row_op(out: &mut Vec<u8>, row_op: &CommitRowOp) -> Result<(), In
         row_op.entity_path.as_bytes(),
         "commit marker entity_path",
     )?;
-    write_len_prefixed_bytes(out, &row_op.key, "commit marker key")?;
+    write_len_prefixed_bytes(out, row_op.key.as_bytes(), "commit marker key")?;
 
     let mut flags = 0_u8;
     if row_op.before.is_some() {
@@ -292,7 +336,7 @@ pub(in crate::db) fn decode_commit_marker_payload(
         let entity_path = std::str::from_utf8(entity_path_bytes).map_err(|_| {
             InternalError::commit_corruption("commit marker payload decode: entity_path not utf-8")
         })?;
-        let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?.to_vec();
+        let key = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker key")?;
         let flags = *bytes.get(cursor).ok_or_else(|| {
             InternalError::commit_corruption("commit marker payload decode: truncated row-op flags")
         })?;
@@ -325,13 +369,13 @@ pub(in crate::db) fn decode_commit_marker_payload(
             "commit marker schema fingerprint",
         )?;
 
-        row_ops.push(CommitRowOp::new(
-            entity_path,
+        row_ops.push(CommitRowOp::try_new_bytes(
+            entity_path.to_owned(),
             key,
             before,
             after,
             schema_fingerprint,
-        ));
+        )?);
     }
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
@@ -467,11 +511,7 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
         }
 
         // Phase 3: enforce data-key byte shape and semantic decode.
-        if row_op.key.len() != DataKey::STORED_SIZE_USIZE {
-            return Err(CommitMarker::row_op_key_length_invalid(row_op.key.len()));
-        }
-        let raw_key = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(row_op.key.as_slice()));
-        DataKey::try_from_raw(&raw_key).map_err(CommitMarker::row_op_key_decode_failed)?;
+        DataKey::try_from_raw(&row_op.key).map_err(CommitMarker::row_op_key_decode_failed)?;
     }
 
     Ok(())

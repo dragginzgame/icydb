@@ -39,6 +39,7 @@ use crate::{
         data::RawDataKey,
         executor::Context,
         registry::StoreHandle,
+        relation::model_has_strong_relations_to_target,
     },
     traits::{CanisterKind, EntityKind, EntityValue},
     types::EntityTag,
@@ -202,7 +203,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_str())?;
+        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_ref())?;
 
         (hooks.prepare_row_commit)(self, op)
     }
@@ -213,7 +214,7 @@ impl<C: CanisterKind> Db<C> {
         row_reader: &dyn crate::db::index::StructuralPrimaryRowReader,
         index_reader: &dyn crate::db::index::StructuralIndexEntryReader,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_str())?;
+        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_ref())?;
 
         (hooks.prepare_row_commit_with_readers)(self, op, row_reader, index_reader)
     }
@@ -251,6 +252,10 @@ impl<C: CanisterKind> Db<C> {
 
         // Delegate delete-side relation validation to each entity runtime hook.
         for hooks in self.entity_runtime_hooks {
+            if !model_has_strong_relations_to_target(hooks.model, target_path) {
+                continue;
+            }
+
             (hooks.validate_delete_strong_relations)(self, target_path, deleted_target_keys)?;
         }
 

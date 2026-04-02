@@ -138,7 +138,7 @@ fn migration_row_bytes(entity: &MigrationEntity) -> Vec<u8> {
 fn insert_row_op(entity: &MigrationEntity) -> CommitRowOp {
     CommitRowOp::new(
         MigrationEntity::PATH,
-        migration_data_key(entity.id).as_bytes().to_vec(),
+        migration_data_key(entity.id),
         None,
         Some(migration_row_bytes(entity)),
         commit_schema_fingerprint_for_entity::<MigrationEntity>(),
@@ -340,9 +340,7 @@ fn migration_step_failure_is_classified_and_keeps_marker_authority() {
     let invalid_path = "migration::UnknownEntity";
     let invalid = CommitRowOp::new(
         invalid_path,
-        migration_data_key(Ulid::from_u128(4_002))
-            .as_bytes()
-            .to_vec(),
+        migration_data_key(Ulid::from_u128(4_002)),
         None,
         Some(migration_row_bytes(&MigrationEntity {
             id: Ulid::from_u128(4_002),

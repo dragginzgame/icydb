@@ -100,7 +100,7 @@ fn rebuild_secondary_indexes_in_place(
             let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;
             let row_op = CommitRowOp::new(
                 hooks.entity_path,
-                raw_key.as_bytes().to_vec(),
+                raw_key,
                 None,
                 Some(raw_row.as_bytes().to_vec()),
                 commit_schema_fingerprint_for_model(hooks.entity_path, hooks.model),

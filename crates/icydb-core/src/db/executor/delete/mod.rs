@@ -36,7 +36,7 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue, Storable},
     types::Id,
 };
 use std::collections::BTreeSet;
@@ -426,7 +426,7 @@ fn prepare_delete_commit<C>(
     db: &Db<C>,
     _store: StoreHandle,
     authority: &DeleteExecutionAuthority,
-    rollback_rows: &[(RawDataKey, RawRow)],
+    rollback_rows: Vec<(RawDataKey, RawRow)>,
 ) -> Result<PreparedDeleteCommit, InternalError>
 where
     C: CanisterKind,
@@ -440,12 +440,12 @@ where
 
     // Phase 2: assemble mechanical delete commit row ops.
     let row_ops = rollback_rows
-        .iter()
+        .into_iter()
         .map(|(raw_key, raw_row)| {
             Ok(CommitRowOp::new(
                 authority.entity.entity_path(),
-                raw_key.as_bytes().to_vec(),
-                Some(raw_row.as_bytes().to_vec()),
+                raw_key,
+                Some(raw_row.into_bytes()),
                 None,
                 authority.schema_fingerprint,
             ))
@@ -485,7 +485,7 @@ where
 
     // Phase 3: prepare the structural delete commit payload before the typed
     // wrapper enters the mechanical commit-window apply step.
-    let commit = prepare_delete_commit(db, store, &prepared.authority, &structural.rollback_rows)?;
+    let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
     let row_count = u32::try_from(structural.response_rows.len()).unwrap_or(u32::MAX);
 
     Ok(PreparedDeleteSqlProjection {
@@ -701,7 +701,7 @@ where
 
             // Phase 5: keep relation validation and commit assembly on the structural path.
             let commit =
-                prepare_delete_commit(&self.db, store, &prepared.authority, &typed.rollback_rows)?;
+                prepare_delete_commit(&self.db, store, &prepared.authority, typed.rollback_rows)?;
             if self.db.has_runtime_hooks() {
                 commit_delete_row_ops_with_window_for_path(
                     &self.db,
@@ -824,12 +824,8 @@ where
                 return Ok(0);
             }
 
-            let commit = prepare_delete_commit(
-                &self.db,
-                store,
-                &prepared.authority,
-                &counted.rollback_rows,
-            )?;
+            let commit =
+                prepare_delete_commit(&self.db, store, &prepared.authority, counted.rollback_rows)?;
             if self.db.has_runtime_hooks() {
                 commit_delete_row_ops_with_window_for_path(
                     &self.db,

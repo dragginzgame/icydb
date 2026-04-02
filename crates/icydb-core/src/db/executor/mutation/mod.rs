@@ -26,8 +26,9 @@ use crate::{
 };
 
 pub(super) use commit_window::{
-    commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
-    commit_save_row_ops_with_window, commit_single_save_row_op_with_window,
+    PreparedRowOpDelta, commit_delete_row_ops_with_window,
+    commit_delete_row_ops_with_window_for_path, commit_prepared_single_save_row_op_with_window,
+    commit_save_row_ops_with_window, emit_index_delta_metrics,
 };
 
 ///

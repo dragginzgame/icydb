@@ -20,9 +20,10 @@ use crate::{
 };
 use std::{collections::BTreeSet, fmt::Display};
 
+pub(in crate::db) use metadata::model_has_strong_relations_to_target;
 pub(crate) use metadata::{StrongRelationTargetInfo, strong_relation_target_from_kind};
 pub(crate) use reverse_index::{
-    ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_rows,
+    ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
 pub(in crate::db) use save_validate::{
     model_has_strong_relation_targets, validate_save_strong_relations,

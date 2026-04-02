@@ -4,7 +4,9 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
-use crate::db::data::DataKey;
+use crate::db::data::{DataKey, RawDataKey};
+use canic_cdk::structures::Storable;
+use std::borrow::Cow;
 
 // Build canonical persisted row bytes for relation-source replay markers.
 fn relation_source_row_bytes(entity: &RelationSourceEntity) -> Vec<u8> {
@@ -480,7 +482,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
 
     let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
-        raw_key.as_bytes().to_vec(),
+        raw_key,
         None,
         Some(row_bytes),
         crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
@@ -775,7 +777,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     // Phase 1: replay first save marker.
     let first_save_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
-        first_source_key.as_bytes().to_vec(),
+        first_source_key,
         None,
         Some(first_source_row_bytes.clone()),
         crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
@@ -798,7 +800,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     // Phase 2: replay second save marker targeting the same target key.
     let second_save_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
-        second_source_key.as_bytes().to_vec(),
+        second_source_key,
         None,
         Some(second_source_row_bytes),
         crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
@@ -821,7 +823,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     // Phase 3: replay delete marker for one source row.
     let delete_a_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
-        first_source_key.as_bytes().to_vec(),
+        first_source_key,
         Some(first_source_row_bytes),
         None,
         crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
@@ -924,7 +926,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
 
     let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
-        source_key.as_bytes().to_vec(),
+        source_key,
         Some(before_row_bytes),
         Some(after_row_bytes),
         crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
@@ -1018,17 +1020,21 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         target: target_b,
     });
 
+    let mut malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE];
+    malformed_key[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    let malformed_raw_key = RawDataKey::from_bytes(Cow::Owned(malformed_key));
+
     let marker = CommitMarker::new(vec![
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
-            source_key.as_bytes().to_vec(),
+            source_key,
             Some(update_before_row_bytes),
             Some(update_after_row_bytes),
             crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
-            vec![7, 8, 9],
+            malformed_raw_key,
             None,
             Some(vec![1]),
             crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
@@ -1042,7 +1048,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Corruption,
-        "prepare failure should surface corruption for malformed key bytes",
+        "prepare failure should surface corruption for malformed key shape",
     );
     assert_eq!(
         err.origin,
@@ -1203,14 +1209,14 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     let marker = CommitMarker::new(vec![
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
-            source_1_key.as_bytes().to_vec(),
+            source_1_key,
             Some(source_1_before_row_bytes),
             Some(source_1_after_row_bytes),
             crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
-            source_2_key.as_bytes().to_vec(),
+            source_2_key,
             Some(source_2_same_row_bytes.clone()),
             Some(source_2_same_row_bytes),
             crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),

@@ -18,7 +18,7 @@ use crate::{
         },
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            metadata::{StrongRelationInfo, strong_relations_for_model},
+            metadata::{StrongRelationInfo, strong_relations_for_model_iter},
         },
     },
     error::InternalError,
@@ -75,6 +75,22 @@ struct ReverseRelationMutationTarget {
     reverse_key: RawIndexKey,
     old_contains: bool,
     new_contains: bool,
+}
+
+///
+/// ReverseRelationSourceTransition
+///
+/// Shared old/new source-row views used during reverse-index preparation.
+/// This lets commit preflight reuse already-decoded structural slot readers
+/// while preserving the existing raw-row fallback for other call sites.
+///
+
+struct ReverseRelationSourceTransition<'row, 'slots> {
+    source_model: &'static EntityModel,
+    old_row: Option<&'row RawRow>,
+    new_row: Option<&'row RawRow>,
+    old_row_fields: Option<&'slots StructuralSlotReader<'row>>,
+    new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
 }
 
 // Resolve the canonical relation-target decode context label used by
@@ -157,19 +173,70 @@ pub(super) fn relation_target_keys_for_source_row(
 ) -> Result<Vec<RawDataKey>, InternalError> {
     let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
 
+    relation_target_keys_for_source_slots(&row_fields, source_info, relation)
+}
+
+// Read relation-target raw keys directly from one already-decoded structural
+// source row so commit preflight can reuse slot readers it has already
+// validated for forward-index planning.
+fn relation_target_keys_for_source_slots(
+    row_fields: &StructuralSlotReader<'_>,
+    source_info: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+) -> Result<Vec<RawDataKey>, InternalError> {
     // Phase 1: keep single relation slots on the scalar fast path when the
     // persisted field already uses a storage-key-compatible leaf codec.
     if let Some(keys) =
-        relation_target_storage_keys_from_scalar_slot(&row_fields, source_info, relation)?
+        relation_target_storage_keys_from_scalar_slot(row_fields, source_info, relation)?
     {
         return relation_target_raw_keys_from_storage_keys(source_info, relation, keys);
     }
 
     // Phase 2: decode the declared relation field payload directly into target
     // storage keys without rebuilding a runtime `Value` container.
-    let keys = relation_target_storage_keys_from_field_bytes(&row_fields, source_info, relation)?;
+    let keys = relation_target_storage_keys_from_field_bytes(row_fields, source_info, relation)?;
 
     relation_target_raw_keys_from_storage_keys(source_info, relation, keys)
+}
+
+/// Check whether one persisted source row still references one specific target
+/// key for the declared strong relation.
+///
+/// Delete validation uses this narrower helper because the blocked-delete proof
+/// loop only needs membership for one candidate target key, not the full
+/// canonicalized target-key set.
+pub(in crate::db::relation) fn source_row_references_relation_target(
+    raw_row: &RawRow,
+    source_model: &'static EntityModel,
+    source_info: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+    target_key: StorageKey,
+) -> Result<bool, InternalError> {
+    let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
+
+    source_slots_reference_relation_target(&row_fields, source_info, relation, target_key)
+}
+
+// Check one already-decoded structural source row for membership of one target
+// key without rebuilding the full canonical target-key vector.
+fn source_slots_reference_relation_target(
+    row_fields: &StructuralSlotReader<'_>,
+    source_info: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+    target_key: StorageKey,
+) -> Result<bool, InternalError> {
+    // Phase 1: keep singular relation slots on the scalar fast path.
+    if let Some(keys) =
+        relation_target_storage_keys_from_scalar_slot(row_fields, source_info, relation)?
+    {
+        return Ok(keys.into_iter().any(|candidate| candidate == target_key));
+    }
+
+    // Phase 2: decode only the declared relation field payload and test
+    // membership directly against the target key needed by the proof loop.
+    let keys = relation_target_storage_keys_from_field_bytes(row_fields, source_info, relation)?;
+
+    Ok(keys.into_iter().any(|candidate| candidate == target_key))
 }
 
 // Canonicalize reverse-index target keys into deterministic sorted-unique order.
@@ -463,32 +530,35 @@ fn prepare_reverse_relation_index_mutation_for_target(
     }))
 }
 
-/// Prepare reverse-index mutations for one source entity transition.
-///
-/// This derives mechanical index writes/deletes that keep delete-time strong
-/// relation validation O(referrers) instead of O(source rows).
-pub(crate) fn prepare_reverse_relation_index_mutations_for_source_rows<C>(
+/// Prepare reverse-index mutations for one source entity transition using
+/// already-decoded structural slot readers from commit preflight.
+pub(crate) fn prepare_reverse_relation_index_mutations_for_source_slot_readers<C>(
     db: &Db<C>,
     index_reader: &dyn StructuralIndexEntryReader,
     source: ReverseRelationSourceInfo,
     source_model: &'static EntityModel,
     source_storage_key: StorageKey,
-    old_row: Option<&RawRow>,
-    new_row: Option<&RawRow>,
+    old_row_fields: Option<&StructuralSlotReader<'_>>,
+    new_row_fields: Option<&StructuralSlotReader<'_>>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
 where
     C: CanisterKind,
 {
     let mut target_store = |relation| relation_target_store(db, source, relation);
+    let source_rows = ReverseRelationSourceTransition {
+        source_model,
+        old_row: None,
+        new_row: None,
+        old_row_fields,
+        new_row_fields,
+    };
 
     prepare_reverse_relation_index_mutations_for_source_rows_impl(
         &mut target_store,
         index_reader,
         source,
-        source_model,
         source_storage_key,
-        old_row,
-        new_row,
+        source_rows,
     )
 }
 
@@ -503,37 +573,35 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
     >,
     index_reader: &dyn StructuralIndexEntryReader,
     source: ReverseRelationSourceInfo,
-    source_model: &'static EntityModel,
     source_storage_key: StorageKey,
-    old_row: Option<&RawRow>,
-    new_row: Option<&RawRow>,
+    source_rows: ReverseRelationSourceTransition<'_, '_>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
-    // Phase 1: short-circuit when the source entity has no strong relations.
-    let relations = strong_relations_for_model(source_model, None);
-    if relations.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Phase 2: derive the single source storage key once from the already-validated
+    // Phase 1: derive the single source storage key once from the already-validated
     // commit marker key instead of recomputing it through typed entity ids.
     let mut ops = Vec::new();
 
-    // Phase 3: evaluate each strong relation independently and derive index deltas
+    // Phase 2: evaluate each strong relation independently and derive index deltas
     // directly from persisted row payloads.
-    for relation in relations {
-        let old_targets = match old_row {
-            Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
-            None => Vec::new(),
-        };
-        let new_targets = match new_row {
-            Some(row) => relation_target_keys_for_source_row(row, source_model, source, relation)?,
-            None => Vec::new(),
-        };
+    for relation in strong_relations_for_model_iter(source_rows.source_model, None) {
+        let old_targets = relation_target_keys_for_transition_side(
+            &source_rows,
+            source_rows.old_row_fields,
+            source_rows.old_row,
+            source,
+            relation,
+        )?;
+        let new_targets = relation_target_keys_for_transition_side(
+            &source_rows,
+            source_rows.new_row_fields,
+            source_rows.new_row,
+            source,
+            relation,
+        )?;
         let target_store = target_store_for_relation(relation)?;
         let mut old_index = 0usize;
         let mut new_index = 0usize;
 
-        // Phase 4: walk the canonical union of old/new targets directly
+        // Phase 3: walk the canonical union of old/new targets directly
         // instead of cloning, re-sorting, and then binary-searching both
         // source vectors again for each touched target.
         while old_index < old_targets.len() || new_index < new_targets.len() {
@@ -614,4 +682,24 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
     }
 
     Ok(ops)
+}
+
+// Resolve relation targets for one old/new source-row side, preferring the
+// already-decoded slot-reader view when commit preflight has one available.
+fn relation_target_keys_for_transition_side(
+    source_rows: &ReverseRelationSourceTransition<'_, '_>,
+    row_fields: Option<&StructuralSlotReader<'_>>,
+    row: Option<&RawRow>,
+    source: ReverseRelationSourceInfo,
+    relation: StrongRelationInfo,
+) -> Result<Vec<RawDataKey>, InternalError> {
+    match row_fields {
+        Some(row_fields) => relation_target_keys_for_source_slots(row_fields, source, relation),
+        None => match row {
+            Some(row) => {
+                relation_target_keys_for_source_row(row, source_rows.source_model, source, relation)
+            }
+            None => Ok(Vec::new()),
+        },
+    }
 }

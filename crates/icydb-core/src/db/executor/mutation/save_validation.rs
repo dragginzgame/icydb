@@ -28,24 +28,10 @@ use std::{
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Execute the canonical save preflight pipeline before commit planning.
     pub(super) fn preflight_entity(&self, entity: &mut E) -> Result<(), InternalError> {
-        sanitize(entity)?;
-        validate(entity)?;
-        Self::ensure_entity_invariants(entity)?;
-        if model_has_strong_relation_targets(E::MODEL) {
-            validate_save_strong_relations::<E>(&self.db, entity)?;
-        }
-
-        Ok(())
-    }
-
-    // Cache schema validation per entity type to keep invariant checks fast.
-    // Note: these trait boundaries may be sealed in a future major version.
-    pub(in crate::db::executor::mutation) fn ensure_entity_invariants(
-        entity: &E,
-    ) -> Result<(), InternalError> {
         let schema = Self::schema_info()?;
+        let validate_relations = model_has_strong_relation_targets(E::MODEL);
 
-        Self::validate_entity_invariants(entity, schema)
+        self.preflight_entity_with_cached_schema(entity, schema, validate_relations)
     }
 
     // Validate one persisted row against the current write-boundary invariants
@@ -62,7 +48,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     // Cache schema validation results per entity type.
-    fn schema_info() -> Result<&'static SchemaInfo, InternalError> {
+    pub(in crate::db::executor::mutation) fn schema_info()
+    -> Result<&'static SchemaInfo, InternalError> {
         type SchemaCache = BTreeMap<&'static str, Result<&'static SchemaInfo, CachedInvariant>>;
         static CACHE: OnceLock<Mutex<SchemaCache>> = OnceLock::new();
 
@@ -86,6 +73,26 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             Ok(schema) => Ok(*schema),
             Err(err) => Err(err.to_error()),
         }
+    }
+
+    // Execute save preflight using already-resolved schema and relation metadata.
+    //
+    // Batch save lanes call this helper so they do not repay the schema-cache
+    // mutex lookup and strong-relation capability probe for every row.
+    pub(in crate::db::executor::mutation) fn preflight_entity_with_cached_schema(
+        &self,
+        entity: &mut E,
+        schema: &SchemaInfo,
+        validate_relations: bool,
+    ) -> Result<(), InternalError> {
+        sanitize(entity)?;
+        validate(entity)?;
+        Self::validate_entity_invariants(entity, schema)?;
+        if validate_relations {
+            validate_save_strong_relations::<E>(&self.db, entity)?;
+        }
+
+        Ok(())
     }
 
     // Enforce trait boundary invariants for user-provided entities.

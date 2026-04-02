@@ -299,7 +299,7 @@ fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
     let raw_row = RawRow::from_entity(entity).expect("integrity test row should encode");
     let row_op = CommitRowOp::new(
         IntegrityIndexedEntity::PATH,
-        raw_key.as_bytes().to_vec(),
+        raw_key,
         None,
         Some(raw_row.as_bytes().to_vec()),
         commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>(),

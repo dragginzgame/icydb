@@ -593,6 +593,41 @@ pub(in crate::db) fn canonical_row_from_serialized_update_patch(
     emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
 }
 
+/// Build one canonical row directly from one typed entity slot writer.
+pub(in crate::db) fn canonical_row_from_entity<E>(entity: &E) -> Result<CanonicalRow, InternalError>
+where
+    E: PersistedRow,
+{
+    let mut writer = SlotBufferWriter::for_model(E::MODEL);
+
+    // Phase 1: let the derive-owned slot writer emit the complete typed row image.
+    entity.write_slots(&mut writer)?;
+
+    // Phase 2: wrap the canonical slot container in the shared row envelope.
+    let encoded = serialize_row_payload(writer.finish()?)?;
+    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
+
+    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
+}
+
+/// Build one canonical row from one already-decoded structural slot reader.
+pub(in crate::db) fn canonical_row_from_structural_slot_reader(
+    row_fields: &StructuralSlotReader<'_>,
+) -> Result<CanonicalRow, InternalError> {
+    // Phase 1: canonicalize every declared slot from the already-decoded row image.
+    let slot_payloads = dense_canonical_slot_image_from_payload_source(row_fields.model, |slot| {
+        row_fields.field_bytes.field(slot).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is missing from the baseline row for entity '{}'",
+                row_fields.model.path()
+            ))
+        })
+    })?;
+
+    // Phase 2: re-emit the full image through the single row-emission owner.
+    emit_raw_row_from_slot_payloads(row_fields.model, slot_payloads.as_slice())
+}
+
 // Rebuild one full canonical row image from an existing raw row before it
 // crosses a storage write boundary.
 pub(in crate::db) fn canonical_row_from_raw_row(
@@ -2369,11 +2404,9 @@ mod tests {
             name: "Ada".to_string(),
         };
         let raw_row = RawRow::from_entity(&entity).expect("encode canonical row");
-        let canonical = crate::db::data::canonical_row_from_raw_row(
-            PersistedRowPatchBridgeEntity::MODEL,
-            &raw_row,
-        )
-        .expect("canonical re-emission should succeed");
+        let canonical =
+            super::canonical_row_from_raw_row(PersistedRowPatchBridgeEntity::MODEL, &raw_row)
+                .expect("canonical re-emission should succeed");
 
         assert_eq!(
             canonical.as_bytes(),
@@ -2399,7 +2432,7 @@ mod tests {
         )
         .expect("build malformed raw row");
 
-        let err = crate::db::data::canonical_row_from_raw_row(&TEST_MODEL, &raw_row)
+        let err = super::canonical_row_from_raw_row(&TEST_MODEL, &raw_row)
             .expect_err("canonical raw-row rebuild must reject malformed scalar payloads");
 
         assert!(

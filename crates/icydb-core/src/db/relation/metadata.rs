@@ -6,7 +6,6 @@
 use crate::{
     model::entity::EntityModel,
     model::field::{FieldKind, RelationStrength},
-    traits::EntityKind,
     types::EntityTag,
 };
 
@@ -101,21 +100,11 @@ const fn strong_relation_from_field(
     })
 }
 
-/// Resolve strong relation descriptors for a source entity, optionally filtered by target path.
-pub(super) fn strong_relations_for_source<S>(
-    target_path_filter: Option<&str>,
-) -> Vec<StrongRelationInfo>
-where
-    S: EntityKind,
-{
-    strong_relations_for_model(S::MODEL, target_path_filter)
-}
-
 /// Resolve strong relation descriptors for one source model, optionally filtered by target path.
-pub(super) fn strong_relations_for_model(
+pub(super) fn strong_relations_for_model_iter<'a>(
     model: &'static EntityModel,
-    target_path_filter: Option<&str>,
-) -> Vec<StrongRelationInfo> {
+    target_path_filter: Option<&'a str>,
+) -> impl Iterator<Item = StrongRelationInfo> + 'a {
     model
         .fields
         .iter()
@@ -123,8 +112,18 @@ pub(super) fn strong_relations_for_model(
         .filter_map(|(field_index, field)| {
             strong_relation_from_field(field_index, field.name, &field.kind)
         })
-        .filter(|relation| {
+        .filter(move |relation| {
             target_path_filter.is_none_or(|target_path| relation.target_path == target_path)
         })
-        .collect()
+}
+
+/// Return `true` when one source model declares any strong relation to the
+/// target entity path under delete-side validation.
+pub(in crate::db) fn model_has_strong_relations_to_target(
+    model: &'static EntityModel,
+    target_path: &str,
+) -> bool {
+    strong_relations_for_model_iter(model, Some(target_path))
+        .next()
+        .is_some()
 }

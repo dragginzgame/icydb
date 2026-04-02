@@ -10,8 +10,8 @@ use crate::{
         commit::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
             commit_marker_present, encode_commit_marker_payload, ensure_recovered, finish_commit,
-            init_commit_store_for_tests, prepare_row_commit_for_entity,
-            prepare_row_commit_for_entity_with_structural_readers,
+            init_commit_store_for_tests, marker::encode_single_row_commit_marker_payload,
+            prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_structural_readers,
             rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
         data::{
@@ -577,7 +577,8 @@ fn row_op_for_path_with_schema(
     after: Option<Vec<u8>>,
     schema_fingerprint: [u8; 16],
 ) -> CommitRowOp {
-    CommitRowOp::new(path, data_key, before, after, schema_fingerprint)
+    CommitRowOp::try_new_bytes(path, &data_key, before, after, schema_fingerprint)
+        .expect("recovery test row op key bytes should decode")
 }
 
 fn row_op_for_path(
@@ -612,6 +613,72 @@ fn row_op_for_path(
         _ => [0u8; 16],
     };
     row_op_for_path_with_schema(path, data_key, before, after, schema_fingerprint)
+}
+
+fn persist_raw_single_row_marker_for_tests(
+    entity_path: &str,
+    key: &[u8],
+    before: Option<&[u8]>,
+    after: Option<&[u8]>,
+    schema_fingerprint: [u8; 16],
+) {
+    let mut marker_payload = Vec::new();
+    marker_payload.extend_from_slice(&[0u8; 16]);
+    marker_payload.extend_from_slice(&1u32.to_le_bytes());
+    marker_payload.extend_from_slice(
+        &u32::try_from(entity_path.len())
+            .expect("entity path length should fit u32")
+            .to_le_bytes(),
+    );
+    marker_payload.extend_from_slice(entity_path.as_bytes());
+    marker_payload.extend_from_slice(
+        &u32::try_from(key.len())
+            .expect("data key length should fit u32")
+            .to_le_bytes(),
+    );
+    marker_payload.extend_from_slice(key);
+
+    let mut flags = 0u8;
+    if before.is_some() {
+        flags |= 0b0000_0001;
+    }
+    if after.is_some() {
+        flags |= 0b0000_0010;
+    }
+    marker_payload.push(flags);
+
+    if let Some(bytes) = before {
+        marker_payload.extend_from_slice(
+            &u32::try_from(bytes.len())
+                .expect("before payload length should fit u32")
+                .to_le_bytes(),
+        );
+        marker_payload.extend_from_slice(bytes);
+    }
+    if let Some(bytes) = after {
+        marker_payload.extend_from_slice(
+            &u32::try_from(bytes.len())
+                .expect("after payload length should fit u32")
+                .to_le_bytes(),
+        );
+        marker_payload.extend_from_slice(bytes);
+    }
+    marker_payload.extend_from_slice(&schema_fingerprint);
+
+    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
+        COMMIT_MARKER_FORMAT_VERSION_CURRENT,
+        marker_payload,
+    )
+    .expect("raw marker envelope encode should succeed");
+    let control_slot_bytes =
+        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::new())
+            .expect("raw control-slot encode should succeed");
+
+    store::with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(control_slot_bytes);
+        Ok(())
+    })
+    .expect("test helper should persist raw marker bytes");
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
@@ -1658,15 +1725,13 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
         id: Ulid::from_u128(902),
     })
     .expect("entity serialization should succeed");
-    let marker = CommitMarker::new(vec![row_op_for_path(
+    persist_raw_single_row_marker_for_tests(
         RecoveryTestEntity::PATH,
-        vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
+        &vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
         None,
-        Some(row_bytes),
-    )])
-    .expect("commit marker creation should succeed");
-
-    begin_commit(marker).expect("begin_commit should persist marker");
+        Some(&row_bytes),
+        commit_schema_fingerprint_for_entity::<RecoveryTestEntity>(),
+    );
 
     let err = ensure_recovered(&DB).expect_err("recovery should reject corrupt marker bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
@@ -1726,6 +1791,114 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn single_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
+    let marker_id = [0x5A; 16];
+    let raw_key = DataKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(111))
+        .expect("single-row encoder test data key should build")
+        .to_raw()
+        .expect("single-row encoder test data key should encode");
+    let row_op = row_op_for_path(
+        RecoveryPayloadEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        Some(canonical_row_bytes(&RecoveryPayloadEntity {
+            id: Ulid::from_u128(111),
+            name: "before".to_string(),
+        })),
+        Some(canonical_row_bytes(&RecoveryPayloadEntity {
+            id: Ulid::from_u128(111),
+            name: "after".to_string(),
+        })),
+    );
+    let migration_bytes = vec![0xAA, 0xBB, 0xCC];
+
+    let marker_payload = encode_single_row_commit_marker_payload(marker_id, &row_op)
+        .expect("single-row marker payload encode should succeed");
+    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
+        COMMIT_MARKER_FORMAT_VERSION_CURRENT,
+        marker_payload,
+    )
+    .expect("single-row marker envelope encode should succeed");
+    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(
+        marker_bytes,
+        migration_bytes.clone(),
+    )
+    .expect("canonical control-slot encode should succeed");
+    let direct = store::CommitStore::encode_raw_single_row_control_slot_for_tests(
+        marker_id,
+        &row_op,
+        migration_bytes,
+    )
+    .expect("direct single-row control-slot encode should succeed");
+
+    assert_eq!(
+        direct, canonical,
+        "single-row direct control-slot encoding must stay byte-for-byte canonical"
+    );
+}
+
+#[test]
+fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
+    let marker = CommitMarker {
+        id: [0x6B; 16],
+        row_ops: vec![
+            row_op_for_path(
+                RecoveryPayloadEntity::PATH,
+                DataKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(211))
+                    .expect("multi-row encoder first key should build")
+                    .to_raw()
+                    .expect("multi-row encoder first key should encode")
+                    .as_bytes()
+                    .to_vec(),
+                Some(canonical_row_bytes(&RecoveryPayloadEntity {
+                    id: Ulid::from_u128(211),
+                    name: "before-a".to_string(),
+                })),
+                Some(canonical_row_bytes(&RecoveryPayloadEntity {
+                    id: Ulid::from_u128(211),
+                    name: "after-a".to_string(),
+                })),
+            ),
+            row_op_for_path(
+                RecoveryPayloadEntity::PATH,
+                DataKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(212))
+                    .expect("multi-row encoder second key should build")
+                    .to_raw()
+                    .expect("multi-row encoder second key should encode")
+                    .as_bytes()
+                    .to_vec(),
+                None,
+                Some(canonical_row_bytes(&RecoveryPayloadEntity {
+                    id: Ulid::from_u128(212),
+                    name: "after-b".to_string(),
+                })),
+            ),
+        ],
+    };
+    let migration_bytes = vec![0x11, 0x22, 0x33, 0x44];
+
+    let marker_payload = encode_commit_marker_payload(&marker)
+        .expect("multi-row marker payload encode should succeed");
+    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
+        COMMIT_MARKER_FORMAT_VERSION_CURRENT,
+        marker_payload,
+    )
+    .expect("multi-row marker envelope encode should succeed");
+    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(
+        marker_bytes,
+        migration_bytes.clone(),
+    )
+    .expect("canonical multi-row control-slot encode should succeed");
+    let direct =
+        store::CommitStore::encode_raw_direct_control_slot_for_tests(&marker, migration_bytes)
+            .expect("direct multi-row control-slot encode should succeed");
+
+    assert_eq!(
+        direct, canonical,
+        "multi-row direct control-slot encoding must stay byte-for-byte canonical"
+    );
 }
 
 #[test]
@@ -1952,7 +2125,16 @@ fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
 
 #[test]
 fn prepare_row_commit_rejects_duplicate_entity_paths() {
-    let op = row_op_for_path(RecoveryTestEntity::PATH, vec![0xAA], None, None);
+    let raw_key = DataKey::try_new::<RecoveryTestEntity>(Ulid::from_u128(9_991))
+        .expect("duplicate-path test data key should build")
+        .to_raw()
+        .expect("duplicate-path test data key should encode");
+    let op = row_op_for_path(
+        RecoveryTestEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        None,
+        None,
+    );
     let Err(err) = DUPLICATE_PATH_DB.prepare_row_commit_op(&op) else {
         panic!("duplicate entity paths must fail prepare dispatch")
     };
@@ -3294,7 +3476,7 @@ fn prepare_row_commit_rejects_malformed_nonindexed_scalar_field() {
         .expect("payload-entity key should encode");
     let row_op = CommitRowOp::new(
         RecoveryPayloadEntity::PATH,
-        raw_key.as_bytes().to_vec(),
+        raw_key,
         None,
         Some(malformed_scalar_row_bytes_for_payload_entity(
             entity.id,

@@ -38,6 +38,13 @@
 
 ---
 
+## Language Policy
+
+* Do not add Python code to this repository.
+* New tooling, scripts, test helpers, and build helpers must use the repo’s existing Rust/shell patterns instead of introducing Python.
+
+---
+
 ## Wasm Measurement Priority
 
 * For wasm optimization decisions, treat non-gzipped wasm bytes as the primary metric.

@@ -32,15 +32,23 @@ pub(in crate::db) struct StructuralRowFieldBytes<'a> {
 }
 
 impl<'a> StructuralRowFieldBytes<'a> {
+    /// Decode one raw row payload into model slot-aligned encoded field spans.
+    pub(in crate::db) fn from_row_bytes(
+        row_bytes: &'a [u8],
+        model: &'static EntityModel,
+    ) -> Result<Self, StructuralRowDecodeError> {
+        let payload = decode_structural_row_payload_bytes(row_bytes)?;
+        let (payload, spans) = decode_row_field_spans(payload, model)?;
+
+        Ok(Self { payload, spans })
+    }
+
     /// Decode one raw row into model slot-aligned encoded field payload spans.
     pub(in crate::db) fn from_raw_row(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, StructuralRowDecodeError> {
-        let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())?;
-        let (payload, spans) = decode_row_field_spans(payload, model)?;
-
-        Ok(Self { payload, spans })
+        Self::from_row_bytes(raw_row.as_bytes(), model)
     }
 
     /// Borrow one encoded persisted field payload by stable slot index.

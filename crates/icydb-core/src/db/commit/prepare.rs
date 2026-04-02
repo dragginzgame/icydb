@@ -6,17 +6,20 @@
 use crate::{
     db::{
         Db,
-        commit::{CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp, decode_data_key},
+        commit::{
+            CommitRowOp, CommitSchemaFingerprint, PreparedIndexMutation, PreparedRowCommitOp,
+        },
         data::{
-            CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StructuralSlotReader,
-            canonical_row_from_raw_row,
+            CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow,
+            StructuralSlotReader, canonical_row_from_structural_slot_reader,
         },
         index::{
             IndexEntryReader, IndexMutationPlan, PrimaryRowReader, StructuralIndexEntryReader,
             StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
         },
         relation::{
-            ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_rows,
+            ReverseRelationSourceInfo,
+            prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
         schema::commit_schema_fingerprint_for_entity,
     },
@@ -43,15 +46,17 @@ struct CommitPrepareAuthority {
 }
 
 impl CommitPrepareAuthority {
-    /// Lower one entity type into the resolved authority used by commit preparation.
-    fn for_type<E>() -> Self
+    /// Lower one entity type into the resolved authority using a caller-cached schema fingerprint.
+    const fn for_type_with_schema_fingerprint<E>(
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Self
     where
         E: EntityKind + Path,
     {
         Self {
             entity_path: E::PATH,
             entity_tag: E::ENTITY_TAG,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            schema_fingerprint,
             data_store_path: E::Store::PATH,
             relation_source: ReverseRelationSourceInfo::for_type::<E>(),
             model: E::MODEL,
@@ -107,28 +112,56 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError> {
+    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+        db,
+        op,
+        row_reader,
+        index_reader,
+        commit_schema_fingerprint_for_entity::<E>(),
+    )
+}
+
+/// Prepare a typed row-level commit op against nongeneric structural readers
+/// while reusing a caller-resolved schema fingerprint.
+pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint<
+    E: EntityKind + EntityValue,
+>(
+    db: &Db<E::Canister>,
+    op: &CommitRowOp,
+    row_reader: &dyn StructuralPrimaryRowReader,
+    index_reader: &dyn StructuralIndexEntryReader,
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> Result<PreparedRowCommitOp, InternalError> {
     prepare_row_commit_for_entity_impl(
         db,
         op,
-        CommitPrepareAuthority::for_type::<E>(),
+        CommitPrepareAuthority::for_type_with_schema_fingerprint::<E>(schema_fingerprint),
         row_reader,
         index_reader,
     )
 }
 
-/// Prepare a typed row-level commit op against typed preflight readers.
-pub(in crate::db) fn prepare_row_commit_for_entity_with_readers<E, R, I>(
+/// Prepare a typed row-level commit op against typed preflight readers while
+/// reusing a caller-resolved schema fingerprint.
+pub(in crate::db) fn prepare_row_commit_for_entity_with_readers_and_schema_fingerprint<E, R, I>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
     row_reader: &R,
     index_reader: &I,
+    schema_fingerprint: CommitSchemaFingerprint,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where
     E: EntityKind + EntityValue,
     R: PrimaryRowReader<E> + StructuralPrimaryRowReader,
     I: IndexEntryReader<E> + StructuralIndexEntryReader,
 {
-    prepare_row_commit_for_entity_with_structural_readers::<E>(db, op, row_reader, index_reader)
+    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+        db,
+        op,
+        row_reader,
+        index_reader,
+        schema_fingerprint,
+    )
 }
 
 /// Prepare a typed row-level commit op against committed-store readers.
@@ -137,7 +170,13 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
     let context = db.context::<E>();
-    prepare_row_commit_for_entity_with_structural_readers::<E>(db, op, &context, &context)
+    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+        db,
+        op,
+        &context,
+        &context,
+        commit_schema_fingerprint_for_entity::<E>(),
+    )
 }
 
 // Decode both optional commit-marker row images through the structural row
@@ -176,7 +215,7 @@ where
 
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
-    let index_plan = {
+    let (decoded, index_plan) = {
         let mut decoded = decode_commit_marker_rows_for_preflight(
             &structural.data_key,
             structural.old_row.as_ref(),
@@ -186,7 +225,7 @@ where
 
         // Phase 3: derive forward index work from the already validated
         // structural rows when the entity owns secondary indexes.
-        if authority.model.indexes().is_empty() {
+        let index_plan = if authority.model.indexes().is_empty() {
             empty_forward_index_plan()
         } else {
             prepare_forward_index_commit_leaf(
@@ -197,10 +236,34 @@ where
                 &structural.data_key,
                 &mut decoded,
             )?
-        }
+        };
+
+        (decoded, index_plan)
     };
 
-    finalize_row_commit_structural(db, index_reader, authority, structural, index_plan)
+    let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_slot_readers(
+        db,
+        index_reader,
+        authority.relation_source,
+        authority.model,
+        structural.data_key.storage_key(),
+        decoded.old_slots.as_ref(),
+        decoded.new_slots.as_ref(),
+    )?;
+    let data_value = decoded
+        .new_slots
+        .as_ref()
+        .map(canonical_row_from_structural_slot_reader)
+        .transpose()?;
+
+    finalize_row_commit_structural(
+        db,
+        authority,
+        structural.raw_key,
+        index_plan,
+        reverse_index_ops,
+        data_value,
+    )
 }
 
 // Return one empty forward-index plan when the entity has no secondary indexes.
@@ -299,7 +362,10 @@ fn prepare_row_commit_structural_inputs(
         ));
     }
 
-    let (raw_key, data_key) = decode_data_key(&op.key)?;
+    let raw_key = op.key;
+    let data_key = DataKey::try_from_raw(&raw_key).map_err(|_| {
+        InternalError::store_corruption("commit marker row op key decode: invalid primary key")
+    })?;
     let old_row = op
         .before
         .as_ref()
@@ -329,44 +395,34 @@ fn prepare_row_commit_structural_inputs(
 // produced structural-ready outputs.
 fn finalize_row_commit_structural<C>(
     db: &Db<C>,
-    index_reader: &dyn StructuralIndexEntryReader,
     authority: CommitPrepareAuthority,
-    structural: CommitInputs,
+    data_key: RawDataKey,
     index_plan: IndexMutationPlan,
+    reverse_index_ops: Vec<PreparedIndexMutation>,
+    data_value: Option<CanonicalRow>,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where
     C: crate::traits::CanisterKind,
 {
-    let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_rows(
-        db,
-        index_reader,
-        authority.relation_source,
-        authority.model,
-        structural.data_key.storage_key(),
-        structural.old_row.as_ref(),
-        structural.new_row.as_ref(),
-    )?;
     let data_store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
 
-    materialize_prepared_row_commit(
+    Ok(materialize_prepared_row_commit(
         index_plan,
         reverse_index_ops,
-        authority.model,
         data_store.data_store(),
-        structural.raw_key,
-        structural.new_row,
-    )
+        data_key,
+        data_value,
+    ))
 }
 
 // Materialize one prepared row commit entirely from structural planning outputs.
 fn materialize_prepared_row_commit(
     index_plan: IndexMutationPlan,
     reverse_index_ops: Vec<PreparedIndexMutation>,
-    model: &'static EntityModel,
     data_store: &'static LocalKey<RefCell<DataStore>>,
     data_key: RawDataKey,
-    data_value: Option<RawRow>,
-) -> Result<PreparedRowCommitOp, InternalError> {
+    data_value: Option<CanonicalRow>,
+) -> PreparedRowCommitOp {
     // Phase 1: lower planned commit ops into mechanical index mutations.
     let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len() + reverse_index_ops.len());
     index_ops.extend(
@@ -379,17 +435,10 @@ fn materialize_prepared_row_commit(
     // Phase 2: append the already-prepared reverse-index mutations unchanged.
     index_ops.extend(reverse_index_ops);
 
-    // Phase 3: canonicalize any persisted after-image before it reaches the
-    // infallible store-apply boundary.
-    let data_value = data_value
-        .as_ref()
-        .map(|raw_row| canonical_row_from_raw_row(model, raw_row))
-        .transpose()?;
-
-    Ok(PreparedRowCommitOp {
+    PreparedRowCommitOp {
         index_ops,
         data_store,
         data_key,
         data_value,
-    })
+    }
 }

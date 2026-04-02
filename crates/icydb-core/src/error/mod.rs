@@ -855,6 +855,7 @@ impl InternalError {
     }
 
     /// Construct the canonical pre-persist commit-marker max-size unsupported error.
+    #[cfg(test)]
     pub(crate) fn commit_marker_exceeds_max_size_before_persist(
         size: usize,
         max_size: u32,

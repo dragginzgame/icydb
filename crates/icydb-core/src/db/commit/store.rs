@@ -3,11 +3,17 @@
 //! Does not own: marker shape semantics, recovery orchestration, or commit-window policy.
 //! Boundary: commit::{guard,recovery} -> commit::store (one-way).
 
+#[cfg(test)]
+use crate::db::commit::encode_commit_marker_payload;
 use crate::{
     db::commit::{
         COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
-        decode_commit_marker_payload, encode_commit_marker_payload,
-        marker::encode_single_row_commit_marker_payload, memory::commit_memory_id,
+        decode_commit_marker_payload,
+        marker::{
+            commit_marker_payload_capacity, single_row_commit_marker_payload_capacity,
+            write_commit_marker_payload, write_single_row_commit_marker_payload,
+        },
+        memory::commit_memory_id,
         validate_commit_marker_shape,
     },
     error::InternalError,
@@ -78,6 +84,7 @@ impl RawCommitMarker {
     }
 
     /// Serialize and bound-check a commit marker payload.
+    #[cfg(test)]
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
         let bytes = serialize_commit_marker(marker)?;
         if bytes.len() > MAX_COMMIT_BYTES as usize {
@@ -88,24 +95,6 @@ impl RawCommitMarker {
                 ),
             );
         }
-        Ok(Self(bytes))
-    }
-
-    /// Serialize and bound-check one single-row commit marker payload.
-    fn try_from_single_row_op(
-        marker_id: [u8; 16],
-        row_op: &CommitRowOp,
-    ) -> Result<Self, InternalError> {
-        let bytes = serialize_single_row_commit_marker(marker_id, row_op)?;
-        if bytes.len() > MAX_COMMIT_BYTES as usize {
-            return Err(
-                InternalError::commit_marker_exceeds_max_size_before_persist(
-                    bytes.len(),
-                    MAX_COMMIT_BYTES,
-                ),
-            );
-        }
-
         Ok(Self(bytes))
     }
 
@@ -137,6 +126,33 @@ fn decode_commit_control_slot(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Intern
     let slot = inspect_commit_control_slot(bytes)?;
 
     Ok((slot.marker_bytes.to_vec(), slot.migration_bytes.to_vec()))
+}
+
+// Read the migration-length field from one current-format control-slot header.
+//
+// This is an internal hot-path helper for success-path marker clearing. When
+// the runtime has just authored the slot itself, a zero migration length lets
+// clear drop straight to the physically empty slot without decoding the full
+// envelope again.
+fn current_control_slot_migration_len(bytes: &[u8]) -> Option<u32> {
+    if bytes.len() < COMMIT_CONTROL_HEADER_BYTES {
+        return None;
+    }
+    if bytes.get(..COMMIT_CONTROL_MAGIC.len())? != COMMIT_CONTROL_MAGIC {
+        return None;
+    }
+    if *bytes.get(COMMIT_CONTROL_MAGIC.len())? != COMMIT_CONTROL_STATE_VERSION_CURRENT {
+        return None;
+    }
+
+    let migration_len_start = COMMIT_CONTROL_MAGIC.len() + 1 + 4;
+    let migration_len_end = migration_len_start + 4;
+    let raw_len: [u8; 4] = bytes
+        .get(migration_len_start..migration_len_end)?
+        .try_into()
+        .ok()?;
+
+    Some(u32::from_le_bytes(raw_len))
 }
 
 // Inspect commit control-slot bytes under the canonical envelope without
@@ -221,6 +237,7 @@ fn encode_commit_control_slot(
 }
 
 // Serialize a commit marker payload under the canonical versioned envelope.
+#[cfg(test)]
 fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalError> {
     let marker_payload = encode_commit_marker_payload(marker)?;
 
@@ -229,13 +246,99 @@ fn serialize_commit_marker(marker: &CommitMarker) -> Result<Vec<u8>, InternalErr
 
 // Serialize one single-row marker payload under the canonical versioned
 // envelope so hot save/delete opens do not build a Vec-shaped marker wrapper.
-fn serialize_single_row_commit_marker(
+// Encode the full control slot for a multi-row marker directly so atomic batch
+// opens do not allocate intermediate marker payload and marker-envelope buffers.
+fn encode_commit_control_slot_from_marker(
+    marker: &CommitMarker,
+    migration_bytes: &[u8],
+) -> Result<Vec<u8>, InternalError> {
+    let marker_payload_len = commit_marker_payload_capacity(marker);
+    let marker_bytes_len = COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload_len);
+    let marker_len = u32::try_from(marker_bytes_len).map_err(|_| {
+        InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit(marker_bytes_len)
+    })?;
+    let migration_len = u32::try_from(migration_bytes.len()).map_err(|_| {
+        InternalError::commit_control_slot_migration_bytes_exceed_u32_length_limit(
+            migration_bytes.len(),
+        )
+    })?;
+    let total_len = COMMIT_CONTROL_HEADER_BYTES
+        .saturating_add(marker_bytes_len)
+        .saturating_add(migration_bytes.len());
+    if total_len > MAX_COMMIT_BYTES as usize {
+        return Err(InternalError::commit_control_slot_exceeds_max_size(
+            total_len,
+            MAX_COMMIT_BYTES,
+        ));
+    }
+
+    let mut encoded = Vec::with_capacity(total_len);
+    encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
+    encoded.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
+    encoded.extend_from_slice(&marker_len.to_le_bytes());
+    encoded.extend_from_slice(&migration_len.to_le_bytes());
+    encoded.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
+    encoded.extend_from_slice(
+        &(u32::try_from(marker_payload_len).map_err(|_| {
+            InternalError::commit_marker_payload_exceeds_u32_length_limit(
+                "commit marker payload",
+                marker_payload_len,
+            )
+        })?)
+        .to_le_bytes(),
+    );
+    write_commit_marker_payload(&mut encoded, marker)?;
+    encoded.extend_from_slice(migration_bytes);
+
+    Ok(encoded)
+}
+
+// Encode the full control slot for a single-row marker directly so hot
+// save/delete opens do not allocate intermediate marker payload vectors.
+fn encode_single_row_commit_control_slot(
     marker_id: [u8; 16],
     row_op: &CommitRowOp,
+    migration_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let marker_payload = encode_single_row_commit_marker_payload(marker_id, row_op)?;
+    let marker_payload_len = single_row_commit_marker_payload_capacity(row_op);
+    let marker_bytes_len = COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload_len);
+    let marker_len = u32::try_from(marker_bytes_len).map_err(|_| {
+        InternalError::commit_control_slot_marker_bytes_exceed_u32_length_limit(marker_bytes_len)
+    })?;
+    let migration_len = u32::try_from(migration_bytes.len()).map_err(|_| {
+        InternalError::commit_control_slot_migration_bytes_exceed_u32_length_limit(
+            migration_bytes.len(),
+        )
+    })?;
+    let total_len = COMMIT_CONTROL_HEADER_BYTES
+        .saturating_add(marker_bytes_len)
+        .saturating_add(migration_bytes.len());
+    if total_len > MAX_COMMIT_BYTES as usize {
+        return Err(InternalError::commit_control_slot_exceeds_max_size(
+            total_len,
+            MAX_COMMIT_BYTES,
+        ));
+    }
 
-    encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &marker_payload)
+    let mut encoded = Vec::with_capacity(total_len);
+    encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
+    encoded.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
+    encoded.extend_from_slice(&marker_len.to_le_bytes());
+    encoded.extend_from_slice(&migration_len.to_le_bytes());
+    encoded.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
+    encoded.extend_from_slice(
+        &(u32::try_from(marker_payload_len).map_err(|_| {
+            InternalError::commit_marker_payload_exceeds_u32_length_limit(
+                "commit marker payload",
+                marker_payload_len,
+            )
+        })?)
+        .to_le_bytes(),
+    );
+    write_single_row_commit_marker_payload(&mut encoded, marker_id, row_op)?;
+    encoded.extend_from_slice(migration_bytes);
+
+    Ok(encoded)
 }
 
 // Decode one commit marker with strict envelope semantics.
@@ -294,6 +397,7 @@ fn encode_commit_control_slot_bytes(
 
 // Encode the versioned marker envelope directly so only the marker payload
 // itself still uses persisted-payload decode.
+#[cfg(test)]
 fn encode_commit_marker_bytes(
     format_version: u8,
     marker_payload: &[u8],
@@ -409,6 +513,25 @@ impl CommitStore {
         encode_commit_marker_bytes(format_version, &marker_payload)
     }
 
+    /// Encode one single-row commit-control slot payload for regression tests.
+    #[cfg(test)]
+    pub(super) fn encode_raw_single_row_control_slot_for_tests(
+        marker_id: [u8; 16],
+        row_op: &CommitRowOp,
+        migration_bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_single_row_commit_control_slot(marker_id, row_op, &migration_bytes)
+    }
+
+    /// Encode one multi-row commit-control slot payload for regression tests.
+    #[cfg(test)]
+    pub(super) fn encode_raw_direct_control_slot_for_tests(
+        marker: &CommitMarker,
+        migration_bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_commit_control_slot_from_marker(marker, &migration_bytes)
+    }
+
     /// Initialize one stable-cell-backed commit marker store.
     fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         let cell = StableCell::init(memory, RawCommitMarker::empty());
@@ -438,9 +561,18 @@ impl CommitStore {
 
     /// Persist one commit marker while proving the current slot has no marker.
     pub(super) fn set_if_empty(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
+        // Phase 1: the common runtime path keeps no migration state, so avoid
+        // decoding the canonical control-slot envelope when the raw slot is
+        // physically empty.
+        if self.cell.get().as_bytes().is_empty() {
+            let encoded = encode_commit_control_slot_from_marker(marker, &[])?;
+
+            self.cell.set(RawCommitMarker(encoded));
+            return Ok(());
+        }
+
         let migration_bytes = self.require_empty_marker_slot()?;
-        let marker_bytes = RawCommitMarker::try_from_marker(marker)?.into_bytes();
-        let encoded = encode_commit_control_slot(&marker_bytes, migration_bytes)?;
+        let encoded = encode_commit_control_slot_from_marker(marker, migration_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
         Ok(())
@@ -452,9 +584,18 @@ impl CommitStore {
         marker_id: [u8; 16],
         row_op: &CommitRowOp,
     ) -> Result<(), InternalError> {
+        // Phase 1: most hot write-lane opens happen with a physically empty
+        // control slot, so skip control-slot decode when no migration bytes
+        // need to be preserved.
+        if self.cell.get().as_bytes().is_empty() {
+            let encoded = encode_single_row_commit_control_slot(marker_id, row_op, &[])?;
+
+            self.cell.set(RawCommitMarker(encoded));
+            return Ok(());
+        }
+
         let migration_bytes = self.require_empty_marker_slot()?;
-        let marker_bytes = RawCommitMarker::try_from_single_row_op(marker_id, row_op)?.into_bytes();
-        let encoded = encode_commit_control_slot(&marker_bytes, migration_bytes)?;
+        let encoded = encode_single_row_commit_control_slot(marker_id, row_op, migration_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
         Ok(())
@@ -466,8 +607,7 @@ impl CommitStore {
         marker: &CommitMarker,
         migration_state_bytes: Vec<u8>,
     ) -> Result<(), InternalError> {
-        let marker_bytes = RawCommitMarker::try_from_marker(marker)?.into_bytes();
-        let encoded = encode_commit_control_slot(&marker_bytes, &migration_state_bytes)?;
+        let encoded = encode_commit_control_slot_from_marker(marker, &migration_state_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
         Ok(())
@@ -499,9 +639,23 @@ impl CommitStore {
     /// This write is infallible by storage contract and is only used after
     /// successful commit-window completion or successful recovery completion.
     pub(super) fn clear_infallible(&mut self) {
-        let migration_bytes = inspect_commit_control_slot(self.cell.get().as_bytes())
+        let bytes = self.cell.get().as_bytes();
+
+        // Phase 1: the common runtime case persists no migration state, so a
+        // validated zero migration length can collapse straight to the
+        // physically empty slot without re-decoding the whole envelope.
+        if current_control_slot_migration_len(bytes) == Some(0) {
+            self.cell.set(RawCommitMarker::empty());
+            return;
+        }
+
+        let migration_bytes = inspect_commit_control_slot(bytes)
             .map(|slot| slot.migration_bytes)
             .unwrap_or_default();
+        if migration_bytes.is_empty() {
+            self.cell.set(RawCommitMarker::empty());
+            return;
+        }
 
         let encoded = encode_commit_control_slot(&[], migration_bytes)
             .unwrap_or_else(|_| RawCommitMarker::empty().into_bytes());
@@ -593,16 +747,71 @@ mod tests {
                 COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
                 decode_commit_marker_payload, encode_commit_marker_payload,
             },
-            data::DataKey,
+            data::{DataKey, RawDataKey},
         },
         error::{ErrorClass, ErrorOrigin},
+        types::EntityTag,
     };
-
     // Wrap one test marker payload in the canonical marker envelope so strict
     // decode still reaches shape validation.
     fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {
         let payload = encode_commit_marker_payload(marker)
             .expect("test marker payload encode should succeed");
+
+        encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &payload)
+            .expect("test marker envelope encode should succeed")
+    }
+
+    // Materialize one canonical fixed-width raw data key for marker tests.
+    fn raw_data_key(fill: u8) -> RawDataKey {
+        DataKey::try_from_field_value(EntityTag::new(1), &u64::from(fill))
+            .expect("test key should encode")
+            .to_raw()
+            .expect("test key should materialize")
+    }
+
+    // Encode one single-row marker payload directly from raw row-op fields so
+    // corruption tests can exercise malformed persisted keys that no longer fit
+    // through the typed `CommitRowOp` constructor.
+    fn encode_test_single_row_payload_from_parts(
+        entity_path: &str,
+        key_bytes: &[u8],
+        before: Option<&[u8]>,
+        after: Option<&[u8]>,
+        schema_fingerprint: [u8; 16],
+    ) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0u8; 16]);
+        payload.extend_from_slice(&1u32.to_le_bytes());
+        payload.extend_from_slice(
+            &(u32::try_from(entity_path.len()).expect("len fits")).to_le_bytes(),
+        );
+        payload.extend_from_slice(entity_path.as_bytes());
+        payload
+            .extend_from_slice(&(u32::try_from(key_bytes.len()).expect("len fits")).to_le_bytes());
+        payload.extend_from_slice(key_bytes);
+
+        let mut flags = 0u8;
+        if before.is_some() {
+            flags |= 0b0000_0001;
+        }
+        if after.is_some() {
+            flags |= 0b0000_0010;
+        }
+        payload.push(flags);
+
+        if let Some(before) = before {
+            payload
+                .extend_from_slice(&(u32::try_from(before.len()).expect("len fits")).to_le_bytes());
+            payload.extend_from_slice(before);
+        }
+        if let Some(after) = after {
+            payload
+                .extend_from_slice(&(u32::try_from(after.len()).expect("len fits")).to_le_bytes());
+            payload.extend_from_slice(after);
+        }
+
+        payload.extend_from_slice(&schema_fingerprint);
 
         encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &payload)
             .expect("test marker envelope encode should succeed")
@@ -631,7 +840,7 @@ mod tests {
             id: [0xAA; 16],
             row_ops: vec![CommitRowOp::new(
                 "test::Entity",
-                vec![0u8; DataKey::STORED_SIZE_USIZE],
+                raw_data_key(0),
                 Some(vec![0x11; MAX_ROW_BYTES as usize + 1]),
                 None,
                 [0x22; 16],
@@ -731,7 +940,7 @@ mod tests {
             id: [2u8; 16],
             row_ops: vec![CommitRowOp::new(
                 "test::Entity",
-                vec![1u8],
+                raw_data_key(1),
                 None,
                 Some(oversized_after),
                 [0u8; 16],
@@ -755,7 +964,7 @@ mod tests {
             id: [1u8; 16],
             row_ops: vec![CommitRowOp::new(
                 "test::Entity",
-                vec![9u8],
+                raw_data_key(9),
                 None,
                 None,
                 [0u8; 16],
@@ -782,7 +991,7 @@ mod tests {
             id: [3u8; 16],
             row_ops: vec![CommitRowOp::new(
                 "",
-                vec![9u8],
+                raw_data_key(9),
                 Some(vec![1u8]),
                 None,
                 [0u8; 16],
@@ -804,18 +1013,13 @@ mod tests {
 
     #[test]
     fn commit_marker_rejects_row_op_with_invalid_key_length() {
-        let marker = CommitMarker {
-            id: [4u8; 16],
-            row_ops: vec![CommitRowOp::new(
-                "test::Entity",
-                vec![9u8],
-                Some(vec![1u8]),
-                None,
-                [0u8; 16],
-            )],
-        };
-
-        let bytes = encode_test_marker_payload(&marker);
+        let bytes = encode_test_single_row_payload_from_parts(
+            "test::Entity",
+            &[9u8],
+            Some(&[1u8]),
+            None,
+            [0u8; 16],
+        );
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op with invalid key length should be rejected");
@@ -823,7 +1027,7 @@ mod tests {
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Store);
         assert!(
-            err.message.contains("row op key has invalid length"),
+            err.message.contains("invalid length"),
             "unexpected error: {err:?}"
         );
     }
@@ -833,18 +1037,13 @@ mod tests {
         let mut malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE];
         malformed_key[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
 
-        let marker = CommitMarker {
-            id: [5u8; 16],
-            row_ops: vec![CommitRowOp::new(
-                "test::Entity",
-                malformed_key,
-                Some(vec![1u8]),
-                None,
-                [0u8; 16],
-            )],
-        };
-
-        let bytes = encode_test_marker_payload(&marker);
+        let bytes = encode_test_single_row_payload_from_parts(
+            "test::Entity",
+            malformed_key.as_slice(),
+            Some(&[1u8]),
+            None,
+            [0u8; 16],
+        );
         let err = RawCommitMarker(bytes)
             .try_decode()
             .expect_err("row op with invalid key shape should be rejected");
@@ -852,7 +1051,7 @@ mod tests {
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Store);
         assert!(
-            err.message.contains("row op key decode"),
+            err.message.contains("data key corrupted"),
             "unexpected error: {err:?}"
         );
         assert!(
@@ -867,7 +1066,7 @@ mod tests {
             id: [6u8; 16],
             row_ops: vec![CommitRowOp::new(
                 "test::Entity",
-                vec![9u8],
+                raw_data_key(9),
                 Some(vec![0u8; MAX_ROW_BYTES as usize + 1]),
                 None,
                 [0u8; 16],

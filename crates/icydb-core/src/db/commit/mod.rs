@@ -50,14 +50,17 @@ pub(in crate::db) use hooks::{
     has_runtime_hooks, resolve_runtime_hook_by_path, resolve_runtime_hook_by_tag,
 };
 pub(in crate::db) use marker::CommitRowOp;
+#[cfg(test)]
+pub(in crate::db) use marker::encode_commit_marker_payload;
 pub(in crate::db) use marker::{
     COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitIndexOp, CommitMarker, CommitSchemaFingerprint,
-    MAX_COMMIT_BYTES, decode_commit_marker_payload, decode_data_key, encode_commit_marker_payload,
-    validate_commit_marker_shape,
+    MAX_COMMIT_BYTES, decode_commit_marker_payload, validate_commit_marker_shape,
 };
 pub(in crate::db) use prepare::{
-    prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_readers,
+    prepare_row_commit_for_entity,
+    prepare_row_commit_for_entity_with_readers_and_schema_fingerprint,
     prepare_row_commit_for_entity_with_structural_readers,
+    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
 };
 pub(in crate::db) use prepared_op::{
     PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,

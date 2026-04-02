@@ -6,25 +6,29 @@
 use crate::{
     db::{
         Db,
-        commit::CommitRowOp,
+        commit::{
+            CommitRowOp, CommitSchemaFingerprint,
+            prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
+        },
         data::{CanonicalRow, DataKey, PersistedRow, RawRow, UpdatePatch},
         executor::{
             Context, ExecutorError,
             mutation::{
-                MutationInput, commit_save_row_ops_with_window,
-                commit_single_save_row_op_with_window, mutation_write_context,
+                MutationInput, PreparedRowOpDelta, commit_prepared_single_save_row_op_with_window,
+                commit_save_row_ops_with_window, emit_index_delta_metrics, mutation_write_context,
             },
         },
-        schema::commit_schema_fingerprint_for_entity,
+        relation::model_has_strong_relation_targets,
+        schema::{SchemaInfo, commit_schema_fingerprint_for_entity},
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    traits::{EntityValue, FieldValue},
+    traits::{EntityValue, FieldValue, Storable},
 };
 use candid::CandidType;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 // Debug assertions below are diagnostic sentinels; correctness is enforced by
 // runtime validation earlier in the pipeline.
@@ -190,12 +194,55 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
+        let ctx = mutation_write_context::<E>(&self.db)?;
+        let save_rule = SaveRule::from_mode(mode);
+        let schema = Self::schema_info()?;
+        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+        let validate_relations = model_has_strong_relation_targets(E::MODEL);
+        let mut batch_span = None;
+        let mut batch_delta = PreparedRowOpDelta {
+            index_inserts: 0,
+            index_removes: 0,
+            reverse_index_inserts: 0,
+            reverse_index_removes: 0,
+        };
 
+        // Phase 1: apply each row independently while reusing the same resolved
+        // mutation context and schema metadata across the whole batch.
         for entity in iter {
-            match self.save_entity(mode, entity) {
-                Ok(saved) => out.push(saved),
+            let span = batch_span.get_or_insert_with(|| Span::<E>::new(ExecKind::Save));
+
+            let result = (|| {
+                let (saved, marker_row_op) = self.prepare_entity_save_row_op(
+                    &ctx,
+                    save_rule,
+                    schema,
+                    schema_fingerprint,
+                    validate_relations,
+                    entity,
+                )?;
+                let prepared_row_op =
+                    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<
+                        E,
+                    >(&self.db, &marker_row_op, &ctx, &ctx, schema_fingerprint)?;
+                Self::commit_prepared_single_row(
+                    marker_row_op,
+                    prepared_row_op,
+                    |delta| accumulate_prepared_row_op_delta(&mut batch_delta, delta),
+                    || {},
+                )?;
+
+                Ok::<_, InternalError>(saved)
+            })();
+
+            match result {
+                Ok(saved) => {
+                    out.push(saved);
+                    span.set_rows(u64::try_from(out.len()).unwrap_or(u64::MAX));
+                }
                 Err(err) => {
                     if !out.is_empty() {
+                        emit_index_delta_metrics::<E>(&batch_delta);
                         record(MetricsEvent::NonAtomicPartialCommit {
                             entity_path: E::PATH,
                             committed_rows: u64::try_from(out.len()).unwrap_or(u64::MAX),
@@ -205,6 +252,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     return Err(err);
                 }
             }
+        }
+
+        if !out.is_empty() {
+            emit_index_delta_metrics::<E>(&batch_delta);
         }
 
         Ok(out)
@@ -299,16 +350,18 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let ctx = mutation_write_context::<E>(&self.db)?;
         let mut out = Vec::with_capacity(entities.len());
         let mut marker_row_ops = Vec::with_capacity(entities.len());
-        let mut seen_row_keys = BTreeSet::<Vec<u8>>::new();
+        let mut seen_row_keys = HashSet::with_capacity(entities.len());
+        let schema = Self::schema_info()?;
+        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+        let validate_relations = model_has_strong_relation_targets(E::MODEL);
 
         // Validate and stage all row ops before opening the commit window.
         for mut entity in entities {
-            self.preflight_entity(&mut entity)?;
-            let mutation = MutationInput::from_entity(&entity)?;
-
-            let (marker_row_op, data_key) =
-                Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
-            if !seen_row_keys.insert(marker_row_op.key.clone()) {
+            self.preflight_entity_with_cached_schema(&mut entity, schema, validate_relations)?;
+            let marker_row_op =
+                Self::prepare_typed_entity_row_op(&ctx, save_rule, &entity, schema_fingerprint)?;
+            if !seen_row_keys.insert(marker_row_op.key) {
+                let data_key = DataKey::try_new::<E>(entity.id().key())?;
                 return Err(InternalError::mutation_atomic_save_duplicate_key(
                     E::PATH,
                     data_key,
@@ -328,41 +381,34 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(out)
     }
 
-    // Build one logical row operation from the save rule and current entity.
-    fn prepare_logical_row_op(
+    // Build one logical row operation from a full typed after-image.
+    fn prepare_typed_entity_row_op(
         ctx: &Context<'_, E>,
         save_rule: SaveRule,
-        mutation: &MutationInput,
-    ) -> Result<(CommitRowOp, DataKey), InternalError> {
+        entity: &E,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Result<CommitRowOp, InternalError> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
-        let data_key = mutation.data_key().clone();
+        let data_key = DataKey::try_new::<E>(entity.id().key())?;
         let raw_key = data_key.to_raw()?;
         let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, save_rule)?;
-        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
 
-        // Phase 2: build the after-image through the structural row boundary.
-        let row = Self::build_after_image_row(mutation, old_raw.as_ref())?;
+        // Phase 2: typed save lanes already own a complete after-image, so
+        // emit the canonical row directly instead of replaying a dense slot
+        // patch back into the same full row image.
+        let row_bytes = CanonicalRow::from_entity(entity)?
+            .into_raw_row()
+            .into_bytes();
+        let before_bytes = old_raw.map(<RawRow as Storable>::into_bytes);
         let row_op = CommitRowOp::new(
             E::PATH,
-            raw_key.as_bytes().to_vec(),
-            old_raw.as_ref().map(|item| item.as_bytes().to_vec()),
-            Some(row.as_bytes().to_vec()),
+            raw_key,
+            before_bytes,
+            Some(row_bytes),
             schema_fingerprint,
         );
 
-        Ok((row_op, data_key))
-    }
-
-    // Build the persisted after-image under one explicit structural mode.
-    fn build_after_image_row(
-        mutation: &MutationInput,
-        old_row: Option<&RawRow>,
-    ) -> Result<CanonicalRow, InternalError> {
-        let Some(old_row) = old_row else {
-            return RawRow::from_serialized_update_patch(E::MODEL, mutation.serialized_patch());
-        };
-
-        old_row.apply_serialized_update_patch(E::MODEL, mutation.serialized_patch())
+        Ok(row_op)
     }
 
     // Build the persisted after-image under one explicit structural mode.
@@ -446,28 +492,96 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     fn save_entity(&self, mode: SaveMode, entity: E) -> Result<E, InternalError> {
+        let ctx = mutation_write_context::<E>(&self.db)?;
+        let save_rule = SaveRule::from_mode(mode);
+
+        self.save_entity_with_context(&ctx, save_rule, entity)
+    }
+
+    // Run one typed save against an already-resolved write context so batch
+    // non-atomic lanes do not rebuild the same store authority for every row.
+    fn save_entity_with_context(
+        &self,
+        ctx: &Context<'_, E>,
+        save_rule: SaveRule,
+        entity: E,
+    ) -> Result<E, InternalError> {
+        let schema = Self::schema_info()?;
+        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+        let validate_relations = model_has_strong_relation_targets(E::MODEL);
+        self.save_entity_with_context_and_schema(
+            ctx,
+            save_rule,
+            schema,
+            schema_fingerprint,
+            validate_relations,
+            entity,
+        )
+    }
+
+    // Run one typed save against an already-resolved write context and
+    // preflight schema metadata so batch lanes do not repay cache lookups.
+    fn save_entity_with_context_and_schema(
+        &self,
+        ctx: &Context<'_, E>,
+        save_rule: SaveRule,
+        schema: &SchemaInfo,
+        schema_fingerprint: CommitSchemaFingerprint,
+        validate_relations: bool,
+        entity: E,
+    ) -> Result<E, InternalError> {
+        let mut span = Span::<E>::new(ExecKind::Save);
+        let (entity, marker_row_op) = self.prepare_entity_save_row_op(
+            ctx,
+            save_rule,
+            schema,
+            schema_fingerprint,
+            validate_relations,
+            entity,
+        )?;
+        let prepared_row_op =
+            prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+                &self.db,
+                &marker_row_op,
+                ctx,
+                ctx,
+                schema_fingerprint,
+            )?;
+
+        // Phase 1: persist/apply one single-row commit through the shared
+        // commit-window path under the normal single-save metrics contract.
+        Self::commit_prepared_single_row(
+            marker_row_op,
+            prepared_row_op,
+            |delta| emit_index_delta_metrics::<E>(delta),
+            || {
+                span.set_rows(1);
+            },
+        )?;
+
+        Ok(entity)
+    }
+
+    // Prepare one typed save row op after canonical entity preflight so both
+    // single-row and batched non-atomic lanes share the same validation path.
+    fn prepare_entity_save_row_op(
+        &self,
+        ctx: &Context<'_, E>,
+        save_rule: SaveRule,
+        schema: &SchemaInfo,
+        schema_fingerprint: CommitSchemaFingerprint,
+        validate_relations: bool,
+        entity: E,
+    ) -> Result<(E, CommitRowOp), InternalError> {
         let mut entity = entity;
-        (|| {
-            let mut span = Span::<E>::new(ExecKind::Save);
-            let ctx = mutation_write_context::<E>(&self.db)?;
-            let save_rule = SaveRule::from_mode(mode);
 
-            // Run the canonical save preflight before key extraction.
-            self.preflight_entity(&mut entity)?;
-            let mutation = MutationInput::from_entity(&entity)?;
+        // Phase 1: run canonical save preflight before key extraction so
+        // typed validation still owns the write contract.
+        self.preflight_entity_with_cached_schema(&mut entity, schema, validate_relations)?;
+        let marker_row_op =
+            Self::prepare_typed_entity_row_op(ctx, save_rule, &entity, schema_fingerprint)?;
 
-            let (marker_row_op, _data_key) =
-                Self::prepare_logical_row_op(&ctx, save_rule, &mutation)?;
-
-            // Stage-2 commit protocol:
-            // - preflight row-op preparation before persisting the marker
-            // - then apply prepared row ops mechanically.
-            // Durable correctness is marker + recovery owned. Apply guard rollback
-            // here is best-effort, in-process cleanup only.
-            Self::commit_single_row(&self.db, marker_row_op, &mut span)?;
-
-            Ok(entity)
-        })()
+        Ok((entity, marker_row_op))
     }
 
     // Run one structural key + patch mutation under one explicit save-mode contract.
@@ -497,18 +611,35 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             Self::build_structural_after_image_row(mode, &mutation, old_raw.as_ref())?;
         let entity = self.validate_structural_after_image(&data_key, &raw_after_image)?;
         let normalized_mutation = MutationInput::from_entity(&entity)?;
-        let row =
+        let row_bytes =
             Self::build_structural_after_image_row(mode, &normalized_mutation, old_raw.as_ref())?;
+        let row_bytes = row_bytes.into_raw_row().into_bytes();
+        let before_bytes = old_raw.map(<RawRow as Storable>::into_bytes);
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
         let marker_row_op = CommitRowOp::new(
             E::PATH,
-            data_key.to_raw()?.as_bytes().to_vec(),
-            old_raw.as_ref().map(|item| item.as_bytes().to_vec()),
-            Some(row.as_bytes().to_vec()),
+            data_key.to_raw()?,
+            before_bytes,
+            Some(row_bytes),
             schema_fingerprint,
         );
+        let prepared_row_op =
+            prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+                &self.db,
+                &marker_row_op,
+                &ctx,
+                &ctx,
+                schema_fingerprint,
+            )?;
 
-        Self::commit_single_row(&self.db, marker_row_op, &mut span)?;
+        Self::commit_prepared_single_row(
+            marker_row_op,
+            prepared_row_op,
+            |delta| emit_index_delta_metrics::<E>(delta),
+            || {
+                span.set_rows(1);
+            },
+        )?;
 
         Ok(entity)
     }
@@ -549,15 +680,22 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     // Open + apply commit mechanics for one logical row operation.
-    fn commit_single_row(
-        db: &Db<E::Canister>,
+    fn commit_prepared_single_row(
         marker_row_op: CommitRowOp,
-        span: &mut Span<E>,
+        prepared_row_op: crate::db::commit::PreparedRowCommitOp,
+        on_index_applied: impl FnOnce(&PreparedRowOpDelta),
+        on_data_applied: impl FnOnce(),
     ) -> Result<(), InternalError> {
         // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-        commit_single_save_row_op_with_window::<E>(db, marker_row_op, "save_row_apply", || {
-            span.set_rows(1);
-        })?;
+        commit_prepared_single_save_row_op_with_window(
+            marker_row_op,
+            prepared_row_op,
+            "save_row_apply",
+            on_index_applied,
+            || {
+                on_data_applied();
+            },
+        )?;
 
         Ok(())
     }
@@ -580,4 +718,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
         Ok(())
     }
+}
+
+// Fold one single-row prepared delta into one saturated batch accumulator.
+const fn accumulate_prepared_row_op_delta(
+    total: &mut PreparedRowOpDelta,
+    delta: &PreparedRowOpDelta,
+) {
+    total.index_inserts = total.index_inserts.saturating_add(delta.index_inserts);
+    total.index_removes = total.index_removes.saturating_add(delta.index_removes);
+    total.reverse_index_inserts = total
+        .reverse_index_inserts
+        .saturating_add(delta.reverse_index_inserts);
+    total.reverse_index_removes = total
+        .reverse_index_removes
+        .saturating_add(delta.reverse_index_removes);
 }

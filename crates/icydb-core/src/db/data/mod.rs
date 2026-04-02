@@ -20,8 +20,9 @@ pub(crate) use key::{DataKey, RawDataKey};
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, SerializedUpdatePatch, StructuralSlotReader,
     apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
-    canonical_row_from_raw_row, canonical_row_from_stored_raw_row,
-    serialize_entity_slots_as_update_patch, serialize_update_patch_fields,
+    canonical_row_from_entity, canonical_row_from_stored_raw_row,
+    canonical_row_from_structural_slot_reader, serialize_entity_slots_as_update_patch,
+    serialize_update_patch_fields,
 };
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
