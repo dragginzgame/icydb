@@ -36,8 +36,8 @@ fn prepared_row_write_payloads_stay_canonical() {
         "prepared row commit ops must not regress to RawRow after-images",
     );
     assert!(
-        save.contains("fn build_after_image_row(\n        mutation: &MutationInput,\n        old_row: Option<&RawRow>,\n    ) -> Result<CanonicalRow, InternalError>"),
-        "save after-image builder must return CanonicalRow",
+        save.contains("let row_bytes = CanonicalRow::from_entity(entity)?"),
+        "typed save after-image construction must stay CanonicalRow-backed",
     );
     assert!(
         save.contains("fn build_structural_after_image_row(\n        mode: MutationMode,\n        mutation: &MutationInput,\n        old_row: Option<&RawRow>,\n    ) -> Result<CanonicalRow, InternalError>"),
