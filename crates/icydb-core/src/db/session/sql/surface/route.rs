@@ -7,9 +7,7 @@ use crate::db::{
     QueryError,
     sql::lowering::{
         LoweredSqlCommand, LoweredSqlLaneKind, PreparedSqlStatement as CorePreparedSqlStatement,
-        lower_query_surface_command_from_prepared_statement,
-        lower_sql_command_from_prepared_statement, lowered_sql_command_lane,
-        prepare_query_surface_statement, prepare_sql_statement,
+        lower_sql_command_from_prepared_statement, lowered_sql_command_lane, prepare_sql_statement,
     },
     sql::parser::{SqlExplainTarget, SqlStatement},
 };
@@ -104,20 +102,6 @@ impl SqlParsedStatement {
                 Err(QueryError::unsupported_query_lane_dispatch())
             }
         }
-    }
-
-    /// Lower this parsed statement into one generated query-surface-only shape.
-    #[inline(never)]
-    pub fn lower_generated_query_surface_for_entity(
-        &self,
-        expected_entity: &'static str,
-        primary_key_field: &str,
-    ) -> Result<LoweredSqlCommand, QueryError> {
-        let prepared = prepare_query_surface_statement(self.statement.clone(), expected_entity)
-            .map_err(QueryError::from_sql_lowering_error)?;
-
-        lower_query_surface_command_from_prepared_statement(prepared, primary_key_field)
-            .map_err(QueryError::from_sql_lowering_error)
     }
 }
 

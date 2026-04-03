@@ -1,5 +1,4 @@
 pub mod delete;
-#[cfg(feature = "sql")]
 pub(crate) mod generated;
 pub mod load;
 mod macros;

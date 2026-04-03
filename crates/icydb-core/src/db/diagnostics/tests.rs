@@ -5,7 +5,7 @@
 
 use super::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
-    IntegrityTotals, StorageReport, integrity_report, storage_report,
+    IntegrityTotals, StorageReport, integrity_report, storage_report, storage_report_default,
 };
 use crate::{
     db::{
@@ -260,6 +260,10 @@ fn diagnostics_report(name_to_path: &[(&'static str, &'static str)]) -> StorageR
     storage_report(&DB, name_to_path).expect("diagnostics snapshot should succeed")
 }
 
+fn diagnostics_default_report() -> StorageReport {
+    storage_report_default(&DB).expect("default diagnostics snapshot should succeed")
+}
+
 fn diagnostics_integrity_report() -> IntegrityReport {
     integrity_report(&DB_WITH_HOOKS).expect("diagnostics integrity scan should succeed")
 }
@@ -353,6 +357,45 @@ fn entity_store_paths(report: &StorageReport) -> Vec<(&str, &str)> {
         .collect()
 }
 
+fn data_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64)> {
+    report
+        .storage_data()
+        .iter()
+        .map(|snapshot| (snapshot.path(), snapshot.entries(), snapshot.memory_bytes()))
+        .collect()
+}
+
+fn index_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64, u64, u64)> {
+    report
+        .storage_index()
+        .iter()
+        .map(|snapshot| {
+            (
+                snapshot.path(),
+                snapshot.entries(),
+                snapshot.user_entries(),
+                snapshot.system_entries(),
+                snapshot.memory_bytes(),
+            )
+        })
+        .collect()
+}
+
+fn entity_snapshot_rows(report: &StorageReport) -> Vec<(&str, &str, u64, u64)> {
+    report
+        .entity_storage()
+        .iter()
+        .map(|snapshot| {
+            (
+                snapshot.store(),
+                snapshot.path(),
+                snapshot.entries(),
+                snapshot.memory_bytes(),
+            )
+        })
+        .collect()
+}
+
 fn expect_record_fields(ty: Type) -> Vec<String> {
     match ty.as_ref() {
         TypeInner::Record(fields) => fields
@@ -389,6 +432,44 @@ fn storage_report_empty_store_snapshot() {
             .storage_index()
             .iter()
             .all(|snapshot| snapshot.entries() == 0)
+    );
+}
+
+#[test]
+fn storage_report_default_matches_empty_alias_snapshot() {
+    reset_stores();
+
+    insert_data_row(STORE_A_PATH, FIRST_ENTITY_NAME, StorageKey::Int(1), 2);
+    insert_data_row(STORE_A_PATH, SECOND_ENTITY_NAME, StorageKey::Int(2), 3);
+    insert_index_entry(
+        STORE_A_PATH,
+        index_key(IndexKeyKind::User, "diag_index_entity", "email"),
+        RawIndexEntry::try_from_keys([StorageKey::Int(1)])
+            .expect("diagnostics test index entry should encode"),
+    );
+
+    let default_report = diagnostics_default_report();
+    let aliased_report = diagnostics_report(&[]);
+
+    assert_eq!(
+        default_report.corrupted_keys(),
+        aliased_report.corrupted_keys()
+    );
+    assert_eq!(
+        default_report.corrupted_entries(),
+        aliased_report.corrupted_entries()
+    );
+    assert_eq!(
+        data_snapshot_rows(&default_report),
+        data_snapshot_rows(&aliased_report)
+    );
+    assert_eq!(
+        index_snapshot_rows(&default_report),
+        index_snapshot_rows(&aliased_report)
+    );
+    assert_eq!(
+        entity_snapshot_rows(&default_report),
+        entity_snapshot_rows(&aliased_report)
     );
 }
 

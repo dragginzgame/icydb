@@ -21,9 +21,8 @@ use crate::{
             computed_projection,
             projection::{
                 SqlProjectionPayload, projection_labels_from_entity_model,
-                projection_labels_from_structural_query, sql_projection_rows_from_kernel_rows,
+                projection_labels_from_projection_spec, sql_projection_rows_from_kernel_rows,
             },
-            surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
         },
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlQuery, bind_lowered_sql_query,
@@ -169,38 +168,6 @@ fn unsupported_generated_sql_entity_error(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Lower one parsed SQL statement into the shared query lane and bind the
-    // resulting lowered query shape onto one typed query owner exactly once.
-    pub(in crate::db::session::sql) fn bind_sql_query_lane_from_parsed<E>(
-        parsed: &SqlParsedStatement,
-    ) -> Result<(LoweredSqlQuery, Query<E>), QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        // Keep `query_from_sql` structural-only: computed text projection is a
-        // session-owned dispatch surface, not part of the lowered typed-query
-        // contract for this slice.
-        if computed_projection::computed_sql_projection_plan(&parsed.statement)?.is_some() {
-            return Err(QueryError::unsupported_query(
-                "query_from_sql does not accept computed text projection; use execute_sql_dispatch(...)",
-            ));
-        }
-
-        let lowered =
-            parsed.lower_query_lane_for_entity(E::MODEL.name(), E::MODEL.primary_key.name)?;
-        let lane = session_sql_lane(&lowered);
-        let Some(query) = lowered.query().cloned() else {
-            return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
-                SqlSurface::QueryFrom,
-                lane,
-            )));
-        };
-        let typed = bind_lowered_sql_query::<E>(query.clone(), MissingRowPolicy::Ignore)
-            .map_err(QueryError::from_sql_lowering_error)?;
-
-        Ok((query, typed))
-    }
-
     // Execute one structural SQL load query and return only row-oriented SQL
     // projection values, keeping typed projection rows out of the shared SQL
     // query-lane path.
@@ -209,12 +176,21 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
-        let columns = projection_labels_from_structural_query(&query)?;
+        // Phase 1: build the structural access plan once and reuse its
+        // projection contract for both labels and row materialization.
+        let plan = query.build_plan()?;
+        let projection = plan.projection_spec(authority.model());
+        let columns = projection_labels_from_projection_spec(&projection);
+
+        // Phase 2: execute the shared structural load path with the already
+        // derived projection semantics.
         let projected = execute_sql_projection_rows_for_canister(
             &self.db,
             self.debug,
+            authority.model(),
+            projection,
             authority,
-            query.build_plan()?,
+            plan,
         )
         .map_err(QueryError::execute)?;
         let (rows, row_count) = projected.into_parts();
@@ -337,17 +313,35 @@ impl<C: CanisterKind> DbSession<C> {
                     return self.execute_computed_sql_projection_dispatch::<E>(plan);
                 }
 
-                let (query, typed_query) = Self::bind_sql_query_lane_from_parsed::<E>(parsed)?;
+                // Phase 1: keep typed dispatch on the shared lowered query lane
+                // for plain `SELECT`, and only pay typed query binding on the
+                // `DELETE` branch that still owns typed commit semantics.
+                let lowered = parsed
+                    .lower_query_lane_for_entity(E::MODEL.name(), E::MODEL.primary_key.name)?;
 
-                Self::ensure_sql_query_grouping(&typed_query, SqlGroupingSurface::Dispatch)?;
+                Self::ensure_lowered_sql_query_grouping(&lowered, SqlGroupingSurface::Dispatch)?;
 
-                match query {
-                    LoweredSqlQuery::Select(select) => self
+                // Phase 2: dispatch `SELECT` directly from the lowered shape so
+                // typed SQL projection does not rebuild and discard a typed
+                // `Query<E>` before returning to the structural executor path.
+                match lowered.query() {
+                    Some(LoweredSqlQuery::Select(select)) => self
                         .execute_lowered_sql_dispatch_select_core(
-                            &select,
+                            select,
                             EntityAuthority::for_type::<E>(),
                         ),
-                    LoweredSqlQuery::Delete(_) => self.execute_typed_sql_delete(&typed_query),
+                    Some(LoweredSqlQuery::Delete(delete)) => {
+                        let typed_query = bind_lowered_sql_query::<E>(
+                            LoweredSqlQuery::Delete(delete.clone()),
+                            MissingRowPolicy::Ignore,
+                        )
+                        .map_err(QueryError::from_sql_lowering_error)?;
+
+                        self.execute_typed_sql_delete(&typed_query)
+                    }
+                    None => Err(QueryError::unsupported_query(
+                        "execute_sql_dispatch accepts SELECT or DELETE only",
+                    )),
                 }
             }
             SqlStatementRoute::Explain { .. } => {
@@ -412,7 +406,7 @@ impl<C: CanisterKind> DbSession<C> {
                         .execute_computed_sql_projection_dispatch_for_authority(plan, authority);
                 }
 
-                let lowered = parsed.lower_generated_query_surface_for_entity(
+                let lowered = parsed.lower_query_lane_for_entity(
                     authority.model().name(),
                     authority.model().primary_key.name,
                 )?;
@@ -434,7 +428,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .map(SqlDispatchResult::Explain);
                 }
 
-                let lowered = parsed.lower_generated_query_surface_for_entity(
+                let lowered = parsed.lower_query_lane_for_entity(
                     authority.model().name(),
                     authority.model().primary_key.name,
                 )?;

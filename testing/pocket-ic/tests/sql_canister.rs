@@ -206,6 +206,19 @@ enum SqlPerfSurface {
 }
 
 ///
+/// SqlPerfAttributionSurface
+///
+/// Mirror of the quickstart canister SQL attribution surface enum used by the
+/// PocketIC perf attribution test.
+///
+
+#[derive(candid::CandidType, Clone, Copy, Debug, candid::Deserialize, Serialize)]
+enum SqlPerfAttributionSurface {
+    GeneratedDispatch,
+    TypedDispatchUser,
+}
+
+///
 /// SqlPerfRequest
 ///
 /// One integration-test request into the quickstart canister perf harness.
@@ -219,6 +232,19 @@ struct SqlPerfRequest {
     sql: String,
     cursor_token: Option<String>,
     repeat_count: u32,
+}
+
+///
+/// SqlPerfAttributionRequest
+///
+/// One integration-test request into the quickstart canister SQL attribution
+/// endpoint.
+///
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfAttributionRequest {
+    surface: SqlPerfAttributionSurface,
+    sql: String,
 }
 
 ///
@@ -266,6 +292,27 @@ struct SqlPerfSample {
 }
 
 ///
+/// SqlPerfAttributionSample
+///
+/// One fixed-cost SQL query attribution sample returned by the quickstart
+/// canister perf harness.
+///
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfAttributionSample {
+    surface: SqlPerfAttributionSurface,
+    sql: String,
+    parse_local_instructions: u64,
+    route_local_instructions: u64,
+    lower_local_instructions: u64,
+    dispatch_local_instructions: u64,
+    execute_local_instructions: u64,
+    wrapper_local_instructions: u64,
+    total_local_instructions: u64,
+    outcome: SqlPerfOutcome,
+}
+
+///
 /// SqlPerfScenario
 ///
 /// One named audit scenario captured through the quickstart canister perf
@@ -309,6 +356,26 @@ fn sql_perf_sample(
         decode_one(&query_bytes).expect("decode sql_perf response");
 
     response.expect("sql_perf should succeed for integration scenario")
+}
+
+fn sql_perf_attribution_sample(
+    pic: &PocketIc,
+    canister_id: Principal,
+    request: &SqlPerfAttributionRequest,
+) -> SqlPerfAttributionSample {
+    let query_bytes = pic
+        .query_call(
+            canister_id,
+            Principal::anonymous(),
+            "sql_perf_attribution",
+            encode_one(request).expect("encode sql_perf_attribution request"),
+        )
+        .expect("sql_perf_attribution query call should return encoded Result");
+
+    let response: Result<SqlPerfAttributionSample, icydb::Error> =
+        decode_one(&query_bytes).expect("decode sql_perf_attribution response");
+
+    response.expect("sql_perf_attribution should succeed for integration scenario")
 }
 
 fn run_sql_perf_scenarios(
@@ -1251,6 +1318,79 @@ fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
             "{}",
             serde_json::to_string_pretty(&rows)
                 .expect("operation repeat scenario rows should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
+    run_with_pocket_ic(|pic| {
+        let sql = "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1";
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let generated = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+            },
+        );
+        let typed = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::TypedDispatchUser,
+                sql: sql.to_string(),
+            },
+        );
+
+        for (label, sample) in [("generated", &generated), ("typed", &typed)] {
+            assert!(
+                sample.outcome.success,
+                "{label} attribution must keep the representative SELECT successful: {sample:?}",
+            );
+            assert!(
+                sample.parse_local_instructions > 0,
+                "{label} parse phase must be positive: {sample:?}",
+            );
+            assert!(
+                sample.lower_local_instructions > 0,
+                "{label} lower phase must be positive: {sample:?}",
+            );
+            assert!(
+                sample.execute_local_instructions > 0,
+                "{label} execute phase must be positive: {sample:?}",
+            );
+            assert!(
+                sample.total_local_instructions
+                    >= sample.parse_local_instructions
+                        + sample.route_local_instructions
+                        + sample.lower_local_instructions
+                        + sample.dispatch_local_instructions
+                        + sample.execute_local_instructions
+                        + sample.wrapper_local_instructions,
+                "{label} total must cover every attributed phase: {sample:?}",
+            );
+        }
+
+        assert!(
+            generated.route_local_instructions > 0,
+            "generated attribution must report positive authority routing cost: {generated:?}",
+        );
+        assert_eq!(
+            typed.route_local_instructions, 0,
+            "typed attribution should not report dynamic route-authority cost: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("query attribution samples should serialize to JSON")
         );
     });
 }

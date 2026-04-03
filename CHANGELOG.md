@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.67.x] 🧩 - 2026-04-01 - SQL Surface Coherence
 
+- `0.67.4` keeps the current SQL feature set intact but makes common SQL reads cheaper by removing repeated dispatch and executor setup work from the shared query path, while also moving the workspace onto `canic-cdk` / `canic-memory` `0.22.6`.
 - `0.67.3` keeps the current SQL feature set intact but makes SQL-enabled canisters much smaller by removing a duplicated generated `query(sql)` router, so generated canister SQL now reuses the shared core route family instead of carrying its own extra copy of that logic.
 - `0.67.2` keeps the SQL and storage surface unchanged but cuts much more write-path instruction cost, especially for inserts, updates, and batched inserts, by removing repeated save and commit-preflight work instead of changing any user-facing behavior.
 - `0.67.1` keeps the SQL and storage feature surface unchanged but reduces fixed one-row write overhead in the shared commit and mutation path, so inserts, updates, and deletes use a bit less instruction budget before any row-specific work even starts.

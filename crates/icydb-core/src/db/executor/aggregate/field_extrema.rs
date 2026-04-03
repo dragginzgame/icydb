@@ -272,6 +272,8 @@ impl ExecutionKernel {
                 continuation: AccessScanContinuationInput::new(None, spec.direction),
             },
             &execution_preparation,
+            true,
+            false,
         );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,

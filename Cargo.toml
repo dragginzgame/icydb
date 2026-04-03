@@ -39,8 +39,8 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.21.8"
-canic-memory = "0.21.8"
+canic-cdk = "0.22.6"
+canic-memory = "0.22.6"
 convert_case = "0.11"
 ctor = "0.8"
 darling = "0.23"

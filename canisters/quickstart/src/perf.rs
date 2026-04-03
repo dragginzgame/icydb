@@ -2,18 +2,20 @@
 //! Test-only SQL perf harness for quickstart canister integration sampling.
 //!
 
-use crate::{db, sql_dispatch};
+use crate::{core_db, db, sql_dispatch};
 use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
-    db::sql::SqlQueryResult,
     db::{
+        EntityAuthority, SqlStatementRoute, identifiers_tail_match,
         query::Predicate,
         response::{
             PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
         },
+        sql::SqlQueryResult,
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
+    traits::EntitySchema,
     value::Value,
 };
 use icydb_testing_quickstart_fixtures::schema::User;
@@ -116,6 +118,57 @@ pub struct SqlPerfSample {
     pub outcome: SqlPerfOutcome,
 }
 
+///
+/// SqlPerfAttributionSurface
+///
+/// Representative SQL query surfaces used for fixed-cost phase attribution.
+/// This stays intentionally narrow so one first attribution pass can isolate
+/// shared scalar SELECT overhead before widening to grouped or metadata lanes.
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum SqlPerfAttributionSurface {
+    GeneratedDispatch,
+    TypedDispatchUser,
+}
+
+///
+/// SqlPerfAttributionRequest
+///
+/// One phase-attribution request for one representative SQL surface.
+/// This measures one single execution and breaks the total into parse, route,
+/// lower, core-dispatch overhead, executor, and outer-wrapper costs.
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfAttributionRequest {
+    pub surface: SqlPerfAttributionSurface,
+    pub sql: String,
+}
+
+///
+/// SqlPerfAttributionSample
+///
+/// One fixed-cost SQL query attribution sample measured inside wasm.
+/// `dispatch_local_instructions` captures the core path between lowering and
+/// executor entry, while `wrapper_local_instructions` captures the remaining
+/// surface work above the attributed core path.
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfAttributionSample {
+    pub surface: SqlPerfAttributionSurface,
+    pub sql: String,
+    pub parse_local_instructions: u64,
+    pub route_local_instructions: u64,
+    pub lower_local_instructions: u64,
+    pub dispatch_local_instructions: u64,
+    pub execute_local_instructions: u64,
+    pub wrapper_local_instructions: u64,
+    pub total_local_instructions: u64,
+    pub outcome: SqlPerfOutcome,
+}
+
 /// Measure one SQL surface request inside the running canister.
 pub fn sample_sql_surface(request: SqlPerfRequest) -> Result<SqlPerfSample, Error> {
     validate_perf_request(&request)?;
@@ -169,6 +222,22 @@ pub fn sample_sql_surface(request: SqlPerfRequest) -> Result<SqlPerfSample, Erro
     })
 }
 
+/// Attribute one representative SQL query surface into fixed-cost wasm phases.
+pub fn attribute_sql_surface(
+    request: SqlPerfAttributionRequest,
+) -> Result<SqlPerfAttributionSample, Error> {
+    let sql = normalize_perf_sql_input(request.sql.as_str())?.to_string();
+
+    match request.surface {
+        SqlPerfAttributionSurface::GeneratedDispatch => {
+            attribute_generated_dispatch_surface(sql.as_str())
+        }
+        SqlPerfAttributionSurface::TypedDispatchUser => {
+            attribute_typed_dispatch_surface(sql.as_str())
+        }
+    }
+}
+
 // Keep perf-harness input validation local so the public `icydb` SQL facade
 // does not need to retain generated query-surface adapter helpers.
 fn normalize_perf_sql_input(sql: &str) -> Result<&str, Error> {
@@ -220,6 +289,184 @@ const fn read_local_instruction_counter() -> u64 {
 
 fn missing_continuation_sample(message: &'static str) -> (u64, SqlPerfOutcome) {
     (0, outcome_from_error(invalid_perf_request_error(message)))
+}
+
+fn measure_result<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
+    let start = read_local_instruction_counter();
+    let result = run();
+    let delta = read_local_instruction_counter().saturating_sub(start);
+
+    (delta, result)
+}
+
+const fn attributed_total(
+    parse_local_instructions: u64,
+    route_local_instructions: u64,
+    lower_local_instructions: u64,
+    dispatch_local_instructions: u64,
+    execute_local_instructions: u64,
+    wrapper_local_instructions: u64,
+) -> u64 {
+    parse_local_instructions
+        .saturating_add(route_local_instructions)
+        .saturating_add(lower_local_instructions)
+        .saturating_add(dispatch_local_instructions)
+        .saturating_add(execute_local_instructions)
+        .saturating_add(wrapper_local_instructions)
+}
+
+fn generated_query_authority(
+    route: &SqlStatementRoute,
+    authorities: &[EntityAuthority],
+) -> Result<EntityAuthority, Error> {
+    if matches!(route, SqlStatementRoute::ShowEntities) {
+        return Err(invalid_perf_request_error(
+            "sql attribution requires entity-scoped generated SQL route",
+        ));
+    }
+
+    let sql_entity = route.entity();
+    for authority in authorities {
+        if identifiers_tail_match(sql_entity, authority.model().name()) {
+            return Ok(*authority);
+        }
+    }
+
+    Err(invalid_perf_request_error(format!(
+        "sql attribution unsupported entity '{sql_entity}'"
+    )))
+}
+
+fn attribute_generated_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionSample, Error> {
+    let core = core_db();
+    let authorities = sql_dispatch::authorities();
+
+    // Phase 1: attribute the core generated-query path with parse kept
+    // separate from authority resolution, lowering, and shared dispatch.
+    let (parse_local_instructions, parsed_result) =
+        measure_result(|| core.parse_sql_statement(sql).map_err(Error::from));
+    let parsed = parsed_result?;
+
+    let (route_local_instructions, authority_result) =
+        measure_result(|| generated_query_authority(parsed.route(), authorities));
+    let authority = authority_result?;
+
+    let (core_dispatch_total, core_dispatch_result) = measure_result(|| {
+        core.execute_generated_query_surface_dispatch_for_authority(&parsed, authority)
+            .map_err(Error::from)
+    });
+    let _core_dispatch_result = core_dispatch_result?;
+
+    let (lower_local_instructions, lowered_result) = measure_result(|| {
+        parsed
+            .lower_query_lane_for_entity(
+                authority.model().name(),
+                authority.model().primary_key().name(),
+            )
+            .map_err(Error::from)
+    });
+    let lowered = lowered_result?;
+
+    let (execute_local_instructions, execute_result) = measure_result(|| {
+        core.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+            .map_err(Error::from)
+    });
+    let _execute_result = execute_result?;
+
+    let dispatch_local_instructions = core_dispatch_total
+        .saturating_sub(lower_local_instructions.saturating_add(execute_local_instructions));
+
+    // Phase 2: measure the real generated surface total and assign the
+    // remaining cost to the outer wrapper above the attributed core path.
+    let (total_local_instructions, outcome) = measure_surface_call(|| {
+        sql_dispatch::query(sql).map_or_else(outcome_from_error, outcome_from_sql_query_result)
+    });
+    let attributed_core = parse_local_instructions
+        .saturating_add(route_local_instructions)
+        .saturating_add(core_dispatch_total);
+    let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
+
+    Ok(SqlPerfAttributionSample {
+        surface: SqlPerfAttributionSurface::GeneratedDispatch,
+        sql: sql.to_string(),
+        parse_local_instructions,
+        route_local_instructions,
+        lower_local_instructions,
+        dispatch_local_instructions,
+        execute_local_instructions,
+        wrapper_local_instructions,
+        total_local_instructions: attributed_total(
+            parse_local_instructions,
+            route_local_instructions,
+            lower_local_instructions,
+            dispatch_local_instructions,
+            execute_local_instructions,
+            wrapper_local_instructions,
+        ),
+        outcome,
+    })
+}
+
+fn attribute_typed_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionSample, Error> {
+    let core = core_db();
+    let authority = EntityAuthority::for_type::<User>();
+
+    // Phase 1: parse once and attribute the core typed dispatch path after
+    // parse so the remaining outer facade wrapper can be measured cleanly.
+    let (parse_local_instructions, parsed_result) =
+        measure_result(|| core.parse_sql_statement(sql).map_err(Error::from));
+    let parsed = parsed_result?;
+
+    let (core_dispatch_total, core_dispatch_result) = measure_result(|| {
+        core.execute_sql_dispatch_parsed::<User>(&parsed)
+            .map_err(Error::from)
+    });
+    let _core_dispatch_result = core_dispatch_result?;
+
+    let (lower_local_instructions, lowered_result) = measure_result(|| {
+        parsed
+            .lower_query_lane_for_entity(User::MODEL.name(), User::MODEL.primary_key().name())
+            .map_err(Error::from)
+    });
+    let lowered = lowered_result?;
+
+    let (execute_local_instructions, execute_result) = measure_result(|| {
+        core.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+            .map_err(Error::from)
+    });
+    let _execute_result = execute_result?;
+
+    let dispatch_local_instructions = core_dispatch_total
+        .saturating_sub(lower_local_instructions.saturating_add(execute_local_instructions));
+
+    // Phase 2: measure the full facade surface total and assign the remaining
+    // cost above the attributed core path to the outer wrapper.
+    let (total_local_instructions, outcome) = measure_surface_call(|| {
+        db().execute_sql_dispatch::<User>(sql)
+            .map_or_else(outcome_from_error, outcome_from_sql_query_result)
+    });
+    let attributed_core = parse_local_instructions.saturating_add(core_dispatch_total);
+    let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
+
+    Ok(SqlPerfAttributionSample {
+        surface: SqlPerfAttributionSurface::TypedDispatchUser,
+        sql: sql.to_string(),
+        parse_local_instructions,
+        route_local_instructions: 0,
+        lower_local_instructions,
+        dispatch_local_instructions,
+        execute_local_instructions,
+        wrapper_local_instructions,
+        total_local_instructions: attributed_total(
+            parse_local_instructions,
+            0,
+            lower_local_instructions,
+            dispatch_local_instructions,
+            execute_local_instructions,
+            wrapper_local_instructions,
+        ),
+        outcome,
+    })
 }
 
 fn measure_typed_grouped_second_page(sql: &str) -> (u64, SqlPerfOutcome) {

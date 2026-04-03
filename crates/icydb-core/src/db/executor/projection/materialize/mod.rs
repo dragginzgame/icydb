@@ -198,7 +198,7 @@ pub(super) fn visit_projection_values_with_required_value_reader(
     Ok(())
 }
 
-fn visit_prepared_projection_values_with_value_reader(
+pub(super) fn visit_prepared_projection_values_with_value_reader(
     prepared: &PreparedProjectionPlan,
     projection: &ProjectionSpec,
     model: &EntityModel,

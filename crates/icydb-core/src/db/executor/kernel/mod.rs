@@ -152,6 +152,8 @@ impl ExecutionKernel {
             inputs.runtime().try_materialize_load_via_row_collector(
                 inputs.plan(),
                 continuation.post_access_cursor_boundary(),
+                inputs.validate_projection(),
+                inputs.retain_slot_rows(),
                 resolved.key_stream_mut(),
             )?
         {
@@ -166,6 +168,8 @@ impl ExecutionKernel {
                 key_stream: resolved.key_stream_mut(),
                 scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
                 stream_order_contract_safe: route_plan.stream_order_contract_safe(),
+                validate_projection: inputs.validate_projection(),
+                retain_slot_rows: inputs.retain_slot_rows(),
                 consistency: inputs.consistency(),
                 continuation,
             })?;

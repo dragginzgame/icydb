@@ -257,11 +257,6 @@ pub(crate) enum SqlLoweringError {
 
     #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
-
-    #[error(
-        "generated SQL query dispatch requires SELECT, DELETE, EXPLAIN SELECT, or EXPLAIN DELETE"
-    )]
-    UnsupportedQuerySurfaceStatement,
 }
 
 impl SqlLoweringError {
@@ -291,11 +286,6 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT HAVING shape SQL lowering error.
     const fn unsupported_select_having() -> Self {
         Self::UnsupportedSelectHaving
-    }
-
-    /// Construct one unsupported query-surface statement SQL lowering error.
-    const fn unsupported_query_surface_statement() -> Self {
-        Self::UnsupportedQuerySurfaceStatement
     }
 }
 
@@ -362,46 +352,6 @@ pub(crate) fn lower_sql_command_from_prepared_statement(
     primary_key_field: &str,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     lower_prepared_statement(prepared.statement, primary_key_field)
-}
-
-/// Prepare one parsed SQL statement for the generated query-only canister surface.
-#[inline(never)]
-pub(crate) fn prepare_query_surface_statement(
-    statement: SqlStatement,
-    expected_entity: &'static str,
-) -> Result<PreparedSqlStatement, SqlLoweringError> {
-    let prepared = prepare_sql_statement(statement, expected_entity)?;
-
-    match prepared.statement {
-        SqlStatement::Select(_) | SqlStatement::Delete(_) | SqlStatement::Explain(_) => {
-            Ok(prepared)
-        }
-        SqlStatement::Describe(_)
-        | SqlStatement::ShowIndexes(_)
-        | SqlStatement::ShowColumns(_)
-        | SqlStatement::ShowEntities(_) => {
-            Err(SqlLoweringError::unsupported_query_surface_statement())
-        }
-    }
-}
-
-/// Lower one prepared SQL statement into one query-surface-only command shape.
-#[inline(never)]
-pub(crate) fn lower_query_surface_command_from_prepared_statement(
-    prepared: PreparedSqlStatement,
-    primary_key_field: &str,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    let lowered = lower_sql_command_from_prepared_statement(prepared, primary_key_field)?;
-
-    match lowered_sql_command_lane(&lowered) {
-        LoweredSqlLaneKind::Query | LoweredSqlLaneKind::Explain => Ok(lowered),
-        LoweredSqlLaneKind::Describe
-        | LoweredSqlLaneKind::ShowIndexes
-        | LoweredSqlLaneKind::ShowColumns
-        | LoweredSqlLaneKind::ShowEntities => {
-            Err(SqlLoweringError::unsupported_query_surface_statement())
-        }
-    }
 }
 
 pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {

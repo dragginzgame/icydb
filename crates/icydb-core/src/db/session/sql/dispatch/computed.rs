@@ -30,33 +30,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: lower the rewritten field-only base query through the
-        // shared SQL preparation/lowering path.
-        let lowered = lower_sql_command_from_prepared_statement(
-            prepare_sql_statement(plan.cloned_base_statement(), E::MODEL.name())
-                .map_err(QueryError::from_sql_lowering_error)?,
-            E::MODEL.primary_key.name,
+        self.execute_computed_sql_projection_dispatch_for_authority(
+            plan,
+            EntityAuthority::for_type::<E>(),
         )
-        .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(LoweredSqlQuery::Select(select)) = lowered.query().cloned() else {
-            return Err(QueryError::unsupported_query(
-                "computed SQL projection requires a lowered SELECT statement",
-            ));
-        };
-
-        // Phase 2: execute the base field-only projection and then apply the
-        // requested transforms without reopening generic expression ownership.
-        let structural = apply_lowered_select_shape(
-            StructuralQuery::new(E::MODEL, MissingRowPolicy::Ignore),
-            select,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
-        let base_payload =
-            self.execute_structural_sql_projection(structural, EntityAuthority::for_type::<E>())?;
-        let projected =
-            computed_projection::apply_computed_sql_projection_payload(base_payload, &plan)?;
-
-        Ok(projected.into_dispatch_result())
     }
 
     // Execute one supported computed SQL projection for one already-resolved
@@ -106,23 +83,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let SqlStatement::Select(base_select) = plan.into_base_statement() else {
-            return Err(QueryError::invariant(
-                "computed SQL projection explain requires a base SELECT statement",
-            ));
-        };
-        let explain_statement = SqlStatement::Explain(SqlExplainStatement {
+        Self::explain_computed_sql_projection_dispatch_for_authority(
             mode,
-            statement: SqlExplainTarget::Select(base_select),
-        });
-        let lowered = lower_sql_command_from_prepared_statement(
-            prepare_sql_statement(explain_statement, E::MODEL.name())
-                .map_err(QueryError::from_sql_lowering_error)?,
-            E::MODEL.primary_key.name,
+            plan,
+            EntityAuthority::for_type::<E>(),
         )
-        .map_err(QueryError::from_sql_lowering_error)?;
-
-        lowered.explain_for_model(E::MODEL)
     }
 
     // Render one supported computed SQL projection explain for one already-

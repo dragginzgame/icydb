@@ -60,6 +60,8 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
             continuation: AccessScanContinuationInput::new(None, route.direction()),
         },
         &execution_preparation,
+        true,
+        false,
     );
     record_grouped_plan_metrics(&route.plan().access, route.grouped_plan_metrics_strategy());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(

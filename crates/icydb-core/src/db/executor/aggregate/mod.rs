@@ -384,6 +384,8 @@ impl ExecutionKernel {
                 continuation: AccessScanContinuationInput::new(None, descriptor.direction),
             },
             &descriptor.execution_preparation,
+            true,
+            false,
         );
 
         // Resolve the ordered key stream using canonical routing logic.

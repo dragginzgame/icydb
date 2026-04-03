@@ -32,6 +32,8 @@ pub use session::SqlParsedStatement;
 #[cfg(feature = "sql")]
 #[doc(hidden)]
 pub use session::generated::execute_generated_sql_query;
+#[doc(hidden)]
+pub use session::generated::execute_generated_storage_report;
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, UpdatePatch,
 };

@@ -26,6 +26,7 @@ use crate::{
 #[derive(Clone)]
 pub(in crate::db::executor) struct ExecutionPreparation {
     compiled_predicate: Option<PredicateProgram>,
+    conservative_mode: Option<IndexPredicateProgram>,
     predicate_capability_profile: Option<PredicateCapabilityProfile>,
     slot_map: Option<Vec<usize>>,
     strict_mode: Option<IndexPredicateProgram>,
@@ -68,15 +69,60 @@ impl ExecutionPreparation {
 
         Self {
             compiled_predicate,
+            conservative_mode: None,
             predicate_capability_profile,
             slot_map,
             strict_mode,
         }
     }
 
+    /// Build the lighter runtime execution preparation needed by shared scalar
+    /// load execution.
+    ///
+    /// This path keeps only the compiled row predicate plus slot-map data used
+    /// by runtime filtering and conservative index-predicate compilation. It
+    /// intentionally skips explain/aggregate-only capability snapshots and the
+    /// additional strict predicate program that the scalar load runtime never
+    /// consumes after route planning has already completed.
+    #[must_use]
+    pub(in crate::db::executor) fn from_runtime_plan(
+        model: &'static EntityModel,
+        plan: &AccessPlannedQuery,
+        slot_map: Option<Vec<usize>>,
+    ) -> Self {
+        let compiled_predicate = plan
+            .scalar_plan()
+            .predicate
+            .as_ref()
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
+        let conservative_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
+            (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
+                compiled_predicate.executable(),
+                slot_map,
+                IndexCompilePolicy::ConservativeSubset,
+            ),
+            (Some(_) | None, None) | (None, Some(_)) => None,
+        };
+
+        Self {
+            compiled_predicate,
+            conservative_mode,
+            predicate_capability_profile: None,
+            slot_map,
+            strict_mode: None,
+        }
+    }
+
     #[must_use]
     pub(in crate::db::executor) const fn compiled_predicate(&self) -> Option<&PredicateProgram> {
         self.compiled_predicate.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn conservative_mode(
+        &self,
+    ) -> Option<&IndexPredicateProgram> {
+        self.conservative_mode.as_ref()
     }
 
     #[must_use]

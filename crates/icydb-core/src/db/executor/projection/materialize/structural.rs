@@ -11,9 +11,10 @@ use crate::{
             EntityAuthority,
             pipeline::entrypoints::execute_initial_scalar_rows_for_canister,
             projection::{
-                eval::{ScalarProjectionExpr, eval_canonical_scalar_projection_expr},
+                eval::eval_canonical_scalar_projection_expr,
                 materialize::{
-                    prepare_projection_plan, visit_projection_values_with_required_value_reader,
+                    prepare_projection_plan, visit_prepared_projection_values_with_value_reader,
+                    visit_projection_values_with_required_value_reader,
                 },
             },
         },
@@ -60,29 +61,58 @@ impl SqlProjectionRows {
 pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     debug: bool,
+    model: &'static EntityModel,
+    projection: ProjectionSpec,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
 ) -> Result<SqlProjectionRows, InternalError>
 where
     C: CanisterKind,
 {
-    // Phase 1: derive projection semantics before moving the plan into the
-    // shared scalar execution path.
-    let projection = plan.projection_spec(authority.model());
-
-    // Phase 2: execute the scalar rows path once for the whole canister.
+    // Phase 1: execute the scalar rows path once for the whole canister while
+    // reusing the already-derived projection contract from the caller.
     let page = execute_initial_scalar_rows_for_canister(db, debug, authority, plan)?;
 
-    // Phase 3: decode rows structurally and discard ids because SQL projection
-    // rendering only needs ordered cell values.
-    let projected = project_data_rows_from_projection_structural(
-        authority.model(),
-        &projection,
-        page.data_rows(),
-    )?;
+    // Phase 2: prefer already-decoded slot rows when the scalar kernel kept
+    // them for immediate SQL projection materialization. Fall back to the
+    // canonical structural-row reader on all other paths.
+    let projected = if let Some(slot_rows) = page.slot_rows() {
+        project_slot_rows_from_projection_structural(model, &projection, slot_rows)?
+    } else {
+        project_data_rows_from_projection_structural(model, &projection, page.data_rows())?
+    };
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))
+}
+
+fn project_slot_rows_from_projection_structural(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+    rows: &[Vec<Option<Value>>],
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let prepared = prepare_projection_plan(model, projection);
+    let mut projected_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: reuse the executor-decoded slot rows directly instead of
+    // rebuilding structural readers from persisted row bytes.
+    for row in rows {
+        let mut values = Vec::with_capacity(projection.len());
+        let mut read_slot = |slot: usize| row.get(slot).cloned().flatten();
+        visit_prepared_projection_values_with_value_reader(
+            &prepared,
+            projection,
+            model,
+            &mut read_slot,
+            &mut |value| values.push(value),
+        )
+        .map_err(
+            crate::db::executor::projection::ProjectionEvalError::into_invalid_logical_plan_internal_error,
+        )?;
+        projected_rows.push(values);
+    }
+
+    Ok(projected_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -107,7 +137,7 @@ fn project_data_rows_from_projection_structural(
 
 #[cfg(feature = "sql")]
 fn project_scalar_data_rows_from_projection_structural(
-    compiled_fields: &[ScalarProjectionExpr],
+    compiled_fields: &[crate::db::executor::projection::ScalarProjectionExpr],
     rows: &[DataRow],
     model: &'static EntityModel,
 ) -> Result<Vec<Vec<Value>>, InternalError> {

@@ -194,6 +194,11 @@ impl<C: CanisterKind> Db<C> {
         diagnostics::storage_report(self, name_to_path)
     }
 
+    /// Build one storage diagnostics report using default entity-path labels.
+    pub(crate) fn storage_report_default(&self) -> Result<StorageReport, InternalError> {
+        diagnostics::storage_report_default(self)
+    }
+
     /// Build one integrity scan report for registered stores/entities.
     pub(crate) fn integrity_report(&self) -> Result<IntegrityReport, InternalError> {
         diagnostics::integrity_report(self)

@@ -38,6 +38,24 @@ use crate::{
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
 
+// Keep SQL-only projection preservation decisions explicit without adding more
+// free-floating bool flags to the shared scalar runtime bundles.
+#[derive(Clone, Copy)]
+enum ScalarProjectionRuntimeMode {
+    SharedValidation,
+    SqlImmediateMaterialization,
+}
+
+impl ScalarProjectionRuntimeMode {
+    const fn validate_projection(self) -> bool {
+        matches!(self, Self::SharedValidation)
+    }
+
+    const fn retain_slot_rows(self) -> bool {
+        matches!(self, Self::SqlImmediateMaterialization)
+    }
+}
+
 ///
 /// ScalarExecutionStage
 ///
@@ -50,13 +68,14 @@ use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top
 
 struct ScalarExecutionStage<'a> {
     runtime: &'a dyn ExecutionRuntime,
-    plan: AccessPlannedQuery,
+    plan: &'a AccessPlannedQuery,
     execution_preparation: ExecutionPreparation,
     route_plan: ExecutionPlan,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
     resolved_continuation: ResolvedScalarContinuationContext,
     unpaged_rows_mode: bool,
+    projection_runtime_mode: ScalarProjectionRuntimeMode,
     debug: bool,
 }
 
@@ -95,6 +114,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
     resolved_continuation: ResolvedScalarContinuationContext,
     unpaged_rows_mode: bool,
+    projection_runtime_mode: ScalarProjectionRuntimeMode,
     debug: bool,
 }
 
@@ -187,6 +207,7 @@ fn execute_scalar_execution_stage(
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
+        projection_runtime_mode,
         debug,
     } = stage;
 
@@ -211,8 +232,7 @@ fn execute_scalar_execution_stage(
         continuation_capabilities.strict_advance_required_when_applied(),
         continuation.effective_offset(),
     );
-    resolved_continuation
-        .debug_assert_route_continuation_invariants(&plan, continuation_invariants);
+    resolved_continuation.debug_assert_route_continuation_invariants(plan, continuation_invariants);
     let direction = route_plan.direction();
     let mut execution_trace =
         debug.then(|| ExecutionTrace::new(&plan.access, direction, continuation_applied));
@@ -222,13 +242,15 @@ fn execute_scalar_execution_stage(
     let continuation_bindings = resolved_continuation.bindings(direction);
     let execution_inputs = ExecutionInputs::new(
         runtime,
-        &plan,
+        plan,
         AccessStreamBindings {
             index_prefix_specs: index_prefix_specs.as_slice(),
             index_range_specs: index_range_specs.as_slice(),
             continuation: resolved_continuation.access_scan_input(direction),
         },
         &execution_preparation,
+        projection_runtime_mode.validate_projection(),
+        projection_runtime_mode.retain_slot_rows(),
     );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
@@ -262,16 +284,16 @@ fn execute_prepared_scalar_path_execution(
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
+        projection_runtime_mode,
         debug,
     } = prepared;
-    let structural_access = plan.access.clone();
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
-        &structural_access,
+        &plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
     );
-    let execution_preparation = ExecutionPreparation::from_plan(
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(
         authority.model(),
         &plan,
         runtime.slot_map().map(<[usize]>::to_vec),
@@ -279,13 +301,14 @@ fn execute_prepared_scalar_path_execution(
 
     execute_scalar_execution_stage(ScalarExecutionStage {
         runtime: &runtime,
-        plan,
+        plan: &plan,
         execution_preparation,
         route_plan,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
+        projection_runtime_mode,
         debug,
     })
 }
@@ -352,6 +375,7 @@ where
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
         debug,
     })
 }
@@ -396,6 +420,7 @@ where
             continuation_signature,
         ),
         unpaged_rows_mode: true,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
         debug,
     })
 }
@@ -472,6 +497,10 @@ where
             continuation_contract.continuation_signature(),
         ),
         unpaged_rows_mode: true,
+        // SQL projection materialization evaluates the projection immediately
+        // after row load, so it should keep decoded slots instead of paying
+        // the shared validation pass and then rebuilding structural readers.
+        projection_runtime_mode: ScalarProjectionRuntimeMode::SqlImmediateMaterialization,
         debug,
     };
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
@@ -505,14 +534,13 @@ where
     );
 
     // Phase 1: resolve typed execution authority once at the boundary.
-    let structural_access = logical_plan.access.clone();
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
-        &structural_access,
+        &logical_plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
     );
-    let execution_preparation = ExecutionPreparation::from_plan(
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(
         authority.model(),
         &logical_plan,
         runtime.slot_map().map(<[usize]>::to_vec),
@@ -536,13 +564,14 @@ where
         execution_time_micros,
     } = execute_scalar_execution_stage(ScalarExecutionStage {
         runtime: &runtime,
-        plan: logical_plan,
+        plan: &logical_plan,
         execution_preparation,
         route_plan,
         index_prefix_specs,
         index_range_specs,
         resolved_continuation,
         unpaged_rows_mode: false,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
         debug: executor.debug,
     })?;
 

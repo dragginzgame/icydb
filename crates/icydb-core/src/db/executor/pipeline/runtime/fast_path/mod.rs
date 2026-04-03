@@ -30,28 +30,40 @@ impl ExecutionKernel {
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
-        // Phase 0: compile optional index predicate execution program.
-        let index_predicate_program = inputs
-            .execution_preparation()
-            .compiled_predicate()
-            .and_then(|compiled_predicate| {
-                let slot_map = inputs.execution_preparation().slot_map()?;
+        // Phase 0: reuse precompiled runtime index predicates when the
+        // execution-preparation boundary already owns the requested mode, and
+        // only fall back to one on-demand compile when it does not.
+        let precompiled_index_predicate = match predicate_compile_mode {
+            IndexCompilePolicy::ConservativeSubset => {
+                inputs.execution_preparation().conservative_mode()
+            }
+            IndexCompilePolicy::StrictAllOrNone => inputs.execution_preparation().strict_mode(),
+        };
+        let compiled_index_predicate = if precompiled_index_predicate.is_none() {
+            inputs
+                .execution_preparation()
+                .compiled_predicate()
+                .and_then(|compiled_predicate| {
+                    let slot_map = inputs.execution_preparation().slot_map()?;
 
-                compile_index_program(
-                    compiled_predicate.executable(),
-                    slot_map,
-                    predicate_compile_mode,
-                )
-            });
+                    compile_index_program(
+                        compiled_predicate.executable(),
+                        slot_map,
+                        predicate_compile_mode,
+                    )
+                })
+        } else {
+            None
+        };
+        let index_predicate_program =
+            precompiled_index_predicate.or(compiled_index_predicate.as_ref());
         let index_predicate_applied = index_predicate_program.is_some();
         let index_predicate_rejected_counter = Cell::new(0u64);
         let index_predicate_execution =
-            index_predicate_program
-                .as_ref()
-                .map(|program| IndexPredicateExecution {
-                    program,
-                    rejected_keys_counter: Some(&index_predicate_rejected_counter),
-                });
+            index_predicate_program.map(|program| IndexPredicateExecution {
+                program,
+                rejected_keys_counter: Some(&index_predicate_rejected_counter),
+            });
 
         // Phase 1: select fast-path resolution strategy once from route shape.
         let fast_path_strategy = FastPathResolutionStrategy::for_route(route_plan);

@@ -5,11 +5,9 @@
 
 use crate::{
     db::{
-        QueryError,
         executor::KernelRow,
         query::{
             builder::aggregate::AggregateExpr,
-            intent::StructuralQuery,
             plan::expr::{Expr, ProjectionField, ProjectionSpec},
         },
     },
@@ -45,18 +43,11 @@ fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
     }
 }
 
-// Derive canonical projection column labels from one structural query projection spec.
-pub(in crate::db::session::sql) fn projection_labels_from_structural_query(
-    query: &StructuralQuery,
-) -> Result<Vec<String>, QueryError> {
-    let projection = query.build_plan()?.projection_spec(query.model());
-
-    Ok(projection_labels_from_projection_spec(&projection))
-}
-
 // Render canonical projection labels from one projection spec regardless of
 // whether the caller arrived from a typed or structural query shell.
-fn projection_labels_from_projection_spec(projection: &ProjectionSpec) -> Vec<String> {
+pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
+    projection: &ProjectionSpec,
+) -> Vec<String> {
     let mut labels = Vec::with_capacity(projection.len());
 
     for (ordinal, field) in projection.fields().enumerate() {

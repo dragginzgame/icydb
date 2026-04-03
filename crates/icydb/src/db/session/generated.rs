@@ -1,8 +1,27 @@
 use crate::{
-    db::{DbSession, EntityAuthority, sql::SqlQueryResult},
-    error::{Error, ErrorKind, QueryErrorKind},
+    db::{DbSession, StorageReport},
+    error::Error,
     traits::CanisterKind,
 };
+
+#[cfg(feature = "sql")]
+use crate::{
+    db::{EntityAuthority, sql::SqlQueryResult},
+    error::{ErrorKind, QueryErrorKind},
+};
+
+///
+/// Execute one generated storage snapshot request through the hidden facade.
+///
+/// This helper keeps the generated metrics endpoint on the default snapshot
+/// path so canister exports do not retain alias-remapping diagnostics helpers
+/// they never use.
+///
+pub fn execute_generated_storage_report<C: CanisterKind>(
+    session: &DbSession<C>,
+) -> Result<StorageReport, Error> {
+    Ok(session.inner.storage_report_default()?)
+}
 
 ///
 /// Execute one generated SQL query surface request through the hidden facade.
@@ -12,6 +31,7 @@ use crate::{
 /// dispatch. The facade only maps the final result into `SqlQueryResult` and
 /// preserves the public EXPLAIN error rewrite contract.
 ///
+#[cfg(feature = "sql")]
 pub fn execute_generated_sql_query<C: CanisterKind>(
     session: &DbSession<C>,
     sql: &str,
@@ -43,6 +63,7 @@ pub fn execute_generated_sql_query<C: CanisterKind>(
 
 // Preserve the public generated-EXPLAIN unordered-pagination guidance while
 // keeping the main generated route family in core.
+#[cfg(feature = "sql")]
 fn explain_surface_error(sql: &str, order_field: &str, err: Error) -> Error {
     if !matches!(
         err.kind(),
@@ -65,6 +86,7 @@ fn explain_surface_error(sql: &str, order_field: &str, err: Error) -> Error {
 }
 
 // Strip the EXPLAIN prefix so the public hint can show the underlying query.
+#[cfg(feature = "sql")]
 fn explain_target_sql(sql: &str) -> &str {
     let mut rest = sql.trim_start();
     if let Some(next) = consume_keyword(rest, "EXPLAIN") {
@@ -80,6 +102,7 @@ fn explain_target_sql(sql: &str) -> &str {
 }
 
 // Synthesize one deterministic EXPLAIN fix-up query for the public hint.
+#[cfg(feature = "sql")]
 fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
     let trimmed = target_sql.trim().trim_end_matches(';').trim_end();
     let upper = trimmed.to_ascii_uppercase();
@@ -102,6 +125,7 @@ fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
 }
 
 // Consume one standalone SQL keyword while leaving longer identifiers intact.
+#[cfg(feature = "sql")]
 fn consume_keyword<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = input.strip_prefix(keyword)?;
 

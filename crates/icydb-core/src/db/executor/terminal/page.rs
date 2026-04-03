@@ -24,7 +24,7 @@ use crate::{
     model::entity::EntityModel,
     value::Value,
 };
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ptr};
 
 ///
 /// KernelRow
@@ -104,18 +104,20 @@ type ScalarRowReadKernelRowFn = unsafe fn(
 pub(in crate::db::executor) struct ScalarRowRuntimeHandle<'a> {
     state: *mut (),
     vtable: ScalarRowRuntimeVTable,
-    _marker: PhantomData<&'a mut ()>,
+    _marker: PhantomData<&'a ()>,
 }
 
 impl<'a> ScalarRowRuntimeHandle<'a> {
-    /// Erase one boundary-resolved row-runtime state object behind a structural runtime handle.
+    /// Borrow one pre-resolved row-runtime state object behind a structural
+    /// runtime handle without rebuilding owned runtime state for the same
+    /// query execution.
     #[must_use]
-    pub(in crate::db::executor) fn new<T>(state: T, vtable: ScalarRowRuntimeVTable) -> Self
-    where
-        T: 'a,
-    {
+    pub(in crate::db::executor) const fn from_borrowed<T>(
+        state: &'a T,
+        vtable: ScalarRowRuntimeVTable,
+    ) -> Self {
         Self {
-            state: Box::into_raw(Box::new(state)).cast(),
+            state: ptr::from_ref(state).cast_mut().cast(),
             vtable,
             _marker: PhantomData,
         }
@@ -168,6 +170,8 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) validate_projection: bool,
+    pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
@@ -184,6 +188,8 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         key_stream,
         scan_budget_hint,
         stream_order_contract_safe,
+        validate_projection,
+        retain_slot_rows,
         consistency,
         continuation,
     } = request;
@@ -205,7 +211,9 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         row_runtime,
     })?;
 
-    // Phase 2: apply post-access phases and validate projection semantics.
+    // Phase 2: apply post-access phases and only retain the shared projection
+    // validation pass for surfaces that are not about to materialize the same
+    // projection immediately afterwards.
     let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
         model,
         plan,
@@ -214,12 +222,14 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         predicate_slots,
         predicate_preapplied,
     )?;
-    validate_projection_over_slot_rows(
-        model,
-        &plan.projection_spec(model),
-        rows.len(),
-        &mut |row_index, slot| rows[row_index].slot(slot),
-    )?;
+    if validate_projection {
+        validate_projection_over_slot_rows(
+            model,
+            &plan.projection_spec(model),
+            rows.len(),
+            &mut |row_index, slot| rows[row_index].slot(slot),
+        )?;
+    }
 
     // Phase 3: assemble the structural cursor boundary before typed page emission.
     let last_cursor_row = resolve_last_cursor_row(model, plan, rows.as_slice())?;
@@ -239,8 +249,22 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     .map(PageCursor::Scalar);
 
     // Phase 4: finalize one structural page payload for outer typed decode.
-    let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
-    let page = StructuralCursorPage::new(data_rows, next_cursor);
+    #[cfg(feature = "sql")]
+    let page = if retain_slot_rows {
+        let (data_rows, slot_rows): (Vec<_>, Vec<_>) =
+            rows.into_iter().map(KernelRow::into_parts).unzip();
+        StructuralCursorPage::new_with_slot_rows(data_rows, slot_rows, next_cursor)
+    } else {
+        let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+        StructuralCursorPage::new(data_rows, next_cursor)
+    };
+
+    #[cfg(not(feature = "sql"))]
+    let page = {
+        let _ = retain_slot_rows;
+        let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+        StructuralCursorPage::new(data_rows, next_cursor)
+    };
 
     Ok((page, rows_scanned, post_access_rows))
 }

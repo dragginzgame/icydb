@@ -61,6 +61,8 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery,
         model: &'static EntityModel,
         cursor_boundary: Option<&CursorBoundary>,
+        validate_projection: bool,
+        retain_slot_rows: bool,
         key_stream: &mut dyn OrderedKeyStream,
         row_runtime: &mut ScalarRowRuntimeHandle<'_>,
     ) -> Result<
@@ -76,16 +78,33 @@ impl ExecutionKernel {
         }
 
         let (rows, keys_scanned) = Self::run_row_collector_stream(plan, key_stream, row_runtime)?;
-        crate::db::executor::projection::validate_projection_over_slot_rows(
-            model,
-            &plan.projection_spec(model),
-            rows.len(),
-            &mut |row_index, slot| rows[row_index].slot(slot),
-        )?;
+        if validate_projection {
+            crate::db::executor::projection::validate_projection_over_slot_rows(
+                model,
+                &plan.projection_spec(model),
+                rows.len(),
+                &mut |row_index, slot| rows[row_index].slot(slot),
+            )?;
+        }
         let post_access_rows = rows.len();
-        let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
-        let page =
-            crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None);
+        #[cfg(feature = "sql")]
+        let page = if retain_slot_rows {
+            let (data_rows, slot_rows): (Vec<_>, Vec<_>) =
+                rows.into_iter().map(KernelRow::into_parts).unzip();
+            crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
+                data_rows, slot_rows, None,
+            )
+        } else {
+            let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+            crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None)
+        };
+
+        #[cfg(not(feature = "sql"))]
+        let page = {
+            let _ = retain_slot_rows;
+            let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+            crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None)
+        };
 
         Ok(Some((page, keys_scanned, post_access_rows)))
     }

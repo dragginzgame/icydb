@@ -9,7 +9,9 @@ mod seed;
 extern crate canic_cdk as ic_cdk;
 
 #[cfg(feature = "sql")]
-use crate::perf::{SqlPerfRequest, SqlPerfSample};
+use crate::perf::{
+    SqlPerfAttributionRequest, SqlPerfAttributionSample, SqlPerfRequest, SqlPerfSample,
+};
 #[cfg(feature = "sql")]
 use canic_cdk::query;
 use canic_cdk::update;
@@ -39,6 +41,15 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[query]
 fn sql_perf(request: SqlPerfRequest) -> Result<SqlPerfSample, icydb::Error> {
     perf::sample_sql_surface(request)
+}
+
+/// Attribute one representative SQL surface into fixed-cost wasm phases.
+#[cfg(feature = "sql")]
+#[query]
+fn sql_perf_attribution(
+    request: SqlPerfAttributionRequest,
+) -> Result<SqlPerfAttributionSample, icydb::Error> {
+    perf::attribute_sql_surface(request)
 }
 
 /// Clear all fixture rows from this canister.

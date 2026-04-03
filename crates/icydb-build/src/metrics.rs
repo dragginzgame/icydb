@@ -8,7 +8,7 @@ pub fn generate(_builder: &ActorBuilder) -> TokenStream {
     quote! {
         #[::icydb::__reexports::canic_cdk::query]
         pub fn icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
-            db().storage_report(&[])
+            ::icydb::__macro::execute_generated_storage_report(&db())
         }
 
         #[::icydb::__reexports::canic_cdk::query]

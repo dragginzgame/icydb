@@ -141,16 +141,20 @@ fn store_wiring_tokens(
                 .expect("generated canister memory registry init should succeed");
         }
 
+        #[doc(hidden)]
         #[must_use]
-        pub fn db() -> ::icydb::db::DbSession<#canister_path> {
+        pub fn core_db() -> ::icydb::__macro::CoreDbSession<#canister_path> {
             ensure_memory_bootstrap();
 
-            ::icydb::db::DbSession::new(
-                ::icydb::__macro::CoreDbSession::<#canister_path>::new_with_hooks(
-                    &STORE_REGISTRY,
-                    ENTITY_RUNTIME_HOOKS
-                )
+            ::icydb::__macro::CoreDbSession::<#canister_path>::new_with_hooks(
+                &STORE_REGISTRY,
+                ENTITY_RUNTIME_HOOKS
             )
+        }
+
+        #[must_use]
+        pub fn db() -> ::icydb::db::DbSession<#canister_path> {
+            ::icydb::db::DbSession::new(core_db())
         }
     }
 }
@@ -235,6 +239,12 @@ fn sql_dispatch_query_api_tokens() -> TokenStream {
         #[must_use]
         pub fn entities() -> Vec<String> {
             generated_sql_entities()
+        }
+
+        #[doc(hidden)]
+        #[must_use]
+        pub const fn authorities() -> &'static [::icydb::db::EntityAuthority] {
+            SQL_ENTITY_AUTHORITIES
         }
 
         pub fn query(sql: &str) -> Result<SqlQueryResult, Error> {
