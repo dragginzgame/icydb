@@ -5,17 +5,10 @@
 //! Boundary: consumes executed SQL projection/explain outputs and renders stable text payloads.
 
 use candid::CandidType;
-use icydb_core::db::SqlParsedStatement as CoreSqlParsedStatement;
 use serde::Deserialize;
 
 use crate::{
-    db::{
-        DbSession, EntityAuthority, EntityFieldDescription, EntitySchemaDescription,
-        SqlStatementRoute,
-    },
-    error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind},
-    model::entity::EntityModel,
-    traits::CanisterKind,
+    db::{EntityFieldDescription, EntitySchemaDescription},
     value::{Value, ValueEnum},
 };
 
@@ -141,276 +134,6 @@ impl SqlQueryResult {
     }
 }
 
-#[cfg_attr(doc, doc = "Validate and normalize SQL endpoint input.")]
-pub fn normalize_sql_input(sql: &str) -> Result<&str, Error> {
-    let sql_trimmed = sql.trim();
-    if sql_trimmed.is_empty() {
-        return Err(Error::new(
-            ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-            ErrorOrigin::Query,
-            "query endpoint requires a non-empty SQL string",
-        ));
-    }
-
-    Ok(sql_trimmed)
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Return the wrapped SQL statement text inside one EXPLAIN surface statement.\n\nIf `sql` does not begin with EXPLAIN, this returns the trimmed input."
-)]
-#[must_use]
-pub fn explain_target_sql(sql: &str) -> &str {
-    let mut rest = sql.trim_start();
-    if let Some(next) = consume_keyword(rest, "EXPLAIN") {
-        rest = next;
-        if let Some(next) = consume_keyword(rest, "EXECUTION") {
-            rest = next;
-        } else if let Some(next) = consume_keyword(rest, "JSON") {
-            rest = next;
-        }
-    }
-
-    rest.trim_start()
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Return whether two entity identifiers refer to the same logical entity.\n\nMatching is case-insensitive and accepts one schema-qualified side by comparing the final identifier segment (for example `public.User` vs `User`)."
-)]
-#[must_use]
-pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
-    crate::db::identifiers_tail_match(left, right)
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Build one stable list of SQL entity names from resolved authority."
-)]
-#[doc(hidden)]
-#[must_use]
-pub fn generated_sql_entities(authorities: &[EntityAuthority]) -> Vec<String> {
-    let mut entities = Vec::with_capacity(authorities.len());
-
-    for authority in authorities {
-        entities.push(authority.model().name().to_string());
-    }
-
-    entities
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Execute one generated canister SQL query/explain/describe dispatch entrypoint."
-)]
-#[doc(hidden)]
-pub fn execute_generated_sql_query_dispatch<C: CanisterKind>(
-    session: &DbSession<C>,
-    sql: &str,
-    authorities: &[EntityAuthority],
-) -> Result<SqlQueryResult, Error> {
-    // Phase 1: normalize and parse the incoming SQL statement once.
-    let sql_trimmed = normalize_sql_input(sql)?;
-    let parsed = session.core_session().parse_sql_statement(sql_trimmed)?;
-    let statement = parsed.route();
-
-    // Phase 2: route the parsed statement through one shared helper.
-    match statement {
-        SqlStatementRoute::Query { .. } | SqlStatementRoute::Explain { .. } => {
-            query_lane_result_for_statement(session, sql_trimmed, &parsed, statement, authorities)
-        }
-        SqlStatementRoute::Describe { .. } => {
-            describe_result_for_statement(session, statement, authorities)
-        }
-        SqlStatementRoute::ShowIndexes { .. } => {
-            show_indexes_result_for_statement(session, statement, authorities)
-        }
-        SqlStatementRoute::ShowColumns { .. } => {
-            show_columns_result_for_statement(session, statement, authorities)
-        }
-        SqlStatementRoute::ShowEntities => Ok(show_entities_result_for_statement(authorities)),
-    }
-}
-
-// Resolve one authority from an entity-scoped SQL statement.
-fn authority_for_statement(
-    statement: &SqlStatementRoute,
-    authorities: &[EntityAuthority],
-) -> Result<EntityAuthority, Error> {
-    let sql_entity = statement.entity();
-    authority_for_entity_name(sql_entity, authorities)
-        .ok_or_else(|| unsupported_sql_entity_error(sql_entity, authorities))
-}
-
-// Resolve one authority from one SQL entity identifier.
-fn authority_for_entity_name(
-    entity_name: &str,
-    authorities: &[EntityAuthority],
-) -> Option<EntityAuthority> {
-    for authority in authorities {
-        if identifiers_tail_match(entity_name, authority.model().name()) {
-            return Some(*authority);
-        }
-    }
-
-    None
-}
-
-// Execute one shared SQL query/explain lane after routing authority once.
-fn query_lane_result_for_statement<C: CanisterKind>(
-    session: &DbSession<C>,
-    sql: &str,
-    parsed: &CoreSqlParsedStatement,
-    statement: &SqlStatementRoute,
-    authorities: &[EntityAuthority],
-) -> Result<SqlQueryResult, Error> {
-    // Phase 1: resolve one canonical authority for the routed
-    // query/explain statement.
-    let authority = authority_for_statement(statement, authorities)?;
-    let core_session = session.core_session();
-
-    // Phase 2: execute the generated query/explain lane on the core session
-    // directly so the canister SQL facade inherits the same reduced SQL
-    // semantics as typed dispatch, including computed text projection support.
-    let dispatch = core_session
-        .execute_generated_query_surface_dispatch_for_authority(parsed, authority)
-        .map_err(Error::from)
-        .map_err(|err| {
-            if matches!(statement, SqlStatementRoute::Explain { .. }) {
-                explain_surface_error(sql, authority.model(), err)
-            } else {
-                err
-            }
-        })?;
-
-    Ok(DbSession::<C>::map_sql_dispatch_result(
-        dispatch,
-        authority.model().name().to_string(),
-    ))
-}
-
-// Render one DESCRIBE result through one shared authority path.
-fn describe_result_for_statement<C: CanisterKind>(
-    session: &DbSession<C>,
-    statement: &SqlStatementRoute,
-    authorities: &[EntityAuthority],
-) -> Result<SqlQueryResult, Error> {
-    let authority = authority_for_statement(statement, authorities)?;
-    let description = session.describe_entity_model(authority.model());
-
-    Ok(SqlQueryResult::Describe(description))
-}
-
-// Render one SHOW INDEXES result through one shared authority path.
-fn show_indexes_result_for_statement<C: CanisterKind>(
-    session: &DbSession<C>,
-    statement: &SqlStatementRoute,
-    authorities: &[EntityAuthority],
-) -> Result<SqlQueryResult, Error> {
-    let authority = authority_for_statement(statement, authorities)?;
-    let indexes = session.show_indexes_for_model(authority.model());
-
-    Ok(SqlQueryResult::ShowIndexes {
-        entity: authority.model().name().to_string(),
-        indexes,
-    })
-}
-
-// Render one SHOW COLUMNS result through one shared authority path.
-fn show_columns_result_for_statement<C: CanisterKind>(
-    session: &DbSession<C>,
-    statement: &SqlStatementRoute,
-    authorities: &[EntityAuthority],
-) -> Result<SqlQueryResult, Error> {
-    let authority = authority_for_statement(statement, authorities)?;
-    let columns = session.show_columns_for_model(authority.model());
-
-    Ok(SqlQueryResult::ShowColumns {
-        entity: authority.model().name().to_string(),
-        columns,
-    })
-}
-
-// Render one SHOW ENTITIES result directly from the generated authority table.
-fn show_entities_result_for_statement(authorities: &[EntityAuthority]) -> SqlQueryResult {
-    let entities = generated_sql_entities(authorities);
-
-    SqlQueryResult::ShowEntities { entities }
-}
-
-// Build one stable unsupported-entity error using the generated authority table.
-fn unsupported_sql_entity_error(entity_name: &str, authorities: &[EntityAuthority]) -> Error {
-    let supported = supported_sql_entities_csv(authorities);
-
-    Error::new(
-        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        ErrorOrigin::Query,
-        format!("query endpoint does not support entity '{entity_name}'; supported: {supported}"),
-    )
-}
-
-fn supported_sql_entities_csv(authorities: &[EntityAuthority]) -> String {
-    // Build the supported-entity list directly so the query surface does not
-    // retain an extra `Vec<String>` + `join(", ")` path just for this error.
-    let mut supported = String::new();
-
-    for (index, authority) in authorities.iter().enumerate() {
-        if index != 0 {
-            supported.push_str(", ");
-        }
-
-        supported.push_str(authority.model().name());
-    }
-
-    supported
-}
-
-// Rewrite unordered-pagination EXPLAIN failures into one actionable canister message.
-fn explain_surface_error(sql: &str, model: &'static EntityModel, err: Error) -> Error {
-    if !matches!(
-        err.kind(),
-        ErrorKind::Query(QueryErrorKind::UnorderedPagination)
-    ) {
-        return err;
-    }
-
-    let target_sql = explain_target_sql(sql);
-    let suggestion = explain_order_hint_sql(target_sql, model.primary_key().name());
-    let message = format!(
-        "Cannot EXPLAIN this SQL statement.\n\nReason:\nLIMIT or OFFSET without ORDER BY is non-deterministic.\n\nSQL:\n{target_sql}\n\nHow to fix:\nAdd ORDER BY for a stable total order, for example:\n{suggestion}",
-    );
-
-    Error::new(
-        ErrorKind::Query(QueryErrorKind::UnorderedPagination),
-        err.origin(),
-        message,
-    )
-}
-
-// Suggest one stable ORDER BY rewrite for EXPLAIN pagination failures.
-fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
-    let trimmed = target_sql.trim().trim_end_matches(';').trim_end();
-    let upper = trimmed.to_ascii_uppercase();
-
-    if let Some(index) = upper.find(" LIMIT ") {
-        return format!(
-            "EXPLAIN {} ORDER BY {order_field} ASC{}",
-            &trimmed[..index],
-            &trimmed[index..]
-        );
-    }
-
-    if let Some(index) = upper.find(" OFFSET ") {
-        return format!(
-            "EXPLAIN {} ORDER BY {order_field} ASC{}",
-            &trimmed[..index],
-            &trimmed[index..]
-        );
-    }
-
-    format!("EXPLAIN {trimmed} ORDER BY {order_field} ASC")
-}
-
 #[cfg_attr(doc, doc = "Render one value into a shell-friendly stable text form.")]
 #[must_use]
 pub fn render_value_text(value: &Value) -> String {
@@ -488,36 +211,6 @@ fn render_map_value(entries: &[(Value, Value)]) -> String {
     rendered.push('}');
 
     rendered
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Build one rendered projection row payload from one already-materialized SQL value grid."
-)]
-#[must_use]
-pub fn projection_rows_from_values(
-    columns: Vec<String>,
-    rows: Vec<Vec<Value>>,
-    row_count: u32,
-) -> SqlProjectionRows {
-    // Phase 1: render each projected row cell into stable text.
-    let mut rendered_rows = Vec::new();
-    let mut max_column_count = 0usize;
-
-    for row in rows {
-        let rendered_row = row.iter().map(render_value_text).collect::<Vec<_>>();
-        max_column_count = max_column_count.max(rendered_row.len());
-        rendered_rows.push(rendered_row);
-    }
-
-    // Phase 2: derive stable projection column labels from canonical core metadata.
-    let columns = if max_column_count == 0 || columns.len() == max_column_count {
-        columns
-    } else {
-        projection_columns(max_column_count)
-    };
-
-    SqlProjectionRows::new(columns, rendered_rows, row_count)
 }
 
 #[cfg_attr(
@@ -687,12 +380,6 @@ pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> 
     lines
 }
 
-fn projection_columns(column_count: usize) -> Vec<String> {
-    (0..column_count)
-        .map(|index| format!("col_{index}"))
-        .collect()
-}
-
 fn render_table_separator(widths: &[usize]) -> String {
     let segments = widths
         .iter()
@@ -710,47 +397,6 @@ fn render_table_row(cells: &[String], widths: &[usize]) -> String {
     }
 
     format!("| {} |", parts.join(" | "))
-}
-
-// Consume one keyword at the start of `input` (after optional leading whitespace).
-fn consume_keyword<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
-    let trimmed = input.trim_start();
-    if !starts_with_keyword(trimmed, keyword) {
-        return None;
-    }
-
-    Some(&trimmed[keyword.len()..])
-}
-
-// Return whether `input` begins with one keyword token.
-fn starts_with_keyword(input: &str, keyword: &str) -> bool {
-    let bytes = input.as_bytes();
-    let keyword_bytes = keyword.as_bytes();
-    is_keyword_at(bytes, 0, keyword_bytes) && keyword_boundary_after(bytes, keyword_bytes.len())
-}
-
-// Return whether one keyword byte sequence matches at `index` (ASCII case-insensitive).
-fn is_keyword_at(bytes: &[u8], index: usize, keyword: &[u8]) -> bool {
-    let Some(window) = bytes.get(index..index.saturating_add(keyword.len())) else {
-        return false;
-    };
-
-    window
-        .iter()
-        .zip(keyword.iter())
-        .all(|(found, expected)| found.eq_ignore_ascii_case(expected))
-}
-
-// Return whether one keyword end index is token-delimited.
-fn keyword_boundary_after(bytes: &[u8], end: usize) -> bool {
-    bytes
-        .get(end)
-        .is_none_or(|byte| !is_identifier_continue(*byte))
-}
-
-// Return whether one byte may continue an unquoted SQL identifier segment.
-const fn is_identifier_continue(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -787,41 +433,13 @@ fn render_enum(value: &ValueEnum) -> String {
 #[cfg(test)]
 mod tests {
     use crate::db::sql::{
-        SqlQueryResult, SqlQueryRowsOutput, explain_target_sql, identifiers_tail_match,
-        render_describe_lines, render_show_columns_lines, render_show_entities_lines,
-        render_show_indexes_lines,
+        SqlQueryResult, SqlQueryRowsOutput, render_describe_lines, render_show_columns_lines,
+        render_show_entities_lines, render_show_indexes_lines,
     };
     use crate::db::{
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
         EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
     };
-
-    #[test]
-    fn explain_target_sql_strips_explain_wrappers() {
-        assert_eq!(
-            explain_target_sql("EXPLAIN SELECT * FROM FixtureOrder LIMIT 1"),
-            "SELECT * FROM FixtureOrder LIMIT 1"
-        );
-        assert_eq!(
-            explain_target_sql("EXPLAIN EXECUTION SELECT * FROM FixtureOrder LIMIT 1"),
-            "SELECT * FROM FixtureOrder LIMIT 1"
-        );
-        assert_eq!(
-            explain_target_sql("EXPLAIN JSON SELECT * FROM FixtureOrder LIMIT 1"),
-            "SELECT * FROM FixtureOrder LIMIT 1"
-        );
-        assert_eq!(
-            explain_target_sql("  SELECT * FROM FixtureOrder LIMIT 1"),
-            "SELECT * FROM FixtureOrder LIMIT 1"
-        );
-    }
-
-    #[test]
-    fn identifiers_tail_match_accepts_schema_qualified_forms() {
-        assert!(identifiers_tail_match("public.FixtureUser", "FixtureUser"));
-        assert!(identifiers_tail_match("fixtureorder", "FixtureOrder"));
-        assert!(!identifiers_tail_match("FixtureUser", "FixtureOrder"));
-    }
 
     #[test]
     fn render_describe_lines_output_contract_vector_is_stable() {

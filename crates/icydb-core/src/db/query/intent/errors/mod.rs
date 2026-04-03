@@ -73,12 +73,6 @@ impl QueryError {
         Self::Intent(err)
     }
 
-    /// Construct one grouped-query intent error for scalar/query-only surfaces.
-    #[cfg(feature = "sql")]
-    pub(crate) const fn grouped_requires_execute_grouped() -> Self {
-        Self::Intent(IntentError::grouped_requires_execute_grouped())
-    }
-
     /// Construct one query-origin unsupported execution error.
     pub(crate) fn unsupported_query(message: impl Into<String>) -> Self {
         Self::execute(InternalError::query_unsupported(message))

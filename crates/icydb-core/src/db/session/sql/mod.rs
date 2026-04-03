@@ -12,19 +12,93 @@ mod surface;
 
 use crate::{
     db::{
-        DbSession, EntityResponse, PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
-        sql::parser::parse_sql,
+        DbSession, EntityResponse, MissingRowPolicy, PagedGroupedExecutionWithTrace, PersistedRow,
+        Query, QueryError,
+        sql::{
+            lowering::{bind_lowered_sql_query, lower_sql_command_from_prepared_statement},
+            parser::{SqlStatement, parse_sql},
+        },
     },
     traits::{CanisterKind, EntityKind, EntityValue},
 };
 
-use crate::db::session::sql::surface::sql_statement_route_from_statement;
+use crate::db::session::sql::aggregate::{
+    SqlAggregateSurface, parsed_requires_dedicated_sql_aggregate_lane,
+    unsupported_sql_aggregate_lane_message,
+};
+use crate::db::session::sql::surface::{
+    SqlSurface, session_sql_lane, sql_statement_route_from_statement, unsupported_sql_lane_message,
+};
 
 pub use crate::db::session::sql::surface::{
     SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlComputedProjectionSurface {
+    QueryFrom,
+    ExecuteSql,
+    ExecuteSqlGrouped,
+}
+
+const fn unsupported_sql_computed_projection_message(
+    surface: SqlComputedProjectionSurface,
+) -> &'static str {
+    match surface {
+        SqlComputedProjectionSurface::QueryFrom => {
+            "query_from_sql does not accept computed text projection; use execute_sql_dispatch(...)"
+        }
+        SqlComputedProjectionSurface::ExecuteSql => {
+            "execute_sql rejects computed text projection; use execute_sql_dispatch(...)"
+        }
+        SqlComputedProjectionSurface::ExecuteSqlGrouped => {
+            "execute_sql_grouped rejects computed text projection; use execute_sql_dispatch(...)"
+        }
+    }
+}
+
 impl<C: CanisterKind> DbSession<C> {
+    // Lower one parsed SQL statement onto the structural query lane while
+    // keeping dedicated global aggregate execution outside this shared path.
+    fn query_from_sql_parsed<E>(
+        parsed: &SqlParsedStatement,
+        lane_surface: SqlSurface,
+        computed_surface: SqlComputedProjectionSurface,
+        surface: SqlAggregateSurface,
+    ) -> Result<Query<E>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        if computed_projection::computed_sql_projection_plan(&parsed.statement)?.is_some() {
+            return Err(QueryError::unsupported_query(
+                unsupported_sql_computed_projection_message(computed_surface),
+            ));
+        }
+
+        if parsed_requires_dedicated_sql_aggregate_lane(parsed) {
+            return Err(QueryError::unsupported_query(
+                unsupported_sql_aggregate_lane_message(surface),
+            ));
+        }
+
+        let lowered = lower_sql_command_from_prepared_statement(
+            parsed.prepare(E::MODEL.name())?,
+            E::MODEL.primary_key.name,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let lane = session_sql_lane(&lowered);
+        let Some(query) = lowered.query().cloned() else {
+            return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
+                lane_surface,
+                lane,
+            )));
+        };
+        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
+            .map_err(QueryError::from_sql_lowering_error)?;
+
+        Ok(query)
+    }
+
     /// Parse one reduced SQL statement and return one reusable parsed envelope.
     ///
     /// This method is the SQL parse authority for dynamic route selection.
@@ -54,9 +128,13 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let parsed = self.parse_sql_statement(sql)?;
-        let (_, query) = Self::bind_sql_query_lane_from_parsed::<E>(&parsed)?;
 
-        Ok(query)
+        Self::query_from_sql_parsed::<E>(
+            &parsed,
+            SqlSurface::QueryFrom,
+            SqlComputedProjectionSurface::QueryFrom,
+            SqlAggregateSurface::QueryFrom,
+        )
     }
 
     /// Execute one reduced SQL `SELECT`/`DELETE` statement for entity `E`.
@@ -64,8 +142,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let query = self.query_from_sql::<E>(sql)?;
-        Self::ensure_sql_query_grouping(&query, false)?;
+        let parsed = self.parse_sql_statement(sql)?;
+        let query = Self::query_from_sql_parsed::<E>(
+            &parsed,
+            SqlSurface::ExecuteSql,
+            SqlComputedProjectionSurface::ExecuteSql,
+            SqlAggregateSurface::ExecuteSql,
+        )?;
+        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Scalar)?;
 
         self.execute_query(&query)
     }
@@ -79,8 +163,21 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let query = self.query_from_sql::<E>(sql)?;
-        Self::ensure_sql_query_grouping(&query, true)?;
+        let parsed = self.parse_sql_statement(sql)?;
+
+        if matches!(&parsed.statement, SqlStatement::Delete(_)) {
+            return Err(QueryError::unsupported_query(
+                "execute_sql_grouped rejects DELETE; use execute_sql_dispatch(...)",
+            ));
+        }
+
+        let query = Self::query_from_sql_parsed::<E>(
+            &parsed,
+            SqlSurface::ExecuteSqlGrouped,
+            SqlComputedProjectionSurface::ExecuteSqlGrouped,
+            SqlAggregateSurface::ExecuteSqlGrouped,
+        )?;
+        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
 
         self.execute_grouped(&query, cursor_token)
     }

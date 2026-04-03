@@ -124,6 +124,8 @@ pub use error::Error;
 #[doc(hidden)]
 pub mod __macro {
     #[cfg(feature = "sql")]
+    pub use crate::db::execute_generated_sql_query;
+    #[cfg(feature = "sql")]
     pub use icydb_core::db::LoweredSqlCommand;
     pub use icydb_core::db::{
         DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,

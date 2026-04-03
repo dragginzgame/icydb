@@ -29,6 +29,9 @@ pub use response::{
 };
 #[cfg(feature = "sql")]
 pub use session::SqlParsedStatement;
+#[cfg(feature = "sql")]
+#[doc(hidden)]
+pub use session::generated::execute_generated_sql_query;
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, UpdatePatch,
 };

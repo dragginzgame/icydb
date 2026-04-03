@@ -20,6 +20,8 @@ pub(in crate::db::session::sql) enum SqlLaneKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::session::sql) enum SqlSurface {
     QueryFrom,
+    ExecuteSql,
+    ExecuteSqlGrouped,
     Explain,
 }
 
@@ -60,6 +62,40 @@ pub(in crate::db::session::sql) const fn unsupported_sql_lane_message(
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
             "query_from_sql accepts SELECT or DELETE only"
+        }
+        (SqlSurface::ExecuteSql, SqlLaneKind::Explain) => {
+            "execute_sql rejects EXPLAIN; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSql, SqlLaneKind::Describe) => {
+            "execute_sql rejects DESCRIBE; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSql, SqlLaneKind::ShowIndexes) => {
+            "execute_sql rejects SHOW INDEXES; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSql, SqlLaneKind::ShowColumns) => {
+            "execute_sql rejects SHOW COLUMNS; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSql, SqlLaneKind::ShowEntities) => {
+            "execute_sql rejects SHOW ENTITIES; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSql, SqlLaneKind::Query) => "execute_sql accepts SELECT or DELETE only",
+        (SqlSurface::ExecuteSqlGrouped, SqlLaneKind::Explain) => {
+            "execute_sql_grouped rejects EXPLAIN; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlLaneKind::Describe) => {
+            "execute_sql_grouped rejects DESCRIBE; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlLaneKind::ShowIndexes) => {
+            "execute_sql_grouped rejects SHOW INDEXES; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlLaneKind::ShowColumns) => {
+            "execute_sql_grouped rejects SHOW COLUMNS; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlLaneKind::ShowEntities) => {
+            "execute_sql_grouped rejects SHOW ENTITIES; use execute_sql_dispatch"
+        }
+        (SqlSurface::ExecuteSqlGrouped, SqlLaneKind::Query) => {
+            "execute_sql_grouped requires grouped SELECT"
         }
         (SqlSurface::Explain, SqlLaneKind::Describe) => {
             "explain_sql rejects DESCRIBE; use execute_sql_dispatch"

@@ -1584,6 +1584,77 @@ fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
 }
 
 #[test]
+fn execute_sql_rejects_non_query_statement_lanes_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "execute_sql rejects EXPLAIN",
+        ),
+        ("DESCRIBE SessionSqlEntity", "execute_sql rejects DESCRIBE"),
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "execute_sql rejects SHOW INDEXES",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlEntity",
+            "execute_sql rejects SHOW COLUMNS",
+        ),
+        ("SHOW ENTITIES", "execute_sql rejects SHOW ENTITIES"),
+    ];
+
+    for (sql, expected) in cases {
+        let err = session
+            .execute_sql::<SessionSqlEntity>(sql)
+            .expect_err("non-query statement lanes should stay fail-closed for execute_sql");
+        assert!(
+            err.to_string().contains(expected),
+            "execute_sql should preserve a surface-local lane boundary message: {sql}",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "execute_sql_grouped rejects EXPLAIN",
+        ),
+        (
+            "DESCRIBE SessionSqlEntity",
+            "execute_sql_grouped rejects DESCRIBE",
+        ),
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "execute_sql_grouped rejects SHOW INDEXES",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlEntity",
+            "execute_sql_grouped rejects SHOW COLUMNS",
+        ),
+        ("SHOW ENTITIES", "execute_sql_grouped rejects SHOW ENTITIES"),
+    ];
+
+    for (sql, expected) in cases {
+        let err = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+            .expect_err(
+                "non-query statement lanes should stay fail-closed for execute_sql_grouped",
+            );
+        assert!(
+            err.to_string().contains(expected),
+            "execute_sql_grouped should preserve a surface-local lane boundary message: {sql}",
+        );
+    }
+}
+
+#[test]
 fn sql_statement_route_select_classifies_query_entity() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2094,6 +2165,58 @@ fn query_from_sql_rejects_computed_text_projection_in_current_lane() {
         err.to_string()
             .contains("query_from_sql does not accept computed text projection"),
         "query_from_sql should reject computed text projection with an actionable boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_rejects_computed_text_projection_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity")
+        .expect_err("execute_sql should keep computed text projection on the dispatch-owned lane");
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql rejects computed text projection"),
+        "execute_sql should reject computed text projection with an actionable boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_grouped::<SessionSqlEntity>("SELECT TRIM(name) FROM SessionSqlEntity", None)
+        .expect_err(
+            "execute_sql_grouped should keep computed text projection on the dispatch-owned lane",
+        );
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql_grouped rejects computed text projection"),
+        "execute_sql_grouped should reject computed text projection with an actionable boundary message",
+    );
+}
+
+#[test]
+fn query_from_sql_rejects_global_aggregate_execution_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .query_from_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect_err(
+            "query_from_sql should keep global aggregate execution on the dedicated aggregate lane",
+        );
+
+    assert!(
+        err.to_string()
+            .contains("query_from_sql rejects global aggregate SELECT"),
+        "query_from_sql should reject global aggregate execution with an aggregate-lane boundary message",
     );
 }
 
@@ -3169,6 +3292,50 @@ fn execute_sql_rejects_aggregate_projection_in_current_slice() {
         ),
         "global aggregate SQL projection should fail at reduced lowering boundary",
     );
+    assert!(
+        err.to_string()
+            .contains("execute_sql rejects global aggregate SELECT"),
+        "execute_sql should preserve the dedicated aggregate-lane boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_rejects_global_aggregate_execution_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+        .expect_err(
+            "execute_sql_dispatch should keep global aggregate execution on the dedicated aggregate lane",
+        );
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql_dispatch rejects global aggregate SELECT"),
+        "execute_sql_dispatch should preserve the dedicated aggregate-lane boundary message",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_rejects_global_aggregate_execution_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_grouped::<SessionSqlEntity>(
+            "SELECT COUNT(*) FROM SessionSqlEntity",
+            None,
+        )
+        .expect_err(
+            "execute_sql_grouped should keep global aggregate execution on the dedicated aggregate lane",
+        );
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql_grouped rejects global aggregate SELECT"),
+        "execute_sql_grouped should preserve the dedicated aggregate-lane boundary message",
+    );
 }
 
 #[test]
@@ -3744,22 +3911,85 @@ fn execute_sql_aggregate_matrix_queries_match_expected_values() {
 fn execute_sql_aggregate_rejects_unsupported_aggregate_shapes() {
     reset_session_sql_store();
     let session = sql_session();
+    let sql = "SELECT age FROM SessionSqlEntity";
+    let err = session
+        .execute_sql_aggregate::<SessionSqlEntity>(sql)
+        .expect_err("unsupported SQL aggregate shape should fail closed");
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "unsupported SQL aggregate shape should map to unsupported execution error boundary: {sql}",
+    );
+    assert!(
+        err.to_string()
+            .contains("execute_sql_aggregate requires constrained global aggregate SELECT"),
+        "execute_sql_aggregate should preserve a constrained aggregate-surface boundary message: {sql}",
+    );
+}
 
-    for sql in [
-        "SELECT age FROM SessionSqlEntity",
-        "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
-    ] {
+#[test]
+fn execute_sql_aggregate_rejects_grouped_select_execution_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_aggregate::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        )
+        .expect_err("grouped SQL should stay fail-closed for execute_sql_aggregate");
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql_aggregate rejects grouped SELECT"),
+        "execute_sql_aggregate should preserve explicit grouped-entrypoint guidance",
+    );
+}
+
+#[test]
+fn execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
+            "execute_sql_aggregate rejects EXPLAIN",
+        ),
+        (
+            "DESCRIBE SessionSqlEntity",
+            "execute_sql_aggregate rejects DESCRIBE",
+        ),
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "execute_sql_aggregate rejects SHOW INDEXES",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlEntity",
+            "execute_sql_aggregate rejects SHOW COLUMNS",
+        ),
+        (
+            "SHOW ENTITIES",
+            "execute_sql_aggregate rejects SHOW ENTITIES",
+        ),
+        (
+            "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            "execute_sql_aggregate rejects DELETE",
+        ),
+    ];
+
+    for (sql, expected) in cases {
         let err = session
             .execute_sql_aggregate::<SessionSqlEntity>(sql)
-            .expect_err("unsupported SQL aggregate shape should fail closed");
+            .expect_err(
+                "non-aggregate statement lanes should stay fail-closed for execute_sql_aggregate",
+            );
         assert!(
-            matches!(
-                err,
-                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                    _
-                ))
-            ),
-            "unsupported SQL aggregate shape should map to unsupported execution error boundary: {sql}",
+            err.to_string().contains(expected),
+            "execute_sql_aggregate should preserve a surface-local lane boundary message: {sql}",
         );
     }
 }
@@ -3798,13 +4028,9 @@ fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     .expect_err("projection SQL API should reject grouped aggregate SQL intent");
 
     assert!(
-        matches!(
-            err,
-            QueryError::Intent(
-                crate::db::query::intent::IntentError::GroupedRequiresExecuteGrouped
-            )
-        ),
-        "projection SQL API must reject grouped aggregate SQL with grouped-intent routing error",
+        err.to_string()
+            .contains("execute_sql_dispatch rejects grouped SELECT execution"),
+        "projection SQL API must preserve explicit grouped dispatch-lane guidance",
     );
 }
 
@@ -4092,13 +4318,46 @@ fn execute_sql_rejects_grouped_sql_intent_without_grouped_api() {
         .expect_err("scalar SQL API should reject grouped SQL intent");
 
     assert!(
-        matches!(
-            err,
-            QueryError::Intent(
-                crate::db::query::intent::IntentError::GroupedRequiresExecuteGrouped
-            )
-        ),
-        "scalar SQL API must preserve grouped explicit-entrypoint contract",
+        err.to_string()
+            .contains("execute_sql rejects grouped SELECT"),
+        "scalar SQL API must preserve grouped explicit-entrypoint guidance",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_rejects_grouped_sql_execution_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_dispatch::<SessionSqlEntity>(
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        )
+        .expect_err("dispatch SQL API should reject grouped SQL execution");
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql_dispatch rejects grouped SELECT execution"),
+        "dispatch SQL API must preserve grouped explicit-entrypoint guidance",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_rejects_delete_execution_in_current_lane() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_grouped::<SessionSqlEntity>(
+            "DELETE FROM SessionSqlEntity ORDER BY id LIMIT 1",
+            None,
+        )
+        .expect_err("grouped SQL API should reject DELETE execution");
+
+    assert!(
+        err.to_string()
+            .contains("execute_sql_grouped rejects DELETE"),
+        "grouped SQL API must preserve explicit DELETE lane guidance",
     );
 }
 

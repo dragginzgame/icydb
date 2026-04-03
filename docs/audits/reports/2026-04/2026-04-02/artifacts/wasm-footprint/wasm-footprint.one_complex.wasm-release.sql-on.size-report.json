@@ -1,0 +1,72 @@
+{
+  "canister": "one_complex",
+  "profile": "wasm-release",
+  "sql_variant": "sql-on",
+  "artifacts": {
+    "did": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.did",
+      "bytes": 4617,
+      "sha256": "51b7f919eb6c969dba57cbd318ad658399212bb1c1194fcd16f85a10c5f78331"
+    },
+    "candid_export": "available",
+    "dfx_built_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.dfx-built.wasm",
+      "bytes": 1431325,
+      "sha256": "845b576579367b8b58a4de2a1914796c25b96871cb8fd4ea5e503cd9acb87431"
+    },
+    "dfx_built_wasm_gz_deterministic": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.dfx-built.wasm.gz",
+      "bytes": 523482,
+      "sha256": "e1e01adfcf8856abe20489045d8662abee56d3fae0ac49693d29fbd978da2118"
+    },
+    "dfx_built_wasm_gz_emitted": null,
+    "dfx_shrunk_wasm": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.dfx-shrunk.wasm",
+      "bytes": 1335893,
+      "sha256": "c5a8ee0e454bd3c88054c2f29b18927fc75907f8df77f0cf12f0ae5b20cc3bfd"
+    },
+    "dfx_shrunk_wasm_gz": {
+      "path": "/home/adam/projects/icydb/artifacts/wasm-size/one_complex.wasm-release.dfx-shrunk.wasm.gz",
+      "bytes": 499410,
+      "sha256": "8119566aa0bb34763ad63f0035c97b371ef4da80311afd2a1ff995e42bf8e608"
+    }
+  },
+  "analysis": {
+    "dfx_built": {
+      "function_count": 3467,
+      "callback_count": 1,
+      "data_section_count": 2,
+      "data_section_bytes": 177596,
+      "exported_method_count": 7,
+      "exported_methods": [
+        "canister_query icydb_metrics (func_3460)",
+        "canister_query icydb_snapshot (func_3461)",
+        "canister_query query (func_3462)",
+        "canister_update icydb_metrics_reset (func_3463)",
+        "get_candid_pointer (func_3464)",
+        "canister_global_timer (func_3465)",
+        "canister_update <ic-cdk internal> timer_executor (func_3466)"
+      ]
+    },
+    "dfx_shrunk": {
+      "function_count": 3467,
+      "callback_count": 1,
+      "data_section_count": 2,
+      "data_section_bytes": 177596,
+      "exported_method_count": 7,
+      "exported_methods": [
+        "canister_query icydb_metrics (func_3453)",
+        "canister_query icydb_snapshot (func_3454)",
+        "canister_query query (func_3455)",
+        "canister_update icydb_metrics_reset (func_3456)",
+        "get_candid_pointer (func_3457)",
+        "canister_global_timer (func_3458)",
+        "canister_update <ic-cdk internal> timer_executor (func_3459)"
+      ]
+    }
+  },
+  "deltas": {
+    "shrink_wasm_bytes": 95432,
+    "shrink_wasm_gz_bytes": 24072
+  }
+}

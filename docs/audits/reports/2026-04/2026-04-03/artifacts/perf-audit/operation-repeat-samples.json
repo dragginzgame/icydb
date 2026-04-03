@@ -1,0 +1,227 @@
+[
+  {
+    "scenario_key": "select.generated.dispatch.user_name_eq_limit.x1",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 1,
+      "first_local_instructions": 597431,
+      "min_local_instructions": 597431,
+      "max_local_instructions": 597431,
+      "total_local_instructions": 597431,
+      "avg_local_instructions": 597431,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "select.generated.dispatch.user_name_eq_limit.x10",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 10,
+      "first_local_instructions": 597431,
+      "min_local_instructions": 593581,
+      "max_local_instructions": 599003,
+      "total_local_instructions": 5966324,
+      "avg_local_instructions": 596632,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "select.generated.dispatch.user_name_eq_limit.x100",
+    "sample": {
+      "surface": "GeneratedDispatch",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 100,
+      "first_local_instructions": 597431,
+      "min_local_instructions": 592861,
+      "max_local_instructions": 600154,
+      "total_local_instructions": 59691656,
+      "avg_local_instructions": 596916,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "select.typed.dispatch.user_name_eq_limit.x1",
+    "sample": {
+      "surface": "TypedDispatchUser",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 1,
+      "first_local_instructions": 621186,
+      "min_local_instructions": 621186,
+      "max_local_instructions": 621186,
+      "total_local_instructions": 621186,
+      "avg_local_instructions": 621186,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "select.typed.dispatch.user_name_eq_limit.x10",
+    "sample": {
+      "surface": "TypedDispatchUser",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 10,
+      "first_local_instructions": 621186,
+      "min_local_instructions": 617327,
+      "max_local_instructions": 622746,
+      "total_local_instructions": 6203608,
+      "avg_local_instructions": 620360,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "select.typed.dispatch.user_name_eq_limit.x100",
+    "sample": {
+      "surface": "TypedDispatchUser",
+      "sql": "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+      "cursor_token": null,
+      "repeat_count": 100,
+      "first_local_instructions": 621186,
+      "min_local_instructions": 616883,
+      "max_local_instructions": 623910,
+      "total_local_instructions": 61973871,
+      "avg_local_instructions": 619738,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "insert.typed.user_single.x1",
+    "sample": {
+      "surface": "TypedInsertUser",
+      "sql": "INSERT User",
+      "cursor_token": null,
+      "repeat_count": 1,
+      "first_local_instructions": 492029,
+      "min_local_instructions": 492029,
+      "max_local_instructions": 492029,
+      "total_local_instructions": 492029,
+      "avg_local_instructions": 492029,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "insert.typed.user_single.x10",
+    "sample": {
+      "surface": "TypedInsertUser",
+      "sql": "INSERT User",
+      "cursor_token": null,
+      "repeat_count": 10,
+      "first_local_instructions": 492029,
+      "min_local_instructions": 492029,
+      "max_local_instructions": 815134,
+      "total_local_instructions": 5738456,
+      "avg_local_instructions": 573845,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "insert.typed.user_single.x100",
+    "sample": {
+      "surface": "TypedInsertUser",
+      "sql": "INSERT User",
+      "cursor_token": null,
+      "repeat_count": 100,
+      "first_local_instructions": 492029,
+      "min_local_instructions": 492029,
+      "max_local_instructions": 884518,
+      "total_local_instructions": 63272799,
+      "avg_local_instructions": 632727,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "update.typed.user_single.x1",
+    "sample": {
+      "surface": "TypedUpdateUser",
+      "sql": "UPDATE User",
+      "cursor_token": null,
+      "repeat_count": 1,
+      "first_local_instructions": 764562,
+      "min_local_instructions": 764562,
+      "max_local_instructions": 764562,
+      "total_local_instructions": 764562,
+      "avg_local_instructions": 764562,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "update.typed.user_single.x10",
+    "sample": {
+      "surface": "TypedUpdateUser",
+      "sql": "UPDATE User",
+      "cursor_token": null,
+      "repeat_count": 10,
+      "first_local_instructions": 764562,
+      "min_local_instructions": 764562,
+      "max_local_instructions": 1043127,
+      "total_local_instructions": 8734108,
+      "avg_local_instructions": 873410,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "update.typed.user_single.x100",
+    "sample": {
+      "surface": "TypedUpdateUser",
+      "sql": "UPDATE User",
+      "cursor_token": null,
+      "repeat_count": 100,
+      "first_local_instructions": 764562,
+      "min_local_instructions": 764562,
+      "max_local_instructions": 1131384,
+      "total_local_instructions": 93072754,
+      "avg_local_instructions": 930727,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "delete.fluent.user_single.count.x1",
+    "sample": {
+      "surface": "FluentDeletePerfUserCount",
+      "sql": "DELETE PERF User COUNT",
+      "cursor_token": null,
+      "repeat_count": 1,
+      "first_local_instructions": 708869,
+      "min_local_instructions": 708869,
+      "max_local_instructions": 708869,
+      "total_local_instructions": 708869,
+      "avg_local_instructions": 708869,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "delete.fluent.user_single.count.x10",
+    "sample": {
+      "surface": "FluentDeletePerfUserCount",
+      "sql": "DELETE PERF User COUNT",
+      "cursor_token": null,
+      "repeat_count": 10,
+      "first_local_instructions": 708869,
+      "min_local_instructions": 707226,
+      "max_local_instructions": 709939,
+      "total_local_instructions": 7084967,
+      "avg_local_instructions": 708496,
+      "outcome_stable": true
+    }
+  },
+  {
+    "scenario_key": "delete.fluent.user_single.count.x100",
+    "sample": {
+      "surface": "FluentDeletePerfUserCount",
+      "sql": "DELETE PERF User COUNT",
+      "cursor_token": null,
+      "repeat_count": 100,
+      "first_local_instructions": 708869,
+      "min_local_instructions": 707226,
+      "max_local_instructions": 712371,
+      "total_local_instructions": 70895610,
+      "avg_local_instructions": 708956,
+      "outcome_stable": true
+    }
+  }
+]

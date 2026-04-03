@@ -9,12 +9,81 @@ use crate::{
         executor::{ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest},
         query::plan::{AggregateKind, FieldSlot},
         session::sql::explain::resolve_sql_aggregate_target_slot,
-        sql::lowering::{SqlGlobalAggregateTerminal, compile_sql_global_aggregate_command},
+        session::sql::{SqlParsedStatement, SqlStatementRoute},
+        sql::lowering::{
+            SqlGlobalAggregateTerminal, compile_sql_global_aggregate_command,
+            is_sql_global_aggregate_statement,
+        },
+        sql::parser::SqlStatement,
     },
     traits::{CanisterKind, EntityValue},
     types::Id,
     value::Value,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::session::sql) enum SqlAggregateSurface {
+    QueryFrom,
+    ExecuteSql,
+    ExecuteSqlGrouped,
+    ExecuteSqlDispatch,
+    GeneratedQuerySurface,
+}
+
+pub(in crate::db::session::sql) fn parsed_requires_dedicated_sql_aggregate_lane(
+    parsed: &SqlParsedStatement,
+) -> bool {
+    is_sql_global_aggregate_statement(&parsed.statement)
+}
+
+pub(in crate::db::session::sql) const fn unsupported_sql_aggregate_lane_message(
+    surface: SqlAggregateSurface,
+) -> &'static str {
+    match surface {
+        SqlAggregateSurface::QueryFrom => {
+            "query_from_sql rejects global aggregate SELECT; use execute_sql_aggregate(...)"
+        }
+        SqlAggregateSurface::ExecuteSql => {
+            "execute_sql rejects global aggregate SELECT; use execute_sql_aggregate(...)"
+        }
+        SqlAggregateSurface::ExecuteSqlGrouped => {
+            "execute_sql_grouped rejects global aggregate SELECT; use execute_sql_aggregate(...)"
+        }
+        SqlAggregateSurface::ExecuteSqlDispatch => {
+            "execute_sql_dispatch rejects global aggregate SELECT; use execute_sql_aggregate(...)"
+        }
+        SqlAggregateSurface::GeneratedQuerySurface => {
+            "generated SQL query surface rejects global aggregate SELECT; use execute_sql_aggregate(...)"
+        }
+    }
+}
+
+const fn unsupported_sql_aggregate_surface_lane_message(route: &SqlStatementRoute) -> &'static str {
+    match route {
+        SqlStatementRoute::Query { .. } => {
+            "execute_sql_aggregate requires constrained global aggregate SELECT"
+        }
+        SqlStatementRoute::Explain { .. } => {
+            "execute_sql_aggregate rejects EXPLAIN; use execute_sql_dispatch"
+        }
+        SqlStatementRoute::Describe { .. } => {
+            "execute_sql_aggregate rejects DESCRIBE; use execute_sql_dispatch"
+        }
+        SqlStatementRoute::ShowIndexes { .. } => {
+            "execute_sql_aggregate rejects SHOW INDEXES; use execute_sql_dispatch"
+        }
+        SqlStatementRoute::ShowColumns { .. } => {
+            "execute_sql_aggregate rejects SHOW COLUMNS; use execute_sql_dispatch"
+        }
+        SqlStatementRoute::ShowEntities => {
+            "execute_sql_aggregate rejects SHOW ENTITIES; use execute_sql_dispatch"
+        }
+    }
+}
+
+const fn unsupported_sql_aggregate_grouped_message() -> &'static str {
+    "execute_sql_aggregate rejects grouped SELECT; use execute_sql_grouped(...)"
+}
 
 impl<C: CanisterKind> DbSession<C> {
     /// Execute one reduced SQL global aggregate `SELECT` statement.
@@ -25,6 +94,28 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        // First keep wrong-lane traffic on an explicit aggregate-surface
+        // contract instead of relying on generic lowering failures.
+        let parsed = self.parse_sql_statement(sql)?;
+        match &parsed.statement {
+            SqlStatement::Select(_) if is_sql_global_aggregate_statement(&parsed.statement) => {}
+            SqlStatement::Select(statement) if !statement.group_by.is_empty() => {
+                return Err(QueryError::unsupported_query(
+                    unsupported_sql_aggregate_grouped_message(),
+                ));
+            }
+            SqlStatement::Delete(_) => {
+                return Err(QueryError::unsupported_query(
+                    "execute_sql_aggregate rejects DELETE; use execute_sql_dispatch",
+                ));
+            }
+            _ => {
+                return Err(QueryError::unsupported_query(
+                    unsupported_sql_aggregate_surface_lane_message(parsed.route()),
+                ));
+            }
+        }
+
         // First lower the SQL surface onto the existing single-terminal
         // aggregate command authority so execution never has to rediscover the
         // accepted aggregate shape family.

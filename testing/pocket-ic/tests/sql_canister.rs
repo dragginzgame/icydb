@@ -194,6 +194,7 @@ enum SqlPerfSurface {
     TypedInsertManyNonAtomicUser1000,
     TypedUpdateUser,
     FluentDeleteUserOrderIdLimit1Count,
+    FluentDeletePerfUserCount,
     TypedExecuteSqlGroupedUser,
     TypedExecuteSqlGroupedUserSecondPage,
     TypedExecuteSqlAggregateUser,
@@ -308,6 +309,201 @@ fn sql_perf_sample(
         decode_one(&query_bytes).expect("decode sql_perf response");
 
     response.expect("sql_perf should succeed for integration scenario")
+}
+
+fn run_sql_perf_scenarios(
+    pic: &PocketIc,
+    scenarios: Vec<SqlPerfScenario>,
+) -> Vec<SqlPerfScenarioRow> {
+    let mut rows = Vec::with_capacity(scenarios.len());
+
+    for scenario in scenarios {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let sample = sql_perf_sample(pic, canister_id, &scenario.request);
+
+        assert_eq!(
+            sample.repeat_count, scenario.request.repeat_count,
+            "repeat_count must echo request for {}",
+            scenario.scenario_key,
+        );
+        assert!(
+            sample.first_local_instructions > 0,
+            "first instruction sample must be positive for {}: {:?}",
+            scenario.scenario_key,
+            sample,
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "min instruction sample must be positive for {}: {:?}",
+            scenario.scenario_key,
+            sample,
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "max must be >= min for {}: {:?}",
+            scenario.scenario_key,
+            sample,
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "total must cover the first run for {}: {:?}",
+            scenario.scenario_key,
+            sample,
+        );
+        assert!(
+            sample.outcome_stable,
+            "repeated outcome must stay stable for {}: {:?}",
+            scenario.scenario_key, sample,
+        );
+
+        rows.push(SqlPerfScenarioRow {
+            scenario_key: scenario.scenario_key,
+            sample,
+        });
+    }
+
+    rows
+}
+
+fn sql_perf_scenario(
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    sql: &str,
+    repeat_count: u32,
+) -> SqlPerfScenario {
+    SqlPerfScenario {
+        scenario_key,
+        request: SqlPerfRequest {
+            surface,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count,
+        },
+    }
+}
+
+fn select_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
+    let sql = "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1";
+
+    vec![
+        sql_perf_scenario(
+            "select.generated.dispatch.user_name_eq_limit.x1",
+            SqlPerfSurface::GeneratedDispatch,
+            sql,
+            1,
+        ),
+        sql_perf_scenario(
+            "select.generated.dispatch.user_name_eq_limit.x10",
+            SqlPerfSurface::GeneratedDispatch,
+            sql,
+            10,
+        ),
+        sql_perf_scenario(
+            "select.generated.dispatch.user_name_eq_limit.x100",
+            SqlPerfSurface::GeneratedDispatch,
+            sql,
+            100,
+        ),
+        sql_perf_scenario(
+            "select.typed.dispatch.user_name_eq_limit.x1",
+            SqlPerfSurface::TypedDispatchUser,
+            sql,
+            1,
+        ),
+        sql_perf_scenario(
+            "select.typed.dispatch.user_name_eq_limit.x10",
+            SqlPerfSurface::TypedDispatchUser,
+            sql,
+            10,
+        ),
+        sql_perf_scenario(
+            "select.typed.dispatch.user_name_eq_limit.x100",
+            SqlPerfSurface::TypedDispatchUser,
+            sql,
+            100,
+        ),
+    ]
+}
+
+fn insert_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        sql_perf_scenario(
+            "insert.typed.user_single.x1",
+            SqlPerfSurface::TypedInsertUser,
+            "INSERT User",
+            1,
+        ),
+        sql_perf_scenario(
+            "insert.typed.user_single.x10",
+            SqlPerfSurface::TypedInsertUser,
+            "INSERT User",
+            10,
+        ),
+        sql_perf_scenario(
+            "insert.typed.user_single.x100",
+            SqlPerfSurface::TypedInsertUser,
+            "INSERT User",
+            100,
+        ),
+    ]
+}
+
+fn update_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        sql_perf_scenario(
+            "update.typed.user_single.x1",
+            SqlPerfSurface::TypedUpdateUser,
+            "UPDATE User",
+            1,
+        ),
+        sql_perf_scenario(
+            "update.typed.user_single.x10",
+            SqlPerfSurface::TypedUpdateUser,
+            "UPDATE User",
+            10,
+        ),
+        sql_perf_scenario(
+            "update.typed.user_single.x100",
+            SqlPerfSurface::TypedUpdateUser,
+            "UPDATE User",
+            100,
+        ),
+    ]
+}
+
+fn delete_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        sql_perf_scenario(
+            "delete.fluent.user_single.count.x1",
+            SqlPerfSurface::FluentDeletePerfUserCount,
+            "DELETE PERF User COUNT",
+            1,
+        ),
+        sql_perf_scenario(
+            "delete.fluent.user_single.count.x10",
+            SqlPerfSurface::FluentDeletePerfUserCount,
+            "DELETE PERF User COUNT",
+            10,
+        ),
+        sql_perf_scenario(
+            "delete.fluent.user_single.count.x100",
+            SqlPerfSurface::FluentDeletePerfUserCount,
+            "DELETE PERF User COUNT",
+            100,
+        ),
+    ]
+}
+
+fn sql_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
+    let mut scenarios = Vec::new();
+    scenarios.extend(select_operation_repeat_scenarios());
+    scenarios.extend(insert_operation_repeat_scenarios());
+    scenarios.extend(update_operation_repeat_scenarios());
+    scenarios.extend(delete_operation_repeat_scenarios());
+
+    scenarios
 }
 
 // Read the stable entity name from one metadata-lane SQL payload.
@@ -482,6 +678,64 @@ fn sql_canister_query_lane_supports_computed_projection() {
             vec![vec!["alice".to_string()], vec!["bob".to_string()],],
         );
         assert_eq!(rows.row_count, 2);
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_rejects_grouped_sql_execution() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let err = query_result(
+            pic,
+            canister_id,
+            "SELECT age, COUNT(*) FROM User GROUP BY age",
+        )
+        .expect_err("query grouped SQL execution should fail closed");
+
+        assert!(
+            matches!(
+                err.kind(),
+                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
+            ),
+            "grouped SQL execution should map to Runtime::Unsupported: {err:?}",
+        );
+        assert!(
+            err.message()
+                .contains("generated SQL query surface rejects grouped SELECT execution"),
+            "grouped SQL execution should preserve explicit generated grouped-lane guidance: {err:?}",
+        );
+        assert!(
+            err.message().contains("execute_sql_grouped(...)"),
+            "grouped SQL execution should preserve explicit grouped entrypoint guidance: {err:?}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_grouped_explain() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN SELECT age, COUNT(*) FROM User GROUP BY age",
+        )
+        .expect("query grouped EXPLAIN should return an Ok payload");
+
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "User");
+                assert!(
+                    !explain.is_empty(),
+                    "grouped EXPLAIN payload should include non-empty explain text",
+                );
+            }
+            other => panic!("grouped EXPLAIN should return Explain payload, got {other:?}"),
+        }
     });
 }
 
@@ -978,59 +1232,25 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
         ];
-        let mut rows = Vec::with_capacity(scenarios.len());
-
-        for scenario in scenarios {
-            let canister_id = install_quickstart_canister(pic);
-            load_default_fixtures(pic, canister_id);
-
-            let sample = sql_perf_sample(pic, canister_id, &scenario.request);
-
-            assert_eq!(
-                sample.repeat_count, scenario.request.repeat_count,
-                "repeat_count must echo request for {}",
-                scenario.scenario_key,
-            );
-            assert!(
-                sample.first_local_instructions > 0,
-                "first instruction sample must be positive for {}: {:?}",
-                scenario.scenario_key,
-                sample,
-            );
-            assert!(
-                sample.min_local_instructions > 0,
-                "min instruction sample must be positive for {}: {:?}",
-                scenario.scenario_key,
-                sample,
-            );
-            assert!(
-                sample.max_local_instructions >= sample.min_local_instructions,
-                "max must be >= min for {}: {:?}",
-                scenario.scenario_key,
-                sample,
-            );
-            assert!(
-                sample.total_local_instructions >= sample.first_local_instructions,
-                "total must cover the first run for {}: {:?}",
-                scenario.scenario_key,
-                sample,
-            );
-            assert!(
-                sample.outcome_stable,
-                "repeated outcome must stay stable for {}: {:?}",
-                scenario.scenario_key, sample,
-            );
-
-            rows.push(SqlPerfScenarioRow {
-                scenario_key: scenario.scenario_key,
-                sample,
-            });
-        }
+        let rows = run_sql_perf_scenarios(pic, scenarios);
 
         println!(
             "{}",
             serde_json::to_string_pretty(&rows)
                 .expect("sql perf scenario rows should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
+    run_with_pocket_ic(|pic| {
+        let rows = run_sql_perf_scenarios(pic, sql_operation_repeat_scenarios());
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&rows)
+                .expect("operation repeat scenario rows should serialize to JSON")
         );
     });
 }

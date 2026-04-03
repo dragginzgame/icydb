@@ -6,7 +6,7 @@ use crate::{db, sql_dispatch};
 use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
-    db::sql::{SqlQueryResult, normalize_sql_input},
+    db::sql::SqlQueryResult,
     db::{
         query::Predicate,
         response::{
@@ -18,7 +18,7 @@ use icydb::{
 };
 use icydb_testing_quickstart_fixtures::schema::User;
 
-const MAX_REPEAT_COUNT: u32 = 32;
+const MAX_REPEAT_COUNT: u32 = 100;
 
 ///
 /// SqlPerfSurface
@@ -44,6 +44,7 @@ pub enum SqlPerfSurface {
     TypedInsertManyNonAtomicUser1000,
     TypedUpdateUser,
     FluentDeleteUserOrderIdLimit1Count,
+    FluentDeletePerfUserCount,
     TypedExecuteSqlGroupedUser,
     TypedExecuteSqlGroupedUserSecondPage,
     TypedExecuteSqlAggregateUser,
@@ -119,7 +120,7 @@ pub struct SqlPerfSample {
 pub fn sample_sql_surface(request: SqlPerfRequest) -> Result<SqlPerfSample, Error> {
     validate_perf_request(&request)?;
 
-    let sql = normalize_sql_input(request.sql.as_str())?.to_string();
+    let sql = normalize_perf_sql_input(request.sql.as_str())?.to_string();
     let repeat_count = request.repeat_count;
 
     // Measure each execution independently so the sample retains first-run and
@@ -166,6 +167,21 @@ pub fn sample_sql_surface(request: SqlPerfRequest) -> Result<SqlPerfSample, Erro
         outcome_stable,
         outcome,
     })
+}
+
+// Keep perf-harness input validation local so the public `icydb` SQL facade
+// does not need to retain generated query-surface adapter helpers.
+fn normalize_perf_sql_input(sql: &str) -> Result<&str, Error> {
+    let sql_trimmed = sql.trim();
+    if sql_trimmed.is_empty() {
+        return Err(Error::new(
+            ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            ErrorOrigin::Query,
+            "query endpoint requires a non-empty SQL string",
+        ));
+    }
+
+    Ok(sql_trimmed)
 }
 
 fn validate_perf_request(request: &SqlPerfRequest) -> Result<(), Error> {
@@ -292,6 +308,14 @@ fn perf_update_users() -> (User, User) {
     (inserted, updated)
 }
 
+fn perf_delete_user() -> User {
+    User {
+        name: "perf-delete-user".to_string(),
+        age: 35,
+        ..Default::default()
+    }
+}
+
 fn measure_typed_update_user() -> (u64, SqlPerfOutcome) {
     let (inserted, updated) = perf_update_users();
     let outcome = match db().insert(inserted) {
@@ -299,6 +323,25 @@ fn measure_typed_update_user() -> (u64, SqlPerfOutcome) {
             return measure_surface_call(|| {
                 db().update(updated)
                     .map_or_else(outcome_from_error, outcome_from_write_response)
+            });
+        }
+        Err(err) => outcome_from_error(err),
+    };
+
+    (0, outcome)
+}
+
+fn measure_fluent_delete_perf_user_count() -> (u64, SqlPerfOutcome) {
+    let inserted = perf_delete_user();
+    let outcome = match db().insert(inserted) {
+        Ok(_) => {
+            return measure_surface_call(|| {
+                db().delete::<User>()
+                    .filter(Predicate::eq("name".to_string(), "perf-delete-user".into()))
+                    .order_by("id")
+                    .limit(1)
+                    .execute_count_only()
+                    .map_or_else(outcome_from_error, outcome_from_delete_count)
             });
         }
         Err(err) => outcome_from_error(err),
@@ -371,6 +414,7 @@ fn measure_once(
                 .execute_count_only()
                 .map_or_else(outcome_from_error, outcome_from_delete_count)
         }),
+        SqlPerfSurface::FluentDeletePerfUserCount => measure_fluent_delete_perf_user_count(),
         SqlPerfSurface::TypedExecuteSqlGroupedUser => measure_surface_call(|| {
             db().execute_sql_grouped::<User>(sql, cursor_token)
                 .map_or_else(outcome_from_error, outcome_from_grouped_response)

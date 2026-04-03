@@ -214,20 +214,45 @@ fn sql_dispatch_import_tokens() -> TokenStream {
 
         use ::icydb::{
             Error,
+            __macro::execute_generated_sql_query,
             db::sql::SqlQueryResult,
         };
     }
 }
 
 fn sql_dispatch_query_surface_tokens() -> TokenStream {
+    let api = sql_dispatch_query_api_tokens();
+    let support = sql_dispatch_query_support_tokens();
+
+    quote! {
+        #api
+        #support
+    }
+}
+
+fn sql_dispatch_query_api_tokens() -> TokenStream {
     quote! {
         #[must_use]
         pub fn entities() -> Vec<String> {
-            ::icydb::db::sql::generated_sql_entities(SQL_ENTITY_AUTHORITIES)
+            generated_sql_entities()
         }
 
         pub fn query(sql: &str) -> Result<SqlQueryResult, Error> {
-            ::icydb::db::sql::execute_generated_sql_query_dispatch(&db(), sql, SQL_ENTITY_AUTHORITIES)
+            execute_generated_sql_query(&db(), sql, SQL_ENTITY_AUTHORITIES)
+        }
+    }
+}
+
+fn sql_dispatch_query_support_tokens() -> TokenStream {
+    quote! {
+        fn generated_sql_entities() -> Vec<String> {
+            let mut entities = Vec::with_capacity(SQL_ENTITY_AUTHORITIES.len());
+
+            for authority in SQL_ENTITY_AUTHORITIES {
+                entities.push(authority.model().name().to_string());
+            }
+
+            entities
         }
     }
 }

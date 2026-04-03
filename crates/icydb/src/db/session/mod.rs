@@ -1,11 +1,13 @@
 pub mod delete;
+#[cfg(feature = "sql")]
+pub(crate) mod generated;
 pub mod load;
 mod macros;
 
 #[cfg(feature = "sql")]
 use crate::db::{
     SqlStatementRoute,
-    sql::{SqlQueryResult, SqlQueryRowsOutput, projection_rows_from_values},
+    sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text},
 };
 use crate::{
     db::{
@@ -153,12 +155,6 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(crate) const fn core_session(&self) -> &core::db::DbSession<C> {
-        &self.inner
-    }
-
     // ------------------------------------------------------------------
     // Query entry points
     // ------------------------------------------------------------------
@@ -259,7 +255,7 @@ impl<C: CanisterKind> DbSession<C> {
                 rows,
                 row_count,
             } => {
-                let rows = projection_rows_from_values(columns, rows, row_count);
+                let rows = Self::projection_rows_from_values(columns, rows, row_count);
 
                 SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(entity_name, rows))
             }
@@ -282,6 +278,40 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlQueryResult::ShowEntities { entities }
             }
         }
+    }
+
+    #[cfg(feature = "sql")]
+    fn projection_rows_from_values(
+        columns: Vec<String>,
+        rows: Vec<Vec<Value>>,
+        row_count: u32,
+    ) -> SqlProjectionRows {
+        // Phase 1: render each projected row cell into stable text.
+        let mut rendered_rows = Vec::new();
+        let mut max_column_count = 0usize;
+
+        for row in rows {
+            let rendered_row = row.iter().map(render_value_text).collect::<Vec<_>>();
+            max_column_count = max_column_count.max(rendered_row.len());
+            rendered_rows.push(rendered_row);
+        }
+
+        // Phase 2: synthesize fallback labels only when core metadata and
+        // rendered row width differ so the public payload stays rectangular.
+        let columns = if max_column_count == 0 || columns.len() == max_column_count {
+            columns
+        } else {
+            Self::projection_columns(max_column_count)
+        };
+
+        SqlProjectionRows::new(columns, rendered_rows, row_count)
+    }
+
+    #[cfg(feature = "sql")]
+    fn projection_columns(column_count: usize) -> Vec<String> {
+        (0..column_count)
+            .map(|index| format!("col_{index}"))
+            .collect()
     }
 
     /// Execute one reduced SQL global aggregate `SELECT` statement.
@@ -345,12 +375,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.show_indexes::<E>()
     }
 
-    /// Return one stable, human-readable index listing for one schema model.
-    #[must_use]
-    pub fn show_indexes_for_model(&self, model: &'static EntityModel) -> Vec<String> {
-        self.inner.show_indexes_for_model(model)
-    }
-
     /// Return one stable list of field descriptors for the entity schema.
     #[must_use]
     pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
@@ -358,15 +382,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.show_columns::<E>()
-    }
-
-    /// Return one stable list of field descriptors for one schema model.
-    #[must_use]
-    pub fn show_columns_for_model(
-        &self,
-        model: &'static EntityModel,
-    ) -> Vec<EntityFieldDescription> {
-        self.inner.show_columns_for_model(model)
     }
 
     /// Return one stable list of runtime-registered entity names.
@@ -382,12 +397,6 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.describe_entity::<E>()
-    }
-
-    /// Return one structured schema description for one schema model.
-    #[must_use]
-    pub fn describe_entity_model(&self, model: &'static EntityModel) -> EntitySchemaDescription {
-        self.inner.describe_entity_model(model)
     }
 
     /// Build one point-in-time storage report for observability endpoints.
@@ -1349,6 +1358,73 @@ mod tests {
     }
 
     #[test]
+    fn facade_execute_sql_rejects_non_query_statement_lanes_matrix() {
+        let session = fresh_facade_session();
+
+        let cases = [
+            (
+                "EXPLAIN SELECT * FROM FacadeSqlEntity",
+                "execute_sql rejects EXPLAIN",
+            ),
+            ("DESCRIBE FacadeSqlEntity", "execute_sql rejects DESCRIBE"),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "execute_sql rejects SHOW INDEXES",
+            ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "execute_sql rejects SHOW COLUMNS",
+            ),
+            ("SHOW ENTITIES", "execute_sql rejects SHOW ENTITIES"),
+        ];
+
+        for (sql, expected) in cases {
+            let err = session
+                .execute_sql::<FacadeSqlEntity>(sql)
+                .expect_err("non-query statement lanes should stay fail-closed for execute_sql");
+            assert!(
+                err.to_string().contains(expected),
+                "facade execute_sql should preserve a surface-local lane boundary message: {sql}",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_execute_sql_grouped_rejects_non_query_statement_lanes_matrix() {
+        let session = fresh_facade_session();
+
+        let cases = [
+            (
+                "EXPLAIN SELECT * FROM FacadeSqlEntity",
+                "execute_sql_grouped rejects EXPLAIN",
+            ),
+            (
+                "DESCRIBE FacadeSqlEntity",
+                "execute_sql_grouped rejects DESCRIBE",
+            ),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "execute_sql_grouped rejects SHOW INDEXES",
+            ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "execute_sql_grouped rejects SHOW COLUMNS",
+            ),
+            ("SHOW ENTITIES", "execute_sql_grouped rejects SHOW ENTITIES"),
+        ];
+
+        for (sql, expected) in cases {
+            let Err(err) = session.execute_sql_grouped::<FacadeSqlEntity>(sql, None) else {
+                panic!("non-query statement lanes should stay fail-closed for execute_sql_grouped")
+            };
+            assert!(
+                err.to_string().contains(expected),
+                "facade execute_sql_grouped should preserve a surface-local lane boundary message: {sql}",
+            );
+        }
+    }
+
+    #[test]
     fn facade_query_from_sql_rejects_computed_text_projection_in_current_lane() {
         let session = fresh_facade_session();
 
@@ -1376,6 +1452,89 @@ mod tests {
             err.to_string()
                 .contains("query_from_sql does not accept computed text projection"),
             "facade query_from_sql should preserve the computed projection boundary message",
+        );
+    }
+
+    #[test]
+    fn facade_execute_sql_rejects_computed_text_projection_in_current_lane() {
+        let session = fresh_facade_session();
+
+        let err = session
+            .execute_sql::<FacadeSqlEntity>("SELECT TRIM(name) FROM FacadeSqlEntity")
+            .expect_err(
+                "facade execute_sql should keep computed text projection on the dispatch-owned lane",
+            );
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql computed text projection",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql computed text projection",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql rejects computed text projection"),
+            "facade execute_sql should preserve the computed projection boundary message",
+        );
+    }
+
+    #[test]
+    fn facade_execute_sql_grouped_rejects_computed_text_projection_in_current_lane() {
+        let session = fresh_facade_session();
+
+        let Err(err) = session
+            .execute_sql_grouped::<FacadeSqlEntity>("SELECT TRIM(name) FROM FacadeSqlEntity", None)
+        else {
+            panic!(
+                "facade execute_sql_grouped should keep computed text projection on the dispatch-owned lane"
+            )
+        };
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_grouped computed text projection",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_grouped computed text projection",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_grouped rejects computed text projection"),
+            "facade execute_sql_grouped should preserve the computed projection boundary message",
+        );
+    }
+
+    #[test]
+    fn facade_query_from_sql_rejects_global_aggregate_execution_in_current_lane() {
+        let session = fresh_facade_session();
+
+        let err = session
+            .query_from_sql::<FacadeSqlEntity>("SELECT COUNT(*) FROM FacadeSqlEntity")
+            .expect_err(
+                "facade query_from_sql should keep global aggregate execution on the dedicated aggregate lane",
+            );
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade query_from_sql global aggregate",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade query_from_sql global aggregate",
+        );
+        assert!(
+            err.to_string()
+                .contains("query_from_sql rejects global aggregate SELECT"),
+            "facade query_from_sql should preserve the dedicated aggregate-lane boundary message",
         );
     }
 
@@ -1410,13 +1569,73 @@ mod tests {
 
         // Phase 1: keep scalar row-shaped execution fail-closed for global
         // aggregate SQL so the dedicated aggregate lane remains explicit.
-        assert_unsupported_sql_runtime_result(
-            session.execute_sql::<FacadeSqlEntity>(sql),
-            "facade execute_sql global aggregate",
+        let execute_err = session
+            .execute_sql::<FacadeSqlEntity>(sql)
+            .expect_err("facade execute_sql should reject global aggregate SQL");
+        let dispatch_err = session
+            .execute_sql_dispatch::<FacadeSqlEntity>(sql)
+            .expect_err("facade execute_sql_dispatch should reject global aggregate SQL");
+
+        assert_eq!(
+            execute_err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql global aggregate",
         );
-        assert_unsupported_sql_runtime_result(
-            session.execute_sql_dispatch::<FacadeSqlEntity>(sql),
-            "facade execute_sql_dispatch global aggregate",
+        assert_eq!(
+            execute_err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql global aggregate",
+        );
+        assert!(
+            execute_err
+                .to_string()
+                .contains("execute_sql rejects global aggregate SELECT"),
+            "facade execute_sql should preserve the dedicated aggregate-lane boundary message",
+        );
+        assert_eq!(
+            dispatch_err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_dispatch global aggregate",
+        );
+        assert_eq!(
+            dispatch_err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_dispatch global aggregate",
+        );
+        assert!(
+            dispatch_err
+                .to_string()
+                .contains("execute_sql_dispatch rejects global aggregate SELECT"),
+            "facade execute_sql_dispatch should preserve the dedicated aggregate-lane boundary message",
+        );
+    }
+
+    #[test]
+    fn facade_execute_sql_grouped_rejects_global_aggregate_execution_in_current_lane() {
+        let session = fresh_facade_session();
+
+        let Err(err) = session
+            .execute_sql_grouped::<FacadeSqlEntity>("SELECT COUNT(*) FROM FacadeSqlEntity", None)
+        else {
+            panic!(
+                "facade execute_sql_grouped should keep global aggregate execution on the dedicated aggregate lane"
+            )
+        };
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_grouped global aggregate",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_grouped global aggregate",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_grouped rejects global aggregate SELECT"),
+            "facade execute_sql_grouped should preserve the dedicated aggregate-lane boundary message",
         );
     }
 
@@ -1442,6 +1661,187 @@ mod tests {
                 "facade execute_sql_aggregate",
             );
         }
+    }
+
+    #[test]
+    fn facade_execute_sql_aggregate_rejects_non_aggregate_statement_lanes_matrix() {
+        let session = fresh_facade_session();
+
+        let cases = [
+            (
+                "EXPLAIN SELECT COUNT(*) FROM FacadeSqlEntity",
+                "execute_sql_aggregate rejects EXPLAIN",
+            ),
+            (
+                "DESCRIBE FacadeSqlEntity",
+                "execute_sql_aggregate rejects DESCRIBE",
+            ),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "execute_sql_aggregate rejects SHOW INDEXES",
+            ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "execute_sql_aggregate rejects SHOW COLUMNS",
+            ),
+            (
+                "SHOW ENTITIES",
+                "execute_sql_aggregate rejects SHOW ENTITIES",
+            ),
+            (
+                "DELETE FROM FacadeSqlEntity ORDER BY age LIMIT 1",
+                "execute_sql_aggregate rejects DELETE",
+            ),
+        ];
+
+        for (sql, expected) in cases {
+            let err = session
+                .execute_sql_aggregate::<FacadeSqlEntity>(sql)
+                .expect_err(
+                    "non-aggregate statement lanes should stay fail-closed for execute_sql_aggregate",
+                );
+            assert_eq!(
+                err.kind(),
+                &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                "unsupported runtime kind mismatch: facade execute_sql_aggregate lane matrix",
+            );
+            assert_eq!(
+                err.origin(),
+                ErrorOrigin::Query,
+                "unsupported runtime origin mismatch: facade execute_sql_aggregate lane matrix",
+            );
+            assert!(
+                err.to_string().contains(expected),
+                "facade execute_sql_aggregate should preserve a surface-local lane boundary message: {sql}",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_execute_sql_aggregate_rejects_non_aggregate_select_shapes_in_current_lane() {
+        let session = fresh_facade_session();
+        let sql = "SELECT age FROM FacadeSqlEntity";
+        let err = session
+            .execute_sql_aggregate::<FacadeSqlEntity>(sql)
+            .expect_err(
+                "non-aggregate or grouped aggregate SELECT should stay fail-closed for execute_sql_aggregate",
+            );
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_aggregate select shape",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_aggregate select shape",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_aggregate requires constrained global aggregate SELECT"),
+            "facade execute_sql_aggregate should preserve constrained aggregate-surface guidance: {sql}",
+        );
+    }
+
+    #[test]
+    fn facade_execute_sql_aggregate_rejects_grouped_select_execution_in_current_lane() {
+        let session = fresh_facade_session();
+
+        let err = session
+            .execute_sql_aggregate::<FacadeSqlEntity>(
+                "SELECT age, COUNT(*) FROM FacadeSqlEntity GROUP BY age",
+            )
+            .expect_err("facade execute_sql_aggregate should reject grouped SQL execution");
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_aggregate grouped SQL",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_aggregate grouped SQL",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_aggregate rejects grouped SELECT"),
+            "facade execute_sql_aggregate should preserve explicit grouped-entrypoint guidance",
+        );
+    }
+
+    #[test]
+    fn facade_scalar_sql_surfaces_reject_grouped_sql_execution_in_current_lane() {
+        let session = fresh_facade_session();
+        let sql = "SELECT age, COUNT(*) FROM FacadeSqlEntity GROUP BY age";
+
+        let execute_err = session
+            .execute_sql::<FacadeSqlEntity>(sql)
+            .expect_err("facade execute_sql should reject grouped SQL execution");
+        let dispatch_err = session
+            .execute_sql_dispatch::<FacadeSqlEntity>(sql)
+            .expect_err("facade execute_sql_dispatch should reject grouped SQL execution");
+
+        assert_eq!(
+            execute_err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql grouped SQL",
+        );
+        assert_eq!(
+            execute_err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql grouped SQL",
+        );
+        assert!(
+            execute_err
+                .to_string()
+                .contains("execute_sql rejects grouped SELECT"),
+            "facade execute_sql should preserve grouped explicit-entrypoint guidance",
+        );
+        assert_eq!(
+            dispatch_err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_dispatch grouped SQL",
+        );
+        assert_eq!(
+            dispatch_err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_dispatch grouped SQL",
+        );
+        assert!(
+            dispatch_err
+                .to_string()
+                .contains("execute_sql_dispatch rejects grouped SELECT execution"),
+            "facade execute_sql_dispatch should preserve grouped explicit-entrypoint guidance",
+        );
+    }
+
+    #[test]
+    fn facade_execute_sql_grouped_rejects_delete_execution_in_current_lane() {
+        let session = fresh_facade_session();
+
+        let err = session.execute_sql_grouped::<FacadeSqlEntity>(
+            "DELETE FROM FacadeSqlEntity ORDER BY id LIMIT 1",
+            None,
+        );
+        let Err(err) = err else {
+            panic!("facade execute_sql_grouped should reject DELETE execution");
+        };
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "unsupported runtime kind mismatch: facade execute_sql_grouped delete SQL",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "unsupported runtime origin mismatch: facade execute_sql_grouped delete SQL",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_grouped rejects DELETE"),
+            "facade execute_sql_grouped should preserve explicit DELETE lane guidance",
+        );
     }
 
     #[test]

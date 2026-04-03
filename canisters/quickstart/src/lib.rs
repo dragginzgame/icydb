@@ -327,6 +327,82 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_global_aggregate_execution_stays_fail_closed() {
+        let sql = "SELECT COUNT(*) FROM User";
+        let dispatch_err = dispatch_result_for_sql_unchecked(sql)
+            .expect_err("sql_dispatch should reject global aggregate execution");
+        let typed_err = typed_result_for_sql_unchecked(sql)
+            .expect_err("typed execute_sql_dispatch should reject global aggregate execution");
+
+        assert_eq!(
+            dispatch_err.kind(),
+            typed_err.kind(),
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate error kind parity",
+        );
+        assert_eq!(
+            dispatch_err.origin(),
+            typed_err.origin(),
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate error origin parity",
+        );
+        assert!(
+            dispatch_err.to_string().contains("global aggregate SELECT")
+                && dispatch_err
+                    .to_string()
+                    .contains("execute_sql_aggregate(...)"),
+            "sql_dispatch should preserve explicit aggregate-lane guidance",
+        );
+        assert!(
+            typed_err.to_string().contains("global aggregate SELECT")
+                && typed_err.to_string().contains("execute_sql_aggregate(...)"),
+            "typed execute_sql_dispatch should preserve explicit aggregate-lane guidance",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_grouped_execution_stays_fail_closed() {
+        let sql = "SELECT age, COUNT(*) FROM User GROUP BY age";
+        let dispatch_err = dispatch_result_for_sql_unchecked(sql)
+            .expect_err("sql_dispatch should reject grouped SQL execution");
+        let typed_err = typed_result_for_sql_unchecked(sql)
+            .expect_err("typed execute_sql_dispatch should reject grouped SQL execution");
+
+        assert_eq!(
+            dispatch_err.kind(),
+            typed_err.kind(),
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL error kind parity",
+        );
+        assert_eq!(
+            dispatch_err.origin(),
+            typed_err.origin(),
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL error origin parity",
+        );
+        assert!(
+            dispatch_err
+                .to_string()
+                .contains("generated SQL query surface rejects grouped SELECT execution")
+                && dispatch_err
+                    .to_string()
+                    .contains("execute_sql_grouped(...)"),
+            "sql_dispatch should preserve explicit grouped-entrypoint guidance",
+        );
+        assert!(
+            typed_err
+                .to_string()
+                .contains("execute_sql_dispatch rejects grouped SELECT execution")
+                && typed_err.to_string().contains("execute_sql_grouped(...)"),
+            "typed execute_sql_dispatch should preserve explicit grouped-entrypoint guidance",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_grouped_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT age, COUNT(*) FROM User GROUP BY age",
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped EXPLAIN parity",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_direct_starts_with_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "SELECT id, name FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",

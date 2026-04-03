@@ -112,6 +112,16 @@ pub(crate) enum LoweredSqlQuery {
     Delete(LoweredBaseQueryShape),
 }
 
+impl LoweredSqlQuery {
+    // Report whether this lowered query carries grouped execution semantics.
+    pub(crate) const fn has_grouping(&self) -> bool {
+        match self {
+            Self::Select(select) => select.has_grouping(),
+            Self::Delete(_) => false,
+        }
+    }
+}
+
 ///
 /// SqlGlobalAggregateTerminal
 ///
@@ -304,21 +314,6 @@ pub(crate) struct PreparedSqlStatement {
     statement: SqlStatement,
 }
 
-// Prepared query/explain-only SQL statement for the generated query surface.
-#[derive(Clone, Debug)]
-pub(crate) enum PreparedSqlQuerySurfaceStatement {
-    Select(SqlSelectStatement),
-    Delete(SqlDeleteStatement),
-    ExplainSelect {
-        mode: SqlExplainMode,
-        statement: SqlSelectStatement,
-    },
-    ExplainDelete {
-        mode: SqlExplainMode,
-        statement: SqlDeleteStatement,
-    },
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LoweredSqlLaneKind {
     Query,
@@ -374,31 +369,13 @@ pub(crate) fn lower_sql_command_from_prepared_statement(
 pub(crate) fn prepare_query_surface_statement(
     statement: SqlStatement,
     expected_entity: &'static str,
-) -> Result<PreparedSqlQuerySurfaceStatement, SqlLoweringError> {
-    match statement {
-        SqlStatement::Select(statement) => Ok(PreparedSqlQuerySurfaceStatement::Select(
-            normalize_select_statement_to_expected_entity(statement, expected_entity),
-        )),
-        SqlStatement::Delete(statement) => Ok(PreparedSqlQuerySurfaceStatement::Delete(
-            prepare_delete_statement(statement, expected_entity)?,
-        )),
-        SqlStatement::Explain(SqlExplainStatement {
-            mode,
-            statement: SqlExplainTarget::Select(select_statement),
-        }) => Ok(PreparedSqlQuerySurfaceStatement::ExplainSelect {
-            mode,
-            statement: normalize_select_statement_to_expected_entity(
-                select_statement,
-                expected_entity,
-            ),
-        }),
-        SqlStatement::Explain(SqlExplainStatement {
-            mode,
-            statement: SqlExplainTarget::Delete(delete_statement),
-        }) => Ok(PreparedSqlQuerySurfaceStatement::ExplainDelete {
-            mode,
-            statement: prepare_delete_statement(delete_statement, expected_entity)?,
-        }),
+) -> Result<PreparedSqlStatement, SqlLoweringError> {
+    let prepared = prepare_sql_statement(statement, expected_entity)?;
+
+    match prepared.statement {
+        SqlStatement::Select(_) | SqlStatement::Delete(_) | SqlStatement::Explain(_) => {
+            Ok(prepared)
+        }
         SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
@@ -411,10 +388,20 @@ pub(crate) fn prepare_query_surface_statement(
 /// Lower one prepared SQL statement into one query-surface-only command shape.
 #[inline(never)]
 pub(crate) fn lower_query_surface_command_from_prepared_statement(
-    prepared: PreparedSqlQuerySurfaceStatement,
+    prepared: PreparedSqlStatement,
     primary_key_field: &str,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    lower_query_surface_prepared_statement(prepared, primary_key_field)
+    let lowered = lower_sql_command_from_prepared_statement(prepared, primary_key_field)?;
+
+    match lowered_sql_command_lane(&lowered) {
+        LoweredSqlLaneKind::Query | LoweredSqlLaneKind::Explain => Ok(lowered),
+        LoweredSqlLaneKind::Describe
+        | LoweredSqlLaneKind::ShowIndexes
+        | LoweredSqlLaneKind::ShowColumns
+        | LoweredSqlLaneKind::ShowEntities => {
+            Err(SqlLoweringError::unsupported_query_surface_statement())
+        }
+    }
 }
 
 pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {
@@ -427,6 +414,26 @@ pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> Low
         LoweredSqlCommandInner::ShowColumnsEntity => LoweredSqlLaneKind::ShowColumns,
         LoweredSqlCommandInner::ShowEntities => LoweredSqlLaneKind::ShowEntities,
     }
+}
+
+/// Return whether one parsed SQL statement is an executable constrained global
+/// aggregate shape owned by the dedicated aggregate lane.
+pub(in crate::db) fn is_sql_global_aggregate_statement(statement: &SqlStatement) -> bool {
+    let SqlStatement::Select(statement) = statement else {
+        return false;
+    };
+
+    is_sql_global_aggregate_select(statement)
+}
+
+// Detect one constrained global aggregate select shape without widening any
+// non-aggregate SQL surface onto the dedicated aggregate execution lane.
+fn is_sql_global_aggregate_select(statement: &SqlSelectStatement) -> bool {
+    if statement.distinct || !statement.group_by.is_empty() || !statement.having.is_empty() {
+        return false;
+    }
+
+    lower_global_aggregate_terminal(statement.projection.clone()).is_ok()
 }
 
 /// Render one lowered EXPLAIN command through the shared structural SQL path.
@@ -665,32 +672,6 @@ fn lower_prepared_statement(
     }
 }
 
-#[inline(never)]
-fn lower_query_surface_prepared_statement(
-    statement: PreparedSqlQuerySurfaceStatement,
-    primary_key_field: &str,
-) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    match statement {
-        PreparedSqlQuerySurfaceStatement::Select(statement) => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-                LoweredSqlQuery::Select(lower_select_shape(statement, primary_key_field)?),
-            )))
-        }
-        PreparedSqlQuerySurfaceStatement::Delete(statement) => Ok(LoweredSqlCommand(
-            LoweredSqlCommandInner::Query(LoweredSqlQuery::Delete(lower_delete_shape(statement))),
-        )),
-        PreparedSqlQuerySurfaceStatement::ExplainSelect { mode, statement } => {
-            lower_explain_select_prepared(statement, mode, primary_key_field)
-        }
-        PreparedSqlQuerySurfaceStatement::ExplainDelete { mode, statement } => {
-            Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
-                mode,
-                query: LoweredSqlQuery::Delete(lower_delete_shape(statement)),
-            }))
-        }
-    }
-}
-
 fn lower_explain_prepared(
     statement: SqlExplainStatement,
     primary_key_field: &str,
@@ -807,6 +788,13 @@ pub(crate) struct LoweredSelectShape {
     order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
+}
+
+impl LoweredSelectShape {
+    // Report whether this lowered select shape carries grouped execution state.
+    const fn has_grouping(&self) -> bool {
+        !self.group_by_fields.is_empty()
+    }
 }
 
 ///
