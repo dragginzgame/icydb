@@ -10,7 +10,7 @@ use crate::{
         data::DataRow,
         executor::{
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
+                AggregateFieldValueError, FieldSlot, compare_orderable_field_values_with_slot,
                 extract_orderable_field_value_with_slot_reader,
             },
             pipeline::contracts::LoadExecutor,
@@ -116,8 +116,13 @@ fn rank_k_rows_from_materialized_structural(
         // Phase 2: insert the candidate into deterministic `(value, pk)` order.
         let mut insert_index = ordered_rows.len();
         for (index, ((current_key, _), current_value)) in ordered_rows.iter().enumerate() {
-            let ordering = compare_orderable_field_values(target_field, &value, current_value)
-                .map_err(AggregateFieldValueError::into_internal_error)?;
+            let ordering = compare_orderable_field_values_with_slot(
+                target_field,
+                field_slot,
+                &value,
+                current_value,
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
             let outranks_current = direction.candidate_precedes(ordering);
             let tie_breaks_by_pk = ordering == Ordering::Equal && data_key < current_key;
             if outranks_current || tie_breaks_by_pk {

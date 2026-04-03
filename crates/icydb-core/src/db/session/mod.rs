@@ -19,7 +19,7 @@ use crate::{
         IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PersistedRow, Query,
         QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
-        cursor::decode_optional_cursor_token,
+        cursor::{decode_optional_cursor_token, decode_optional_grouped_cursor_token},
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         schema::{describe_entity_model, show_indexes_for_model},
     },
@@ -38,6 +38,14 @@ pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlStatementRoute};
 // query-plan cursor error boundary.
 fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec<u8>>, QueryError> {
     decode_optional_cursor_token(cursor_token).map_err(QueryError::from_cursor_plan_error)
+}
+
+// Decode one optional grouped continuation token through the existing cursor
+// text boundary while preserving grouped-token ownership for grouped resume.
+fn decode_optional_grouped_cursor(
+    cursor_token: Option<&str>,
+) -> Result<Option<crate::db::cursor::GroupedContinuationToken>, QueryError> {
+    decode_optional_grouped_cursor_token(cursor_token).map_err(QueryError::from_cursor_plan_error)
 }
 
 ///

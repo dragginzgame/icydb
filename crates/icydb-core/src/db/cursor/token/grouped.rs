@@ -7,7 +7,7 @@ use crate::{
     db::{
         codec::deserialize_protocol_payload, cursor::ContinuationSignature, direction::Direction,
     },
-    serialize::serialize,
+    serialize::{serialize, serialize_hex},
     value::Value,
 };
 
@@ -63,6 +63,15 @@ impl GroupedContinuationToken {
         self.initial_offset
     }
 
+    pub(in crate::db) fn into_parts(self) -> (ContinuationSignature, Vec<Value>, Direction, u32) {
+        (
+            self.signature,
+            self.last_group_key,
+            self.direction,
+            self.initial_offset,
+        )
+    }
+
     pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, TokenWireError> {
         let wire = GroupedContinuationTokenWireRef {
             version: GroupedCursorTokenVersion::V1.encode(),
@@ -73,6 +82,18 @@ impl GroupedContinuationToken {
         };
 
         serialize(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
+    }
+
+    pub(in crate::db) fn encode_hex(&self) -> Result<String, TokenWireError> {
+        let wire = GroupedContinuationTokenWireRef {
+            version: GroupedCursorTokenVersion::V1.encode(),
+            signature: self.signature.into_bytes(),
+            last_group_key: self.last_group_key.as_slice(),
+            direction: self.direction,
+            initial_offset: self.initial_offset,
+        };
+
+        serialize_hex(&wire).map_err(|err| TokenWireError::encode(err.to_string()))
     }
 
     #[cfg(test)]
@@ -149,6 +170,19 @@ mod tests {
         assert_eq!(decoded.last_group_key(), token.last_group_key());
         assert_eq!(decoded.direction(), token.direction());
         assert_eq!(decoded.initial_offset(), token.initial_offset());
+    }
+
+    #[test]
+    fn grouped_continuation_token_encode_hex_matches_hex_of_encoded_bytes() {
+        let token = grouped_token_fixture(Direction::Asc);
+        let encoded = token
+            .encode()
+            .expect("grouped continuation token should encode");
+        let encoded_hex = token
+            .encode_hex()
+            .expect("grouped continuation token hex encoder should succeed");
+
+        assert_eq!(encoded_hex, encode_cursor(encoded.as_slice()));
     }
 
     #[test]

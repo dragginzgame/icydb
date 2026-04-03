@@ -332,13 +332,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let execution = self.inner.execute_sql_grouped::<E>(sql, cursor_token)?;
-        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+        let (rows, next_cursor, execution_trace) = self
+            .inner
+            .execute_sql_grouped_text_cursor::<E>(sql, cursor_token)?;
 
         Ok(PagedGroupedResponse::new(
-            execution.rows().to_vec(),
+            rows,
             next_cursor,
-            execution.execution_trace().copied(),
+            execution_trace,
         ))
     }
 
@@ -434,13 +435,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let execution = self.inner.execute_grouped(query, cursor_token)?;
-        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+        let (rows, next_cursor, execution_trace) = self
+            .inner
+            .execute_grouped_text_cursor(query, cursor_token)?;
 
         Ok(PagedGroupedResponse::new(
-            execution.rows().to_vec(),
+            rows,
             next_cursor,
-            execution.execution_trace().copied(),
+            execution_trace,
         ))
     }
 

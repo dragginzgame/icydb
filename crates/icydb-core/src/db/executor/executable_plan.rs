@@ -687,6 +687,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     /// Validate and decode grouped continuation cursor state for grouped plans.
+    #[cfg(test)]
     pub(in crate::db) fn prepare_grouped_cursor(
         &self,
         cursor: Option<&[u8]>,
@@ -697,6 +698,20 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
         contract
             .prepare_grouped_cursor(EntityAuthority::for_type::<E>().entity_path(), cursor)
+            .map_err(ExecutorPlanError::from)
+    }
+
+    /// Validate one already-decoded grouped continuation token for grouped plans.
+    pub(in crate::db) fn prepare_grouped_cursor_token(
+        &self,
+        cursor: Option<crate::db::cursor::GroupedContinuationToken>,
+    ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
+        let Some(contract) = self.core.continuation.as_ref() else {
+            return Err(ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
+        };
+
+        contract
+            .prepare_grouped_cursor_token(EntityAuthority::for_type::<E>().entity_path(), cursor)
             .map_err(ExecutorPlanError::from)
     }
 

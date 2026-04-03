@@ -14,7 +14,6 @@ use crate::{
         executor::{
             AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
-            preparation::resolved_index_slots_for_access_path,
             terminal::{
                 RowDecoder, RowLayout,
                 page::{
@@ -292,38 +291,40 @@ pub(in crate::db::executor) trait ExecutionRuntime {
 /// ExecutionRuntimeAdapterCore
 ///
 /// Generic-free runtime-adapter payload shared by typed execution-runtime
-/// wrappers so resolved slot maps and structural row-runtime state stay
-/// monomorphic after the typed boundary computes access-specific inputs.
+/// wrappers so structural row-runtime state stays monomorphic after the typed
+/// boundary computes access-specific inputs.
 ///
 
 struct ExecutionRuntimeAdapterCore<'a> {
     runtime: ErasedRuntimeBindings,
     access: &'a crate::db::access::AccessPlan<crate::value::Value>,
     model: &'static EntityModel,
-    slot_map: Option<Vec<usize>>,
-    scalar_row_runtime: ScalarRowRuntimeState,
+    scalar_row_runtime: Option<ScalarRowRuntimeState>,
 }
 
 impl ExecutionRuntimeAdapterCore<'_> {
-    fn new<'a>(
+    const fn new<'a>(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: ErasedRuntimeBindings,
-        store: StoreHandle,
         model: &'static EntityModel,
-        slot_map: Option<Vec<usize>>,
+        scalar_row_runtime: Option<ScalarRowRuntimeState>,
     ) -> ExecutionRuntimeAdapterCore<'a> {
         ExecutionRuntimeAdapterCore {
             runtime,
             access,
             model,
-            slot_map,
-            scalar_row_runtime: ScalarRowRuntimeState::new(store, model),
+            scalar_row_runtime,
         }
     }
 
-    #[must_use]
-    fn slot_map(&self) -> Option<&[usize]> {
-        self.slot_map.as_deref()
+    // Require the scalar materialization runtime when the caller enters one
+    // scalar-only row materialization path through the shared runtime trait.
+    fn scalar_row_runtime(&self) -> Result<&ScalarRowRuntimeState, InternalError> {
+        self.scalar_row_runtime.as_ref().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "scalar row runtime is required for scalar materialization paths",
+            )
+        })
     }
 
     fn try_execute_pk_order_stream(
@@ -397,24 +398,33 @@ impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
         store: StoreHandle,
         model: &'static EntityModel,
     ) -> Self {
-        let slot_map =
-            resolved_index_slots_for_access_path(model, access.resolve_strategy().executable());
-
         Self {
             core: ExecutionRuntimeAdapterCore::new(
                 access,
                 ErasedRuntimeBindings::from_runtime(runtime),
-                store,
                 model,
-                slot_map,
+                Some(ScalarRowRuntimeState::new(store, model)),
             ),
             marker: PhantomData,
         }
     }
-    /// Borrow the precomputed slot map for this typed adapter.
-    #[must_use]
-    pub(in crate::db::executor) fn slot_map(&self) -> Option<&[usize]> {
-        self.core.slot_map()
+
+    /// Build one stream-only runtime adapter for key-stream resolution paths
+    /// that never materialize scalar rows.
+    pub(in crate::db::executor) const fn from_stream_runtime_parts(
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
+        runtime: crate::db::executor::stream::access::TraversalRuntime,
+        model: &'static EntityModel,
+    ) -> Self {
+        Self {
+            core: ExecutionRuntimeAdapterCore::new(
+                access,
+                ErasedRuntimeBindings::from_runtime(runtime),
+                model,
+                None,
+            ),
+            marker: PhantomData,
+        }
     }
 }
 
@@ -487,8 +497,9 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
         // Reuse the adapter-owned structural row-runtime state for the whole
         // query instead of cloning and boxing the same read-only runtime
         // descriptor before every materialization call.
+        let scalar_row_runtime = self.core.scalar_row_runtime()?;
         let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(
-            &self.core.scalar_row_runtime,
+            scalar_row_runtime,
             borrowed_scalar_row_runtime_vtable(),
         );
 
@@ -510,8 +521,9 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
         // Reuse the adapter-owned structural row-runtime state for the whole
         // query instead of cloning and boxing the same read-only runtime
         // descriptor before every materialization call.
+        let scalar_row_runtime = self.core.scalar_row_runtime()?;
         let mut row_runtime = ScalarRowRuntimeHandle::from_borrowed(
-            &self.core.scalar_row_runtime,
+            scalar_row_runtime,
             borrowed_scalar_row_runtime_vtable(),
         );
 

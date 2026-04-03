@@ -216,6 +216,8 @@ enum SqlPerfSurface {
 enum SqlPerfAttributionSurface {
     GeneratedDispatch,
     TypedDispatchUser,
+    TypedGroupedUser,
+    TypedGroupedUserSecondPage,
 }
 
 ///
@@ -245,6 +247,7 @@ struct SqlPerfRequest {
 struct SqlPerfAttributionRequest {
     surface: SqlPerfAttributionSurface,
     sql: String,
+    cursor_token: Option<String>,
 }
 
 ///
@@ -1041,6 +1044,51 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_count_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    sql: "SELECT COUNT(age) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_min_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    sql: "SELECT MIN(age) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_max_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    sql: "SELECT MAX(age) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_sum_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    sql: "SELECT SUM(age) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_aggregate.user_avg_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    sql: "SELECT AVG(age) FROM User".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.insert.user_single",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedInsertUser,
@@ -1335,6 +1383,7 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
             &SqlPerfAttributionRequest {
                 surface: SqlPerfAttributionSurface::GeneratedDispatch,
                 sql: sql.to_string(),
+                cursor_token: None,
             },
         );
         let typed = sql_perf_attribution_sample(
@@ -1343,6 +1392,7 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
             &SqlPerfAttributionRequest {
                 surface: SqlPerfAttributionSurface::TypedDispatchUser,
                 sql: sql.to_string(),
+                cursor_token: None,
             },
         );
 
@@ -1391,6 +1441,166 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
                 "typed": typed,
             }))
             .expect("query attribution samples should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_grouped_phase_attribution_reports_positive_stages() {
+    run_with_pocket_ic(|pic| {
+        let sql = "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10";
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let grouped = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::TypedGroupedUser,
+                sql: sql.to_string(),
+                cursor_token: None,
+            },
+        );
+
+        assert!(
+            grouped.outcome.success,
+            "grouped attribution must keep the representative GROUP BY SELECT successful: {grouped:?}",
+        );
+        assert!(
+            grouped.parse_local_instructions > 0,
+            "grouped parse phase must be positive: {grouped:?}",
+        );
+        assert!(
+            grouped.lower_local_instructions > 0,
+            "grouped lower phase must be positive: {grouped:?}",
+        );
+        assert!(
+            grouped.dispatch_local_instructions > 0,
+            "grouped typed dispatch/setup phase must be positive: {grouped:?}",
+        );
+        assert!(
+            grouped.execute_local_instructions > 0,
+            "grouped execute phase must be positive: {grouped:?}",
+        );
+        assert_eq!(
+            grouped.route_local_instructions, 0,
+            "typed grouped attribution should not report dynamic route-authority cost: {grouped:?}",
+        );
+        assert!(
+            grouped.total_local_instructions
+                >= grouped.parse_local_instructions
+                    + grouped.lower_local_instructions
+                    + grouped.dispatch_local_instructions
+                    + grouped.execute_local_instructions
+                    + grouped.wrapper_local_instructions,
+            "grouped total must cover every attributed phase: {grouped:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "grouped": grouped,
+            }))
+            .expect("grouped attribution sample should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let full_page = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::TypedGroupedUser,
+                sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+        assert!(
+            full_page.outcome.success && full_page.outcome.has_cursor == Some(false),
+            "grouped full-page attribution must stay successful without emitting a cursor: {full_page:?}",
+        );
+
+        let first_page = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::TypedGroupedUser,
+                sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+        assert!(
+            first_page.outcome.success && first_page.outcome.has_cursor == Some(true),
+            "grouped first-page attribution must stay successful and emit a cursor: {first_page:?}",
+        );
+
+        let second_page = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::TypedGroupedUserSecondPage,
+                sql: "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+        assert!(
+            second_page.outcome.success && second_page.outcome.has_cursor == Some(false),
+            "grouped second-page attribution must stay successful without emitting a cursor: {second_page:?}",
+        );
+
+        for (label, sample) in [
+            ("full page", &full_page),
+            ("first page", &first_page),
+            ("second page", &second_page),
+        ] {
+            assert!(
+                sample.parse_local_instructions > 0,
+                "{label} grouped parse phase must be positive: {sample:?}",
+            );
+            assert!(
+                sample.lower_local_instructions > 0,
+                "{label} grouped lower phase must be positive: {sample:?}",
+            );
+            assert!(
+                sample.dispatch_local_instructions > 0,
+                "{label} grouped dispatch/setup phase must be positive: {sample:?}",
+            );
+            assert!(
+                sample.execute_local_instructions > 0,
+                "{label} grouped execute phase must be positive: {sample:?}",
+            );
+            assert_eq!(
+                sample.route_local_instructions, 0,
+                "{label} grouped attribution should not report dynamic route-authority cost: {sample:?}",
+            );
+            assert!(
+                sample.total_local_instructions
+                    >= sample.parse_local_instructions
+                        + sample.lower_local_instructions
+                        + sample.dispatch_local_instructions
+                        + sample.execute_local_instructions
+                        + sample.wrapper_local_instructions,
+                "{label} grouped total must cover every attributed phase: {sample:?}",
+            );
+        }
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "full_page": full_page,
+                "first_page": first_page,
+                "second_page": second_page,
+            }))
+            .expect("grouped paged attribution samples should serialize to JSON")
         );
     });
 }

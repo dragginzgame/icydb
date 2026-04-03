@@ -138,6 +138,38 @@ fn field_kind_matches_value(kind: &FieldKind, value: &Value) -> bool {
     }
 }
 
+// Compare exact declared field/value pairs directly before falling back to the
+// wider numeric-or-strict comparator stack.
+fn direct_compare_orderable_field_values(
+    kind: &FieldKind,
+    left: &Value,
+    right: &Value,
+) -> Option<Ordering> {
+    match (kind, left, right) {
+        (FieldKind::Decimal { .. }, Value::Decimal(left), Value::Decimal(right)) => {
+            left.partial_cmp(right)
+        }
+        (FieldKind::Float32, Value::Float32(left), Value::Float32(right)) => {
+            left.get().partial_cmp(&right.get())
+        }
+        (FieldKind::Float64, Value::Float64(left), Value::Float64(right)) => {
+            left.get().partial_cmp(&right.get())
+        }
+        (FieldKind::Int, Value::Int(left), Value::Int(right)) => Some(left.cmp(right)),
+        (FieldKind::Int128, Value::Int128(left), Value::Int128(right)) => {
+            Some(left.get().cmp(&right.get()))
+        }
+        (FieldKind::Uint, Value::Uint(left), Value::Uint(right)) => Some(left.cmp(right)),
+        (FieldKind::Uint128, Value::Uint128(left), Value::Uint128(right)) => {
+            Some(left.get().cmp(&right.get()))
+        }
+        (FieldKind::Relation { key_kind, .. }, left, right) => {
+            direct_compare_orderable_field_values(key_kind, left, right)
+        }
+        _ => None,
+    }
+}
+
 /// Resolve one orderable aggregate target field into a stable projection slot using structural model data.
 pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_with_model(
     model: &'static EntityModel,
@@ -339,6 +371,21 @@ pub(in crate::db::executor) fn compare_orderable_field_values(
     };
 
     Ok(ordering)
+}
+
+/// Compare two extracted field values using the declared field slot first,
+/// then fall back to the shared numeric-widen and strict-ordering contract.
+pub(in crate::db::executor) fn compare_orderable_field_values_with_slot(
+    target_field: &str,
+    field_slot: FieldSlot,
+    left: &Value,
+    right: &Value,
+) -> Result<Ordering, AggregateFieldValueError> {
+    if let Some(ordering) = direct_compare_orderable_field_values(&field_slot.kind, left, right) {
+        return Ok(ordering);
+    }
+
+    compare_orderable_field_values(target_field, left, right)
 }
 
 /// Apply aggregate direction to one base ordering result.

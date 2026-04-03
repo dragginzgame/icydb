@@ -5,13 +5,17 @@
 
 use crate::{
     db::{
-        DbSession, EntityResponse, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace,
-        PersistedRow, Query, QueryError, QueryTracePlan, TraceExecutionStrategy,
+        DbSession, EntityResponse, GroupedTextCursorPageWithTrace, PagedGroupedExecutionWithTrace,
+        PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
+        TraceExecutionStrategy,
         access::AccessStrategy,
-        cursor::CursorPlanError,
-        executor::{ExecutablePlan, ExecutionStrategy, LoadExecutor},
+        cursor::{CursorPlanError, GroupedContinuationToken},
+        diagnostics::ExecutionTrace,
+        executor::{
+            ExecutablePlan, ExecutionStrategy, GroupedCursorPage, LoadExecutor, PageCursor,
+        },
         query::plan::QueryMode,
-        session::decode_optional_cursor_bytes,
+        session::{decode_optional_cursor_bytes, decode_optional_grouped_cursor},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -208,25 +212,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        // Phase 1: build/validate executable plan and require grouped shape.
-        let plan = query.plan()?.into_executable();
-        Self::ensure_grouped_execution_strategy(
-            plan.execution_strategy().map_err(QueryError::execute)?,
-        )?;
-
-        // Phase 2: decode external grouped cursor token and validate against plan.
-        let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
-        let cursor = plan
-            .prepare_grouped_cursor(cursor_bytes.as_deref())
-            .map_err(QueryError::from_executor_plan_error)?;
-
-        // Phase 3: execute grouped page and encode outbound grouped continuation token.
-        let (page, trace) = self
-            .with_metrics(|| {
-                self.load_executor::<E>()
-                    .execute_grouped_paged_with_cursor_traced(plan, cursor)
-            })
-            .map_err(QueryError::execute)?;
+        let (page, trace) = self.execute_grouped_page_with_trace(query, cursor_token)?;
         let next_cursor = page
             .next_cursor
             .map(|token| {
@@ -247,6 +233,72 @@ impl<C: CanisterKind> DbSession<C> {
             next_cursor,
             trace,
         ))
+    }
+
+    /// Execute one grouped query page and return grouped rows plus an already-encoded text cursor.
+    #[doc(hidden)]
+    pub fn execute_grouped_text_cursor<E>(
+        &self,
+        query: &Query<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<GroupedTextCursorPageWithTrace, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (page, trace) = self.execute_grouped_page_with_trace(query, cursor_token)?;
+        let next_cursor = page
+            .next_cursor
+            .map(Self::encode_grouped_page_cursor_hex)
+            .transpose()?;
+
+        Ok((page.rows, next_cursor, trace))
+    }
+}
+
+impl<C: CanisterKind> DbSession<C> {
+    // Execute the canonical grouped query core and return the raw grouped page
+    // plus optional execution trace before outward cursor formatting.
+    fn execute_grouped_page_with_trace<E>(
+        &self,
+        query: &Query<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        // Phase 1: build/validate executable plan and require grouped shape.
+        let plan = query.plan()?.into_executable();
+        Self::ensure_grouped_execution_strategy(
+            plan.execution_strategy().map_err(QueryError::execute)?,
+        )?;
+
+        // Phase 2: decode external grouped cursor token and validate against plan.
+        let cursor = decode_optional_grouped_cursor(cursor_token)?;
+        let cursor = plan
+            .prepare_grouped_cursor_token(cursor)
+            .map_err(QueryError::from_executor_plan_error)?;
+
+        // Phase 3: execute one grouped page while preserving the structural
+        // grouped cursor payload for whichever outward cursor format the caller needs.
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .execute_grouped_paged_with_cursor_traced(plan, cursor)
+        })
+        .map_err(QueryError::execute)
+    }
+
+    // Encode one grouped page cursor directly to lowercase hex without
+    // round-tripping through a temporary raw cursor byte vector.
+    fn encode_grouped_page_cursor_hex(page_cursor: PageCursor) -> Result<String, QueryError> {
+        let token: &GroupedContinuationToken = page_cursor
+            .as_grouped()
+            .ok_or_else(QueryError::grouped_paged_emitted_scalar_continuation)?;
+
+        token.encode_hex().map_err(|err| {
+            QueryError::serialize_internal(format!(
+                "failed to serialize grouped continuation cursor: {err}"
+            ))
+        })
     }
 }
 

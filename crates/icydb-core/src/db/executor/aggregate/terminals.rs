@@ -304,7 +304,7 @@ fn aggregate_existing_rows_terminal_output_with_runtime(
     } = runtime;
 
     // Phase 1: compile predicate/runtime inputs over the prepared logical plan.
-    let execution_preparation = ExecutionPreparation::from_plan(
+    let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
         model,
         logical_plan,
         resolved_index_slots_for_access_path(

@@ -294,7 +294,7 @@ where
             index_range_specs,
             ..
         } = prepared;
-        let execution_preparation = ExecutionPreparation::from_plan(
+        let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
             authority.model(),
             &logical_plan,
             resolved_index_slots_for_access_path(

@@ -29,9 +29,51 @@ impl ByteCountWriter {
     }
 }
 
+///
+/// HexStringWriter
+///
+/// Streaming `io::Write` sink that hex-encodes emitted bytes directly into
+/// one owned string.
+///
+
+struct HexStringWriter {
+    out: String,
+}
+
+impl HexStringWriter {
+    #[must_use]
+    fn with_byte_capacity(byte_len: usize) -> Self {
+        Self {
+            out: String::with_capacity(byte_len.saturating_mul(2)),
+        }
+    }
+
+    #[must_use]
+    fn into_string(self) -> String {
+        self.out
+    }
+}
+
 impl io::Write for ByteCountWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.len = self.len.saturating_add(buf.len());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl io::Write for HexStringWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+
+        for byte in buf {
+            self.out.push(HEX[(byte >> 4) as usize] as char);
+            self.out.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+
         Ok(buf.len())
     }
 
@@ -46,6 +88,18 @@ where
     T: Serialize,
 {
     to_vec(t).map_err(|e| SerializeError::Serialize(e.to_string()))
+}
+
+/// Serialize a value to CBOR while streaming the encoded bytes into one hex string.
+pub(super) fn serialize_hex<T>(t: &T) -> Result<String, SerializeError>
+where
+    T: Serialize,
+{
+    let byte_len = serialize_len(t)?;
+    let mut writer = HexStringWriter::with_byte_capacity(byte_len);
+    to_writer(&mut writer, t).map_err(|e| SerializeError::Serialize(e.to_string()))?;
+
+    Ok(writer.into_string())
 }
 
 /// Serialize a value to CBOR and return encoded byte length without allocating.

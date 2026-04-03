@@ -122,14 +122,16 @@ pub struct SqlPerfSample {
 /// SqlPerfAttributionSurface
 ///
 /// Representative SQL query surfaces used for fixed-cost phase attribution.
-/// This stays intentionally narrow so one first attribution pass can isolate
-/// shared scalar SELECT overhead before widening to grouped or metadata lanes.
+/// This stays intentionally narrow so attribution can isolate the shared read
+/// stack for representative scalar and grouped SELECT shapes.
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlPerfAttributionSurface {
     GeneratedDispatch,
     TypedDispatchUser,
+    TypedGroupedUser,
+    TypedGroupedUserSecondPage,
 }
 
 ///
@@ -144,6 +146,7 @@ pub enum SqlPerfAttributionSurface {
 pub struct SqlPerfAttributionRequest {
     pub surface: SqlPerfAttributionSurface,
     pub sql: String,
+    pub cursor_token: Option<String>,
 }
 
 ///
@@ -234,6 +237,12 @@ pub fn attribute_sql_surface(
         }
         SqlPerfAttributionSurface::TypedDispatchUser => {
             attribute_typed_dispatch_surface(sql.as_str())
+        }
+        SqlPerfAttributionSurface::TypedGroupedUser => {
+            attribute_typed_grouped_surface(sql.as_str(), request.cursor_token.as_deref())
+        }
+        SqlPerfAttributionSurface::TypedGroupedUserSecondPage => {
+            attribute_typed_grouped_second_page_surface(sql.as_str())
         }
     }
 }
@@ -469,25 +478,106 @@ fn attribute_typed_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionSampl
     })
 }
 
-fn measure_typed_grouped_second_page(sql: &str) -> (u64, SqlPerfOutcome) {
-    let bootstrap = db().execute_sql_grouped::<User>(sql, None);
-    let outcome = match bootstrap {
-        Ok(first_page) => {
-            let Some(cursor_token) = first_page.next_cursor() else {
-                return missing_continuation_sample(
-                    "typed grouped second-page sample requires a continuation cursor",
-                );
-            };
+fn attribute_typed_grouped_surface(
+    sql: &str,
+    cursor_token: Option<&str>,
+) -> Result<SqlPerfAttributionSample, Error> {
+    let core = core_db();
 
-            return measure_surface_call(|| {
-                db().execute_sql_grouped::<User>(sql, Some(cursor_token))
-                    .map_or_else(outcome_from_error, outcome_from_grouped_response)
-            });
-        }
-        Err(err) => outcome_from_error(err),
+    // Phase 1: parse once so grouped attribution can isolate the typed
+    // query-intent build from the shared grouped execute path.
+    let (parse_local_instructions, parsed_result) =
+        measure_result(|| core.parse_sql_statement(sql).map_err(Error::from));
+    let parsed = parsed_result?;
+
+    let (core_grouped_total, query_result) =
+        measure_result(|| core.query_from_sql::<User>(sql).map_err(Error::from));
+    let query = query_result?;
+
+    let (lower_local_instructions, lowered_result) = measure_result(|| {
+        parsed
+            .lower_query_lane_for_entity(User::MODEL.name(), User::MODEL.primary_key().name())
+            .map_err(Error::from)
+    });
+    let _lowered = lowered_result?;
+
+    let dispatch_local_instructions = core_grouped_total
+        .saturating_sub(parse_local_instructions.saturating_add(lower_local_instructions));
+
+    // Phase 2: execute the already-built grouped intent so the remaining
+    // facade work can be attributed as one outer wrapper cost.
+    let (execute_local_instructions, execute_result) = measure_result(|| {
+        core.execute_grouped(&query, cursor_token)
+            .map_err(Error::from)
+    });
+    let _execute_result = execute_result?;
+
+    let (total_local_instructions, outcome) = measure_surface_call(|| {
+        db().execute_sql_grouped::<User>(sql, cursor_token)
+            .map_or_else(outcome_from_error, outcome_from_grouped_response)
+    });
+    let attributed_core = core_grouped_total.saturating_add(execute_local_instructions);
+    let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
+
+    Ok(SqlPerfAttributionSample {
+        surface: SqlPerfAttributionSurface::TypedGroupedUser,
+        sql: sql.to_string(),
+        parse_local_instructions,
+        route_local_instructions: 0,
+        lower_local_instructions,
+        dispatch_local_instructions,
+        execute_local_instructions,
+        wrapper_local_instructions,
+        total_local_instructions: attributed_total(
+            parse_local_instructions,
+            0,
+            lower_local_instructions,
+            dispatch_local_instructions,
+            execute_local_instructions,
+            wrapper_local_instructions,
+        ),
+        outcome,
+    })
+}
+
+// Bootstrap one grouped query cursor token from the typed grouped facade so
+// second-page attribution can isolate resumed grouped execution separately
+// from first-page cursor emission.
+fn bootstrap_typed_grouped_cursor_token(sql: &str) -> Result<String, Error> {
+    let first_page = db().execute_sql_grouped::<User>(sql, None)?;
+
+    first_page.next_cursor().map(str::to_string).ok_or_else(|| {
+        Error::new(
+            ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            ErrorOrigin::Query,
+            "grouped second-page attribution requires a continuation cursor",
+        )
+    })
+}
+
+fn attribute_typed_grouped_second_page_surface(
+    sql: &str,
+) -> Result<SqlPerfAttributionSample, Error> {
+    // Phase 1: bootstrap one continuation cursor outside the measured resumed
+    // call so attribution stays focused on the second-page grouped request.
+    let cursor_token = bootstrap_typed_grouped_cursor_token(sql)?;
+
+    let mut sample = attribute_typed_grouped_surface(sql, Some(cursor_token.as_str()))?;
+    sample.surface = SqlPerfAttributionSurface::TypedGroupedUserSecondPage;
+
+    Ok(sample)
+}
+
+fn measure_typed_grouped_second_page(sql: &str) -> (u64, SqlPerfOutcome) {
+    let cursor_token = match bootstrap_typed_grouped_cursor_token(sql) {
+        Ok(cursor_token) => cursor_token,
+        Err(err) => return (0, outcome_from_error(err)),
     };
 
-    (0, outcome)
+    measure_surface_call(|| {
+        db().execute_sql_grouped::<User>(sql, Some(cursor_token.as_str()))
+            .map_or_else(outcome_from_error, outcome_from_grouped_response)
+    })
 }
 
 fn measure_fluent_paged_second_page() -> (u64, SqlPerfOutcome) {

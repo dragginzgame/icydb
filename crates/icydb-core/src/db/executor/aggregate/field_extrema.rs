@@ -14,13 +14,15 @@ use crate::{
                 AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput,
                 field::{
                     AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
-                    compare_orderable_field_values, extract_orderable_field_value_with_slot_reader,
+                    compare_orderable_field_values_with_slot,
+                    extract_orderable_field_value_with_slot_reader,
                     resolve_orderable_aggregate_target_slot_with_model,
                 },
             },
             drive_key_stream_with_control_flow,
             pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter},
             plan_metrics::record_rows_scanned_for_path,
+            preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
             route::aggregate_extrema_direction,
             terminal::{RowDecoder, RowLayout},
@@ -143,8 +145,9 @@ impl ExecutionKernel {
             .map_err(AggregateFieldValueError::into_internal_error)?;
             let should_replace = match selected.as_ref() {
                 Some((current_key, current_value)) => {
-                    let field_order = compare_orderable_field_values(
+                    let field_order = compare_orderable_field_values_with_slot(
                         target_field,
+                        field_slot,
                         &candidate_value,
                         current_value,
                     )
@@ -258,10 +261,10 @@ impl ExecutionKernel {
             prepared.store,
             prepared.authority.model(),
         );
-        let execution_preparation = ExecutionPreparation::from_plan(
+        let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
             prepared.authority.model(),
             &prepared.logical_plan,
-            runtime.slot_map().map(<[usize]>::to_vec),
+            slot_map_for_model_plan(prepared.authority.model(), &prepared.logical_plan),
         );
         let execution_inputs = ExecutionInputs::new(
             &runtime,
@@ -327,9 +330,13 @@ impl ExecutionKernel {
             let selected_was_empty = selected.is_none();
             let candidate_replaces = match selected.as_ref() {
                 Some((current_key, current_value)) => {
-                    let field_order =
-                        compare_orderable_field_values(spec.target_field, &value, current_value)
-                            .map_err(AggregateFieldValueError::into_internal_error)?;
+                    let field_order = compare_orderable_field_values_with_slot(
+                        spec.target_field,
+                        spec.field_slot,
+                        &value,
+                        current_value,
+                    )
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
                     let directional_field_order =
                         apply_aggregate_direction(field_order, spec.direction);
 
@@ -352,9 +359,13 @@ impl ExecutionKernel {
             let Some((_, current_value)) = selected.as_ref() else {
                 return Ok(KeyStreamLoopControl::Emit);
             };
-            let field_order =
-                compare_orderable_field_values(spec.target_field, &value, current_value)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
+            let field_order = compare_orderable_field_values_with_slot(
+                spec.target_field,
+                spec.field_slot,
+                &value,
+                current_value,
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
             let directional_field_order = apply_aggregate_direction(field_order, spec.direction);
 
             // Once traversal leaves the winning field-value group, the ordered

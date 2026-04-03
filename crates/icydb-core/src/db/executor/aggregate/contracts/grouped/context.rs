@@ -266,7 +266,7 @@ impl ExecutionContext {
         )
     }
 
-    pub(in crate::db::executor::aggregate::contracts::grouped) fn record_new_group(
+    pub(in crate::db::executor::aggregate) fn record_new_group(
         &mut self,
         group_key: &GroupKey,
         created_bucket: bool,

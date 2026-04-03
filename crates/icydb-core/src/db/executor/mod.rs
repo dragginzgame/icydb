@@ -69,6 +69,7 @@ pub(in crate::db::executor) use order::{
     resolve_structural_order,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
+pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
 #[cfg(feature = "sql")]

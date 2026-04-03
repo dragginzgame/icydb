@@ -18,6 +18,7 @@ use crate::{
         pipeline::entrypoints::{LoadExecutionMode, LoadTracingMode},
         pipeline::orchestrator::LoadExecutionSurface,
         pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+        preparation::slot_map_for_model_plan,
         stream::access::TraversalRuntime,
     },
     error::InternalError,
@@ -54,6 +55,7 @@ struct GroupedPathRuntimeCore {
 pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
     route: GroupedRouteStage,
     runtime: GroupedPathRuntimeCore,
+    slot_map: Option<Vec<usize>>,
 }
 
 impl GroupedPathRuntimeCore {
@@ -61,11 +63,11 @@ impl GroupedPathRuntimeCore {
     fn build_grouped_stream<'a>(
         &'a self,
         route: &GroupedRouteStage,
+        slot_map: Option<Vec<usize>>,
     ) -> Result<GroupedStreamStage<'a>, InternalError> {
-        let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
             &route.plan().access,
             self.traversal_runtime,
-            self.row_store,
             self.authority.model(),
         );
 
@@ -73,7 +75,7 @@ impl GroupedPathRuntimeCore {
             route,
             &runtime,
             self.authority.model(),
-            runtime.slot_map().map(<[usize]>::to_vec),
+            slot_map,
             Box::new(StructuralGroupedRowRuntime::new(
                 self.row_store,
                 self.authority.model(),
@@ -103,9 +105,10 @@ impl GroupedPathRuntimeCore {
 fn execute_grouped_route_path(
     runtime: &GroupedPathRuntimeCore,
     route: GroupedRouteStage,
+    slot_map: Option<Vec<usize>>,
 ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
     let execution_started_at = start_execution_timer();
-    let stream = runtime.build_grouped_stream(&route)?;
+    let stream = runtime.build_grouped_stream(&route, slot_map)?;
     let folded = execute_group_fold_stage(&route, stream)?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
@@ -117,9 +120,13 @@ fn execute_grouped_route_path(
 pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
     prepared: PreparedGroupedRouteRuntime,
 ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-    let PreparedGroupedRouteRuntime { route, runtime } = prepared;
+    let PreparedGroupedRouteRuntime {
+        route,
+        runtime,
+        slot_map,
+    } = prepared;
 
-    execute_grouped_route_path(&runtime, route)
+    execute_grouped_route_path(&runtime, route, slot_map)
 }
 
 impl<E> LoadExecutor<E>
@@ -146,9 +153,13 @@ where
         &self,
         route: GroupedRouteStage,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
+        let authority = EntityAuthority::for_type::<E>();
+        let slot_map = slot_map_for_model_plan(authority.model(), route.plan());
+
         Ok(PreparedGroupedRouteRuntime {
             route,
             runtime: self.grouped_path_runtime()?,
+            slot_map,
         })
     }
 

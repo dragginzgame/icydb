@@ -180,6 +180,20 @@ pub(in crate::db) fn decode_optional_cursor_token(
         .transpose()
 }
 
+/// Decode one optional grouped cursor token through the existing external
+/// hex-token boundary while preserving grouped-token ownership for downstream
+/// validation.
+pub(in crate::db) fn decode_optional_grouped_cursor_token(
+    cursor_token: Option<&str>,
+) -> Result<Option<GroupedContinuationToken>, CursorPlanError> {
+    decode_optional_cursor_token(cursor_token)?
+        .map(|bytes| {
+            GroupedContinuationToken::decode(bytes.as_slice())
+                .map_err(CursorPlanError::from_token_wire_error)
+        })
+        .transpose()
+}
+
 /// Validate and decode a continuation cursor into executor-ready cursor state.
 #[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn prepare_cursor<K: FieldValue>(
@@ -253,6 +267,26 @@ pub(in crate::db) fn prepare_grouped_cursor(
         ContinuationCursorContract::grouped(order, continuation_signature, initial_offset)?;
 
     spine::validate_grouped_cursor(
+        cursor,
+        entity_path,
+        contract.continuation_signature(),
+        contract.initial_offset(),
+    )
+}
+
+/// Validate one already-decoded grouped continuation token into grouped
+/// executor cursor state.
+pub(in crate::db) fn prepare_grouped_cursor_token(
+    entity_path: &'static str,
+    order: Option<&OrderSpec>,
+    continuation_signature: ContinuationSignature,
+    initial_offset: u32,
+    cursor: Option<GroupedContinuationToken>,
+) -> Result<GroupedPlannedCursor, CursorPlanError> {
+    let contract =
+        ContinuationCursorContract::grouped(order, continuation_signature, initial_offset)?;
+
+    spine::validate_grouped_cursor_token(
         cursor,
         entity_path,
         contract.continuation_signature(),

@@ -12,8 +12,8 @@ mod surface;
 
 use crate::{
     db::{
-        DbSession, EntityResponse, MissingRowPolicy, PagedGroupedExecutionWithTrace, PersistedRow,
-        Query, QueryError,
+        DbSession, EntityResponse, GroupedTextCursorPageWithTrace, MissingRowPolicy,
+        PagedGroupedExecutionWithTrace, PersistedRow, Query, QueryError,
         sql::{
             lowering::{bind_lowered_sql_query, lower_sql_command_from_prepared_statement},
             parser::{SqlStatement, parse_sql},
@@ -180,5 +180,34 @@ impl<C: CanisterKind> DbSession<C> {
         Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
 
         self.execute_grouped(&query, cursor_token)
+    }
+
+    /// Execute one reduced SQL grouped `SELECT` statement and return one text cursor directly.
+    #[doc(hidden)]
+    pub fn execute_sql_grouped_text_cursor<E>(
+        &self,
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> Result<GroupedTextCursorPageWithTrace, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let parsed = self.parse_sql_statement(sql)?;
+
+        if matches!(&parsed.statement, SqlStatement::Delete(_)) {
+            return Err(QueryError::unsupported_query(
+                "execute_sql_grouped rejects DELETE; use execute_sql_dispatch(...)",
+            ));
+        }
+
+        let query = Self::query_from_sql_parsed::<E>(
+            &parsed,
+            SqlSurface::ExecuteSqlGrouped,
+            SqlComputedProjectionSurface::ExecuteSqlGrouped,
+            SqlAggregateSurface::ExecuteSqlGrouped,
+        )?;
+        Self::ensure_sql_query_grouping(&query, dispatch::SqlGroupingSurface::Grouped)?;
+
+        self.execute_grouped_text_cursor(&query, cursor_token)
     }
 }

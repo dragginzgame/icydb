@@ -113,6 +113,42 @@ impl ExecutionPreparation {
         }
     }
 
+    /// Build the strict-only execution preparation needed by aggregate routes
+    /// that may push one residual predicate into index traversal.
+    ///
+    /// This path keeps only the compiled predicate plus the strict
+    /// all-or-none index predicate program. Aggregate key-stream helpers do
+    /// not consume explain capability snapshots, so they do not need the
+    /// heavier full preparation bundle.
+    #[must_use]
+    pub(in crate::db::executor) fn from_strict_runtime_plan(
+        model: &'static EntityModel,
+        plan: &AccessPlannedQuery,
+        slot_map: Option<Vec<usize>>,
+    ) -> Self {
+        let compiled_predicate = plan
+            .scalar_plan()
+            .predicate
+            .as_ref()
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
+        let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
+            (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
+                compiled_predicate.executable(),
+                slot_map,
+                IndexCompilePolicy::StrictAllOrNone,
+            ),
+            (Some(_) | None, None) | (None, Some(_)) => None,
+        };
+
+        Self {
+            compiled_predicate,
+            conservative_mode: None,
+            predicate_capability_profile: None,
+            slot_map,
+            strict_mode,
+        }
+    }
+
     #[must_use]
     pub(in crate::db::executor) const fn compiled_predicate(&self) -> Option<&PredicateProgram> {
         self.compiled_predicate.as_ref()

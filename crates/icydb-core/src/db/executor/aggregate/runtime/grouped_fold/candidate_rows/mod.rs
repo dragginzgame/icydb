@@ -32,10 +32,28 @@ pub(super) fn collect_grouped_candidate_rows(
     max_groups_bound: usize,
     pagination_window: &GroupedPaginationWindow,
 ) -> Result<Vec<(Value, Vec<Value>)>, InternalError> {
-    // Phase 1: finalize typed aggregate engines into canonical `(group_key, value)` iterators.
+    // Phase 1: route the common single-aggregate grouped shape away from the
+    // multi-aggregate sibling-alignment machinery.
+    if aggregate_count == 1 {
+        let primary_engine = grouped_engines
+            .into_iter()
+            .next()
+            .ok_or_else(GroupedRouteStage::missing_primary_aggregate_iterator)?;
+
+        return collect_single_aggregate_candidate_rows_from_finalized(
+            route.group_fields(),
+            route.grouped_having(),
+            route.grouped_continuation_capabilities(),
+            pagination_window,
+            primary_engine.finalize()?.into_iter(),
+            max_groups_bound,
+        );
+    }
+
+    // Phase 2: finalize typed aggregate engines into canonical `(group_key, value)` iterators.
     let finalized_iters = finalize_grouped_iterators(grouped_engines)?;
 
-    // Phase 2: execute shared candidate-row selection/runtime filtering once.
+    // Phase 3: execute shared candidate-row selection/runtime filtering once.
     collect_grouped_candidate_rows_from_finalized(
         aggregate_count,
         route.group_fields(),
@@ -45,6 +63,61 @@ pub(super) fn collect_grouped_candidate_rows(
         finalized_iters,
         max_groups_bound,
     )
+}
+
+// Execute candidate-row selection for the common single-aggregate grouped
+// shape without paying sibling-iterator alignment costs.
+pub(super) fn collect_single_aggregate_candidate_rows_from_finalized<I>(
+    group_fields: &[FieldSlot],
+    grouped_having: Option<&GroupHavingSpec>,
+    continuation_capabilities: GroupedContinuationCapabilities,
+    pagination_window: &GroupedPaginationWindow,
+    primary_iter: I,
+    max_groups_bound: usize,
+) -> Result<Vec<(Value, Vec<Value>)>, InternalError>
+where
+    I: Iterator<Item = (Value, Value)>,
+{
+    // Phase 1: project continuation/window contracts that define candidate selection.
+    let limit = pagination_window.limit();
+    let selection_bound = if continuation_capabilities.selection_bound_applied() {
+        pagination_window.selection_bound()
+    } else {
+        None
+    };
+    let resume_boundary = if continuation_capabilities.resume_boundary_applied() {
+        pagination_window.resume_boundary()
+    } else {
+        None
+    };
+    let mut grouped_candidate_sink = GroupedCandidateSink::new(selection_bound, max_groups_bound);
+
+    // Phase 2: collect one candidate row per finalized grouped aggregate output.
+    if limit.is_none_or(|limit| limit != 0) {
+        for (group_key_value, aggregate_value) in primary_iter {
+            if let Some(grouped_having) = grouped_having
+                && !group_matches_having(
+                    grouped_having,
+                    group_fields,
+                    &group_key_value,
+                    std::slice::from_ref(&aggregate_value),
+                )?
+            {
+                continue;
+            }
+            if let Some(resume_boundary) = resume_boundary
+                && !canonical_value_compare(&group_key_value, resume_boundary).is_gt()
+            {
+                continue;
+            }
+
+            if grouped_candidate_sink.push_candidate(group_key_value, vec![aggregate_value])? {
+                break;
+            }
+        }
+    }
+
+    Ok(grouped_candidate_sink.into_rows())
 }
 
 // Finalize typed grouped aggregate engines into canonical iterator payloads.
@@ -90,6 +163,7 @@ fn collect_grouped_candidate_rows_from_finalized(
         .next()
         .ok_or_else(GroupedRouteStage::missing_primary_aggregate_iterator)?;
     let mut grouped_candidate_sink = GroupedCandidateSink::new(selection_bound, max_groups_bound);
+    let mut selection_saturated = false;
 
     if limit.is_none_or(|limit| limit != 0) {
         for (group_key_value, primary_value) in primary_iter.by_ref() {
@@ -130,13 +204,18 @@ fn collect_grouped_candidate_rows_from_finalized(
                 continue;
             }
 
-            grouped_candidate_sink.push_candidate(group_key_value, aggregate_values)?;
+            if grouped_candidate_sink.push_candidate(group_key_value, aggregate_values)? {
+                selection_saturated = true;
+                break;
+            }
         }
-        for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
-            if sibling_iter.next().is_some() {
-                return Err(GroupedRouteStage::trailing_sibling_aggregate_rows(
-                    sibling_index,
-                ));
+        if !selection_saturated {
+            for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
+                if sibling_iter.next().is_some() {
+                    return Err(GroupedRouteStage::trailing_sibling_aggregate_rows(
+                        sibling_index,
+                    ));
+                }
             }
         }
     }

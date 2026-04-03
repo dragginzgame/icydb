@@ -13,10 +13,13 @@ mod decode;
 use crate::{
     db::{
         cursor::IndexScanContinuationInput,
+        cursor::{ContinuationRuntime, LoopAction},
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
-            ExecutablePlan, ExecutionKernel, PreparedAggregatePlan,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
+            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, PreparedAggregatePlan,
+            TraversalRuntime,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
@@ -25,6 +28,7 @@ use crate::{
                     AggregateFieldValueError, FieldSlot,
                     extract_orderable_field_value_with_slot_reader,
                     resolve_any_aggregate_target_slot_from_planner_slot_with_model,
+                    resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::{
@@ -38,6 +42,8 @@ use crate::{
             },
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
+            plan_metrics::record_rows_scanned_for_path,
+            preparation::resolved_index_slots_for_access_path,
             read_row_with_consistency_from_store,
             terminal::{RowDecoder, RowLayout},
         },
@@ -55,6 +61,7 @@ use crate::{
     types::Id,
     value::Value,
 };
+use std::cell::RefCell;
 
 type ValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
@@ -65,6 +72,7 @@ type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
     Values,
     DistinctValues,
+    CountNonNull,
     CountDistinct,
     ValuesWithIds,
     TerminalValue { terminal_kind: AggregateKind },
@@ -135,6 +143,39 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Execute one `MIN(field)` / `MAX(field)` value request through the
+    // aggregate field-extrema path and then project the winning row's field
+    // value. This keeps SQL aggregate extrema on the dedicated aggregate
+    // route instead of the two-step ranked-id plus follow-up field load path.
+    pub(in crate::db) fn execute_scalar_extrema_value_boundary(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+        terminal_kind: AggregateKind,
+    ) -> Result<Option<Value>, InternalError> {
+        if !terminal_kind.is_extrema() {
+            return Err(InternalError::query_executor_invariant(
+                "scalar extrema value boundary requires MIN/MAX aggregate kind",
+            ));
+        }
+
+        let plan = plan.into_prepared_aggregate_plan();
+        let authority = plan.authority();
+        let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot_with_model(
+            authority.model(),
+            &target_field,
+        )
+        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
+
+        self.execute_selected_value_field_projection_with_slot(
+            prepared,
+            target_field.field(),
+            field_slot,
+            terminal_kind,
+        )
+    }
+
     // Execute one scalar field-projection terminal family request from the
     // typed API boundary, lower plan-derived policy into one prepared
     // projection contract, and then execute that contract.
@@ -198,6 +239,14 @@ where
         match boundary.strategy.clone() {
             PreparedScalarProjectionStrategy::Materialized => self
                 .execute_materialized_scalar_projection_boundary(boundary, prepared, &row_layout),
+            PreparedScalarProjectionStrategy::StreamingCountNonNull { direction } => {
+                Self::execute_streaming_count_non_null_scalar_projection_boundary(
+                    boundary,
+                    prepared,
+                    &row_layout,
+                    direction,
+                )
+            }
             PreparedScalarProjectionStrategy::CoveringIndex {
                 context,
                 window,
@@ -260,6 +309,18 @@ where
                     return PreparedScalarProjectionStrategy::CoveringConstant { value };
                 }
             }
+            PreparedScalarProjectionOp::CountNonNull => {
+                if let Some(value) =
+                    Self::constant_covering_projection_value_if_eligible(prepared, target_field)
+                {
+                    return PreparedScalarProjectionStrategy::CoveringConstant { value };
+                }
+                if prepared.supports_streaming_existing_row_field_fold() {
+                    return PreparedScalarProjectionStrategy::StreamingCountNonNull {
+                        direction: prepared.streaming_existing_row_field_direction(),
+                    };
+                }
+            }
             PreparedScalarProjectionOp::ValuesWithIds => {}
         }
 
@@ -308,6 +369,23 @@ where
                     };
 
                     return Ok(ScalarProjectionBoundaryOutput::Values(values));
+                }
+            }
+            PreparedScalarProjectionOp::CountNonNull => {
+                if let Some(covering_projection) =
+                    Self::covering_index_projection_values_with_context_from_prepared(
+                        &prepared, context, window,
+                    )?
+                {
+                    let count = covering_projection
+                        .values
+                        .into_iter()
+                        .filter(|value| !matches!(value, Value::Null))
+                        .count();
+
+                    return Ok(ScalarProjectionBoundaryOutput::Count(
+                        u32::try_from(count).unwrap_or(u32::MAX),
+                    ));
                 }
             }
             PreparedScalarProjectionOp::CountDistinct => {
@@ -392,6 +470,13 @@ where
                     Vec::new()
                 }))
             }
+            PreparedScalarProjectionOp::CountNonNull => Ok(ScalarProjectionBoundaryOutput::Count(
+                if matches!(value, Value::Null) {
+                    0
+                } else {
+                    self.aggregate_count_from_prepared(prepared)?
+                },
+            )),
             PreparedScalarProjectionOp::CountDistinct => {
                 let has_rows = self.aggregate_exists_from_prepared(prepared)?;
                 Ok(ScalarProjectionBoundaryOutput::Count(u32::from(has_rows)))
@@ -417,7 +502,7 @@ where
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = boundary.op {
             return self
-                .execute_terminal_value_field_projection_with_slot(
+                .execute_selected_value_field_projection_with_slot(
                     prepared,
                     &boundary.target_field_name,
                     boundary.field_slot,
@@ -452,6 +537,15 @@ where
                 .and_then(Self::project_distinct_field_values_from_materialized)
                 .map(ScalarProjectionBoundaryOutput::Values)
             }
+            PreparedScalarProjectionOp::CountNonNull => {
+                Self::count_non_null_field_values_from_materialized_structural(
+                    rows,
+                    row_layout,
+                    &boundary.target_field_name,
+                    boundary.field_slot,
+                )
+                .map(ScalarProjectionBoundaryOutput::Count)
+            }
             PreparedScalarProjectionOp::CountDistinct => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
@@ -481,10 +575,103 @@ where
         }
     }
 
-    // Execute one field-target scalar terminal projection (`first_value_by` /
-    // `last_value_by`) using a planner-validated slot and route-owned
-    // first/last row selection semantics.
-    fn execute_terminal_value_field_projection_with_slot(
+    // Execute COUNT(field) directly from one ordered existing-row stream when
+    // the prepared aggregate shape preserves the canonical streaming contract.
+    fn execute_streaming_count_non_null_scalar_projection_boundary(
+        boundary: crate::db::executor::aggregate::PreparedScalarProjectionBoundary,
+        prepared: PreparedAggregateStreamingInputs<'_>,
+        row_layout: &RowLayout,
+        direction: Direction,
+    ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
+        // Phase 1: consume prepared aggregate state into one direct existing-row stream.
+        let consistency = prepared.consistency();
+        let PreparedAggregateStreamingInputs {
+            authority,
+            store,
+            logical_plan,
+            index_prefix_specs,
+            index_range_specs,
+            ..
+        } = prepared;
+        let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
+            authority.model(),
+            &logical_plan,
+            resolved_index_slots_for_access_path(
+                authority.model(),
+                logical_plan.access.resolve_strategy().executable(),
+            ),
+        );
+        let continuation = RefCell::new(ContinuationRuntime::from_window(
+            ExecutionKernel::window_cursor_contract(&logical_plan, None),
+        ));
+
+        // Phase 2: resolve the canonical ordered key stream from access descriptors.
+        let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
+            crate::db::index::predicate::IndexPredicateExecution {
+                program,
+                rejected_keys_counter: None,
+            }
+        });
+        let access = ExecutableAccess::new(
+            &logical_plan.access,
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, direction),
+            ),
+            None,
+            index_predicate_execution,
+        );
+        let runtime = TraversalRuntime::new(store, authority.entity_tag());
+        let mut key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
+
+        // Phase 3: decode only the target field and count non-null rows.
+        let mut rows_scanned = 0usize;
+        let mut count = 0u32;
+        let mut pre_key = || {
+            Self::loop_control_from_projection_continuation(continuation.borrow_mut().pre_fetch())
+        };
+        let mut on_key = |_data_key,
+                          row: Option<crate::db::executor::terminal::page::KernelRow>|
+         -> Result<KeyStreamLoopControl, InternalError> {
+            let Some(row) = row else {
+                return Ok(KeyStreamLoopControl::Emit);
+            };
+            rows_scanned = rows_scanned.saturating_add(1);
+            match continuation.borrow_mut().accept_row() {
+                LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
+                LoopAction::Emit => {}
+                LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
+            }
+            let value = extract_orderable_field_value_with_slot_reader(
+                &boundary.target_field_name,
+                boundary.field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+            if !matches!(value, Value::Null) {
+                count = count.saturating_add(1);
+            }
+
+            Ok(KeyStreamLoopControl::Emit)
+        };
+        Self::drive_field_row_stream(
+            store,
+            row_layout,
+            consistency,
+            key_stream.as_mut(),
+            &mut pre_key,
+            &mut on_key,
+        )?;
+        record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
+
+        Ok(ScalarProjectionBoundaryOutput::Count(count))
+    }
+
+    // Execute one field-target selected-value projection (`first_value_by` /
+    // `last_value_by` / SQL `MIN/MAX(field)`) using a planner-validated slot
+    // and route-owned selected-row semantics.
+    fn execute_selected_value_field_projection_with_slot(
         &self,
         prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
@@ -495,10 +682,13 @@ where
         let store = prepared.store;
         let entity_tag = prepared.authority.entity_tag();
         let row_layout = RowLayout::from_model(prepared.authority.model());
-        let state = ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
-            prepared,
-            AggregateExpr::terminal_for_kind(terminal_kind),
-        );
+        let aggregate = if terminal_kind.is_extrema() {
+            AggregateExpr::field_target_extrema_for_kind(terminal_kind, target_field)
+        } else {
+            AggregateExpr::terminal_for_kind(terminal_kind)
+        };
+        let state =
+            ExecutionKernel::prepare_aggregate_execution_state_from_prepared(prepared, aggregate);
         let selected_key = ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_optional_id_terminal(
                 terminal_kind,
@@ -540,6 +730,34 @@ where
         projected_values: ValueProjection,
     ) -> Result<Vec<Value>, InternalError> {
         project_distinct_field_values_from_structural_projection(projected_values)
+    }
+
+    // Count non-null field values directly from materialized rows without
+    // retaining the intermediate projection vector.
+    fn count_non_null_field_values_from_materialized_structural(
+        rows: Vec<DataRow>,
+        row_layout: &RowLayout,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<u32, InternalError> {
+        let row_decoder = RowDecoder::structural();
+        let mut count = 0_u32;
+
+        for (data_key, raw_row) in rows {
+            let row = row_decoder.decode(row_layout, (data_key, raw_row))?;
+            let value = extract_orderable_field_value_with_slot_reader(
+                target_field,
+                field_slot,
+                &mut |index| row.slot(index),
+            )
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+
+            if !matches!(value, Value::Null) {
+                count = count.saturating_add(1);
+            }
+        }
+
+        Ok(count)
     }
 
     // Project materialized structural rows into structural `(data_key, value)`
@@ -776,6 +994,17 @@ where
                 None,
             )
         })
+    }
+
+    // Preserve the same continuation-to-loop-control mapping used by the
+    // aggregate streaming helpers without duplicating enum matching at each
+    // projection streaming callsite.
+    const fn loop_control_from_projection_continuation(action: LoopAction) -> KeyStreamLoopControl {
+        match action {
+            LoopAction::Skip => KeyStreamLoopControl::Skip,
+            LoopAction::Emit => KeyStreamLoopControl::Emit,
+            LoopAction::Stop => KeyStreamLoopControl::Stop,
+        }
     }
 }
 

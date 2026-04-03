@@ -137,12 +137,14 @@ impl StructuralGroupedRowRuntime {
         }
     }
 
-    // Decode one persisted data row into the structural slot view consumed by
-    // grouped fold/runtime stages.
-    fn row_view_from_data_row(&self, row: (DataKey, RawRow)) -> Result<RowView, InternalError> {
-        let kernel_row = self.row_decoder.decode(&self.row_layout, row)?;
+    // Decode one persisted data row straight into the structural slot view
+    // consumed by grouped fold/runtime stages without building a full kernel row.
+    fn row_view_from_data_row(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
+        let slots = self
+            .row_decoder
+            .decode_slots(&self.row_layout, key.storage_key(), &row)?;
 
-        Ok(RowView::new(kernel_row.into_slots()))
+        Ok(RowView::new(slots))
     }
 
     // Read one persisted row under the grouped consistency contract while
@@ -151,15 +153,13 @@ impl StructuralGroupedRowRuntime {
         &self,
         consistency: MissingRowPolicy,
         key: &DataKey,
-    ) -> Result<Option<(DataKey, RawRow)>, InternalError> {
+    ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         let row = self.store.with_data(|store| store.get(&raw_key));
 
         match (consistency, row) {
             (MissingRowPolicy::Ignore, None) => Ok(None),
-            (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => {
-                Ok(Some((key.clone(), row)))
-            }
+            (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => Ok(Some(row)),
             (MissingRowPolicy::Error, None) => {
                 Err(crate::db::executor::ExecutorError::missing_row(key).into())
             }
@@ -174,7 +174,7 @@ impl GroupedRowRuntime for StructuralGroupedRowRuntime {
         key: &DataKey,
     ) -> Result<Option<RowView>, InternalError> {
         self.read_data_row(consistency, key)?
-            .map(|row| self.row_view_from_data_row(row))
+            .map(|row| self.row_view_from_data_row(key, row))
             .transpose()
     }
 }

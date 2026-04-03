@@ -113,6 +113,22 @@ impl GroupKey {
         &self.raw.0
     }
 
+    // Consume one grouped key and return the owned canonical grouped value
+    // so grouped fast paths can keep moving owned key payloads without clones.
+    pub(in crate::db::executor) fn into_canonical_value(self) -> Value {
+        self.raw.0
+    }
+
+    // Materialize one grouped key from owned grouped slot values without
+    // cloning them back through the borrowed canonicalization path.
+    pub(in crate::db::executor) fn from_group_values(
+        group_values: Vec<Value>,
+    ) -> Result<Self, KeyCanonicalError> {
+        let canonical = canonicalize_owned_value(Value::List(group_values))?;
+
+        Self::from_raw(canonical)
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn raw(&self) -> &Value {
@@ -237,6 +253,40 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCano
     Ok(Value::Map(normalized))
 }
 
+// Canonicalize one owned runtime value into grouped-key equality form while
+// preserving ownership of already-materialized grouped slot payloads.
+fn canonicalize_owned_value(value: Value) -> Result<Value, KeyCanonicalError> {
+    match value {
+        Value::Decimal(decimal) => Ok(Value::Decimal(decimal.normalize())),
+        Value::List(items) => items
+            .into_iter()
+            .map(canonicalize_owned_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::List),
+        Value::Map(entries) => canonicalize_owned_map_entries(entries),
+        value => Ok(value),
+    }
+}
+
+// Canonicalize one owned map payload recursively while preserving stable
+// grouped-key map normalization.
+fn canonicalize_owned_map_entries(
+    entries: Vec<(Value, Value)>,
+) -> Result<Value, KeyCanonicalError> {
+    let mut canonical_entries = Vec::with_capacity(entries.len());
+    for (key, value) in entries {
+        canonical_entries.push((
+            canonicalize_owned_value(key)?,
+            canonicalize_owned_value(value)?,
+        ));
+    }
+
+    let normalized = Value::normalize_map_entries(canonical_entries)
+        .map_err(KeyCanonicalError::InvalidMapValue)?;
+
+    Ok(Value::Map(normalized))
+}
+
 ///
 /// TESTS
 ///
@@ -245,7 +295,7 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCano
 mod tests {
     use crate::{
         db::executor::group::{
-            CanonicalKey, GroupKeySet, KeyCanonicalError, canonical_group_key_equals,
+            CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError, canonical_group_key_equals,
         },
         types::Decimal,
         value::{MapValueError, Value, with_test_hash_override},
@@ -408,5 +458,21 @@ mod tests {
                 "re-inserting second key should dedupe by canonical equality",
             );
         });
+    }
+
+    #[test]
+    fn group_key_from_group_values_matches_borrowed_canonical_key_path() {
+        let group_values = vec![
+            Value::Decimal(Decimal::new(100, 2)),
+            Value::Text("alpha".to_string()),
+            map_value(vec![(Value::Text("z".to_string()), Value::Uint(9))]),
+        ];
+        let borrowed = Value::List(group_values.clone())
+            .canonical_key()
+            .expect("borrowed canonical key");
+        let owned = GroupKey::from_group_values(group_values).expect("owned canonical key");
+
+        assert_eq!(borrowed, owned);
+        assert_eq!(borrowed.hash(), owned.hash());
     }
 }

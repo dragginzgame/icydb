@@ -91,7 +91,11 @@ impl RowLayout {
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) struct RowDecoder {
     decode: fn(&RowLayout, DataRow) -> Result<KernelRow, InternalError>,
+    decode_slots: RowDecodeSlotsFn,
 }
+
+type RowDecodeSlotsFn =
+    fn(&RowLayout, StorageKey, &RawRow) -> Result<Vec<Option<Value>>, InternalError>;
 
 impl RowDecoder {
     /// Build the canonical structural row decoder used by scalar execution.
@@ -99,6 +103,7 @@ impl RowDecoder {
     pub(in crate::db::executor) const fn structural() -> Self {
         Self {
             decode: decode_kernel_row_structural,
+            decode_slots: decode_structural_slots,
         }
     }
 
@@ -110,6 +115,17 @@ impl RowDecoder {
     ) -> Result<KernelRow, InternalError> {
         (self.decode)(layout, data_row)
     }
+
+    /// Decode one persisted row into slot-indexed structural values without
+    /// constructing one full kernel-row envelope.
+    pub(in crate::db::executor) fn decode_slots(
+        self,
+        layout: &RowLayout,
+        expected_key: StorageKey,
+        row: &RawRow,
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        (self.decode_slots)(layout, expected_key, row)
+    }
 }
 
 // Decode one persisted data row into one structural kernel row using the
@@ -118,7 +134,19 @@ fn decode_kernel_row_structural(
     layout: &RowLayout,
     data_row: DataRow,
 ) -> Result<KernelRow, InternalError> {
-    let row_fields = decode_row_fields(&data_row.1, layout.model)?;
+    let slots = decode_structural_slots(layout, data_row.0.storage_key(), &data_row.1)?;
+
+    Ok(KernelRow::new(data_row, slots))
+}
+
+// Decode one persisted row directly into slot-indexed structural values while
+// still validating the primary-key slot against storage identity.
+fn decode_structural_slots(
+    layout: &RowLayout,
+    expected_key: StorageKey,
+    row: &RawRow,
+) -> Result<Vec<Option<Value>>, InternalError> {
+    let row_fields = decode_row_fields(row, layout.model)?;
     let mut slots = Vec::with_capacity(layout.fields.len());
 
     // Phase 1: decode declared slots through the canonical structural slot reader.
@@ -127,9 +155,9 @@ fn decode_kernel_row_structural(
     }
 
     // Phase 2: verify the decoded primary-key value still matches storage identity.
-    validate_primary_key_slot(layout, data_row.0.storage_key(), slots.as_slice())?;
+    validate_primary_key_slot(layout, expected_key, slots.as_slice())?;
 
-    Ok(KernelRow::new(data_row, slots))
+    Ok(slots)
 }
 
 // Decode the persisted row envelope into slot-aligned encoded field payload spans.

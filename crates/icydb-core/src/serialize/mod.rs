@@ -87,6 +87,15 @@ where
     cbor::serialize(ty)
 }
 
+/// Serialize a value using the default `canic` serializer and stream the
+/// encoded bytes directly into one lowercase hex string.
+pub fn serialize_hex<T>(ty: &T) -> Result<String, SerializeError>
+where
+    T: Serialize,
+{
+    cbor::serialize_hex(ty)
+}
+
 /// Return serialized byte length using the default `canic` serializer without
 /// allocating an output buffer.
 pub fn serialized_len<T>(ty: &T) -> Result<usize, SerializeError>

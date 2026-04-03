@@ -19,6 +19,7 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
+pub(in crate::db) use grouped::GroupedTextCursorPageWithTrace;
 pub use grouped::{GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace};
 pub use paged::{PagedLoadExecution, PagedLoadExecutionWithTrace};
 

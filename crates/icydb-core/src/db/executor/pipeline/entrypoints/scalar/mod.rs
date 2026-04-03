@@ -25,6 +25,7 @@ use crate::{
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
+            preparation::slot_map_for_model_plan,
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,
@@ -296,7 +297,7 @@ fn execute_prepared_scalar_path_execution(
     let execution_preparation = ExecutionPreparation::from_runtime_plan(
         authority.model(),
         &plan,
-        runtime.slot_map().map(<[usize]>::to_vec),
+        slot_map_for_model_plan(authority.model(), &plan),
     );
 
     execute_scalar_execution_stage(ScalarExecutionStage {
@@ -543,7 +544,7 @@ where
     let execution_preparation = ExecutionPreparation::from_runtime_plan(
         authority.model(),
         &logical_plan,
-        runtime.slot_map().map(<[usize]>::to_vec),
+        slot_map_for_model_plan(authority.model(), &logical_plan),
     );
     let mut route_plan =
         crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(

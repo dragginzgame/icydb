@@ -164,3 +164,9 @@ impl PagedGroupedExecutionWithTrace {
         (self.rows, self.continuation_cursor, self.execution_trace)
     }
 }
+
+// Internal grouped page payload that carries an already-encoded outward cursor.
+// This keeps the direct text-cursor bridge explicit without widening the public
+// grouped response DTO surface.
+pub(in crate::db) type GroupedTextCursorPageWithTrace =
+    (Vec<GroupedRow>, Option<String>, Option<ExecutionTrace>);

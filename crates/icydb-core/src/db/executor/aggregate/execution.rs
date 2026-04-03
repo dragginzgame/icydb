@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::AccessPathKind,
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
@@ -20,7 +21,8 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                AccessPlannedQuery, CoveringProjectionContext, OrderDirection, OrderSpec, PageSpec,
+                AccessPlannedQuery, CoveringProjectionContext, ExecutionOrderContract,
+                OrderDirection, OrderSpec, PageSpec,
             },
         },
         registry::StoreHandle,
@@ -366,6 +368,7 @@ pub(in crate::db::executor) enum PreparedCoveringDistinctStrategy {
 pub(in crate::db::executor) enum PreparedScalarProjectionOp {
     Values,
     DistinctValues,
+    CountNonNull,
     CountDistinct,
     ValuesWithIds,
     TerminalValue { terminal_kind: AggregateKind },
@@ -381,7 +384,10 @@ impl PreparedScalarProjectionOp {
             Self::CountDistinct => {
                 "covering COUNT DISTINCT projection requires prepared distinct strategy"
             }
-            Self::Values | Self::ValuesWithIds | Self::TerminalValue { .. } => {
+            Self::Values
+            | Self::CountNonNull
+            | Self::ValuesWithIds
+            | Self::TerminalValue { .. } => {
                 "covering DISTINCT strategy requirement is only valid for DISTINCT projection ops"
             }
         };
@@ -397,6 +403,7 @@ impl PreparedScalarProjectionOp {
             }
             Self::Values
             | Self::DistinctValues
+            | Self::CountNonNull
             | Self::CountDistinct
             | Self::TerminalValue { .. } => {
                 "constant covering projection rejection is only valid for values-with-ids"
@@ -412,7 +419,11 @@ impl PreparedScalarProjectionOp {
             Self::TerminalValue { .. } => {
                 "terminal value projection materialized branch must execute before row materialization"
             }
-            Self::Values | Self::DistinctValues | Self::CountDistinct | Self::ValuesWithIds => {
+            Self::Values
+            | Self::DistinctValues
+            | Self::CountNonNull
+            | Self::CountDistinct
+            | Self::ValuesWithIds => {
                 "materialized branch terminal-value invariant is only valid for terminal-value projection ops"
             }
         };
@@ -432,6 +443,7 @@ impl PreparedScalarProjectionOp {
             }
             Self::Values
             | Self::DistinctValues
+            | Self::CountNonNull
             | Self::CountDistinct
             | Self::ValuesWithIds
             | Self::TerminalValue { .. } => Ok(()),
@@ -465,6 +477,9 @@ pub(in crate::db::executor) struct ScalarProjectionWindow {
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) enum PreparedScalarProjectionStrategy {
     Materialized,
+    StreamingCountNonNull {
+        direction: Direction,
+    },
     CoveringIndex {
         context: CoveringProjectionContext,
         window: ScalarProjectionWindow,
@@ -504,6 +519,62 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
 pub(in crate::db::executor) struct PreparedScalarProjectionExecutionState<'ctx> {
     pub(in crate::db::executor) boundary: PreparedScalarProjectionBoundary,
     pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
+}
+
+impl PreparedAggregateStreamingInputs<'_> {
+    /// Return whether a scalar projection can preserve one direct streaming
+    /// existing-row fold without materializing the full response page.
+    #[must_use]
+    pub(in crate::db::executor) fn supports_streaming_existing_row_field_fold(&self) -> bool {
+        if !self.has_no_predicate_or_distinct() {
+            return false;
+        }
+
+        let access_strategy = self.logical_plan.access.resolve_strategy();
+        let Some(path) = access_strategy.as_path() else {
+            return false;
+        };
+        let path_kind = path.capabilities().kind();
+        if !Self::streaming_existing_row_field_path_safe(path_kind) {
+            return false;
+        }
+
+        self.streaming_existing_row_field_page_window_safe(path_kind)
+    }
+
+    /// Return the canonical primary scan direction for one streaming
+    /// existing-row field fold.
+    #[must_use]
+    pub(in crate::db::executor) fn streaming_existing_row_field_direction(&self) -> Direction {
+        ExecutionOrderContract::from_plan(false, self.order_spec()).primary_scan_direction()
+    }
+
+    /// Return whether the resolved access path can preserve one direct
+    /// existing-row field fold without duplication.
+    #[must_use]
+    const fn streaming_existing_row_field_path_safe(path_kind: AccessPathKind) -> bool {
+        path_kind.supports_streaming_numeric_fold()
+    }
+
+    /// Return whether the effective page window preserves one direct
+    /// existing-row field fold under primary-key order constraints.
+    #[must_use]
+    fn streaming_existing_row_field_page_window_safe(&self, path_kind: AccessPathKind) -> bool {
+        if self.page_spec().is_none() {
+            return true;
+        }
+        let Some(_order) = self.order_spec() else {
+            return false;
+        };
+        if self
+            .explicit_primary_key_order_direction(self.authority.model().primary_key.name)
+            .is_none()
+        {
+            return false;
+        }
+
+        path_kind.supports_streaming_numeric_fold_for_paged_primary_key_window()
+    }
 }
 
 ///
@@ -625,6 +696,7 @@ impl PreparedScalarProjectionOp {
         match request {
             ScalarProjectionBoundaryRequest::Values => Self::Values,
             ScalarProjectionBoundaryRequest::DistinctValues => Self::DistinctValues,
+            ScalarProjectionBoundaryRequest::CountNonNull => Self::CountNonNull,
             ScalarProjectionBoundaryRequest::CountDistinct => Self::CountDistinct,
             ScalarProjectionBoundaryRequest::ValuesWithIds => Self::ValuesWithIds,
             ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind } => {

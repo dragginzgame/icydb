@@ -1,0 +1,1115 @@
+{
+  "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+  "generated_at_utc": "2026-04-03T11:34:46Z",
+  "status": "partial_authoritative_capture",
+  "rows": [
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.projection.user_name_eq_limit",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 2513666,
+      "avg_local_instructions": 502733,
+      "scenario_key": "generated.dispatch.projection.user_name_eq_limit",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "projection",
+        "user_name_eq_limit"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.projection.user_name_eq_limit",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "projection",
+        "user_name_eq_limit"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.dispatch.projection.user_name_eq_limit",
+      "entry_surface": "execute_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 2504087,
+      "avg_local_instructions": 500817,
+      "scenario_key": "typed.dispatch.projection.user_name_eq_limit",
+      "scenario_labels": [
+        "typed",
+        "dispatch",
+        "projection",
+        "user_name_eq_limit"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.dispatch.projection.user_name_eq_limit",
+      "query_shape_labels": [
+        "typed",
+        "dispatch",
+        "projection",
+        "user_name_eq_limit"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.query_from_sql.execute.scalar_limit",
+      "entry_surface": "query_from_sql_execute_query",
+      "count": 5,
+      "total_local_instructions": 2675477,
+      "avg_local_instructions": 535095,
+      "scenario_key": "typed.query_from_sql.execute.scalar_limit",
+      "scenario_labels": [
+        "typed",
+        "query_from_sql",
+        "execute",
+        "scalar_limit"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.query_from_sql.execute.scalar_limit",
+      "query_shape_labels": [
+        "typed",
+        "query_from_sql",
+        "execute",
+        "scalar_limit"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "typed_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql.scalar_limit",
+      "entry_surface": "execute_sql",
+      "count": 5,
+      "total_local_instructions": 2674712,
+      "avg_local_instructions": 534942,
+      "scenario_key": "typed.execute_sql.scalar_limit",
+      "scenario_labels": [
+        "typed",
+        "execute_sql",
+        "scalar_limit"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql.scalar_limit",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql",
+        "scalar_limit"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "typed_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.describe.user",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 135093,
+      "avg_local_instructions": 27018,
+      "scenario_key": "generated.dispatch.describe.user",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "describe",
+        "user"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.describe.user",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "describe",
+        "user"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "describe",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.explain.user_name_eq_limit",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 963849,
+      "avg_local_instructions": 192769,
+      "scenario_key": "generated.dispatch.explain.user_name_eq_limit",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "explain",
+        "user_name_eq_limit"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.explain.user_name_eq_limit",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "explain",
+        "user_name_eq_limit"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "explain",
+      "result_kind": "explain",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.explain.grouped.user_age_count",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 922991,
+      "avg_local_instructions": 184598,
+      "scenario_key": "generated.dispatch.explain.grouped.user_age_count",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "explain",
+        "grouped",
+        "user_age_count"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.explain.grouped.user_age_count",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "explain",
+        "grouped",
+        "user_age_count"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "explain",
+      "result_kind": "explain",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.explain.aggregate.user_count",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 476131,
+      "avg_local_instructions": 95226,
+      "scenario_key": "generated.dispatch.explain.aggregate.user_count",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "explain",
+        "aggregate",
+        "user_count"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.explain.aggregate.user_count",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "explain",
+        "aggregate",
+        "user_count"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "explain",
+      "result_kind": "explain",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql_grouped.user_age_count",
+      "entry_surface": "execute_sql_grouped",
+      "count": 5,
+      "total_local_instructions": 3381058,
+      "avg_local_instructions": 676211,
+      "scenario_key": "typed.execute_sql_grouped.user_age_count",
+      "scenario_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql_grouped.user_age_count",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "grouped",
+      "result_kind": "grouped_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql_grouped.user_age_count.having_empty",
+      "entry_surface": "execute_sql_grouped",
+      "count": 5,
+      "total_local_instructions": 3522183,
+      "avg_local_instructions": 704436,
+      "scenario_key": "typed.execute_sql_grouped.user_age_count.having_empty",
+      "scenario_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "having_empty"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql_grouped.user_age_count.having_empty",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "having_empty"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "grouped",
+      "result_kind": "grouped_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql_grouped.user_age_count.limit2.first_page",
+      "entry_surface": "execute_sql_grouped",
+      "count": 5,
+      "total_local_instructions": 3554254,
+      "avg_local_instructions": 710850,
+      "scenario_key": "typed.execute_sql_grouped.user_age_count.limit2.first_page",
+      "scenario_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "limit2",
+        "first_page"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql_grouped.user_age_count.limit2.first_page",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "limit2",
+        "first_page"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "cursor",
+      "result_kind": "grouped_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql_grouped.user_age_count.limit2.second_page",
+      "entry_surface": "execute_sql_grouped_second_page",
+      "count": 5,
+      "total_local_instructions": 3574453,
+      "avg_local_instructions": 714890,
+      "scenario_key": "typed.execute_sql_grouped.user_age_count.limit2.second_page",
+      "scenario_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "limit2",
+        "second_page"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql_grouped.user_age_count.limit2.second_page",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "limit2",
+        "second_page"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "cursor",
+      "result_kind": "grouped_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql_grouped.user_age_count.invalid_cursor",
+      "entry_surface": "execute_sql_grouped",
+      "count": 5,
+      "total_local_instructions": 888577,
+      "avg_local_instructions": 177715,
+      "scenario_key": "typed.execute_sql_grouped.user_age_count.invalid_cursor",
+      "scenario_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "invalid_cursor"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql_grouped.user_age_count.invalid_cursor",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql_grouped",
+        "user_age_count",
+        "invalid_cursor"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "cursor",
+      "result_kind": "error",
+      "success": false
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.execute_sql_aggregate.user_count",
+      "entry_surface": "execute_sql_aggregate",
+      "count": 5,
+      "total_local_instructions": 1038797,
+      "avg_local_instructions": 207759,
+      "scenario_key": "typed.execute_sql_aggregate.user_count",
+      "scenario_labels": [
+        "typed",
+        "execute_sql_aggregate",
+        "user_count"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.execute_sql_aggregate.user_count",
+      "query_shape_labels": [
+        "typed",
+        "execute_sql_aggregate",
+        "user_count"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "aggregate",
+      "result_kind": "aggregate_value",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert.user_single",
+      "entry_surface": "typed_insert",
+      "count": 1,
+      "total_local_instructions": 492568,
+      "avg_local_instructions": 492568,
+      "scenario_key": "typed.insert.user_single",
+      "scenario_labels": [
+        "typed",
+        "insert",
+        "user_single"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert.user_single",
+      "query_shape_labels": [
+        "typed",
+        "insert",
+        "user_single"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert_many_atomic.user_10",
+      "entry_surface": "typed_insert_many_atomic",
+      "count": 1,
+      "total_local_instructions": 5346879,
+      "avg_local_instructions": 5346879,
+      "scenario_key": "typed.insert_many_atomic.user_10",
+      "scenario_labels": [
+        "typed",
+        "insert_many_atomic",
+        "user_10"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert_many_atomic.user_10",
+      "query_shape_labels": [
+        "typed",
+        "insert_many_atomic",
+        "user_10"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_batch_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert_many_atomic.user_100",
+      "entry_surface": "typed_insert_many_atomic",
+      "count": 1,
+      "total_local_instructions": 56179429,
+      "avg_local_instructions": 56179429,
+      "scenario_key": "typed.insert_many_atomic.user_100",
+      "scenario_labels": [
+        "typed",
+        "insert_many_atomic",
+        "user_100"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert_many_atomic.user_100",
+      "query_shape_labels": [
+        "typed",
+        "insert_many_atomic",
+        "user_100"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_batch_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert_many_atomic.user_1000",
+      "entry_surface": "typed_insert_many_atomic",
+      "count": 1,
+      "total_local_instructions": 601732245,
+      "avg_local_instructions": 601732245,
+      "scenario_key": "typed.insert_many_atomic.user_1000",
+      "scenario_labels": [
+        "typed",
+        "insert_many_atomic",
+        "user_1000"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert_many_atomic.user_1000",
+      "query_shape_labels": [
+        "typed",
+        "insert_many_atomic",
+        "user_1000"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_batch_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert_many_non_atomic.user_10",
+      "entry_surface": "typed_insert_many_non_atomic",
+      "count": 1,
+      "total_local_instructions": 5386862,
+      "avg_local_instructions": 5386862,
+      "scenario_key": "typed.insert_many_non_atomic.user_10",
+      "scenario_labels": [
+        "typed",
+        "insert_many_non_atomic",
+        "user_10"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert_many_non_atomic.user_10",
+      "query_shape_labels": [
+        "typed",
+        "insert_many_non_atomic",
+        "user_10"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_batch_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert_many_non_atomic.user_100",
+      "entry_surface": "typed_insert_many_non_atomic",
+      "count": 1,
+      "total_local_instructions": 59323257,
+      "avg_local_instructions": 59323257,
+      "scenario_key": "typed.insert_many_non_atomic.user_100",
+      "scenario_labels": [
+        "typed",
+        "insert_many_non_atomic",
+        "user_100"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert_many_non_atomic.user_100",
+      "query_shape_labels": [
+        "typed",
+        "insert_many_non_atomic",
+        "user_100"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_batch_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.insert_many_non_atomic.user_1000",
+      "entry_surface": "typed_insert_many_non_atomic",
+      "count": 1,
+      "total_local_instructions": 696482354,
+      "avg_local_instructions": 696482354,
+      "scenario_key": "typed.insert_many_non_atomic.user_1000",
+      "scenario_labels": [
+        "typed",
+        "insert_many_non_atomic",
+        "user_1000"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.insert_many_non_atomic.user_1000",
+      "query_shape_labels": [
+        "typed",
+        "insert_many_non_atomic",
+        "user_1000"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_batch_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.update.user_single",
+      "entry_surface": "typed_update",
+      "count": 1,
+      "total_local_instructions": 763229,
+      "avg_local_instructions": 763229,
+      "scenario_key": "typed.update.user_single",
+      "scenario_labels": [
+        "typed",
+        "update",
+        "user_single"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.update.user_single",
+      "query_shape_labels": [
+        "typed",
+        "update",
+        "user_single"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "write_mutation",
+      "result_kind": "write_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "fluent.delete.user_order_id_limit1.count",
+      "entry_surface": "fluent_delete",
+      "count": 1,
+      "total_local_instructions": 986270,
+      "avg_local_instructions": 986270,
+      "scenario_key": "fluent.delete.user_order_id_limit1.count",
+      "scenario_labels": [
+        "fluent",
+        "delete",
+        "user_order_id_limit1",
+        "count"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "fluent.delete.user_order_id_limit1.count",
+      "query_shape_labels": [
+        "fluent",
+        "delete",
+        "user_order_id_limit1",
+        "count"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "delete_mutation",
+      "result_kind": "delete_count",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.show_indexes.user",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 108203,
+      "avg_local_instructions": 21640,
+      "scenario_key": "generated.dispatch.show_indexes.user",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "show_indexes",
+        "user"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.show_indexes.user",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "show_indexes",
+        "user"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "show_indexes",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.show_columns.user",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 173683,
+      "avg_local_instructions": 34736,
+      "scenario_key": "generated.dispatch.show_columns.user",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "show_columns",
+        "user"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.show_columns.user",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "show_columns",
+        "user"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "show_columns",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.show_entities",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 63434,
+      "avg_local_instructions": 12686,
+      "scenario_key": "generated.dispatch.show_entities",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "show_entities"
+      ],
+      "entity_scope": "Catalog",
+      "query_shape_key": "generated.dispatch.show_entities",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "show_entities"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "show_entities",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.computed_projection.lower_name_limit2",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 2443581,
+      "avg_local_instructions": 488716,
+      "scenario_key": "generated.dispatch.computed_projection.lower_name_limit2",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "computed_projection",
+        "lower_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.computed_projection.lower_name_limit2",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "computed_projection",
+        "lower_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "projection",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.predicate.starts_with_name_limit2",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 2989614,
+      "avg_local_instructions": 597922,
+      "scenario_key": "generated.dispatch.predicate.starts_with_name_limit2",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "predicate",
+        "starts_with_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.predicate.starts_with_name_limit2",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "predicate",
+        "starts_with_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "predicate",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.predicate.lower_starts_with_name_limit2",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 3026755,
+      "avg_local_instructions": 605351,
+      "scenario_key": "generated.dispatch.predicate.lower_starts_with_name_limit2",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "predicate",
+        "lower_starts_with_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.predicate.lower_starts_with_name_limit2",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "predicate",
+        "lower_starts_with_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "predicate",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.predicate.upper_starts_with_name_limit2",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 3026915,
+      "avg_local_instructions": 605383,
+      "scenario_key": "generated.dispatch.predicate.upper_starts_with_name_limit2",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "predicate",
+        "upper_starts_with_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.predicate.upper_starts_with_name_limit2",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "predicate",
+        "upper_starts_with_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "predicate",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.dispatch.computed_projection.lower_name_limit2",
+      "entry_surface": "execute_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 2433951,
+      "avg_local_instructions": 486790,
+      "scenario_key": "typed.dispatch.computed_projection.lower_name_limit2",
+      "scenario_labels": [
+        "typed",
+        "dispatch",
+        "computed_projection",
+        "lower_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.dispatch.computed_projection.lower_name_limit2",
+      "query_shape_labels": [
+        "typed",
+        "dispatch",
+        "computed_projection",
+        "lower_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "projection",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.dispatch.predicate.starts_with_name_limit2",
+      "entry_surface": "execute_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 2980906,
+      "avg_local_instructions": 596181,
+      "scenario_key": "typed.dispatch.predicate.starts_with_name_limit2",
+      "scenario_labels": [
+        "typed",
+        "dispatch",
+        "predicate",
+        "starts_with_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.dispatch.predicate.starts_with_name_limit2",
+      "query_shape_labels": [
+        "typed",
+        "dispatch",
+        "predicate",
+        "starts_with_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "predicate",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.dispatch.predicate.lower_starts_with_name_limit2",
+      "entry_surface": "execute_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 3017483,
+      "avg_local_instructions": 603496,
+      "scenario_key": "typed.dispatch.predicate.lower_starts_with_name_limit2",
+      "scenario_labels": [
+        "typed",
+        "dispatch",
+        "predicate",
+        "lower_starts_with_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.dispatch.predicate.lower_starts_with_name_limit2",
+      "query_shape_labels": [
+        "typed",
+        "dispatch",
+        "predicate",
+        "lower_starts_with_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "predicate",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.dispatch.predicate.upper_starts_with_name_limit2",
+      "entry_surface": "execute_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 3017643,
+      "avg_local_instructions": 603528,
+      "scenario_key": "typed.dispatch.predicate.upper_starts_with_name_limit2",
+      "scenario_labels": [
+        "typed",
+        "dispatch",
+        "predicate",
+        "upper_starts_with_name_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.dispatch.predicate.upper_starts_with_name_limit2",
+      "query_shape_labels": [
+        "typed",
+        "dispatch",
+        "predicate",
+        "upper_starts_with_name_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "predicate",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "fluent.load.user_order_id_limit2",
+      "entry_surface": "fluent_load",
+      "count": 5,
+      "total_local_instructions": 2443933,
+      "avg_local_instructions": 488786,
+      "scenario_key": "fluent.load.user_order_id_limit2",
+      "scenario_labels": [
+        "fluent",
+        "load",
+        "user_order_id_limit2"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "fluent.load.user_order_id_limit2",
+      "query_shape_labels": [
+        "fluent",
+        "load",
+        "user_order_id_limit2"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "typed_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "fluent.load.user_name_eq_limit1",
+      "entry_surface": "fluent_load",
+      "count": 5,
+      "total_local_instructions": 2337699,
+      "avg_local_instructions": 467539,
+      "scenario_key": "fluent.load.user_name_eq_limit1",
+      "scenario_labels": [
+        "fluent",
+        "load",
+        "user_name_eq_limit1"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "fluent.load.user_name_eq_limit1",
+      "query_shape_labels": [
+        "fluent",
+        "load",
+        "user_name_eq_limit1"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": null,
+      "result_kind": "typed_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "fluent.paged.user_order_id_limit2.first_page",
+      "entry_surface": "fluent_paged",
+      "count": 5,
+      "total_local_instructions": 3222192,
+      "avg_local_instructions": 644438,
+      "scenario_key": "fluent.paged.user_order_id_limit2.first_page",
+      "scenario_labels": [
+        "fluent",
+        "paged",
+        "user_order_id_limit2",
+        "first_page"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "fluent.paged.user_order_id_limit2.first_page",
+      "query_shape_labels": [
+        "fluent",
+        "paged",
+        "user_order_id_limit2",
+        "first_page"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "cursor",
+      "result_kind": "paged_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "fluent.paged.user_order_id_limit2.second_page",
+      "entry_surface": "fluent_paged",
+      "count": 5,
+      "total_local_instructions": 3419484,
+      "avg_local_instructions": 683896,
+      "scenario_key": "fluent.paged.user_order_id_limit2.second_page",
+      "scenario_labels": [
+        "fluent",
+        "paged",
+        "user_order_id_limit2",
+        "second_page"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "fluent.paged.user_order_id_limit2.second_page",
+      "query_shape_labels": [
+        "fluent",
+        "paged",
+        "user_order_id_limit2",
+        "second_page"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "cursor",
+      "result_kind": "paged_response",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "fluent.paged.user_order_id_limit2.invalid_cursor",
+      "entry_surface": "fluent_paged",
+      "count": 5,
+      "total_local_instructions": 455340,
+      "avg_local_instructions": 91068,
+      "scenario_key": "fluent.paged.user_order_id_limit2.invalid_cursor",
+      "scenario_labels": [
+        "fluent",
+        "paged",
+        "user_order_id_limit2",
+        "invalid_cursor"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "fluent.paged.user_order_id_limit2.invalid_cursor",
+      "query_shape_labels": [
+        "fluent",
+        "paged",
+        "user_order_id_limit2",
+        "invalid_cursor"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "cursor",
+      "result_kind": "error",
+      "success": false
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.explain_delete",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 5,
+      "total_local_instructions": 524123,
+      "avg_local_instructions": 104824,
+      "scenario_key": "generated.dispatch.explain_delete",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "explain_delete"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.explain_delete",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "explain_delete"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "explain",
+      "result_kind": "explain",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "generated.dispatch.delete",
+      "entry_surface": "test_canister_sql_dispatch",
+      "count": 1,
+      "total_local_instructions": 1032547,
+      "avg_local_instructions": 1032547,
+      "scenario_key": "generated.dispatch.delete",
+      "scenario_labels": [
+        "generated",
+        "dispatch",
+        "delete"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "generated.dispatch.delete",
+      "query_shape_labels": [
+        "generated",
+        "dispatch",
+        "delete"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "delete_mutation",
+      "result_kind": "projection",
+      "success": true
+    },
+    {
+      "subject_kind": "query_surface",
+      "subject_label": "typed.dispatch.delete",
+      "entry_surface": "execute_sql_dispatch",
+      "count": 1,
+      "total_local_instructions": 1057008,
+      "avg_local_instructions": 1057008,
+      "scenario_key": "typed.dispatch.delete",
+      "scenario_labels": [
+        "typed",
+        "dispatch",
+        "delete"
+      ],
+      "entity_scope": "User",
+      "query_shape_key": "typed.dispatch.delete",
+      "query_shape_labels": [
+        "typed",
+        "dispatch",
+        "delete"
+      ],
+      "sample_origin": "instruction_harness",
+      "phase_kind": "delete_mutation",
+      "result_kind": "projection",
+      "success": true
+    }
+  ]
+}

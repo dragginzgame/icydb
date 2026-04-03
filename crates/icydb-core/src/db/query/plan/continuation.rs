@@ -308,6 +308,7 @@ impl ContinuationContract {
     }
 
     /// Validate grouped cursor bytes against this immutable continuation contract.
+    #[cfg(test)]
     pub(in crate::db) fn prepare_grouped_cursor(
         &self,
         entity_path: &'static str,
@@ -329,6 +330,31 @@ impl ContinuationContract {
             self.continuation_signature(),
             self.expected_initial_offset(),
             bytes,
+        )
+    }
+
+    /// Validate one already-decoded grouped cursor token against this immutable continuation contract.
+    pub(in crate::db) fn prepare_grouped_cursor_token(
+        &self,
+        entity_path: &'static str,
+        cursor: Option<crate::db::cursor::GroupedContinuationToken>,
+    ) -> Result<GroupedPlannedCursor, CursorPlanError> {
+        if !self.is_grouped() {
+            return Err(CursorPlanError::continuation_cursor_invariant(
+                "grouped cursor preparation requires grouped logical plans",
+            ));
+        }
+
+        if cursor.is_some() {
+            self.validate_grouped_cursor_policy()?;
+        }
+
+        crate::db::cursor::prepare_grouped_cursor_token(
+            entity_path,
+            self.order_contract.order_spec(),
+            self.continuation_signature(),
+            self.expected_initial_offset(),
+            cursor,
         )
     }
 

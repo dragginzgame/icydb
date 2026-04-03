@@ -113,13 +113,12 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     where
         E: EntityValue,
     {
-        let execution = self.inner.execute_grouped()?;
-        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+        let (rows, next_cursor, execution_trace) = self.inner.execute_grouped_text_cursor()?;
 
         Ok(PagedGroupedResponse::new(
-            execution.rows().to_vec(),
+            rows,
             next_cursor,
-            execution.execution_trace().copied(),
+            execution_trace,
         ))
     }
 

@@ -25,7 +25,7 @@ use crate::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
             SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
             SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement,
-            SqlStatement, SqlTextFunctionCall, parse_sql,
+            SqlStatement, SqlTextFunctionCall,
         },
     },
     traits::EntityKind,
@@ -320,7 +320,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
     sql: &str,
     consistency: MissingRowPolicy,
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
-    let statement = parse_sql(sql)?;
+    let statement = crate::db::sql::parser::parse_sql(sql)?;
     compile_sql_command_from_statement::<E>(statement, consistency)
 }
 
@@ -472,16 +472,20 @@ pub(crate) fn prepare_sql_statement(
 }
 
 /// Parse and lower one SQL statement into global aggregate execution command for `E`.
+#[cfg(test)]
 pub(crate) fn compile_sql_global_aggregate_command<E: EntityKind>(
     sql: &str,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
-    let statement = parse_sql(sql)?;
+    let statement = crate::db::sql::parser::parse_sql(sql)?;
     let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
     compile_sql_global_aggregate_command_from_prepared::<E>(prepared, consistency)
 }
 
-fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
+// Lower one already-prepared SQL statement into the constrained global
+// aggregate command envelope so callers that already parsed and routed the
+// statement do not pay the parser again.
+pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {

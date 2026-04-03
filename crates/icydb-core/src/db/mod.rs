@@ -97,6 +97,7 @@ pub use query::{
     trace::{QueryTracePlan, TraceExecutionStrategy},
 };
 pub use registry::StoreRegistry;
+pub(in crate::db) use response::GroupedTextCursorPageWithTrace;
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
     PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,

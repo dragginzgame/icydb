@@ -5,19 +5,19 @@
 
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
+        DbSession, MissingRowPolicy, PersistedRow, QueryError,
         executor::{ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest},
-        query::plan::{AggregateKind, FieldSlot},
+        query::plan::AggregateKind,
         session::sql::explain::resolve_sql_aggregate_target_slot,
+        session::sql::surface::sql_statement_route_from_statement,
         session::sql::{SqlParsedStatement, SqlStatementRoute},
         sql::lowering::{
-            SqlGlobalAggregateTerminal, compile_sql_global_aggregate_command,
-            is_sql_global_aggregate_statement,
+            SqlGlobalAggregateTerminal, compile_sql_global_aggregate_command_from_prepared,
+            is_sql_global_aggregate_statement, prepare_sql_statement,
         },
-        sql::parser::SqlStatement,
+        sql::parser::{SqlStatement, parse_sql},
     },
     traits::{CanisterKind, EntityValue},
-    types::Id,
     value::Value,
 };
 
@@ -94,11 +94,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        // Parse once into one owned statement so the aggregate lane can keep
+        // its surface checks and lowering on the same statement instance.
+        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
+
         // First keep wrong-lane traffic on an explicit aggregate-surface
         // contract instead of relying on generic lowering failures.
-        let parsed = self.parse_sql_statement(sql)?;
-        match &parsed.statement {
-            SqlStatement::Select(_) if is_sql_global_aggregate_statement(&parsed.statement) => {}
+        match &statement {
+            SqlStatement::Select(_) if is_sql_global_aggregate_statement(&statement) => {}
             SqlStatement::Select(statement) if !statement.group_by.is_empty() => {
                 return Err(QueryError::unsupported_query(
                     unsupported_sql_aggregate_grouped_message(),
@@ -110,8 +113,10 @@ impl<C: CanisterKind> DbSession<C> {
                 ));
             }
             _ => {
+                let route = sql_statement_route_from_statement(&statement);
+
                 return Err(QueryError::unsupported_query(
-                    unsupported_sql_aggregate_surface_lane_message(parsed.route()),
+                    unsupported_sql_aggregate_surface_lane_message(&route),
                 ));
             }
         }
@@ -119,8 +124,12 @@ impl<C: CanisterKind> DbSession<C> {
         // First lower the SQL surface onto the existing single-terminal
         // aggregate command authority so execution never has to rediscover the
         // accepted aggregate shape family.
-        let command = compile_sql_global_aggregate_command::<E>(sql, MissingRowPolicy::Ignore)
-            .map_err(QueryError::from_sql_lowering_error)?;
+        let command = compile_sql_global_aggregate_command_from_prepared::<E>(
+            prepare_sql_statement(statement, E::MODEL.name())
+                .map_err(QueryError::from_sql_lowering_error)?,
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
 
         // Then dispatch each accepted terminal onto the existing load/query
         // boundaries instead of reopening aggregate execution ownership here.
@@ -141,18 +150,11 @@ impl<C: CanisterKind> DbSession<C> {
                     load.execute_scalar_projection_boundary(
                         plan,
                         target_slot,
-                        ScalarProjectionBoundaryRequest::Values,
+                        ScalarProjectionBoundaryRequest::CountNonNull,
                     )?
-                    .into_values()
+                    .into_count()
                 })
-                .map(|values| {
-                    let count = values
-                        .into_iter()
-                        .filter(|value| !matches!(value, Value::Null))
-                        .count();
-
-                    Value::Uint(u64::try_from(count).unwrap_or(u64::MAX))
-                })
+                .map(|count| Value::Uint(u64::from(count)))
             }
             SqlGlobalAggregateTerminal::SumField(field) => {
                 let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
@@ -178,71 +180,30 @@ impl<C: CanisterKind> DbSession<C> {
                 })
                 .map(|value| value.map_or(Value::Null, Value::Decimal))
             }
-            SqlGlobalAggregateTerminal::MinField(field) => self
-                .execute_ranked_sql_aggregate_field::<E>(
-                    command.query(),
-                    field,
-                    AggregateKind::Min,
-                ),
-            SqlGlobalAggregateTerminal::MaxField(field) => self
-                .execute_ranked_sql_aggregate_field::<E>(
-                    command.query(),
-                    field,
-                    AggregateKind::Max,
-                ),
+            SqlGlobalAggregateTerminal::MinField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+                self.execute_load_query_with(command.query(), |load, plan| {
+                    load.execute_scalar_extrema_value_boundary(
+                        plan,
+                        target_slot,
+                        AggregateKind::Min,
+                    )
+                })
+                .map(|value| value.unwrap_or(Value::Null))
+            }
+            SqlGlobalAggregateTerminal::MaxField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+                self.execute_load_query_with(command.query(), |load, plan| {
+                    load.execute_scalar_extrema_value_boundary(
+                        plan,
+                        target_slot,
+                        AggregateKind::Max,
+                    )
+                })
+                .map(|value| value.unwrap_or(Value::Null))
+            }
         }
-    }
-
-    // Execute one ranked field aggregate by resolving the winning id first and
-    // then reading the projected field through the typed load surface.
-    fn execute_ranked_sql_aggregate_field<E>(
-        &self,
-        query: &Query<E>,
-        field: &str,
-        kind: AggregateKind,
-    ) -> Result<Value, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
-        let matched_id = self.execute_ranked_sql_aggregate_id(query, target_slot, kind)?;
-
-        match matched_id {
-            Some(id) => self
-                .load::<E>()
-                .by_id(id)
-                .first_value_by(field)
-                .map(|value| value.unwrap_or(Value::Null)),
-            None => Ok(Value::Null),
-        }
-    }
-
-    // Resolve the id selected by one ranked aggregate terminal through the
-    // shared scalar terminal boundary before any field-value load occurs.
-    fn execute_ranked_sql_aggregate_id<E>(
-        &self,
-        query: &Query<E>,
-        target_slot: FieldSlot,
-        kind: AggregateKind,
-    ) -> Result<Option<Id<E>>, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        if !kind.is_extrema() {
-            return Err(QueryError::invariant(
-                "ranked SQL aggregate id helper only supports MIN/MAX",
-            ));
-        }
-
-        self.execute_load_query_with(query, |load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                crate::db::executor::ScalarTerminalBoundaryRequest::IdBySlot {
-                    kind,
-                    target_field: target_slot,
-                },
-            )?
-            .into_id()
-        })
     }
 }
