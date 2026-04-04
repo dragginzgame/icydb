@@ -450,6 +450,15 @@ pub(in crate::db) fn decode_slot_value_from_bytes(
 ) -> Result<Value, InternalError> {
     let field = field_model_for_slot(model, slot)?;
 
+    decode_slot_value_for_field(field, raw_value)
+}
+
+// Decode one structural slot payload once the owning field contract has
+// already been resolved.
+fn decode_slot_value_for_field(
+    field: &FieldModel,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
     match field.leaf_codec() {
         LeafCodec::Scalar(codec) => match decode_scalar_slot_value(raw_value, codec, field.name())?
         {
@@ -1345,9 +1354,9 @@ impl<'a> StructuralSlotReader<'a> {
             cached_values,
         };
 
-        // Phase 1: force every declared slot through the owned field decode
-        // contract once so malformed but unreferenced payloads cannot stay
-        // latent behind consumer-specific partial decode paths.
+        // Phase 1: force every declared slot through the field decode contract
+        // once so malformed persisted bytes cannot stay latent behind later
+        // hot-path reads.
         reader.decode_all_declared_slots()?;
 
         Ok(reader)
@@ -1357,6 +1366,15 @@ impl<'a> StructuralSlotReader<'a> {
     pub(in crate::db) fn validate_storage_key(
         &self,
         data_key: &DataKey,
+    ) -> Result<(), InternalError> {
+        self.validate_storage_key_value(data_key.storage_key())
+    }
+
+    // Validate the decoded primary-key slot against one authoritative storage
+    // key without rebuilding a full `DataKey` wrapper at the call site.
+    pub(in crate::db) fn validate_storage_key_value(
+        &self,
+        expected_key: StorageKey,
     ) -> Result<(), InternalError> {
         let Some(primary_key_slot) = resolve_primary_key_slot(self.model) else {
             return Err(InternalError::persisted_row_primary_key_field_missing(
@@ -1373,16 +1391,18 @@ impl<'a> StructuralSlotReader<'a> {
                     field.kind,
                 )
                 .map_err(|err| {
-                    InternalError::persisted_row_primary_key_not_storage_encodable(data_key, err)
+                    InternalError::persisted_row_primary_key_not_storage_encodable(
+                        expected_key,
+                        err,
+                    )
                 })?,
             ),
         };
         let Some(decoded_key) = decoded_key else {
             return Err(InternalError::persisted_row_primary_key_slot_missing(
-                data_key,
+                expected_key,
             ));
         };
-        let expected_key = data_key.storage_key();
 
         if decoded_key != expected_key {
             return Err(InternalError::persisted_row_key_mismatch(
@@ -1420,12 +1440,9 @@ impl<'a> StructuralSlotReader<'a> {
             return Ok(());
         }
 
-        let field_name = self.field_model(slot)?.name();
-        let value = decode_slot_value_from_bytes(
-            self.model,
-            slot,
-            self.required_field_bytes(slot, field_name)?,
-        )?;
+        let field = self.field_model(slot)?;
+        let value =
+            decode_slot_value_for_field(field, self.required_field_bytes(slot, field.name())?)?;
         self.cached_values[slot] = CachedSlotValue::Decoded(value);
 
         Ok(())

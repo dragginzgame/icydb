@@ -288,16 +288,14 @@ fn execute_prepared_scalar_path_execution(
         projection_runtime_mode,
         debug,
     } = prepared;
+    let slot_map = slot_map_for_model_plan(authority.model(), &plan);
+    let execution_preparation =
+        ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
         &plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
-    );
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(
-        authority.model(),
-        &plan,
-        slot_map_for_model_plan(authority.model(), &plan),
     );
 
     execute_scalar_execution_stage(ScalarExecutionStage {
@@ -535,16 +533,14 @@ where
     );
 
     // Phase 1: resolve typed execution authority once at the boundary.
+    let slot_map = slot_map_for_model_plan(authority.model(), &logical_plan);
+    let execution_preparation =
+        ExecutionPreparation::from_runtime_plan(authority.model(), &logical_plan, slot_map);
     let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
         &logical_plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
-    );
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(
-        authority.model(),
-        &logical_plan,
-        slot_map_for_model_plan(authority.model(), &logical_plan),
     );
     let mut route_plan =
         crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(

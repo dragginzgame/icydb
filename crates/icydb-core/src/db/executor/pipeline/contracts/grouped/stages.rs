@@ -126,7 +126,7 @@ pub(in crate::db::executor) struct StructuralGroupedRowRuntime {
 impl StructuralGroupedRowRuntime {
     /// Build one grouped row runtime from structural store authority and model metadata.
     #[must_use]
-    pub(in crate::db::executor) fn new(
+    pub(in crate::db::executor) const fn new(
         store: StoreHandle,
         model: &'static crate::model::entity::EntityModel,
     ) -> Self {

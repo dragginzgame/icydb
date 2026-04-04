@@ -59,7 +59,7 @@ struct ScalarRowRuntimeState {
 impl ScalarRowRuntimeState {
     // Build one structural scalar row-runtime descriptor from resolved
     // boundary inputs.
-    fn new(store: StoreHandle, model: &'static EntityModel) -> Self {
+    const fn new(store: StoreHandle, model: &'static EntityModel) -> Self {
         Self {
             store,
             row_layout: RowLayout::from_model(model),
@@ -413,7 +413,7 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'ctx, 'a> {
 
 impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
     /// Build one structural runtime adapter from structural runtime authority plus access plan.
-    pub(in crate::db::executor) fn from_runtime_parts(
+    pub(in crate::db::executor) const fn from_runtime_parts(
         access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: crate::db::executor::stream::access::TraversalRuntime,
         store: StoreHandle,

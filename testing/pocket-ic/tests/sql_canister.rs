@@ -4,7 +4,7 @@ use icydb_testing_integration::build_canister;
 use pocket_ic::{PocketIc, PocketIcBuilder};
 use serde::Serialize;
 use std::{
-    env, fs,
+    fs,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
@@ -12,22 +12,13 @@ use std::{
 const INIT_CYCLES: u128 = 2_000_000_000_000;
 const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
 static POCKET_IC_TEST_LOCK: Mutex<()> = Mutex::new(());
+static SHARED_POCKET_IC: OnceLock<Option<Mutex<PocketIc>>> = OnceLock::new();
 static QUICKSTART_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 
-// PocketIC reuses one per-process port file under the system temp dir.
-// Clearing it before every builder run forces each serialized test to connect
-// to the server it just spawned instead of inheriting an older port from a
-// previous test's server lifecycle.
-fn clear_stale_pocket_ic_port_file() {
-    let port_file = env::temp_dir().join(format!("pocket_ic_{}.port", std::process::id()));
-    let _ = fs::remove_file(&port_file);
-}
-
-// Build Pocket-IC with an explicit server binary to avoid implicit network
-// downloads during local test execution.
-fn new_pocket_ic() -> Option<PocketIc> {
-    clear_stale_pocket_ic_port_file();
-
+// Build one shared PocketIC instance for the full test binary.
+// Each test still installs its own canister, so test state remains isolated
+// without leaking one detached PocketIC server process per test case in CI.
+fn build_shared_pocket_ic() -> Option<Mutex<PocketIc>> {
     let Some(server_binary_raw) = std::env::var_os(POCKET_IC_BIN_ENV) else {
         eprintln!(
             "skipping PocketIC SQL canister integration test: set {POCKET_IC_BIN_ENV} \
@@ -43,13 +34,21 @@ fn new_pocket_ic() -> Option<PocketIc> {
         server_binary.display()
     );
 
-    Some(
+    Some(Mutex::new(
         PocketIcBuilder::new()
             // Match PocketIc::new() topology expectations: at least one subnet.
             .with_application_subnet()
             .with_server_binary(server_binary)
             .build(),
-    )
+    ))
+}
+
+// Resolve the shared PocketIC instance lazily so tests can skip cleanly when
+// the server binary is unavailable.
+fn shared_pocket_ic() -> Option<&'static Mutex<PocketIc>> {
+    SHARED_POCKET_IC
+        .get_or_init(build_shared_pocket_ic)
+        .as_ref()
 }
 
 fn build_quickstart_canister_wasm() -> Vec<u8> {
@@ -107,8 +106,9 @@ fn reset_fixtures(pic: &PocketIc, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_reset");
 }
 
-// Execute one PocketIC integration test body and keep teardown panics from
-// masking the primary failure when the test is already unwinding.
+// Execute one PocketIC integration test body against the shared instance.
+// Catching the test panic before dropping the MutexGuard avoids poisoning the
+// shared PocketIC handle for later tests in the same binary.
 fn run_with_pocket_ic(test_body: impl FnOnce(&PocketIc)) {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
@@ -119,26 +119,18 @@ fn run_with_pocket_ic(test_body: impl FnOnce(&PocketIc)) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    let Some(pic) = new_pocket_ic() else {
+    let Some(pic) = shared_pocket_ic() else {
         return;
     };
-    let test_result = catch_unwind(AssertUnwindSafe(|| test_body(&pic)));
-    let cleanup_result = catch_unwind(AssertUnwindSafe(|| drop(pic)));
 
-    match test_result {
-        Ok(()) => {
-            if let Err(cleanup_panic) = cleanup_result {
-                resume_unwind(cleanup_panic);
-            }
-        }
-        Err(test_panic) => {
-            if cleanup_result.is_err() {
-                eprintln!(
-                    "suppressed secondary PocketIC cleanup panic while propagating primary test panic"
-                );
-            }
-            resume_unwind(test_panic);
-        }
+    let pic = pic
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let test_result = catch_unwind(AssertUnwindSafe(|| test_body(&pic)));
+    drop(pic);
+
+    if let Err(test_panic) = test_result {
+        resume_unwind(test_panic);
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
         executor::terminal::page::KernelRow,
     },
     error::InternalError,
-    model::entity::{EntityModel, resolve_primary_key_slot},
+    model::entity::EntityModel,
     value::Value,
 };
 
@@ -22,26 +22,23 @@ use crate::{
 ///
 /// RowLayout is the structural scalar row-decode plan built once at the typed
 /// boundary.
-/// It captures stable field ordering, persisted field-name lookup keys, and
-/// primary-key slot metadata so row production no longer needs typed entity
-/// materialization.
+/// It captures stable field ordering so row production no longer needs typed
+/// entity materialization.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) struct RowLayout {
     model: &'static EntityModel,
     field_count: usize,
-    primary_key_slot: Option<usize>,
 }
 
 impl RowLayout {
     /// Build one structural row layout from model metadata.
     #[must_use]
-    pub(in crate::db::executor) fn from_model(model: &'static EntityModel) -> Self {
+    pub(in crate::db::executor) const fn from_model(model: &'static EntityModel) -> Self {
         Self {
             model,
             field_count: model.fields().len(),
-            primary_key_slot: resolve_primary_key_slot(model),
         }
     }
 }
@@ -114,13 +111,20 @@ fn decode_structural_slots(
     expected_key: StorageKey,
     row: &RawRow,
 ) -> Result<Vec<Option<Value>>, InternalError> {
-    // Phase 1: reuse the canonical structural slot cache that `from_raw_row`
-    // already forced through full declared-slot decode.
-    let slots = decode_row_fields(row, layout.model)?.into_decoded_values()?;
-    debug_assert_eq!(slots.len(), layout.field_count);
+    // Phase 1: build the canonical structural slot reader once so hot row
+    // decode can reuse the existing persisted-row validation boundary instead
+    // of re-encoding the decoded primary-key value back into `StorageKey`.
+    let reader = decode_row_fields(row, layout.model)?;
 
-    // Phase 2: verify the decoded primary-key value still matches storage identity.
-    validate_primary_key_slot(layout, expected_key, slots.as_slice())?;
+    // Phase 2: keep authoritative storage-key validation on the
+    // `StructuralSlotReader` boundary that already knows how to validate
+    // primary-key slots from cached scalar refs or raw field bytes.
+    reader.validate_storage_key_value(expected_key)?;
+
+    // Phase 3: consume the already-decoded slot cache into one stable
+    // field-count-sized row image.
+    let slots = reader.into_decoded_values()?;
+    debug_assert_eq!(slots.len(), layout.field_count);
 
     Ok(slots)
 }
@@ -131,31 +135,6 @@ fn decode_row_fields<'a>(
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
     StructuralSlotReader::from_raw_row(row, model)
-}
-
-// Validate the decoded primary-key slot against the authoritative data-key suffix.
-fn validate_primary_key_slot(
-    layout: &RowLayout,
-    expected_key: StorageKey,
-    slots: &[Option<Value>],
-) -> Result<(), InternalError> {
-    let Some(primary_key_slot) = layout.primary_key_slot else {
-        return Err(InternalError::row_layout_primary_key_slot_required());
-    };
-    let Some(Some(primary_key_value)) = slots.get(primary_key_slot) else {
-        return Err(InternalError::row_decode_primary_key_slot_missing());
-    };
-    let decoded_key = StorageKey::try_from_value(primary_key_value)
-        .map_err(InternalError::row_decode_primary_key_not_storage_encodable)?;
-
-    if decoded_key != expected_key {
-        return Err(InternalError::row_decode_key_mismatch(
-            expected_key,
-            decoded_key,
-        ));
-    }
-
-    Ok(())
 }
 
 ///

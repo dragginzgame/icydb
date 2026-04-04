@@ -570,11 +570,6 @@ impl InternalError {
         )
     }
 
-    /// Construct a query-origin row-decode invariant for missing primary-key layout slots.
-    pub(crate) fn row_layout_primary_key_slot_required() -> Self {
-        Self::query_executor_invariant("row layout missing primary-key slot")
-    }
-
     /// Construct an executor-origin mutation unsupported error for duplicate atomic save keys.
     pub(crate) fn mutation_atomic_save_duplicate_key(
         entity_path: &str,
@@ -1183,26 +1178,6 @@ impl InternalError {
     /// Construct the canonical persisted-row missing declared-field corruption error.
     pub(crate) fn persisted_row_declared_field_missing(field_name: &str) -> Self {
         Self::persisted_row_decode_failed(format!("missing declared field `{field_name}`"))
-    }
-
-    /// Construct the canonical row-decoder missing primary-key slot corruption error.
-    pub(crate) fn row_decode_primary_key_slot_missing() -> Self {
-        Self::persisted_row_decode_failed("missing primary-key slot value")
-    }
-
-    /// Construct the canonical row-decoder primary-key encoding corruption error.
-    pub(crate) fn row_decode_primary_key_not_storage_encodable(detail: impl fmt::Display) -> Self {
-        Self::persisted_row_decode_failed(format!(
-            "primary-key value is not storage-key encodable: {detail}",
-        ))
-    }
-
-    /// Construct the canonical row-decoder key-mismatch corruption error.
-    pub(crate) fn row_decode_key_mismatch(
-        expected_key: impl fmt::Display,
-        found_key: impl fmt::Display,
-    ) -> Self {
-        Self::persisted_row_key_mismatch(expected_key, found_key)
     }
 
     /// Construct the canonical data-key entity mismatch corruption error.
