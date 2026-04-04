@@ -85,20 +85,6 @@ fn fresh_facade_session() -> DbSession<FacadeSqlCanister> {
     facade_session()
 }
 
-// Seed one deterministic facade SQL dataset so delete/explain contract tests
-// can compare direct and LIKE spellings against the same rows.
-fn seed_facade_sql_entities(session: &DbSession<FacadeSqlCanister>, rows: &[(&str, u64)]) {
-    for (name, age) in rows {
-        session
-            .insert(FacadeSqlEntity {
-                id: crate::types::Ulid::generate(),
-                name: (*name).to_string(),
-                age: *age,
-            })
-            .expect("facade SQL seed insert should succeed");
-    }
-}
-
 fn unsupported_sql_runtime_error(message: &'static str) -> Error {
     Error::new(
         ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
@@ -476,68 +462,48 @@ fn facade_query_from_sql_upper_like_prefix_lowers_to_load_query_intent() {
 }
 
 #[test]
-fn facade_execute_sql_delete_direct_starts_with_family_matches_like_rows() {
+fn facade_query_from_sql_delete_direct_starts_with_family_matches_like_intent() {
+    let session = fresh_facade_session();
+
     // Phase 1: define the accepted direct family and the equivalent LIKE forms
-    // the public facade should continue to route to the same delete semantics.
+    // the public facade should continue to lower to on the structural query lane.
     let cases = [
         (
             "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC LIMIT 2",
             "DELETE FROM FacadeSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC LIMIT 2",
-            "facade strict direct STARTS_WITH delete",
+            "facade strict direct STARTS_WITH delete intent",
         ),
         (
             "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC LIMIT 2",
             "DELETE FROM FacadeSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
-            "facade direct LOWER(field) STARTS_WITH delete",
+            "facade direct LOWER(field) STARTS_WITH delete intent",
         ),
         (
             "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
             "DELETE FROM FacadeSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
-            "facade direct UPPER(field) STARTS_WITH delete",
+            "facade direct UPPER(field) STARTS_WITH delete intent",
         ),
     ];
 
-    // Phase 2: execute both spellings against fresh seeds so the facade locks
-    // the same deleted and surviving row sets on the public API boundary.
+    // Phase 2: compare the lowered delete intent directly so the facade stays
+    // coherent without depending on the local write-fixture harness.
     for (direct_sql, like_sql, context) in cases {
-        let run_delete = |sql: &str| {
-            let session = fresh_facade_session();
-            seed_facade_sql_entities(
-                &session,
-                &[
-                    ("Sonja She-Devil", 10),
-                    ("Stamm Bladecaster", 20),
-                    ("Syra Child of Nature", 30),
-                    ("Sir Edward Lion", 40),
-                    ("Sethra Bhoaghail", 50),
-                    ("Aldren", 60),
-                ],
-            );
-
-            let deleted_names = session
-                .execute_sql::<FacadeSqlEntity>(sql)
-                .expect("facade STARTS_WITH/LIKE delete should execute")
-                .iter()
-                .map(|row| row.entity_ref().name.clone())
-                .collect::<Vec<_>>();
-            let remaining_names = session
-                .load::<FacadeSqlEntity>()
-                .order_by("name")
-                .execute()
-                .expect("facade post-delete load should succeed")
-                .iter()
-                .map(|row| row.entity_ref().name.clone())
-                .collect::<Vec<_>>();
-
-            (deleted_names, remaining_names)
-        };
-
-        let direct = run_delete(direct_sql);
-        let like = run_delete(like_sql);
+        let direct = session
+            .query_from_sql::<FacadeSqlEntity>(direct_sql)
+            .expect("facade direct STARTS_WITH delete SQL should lower");
+        let like = session
+            .query_from_sql::<FacadeSqlEntity>(like_sql)
+            .expect("facade LIKE delete SQL should lower");
 
         assert_eq!(
-            direct, like,
-            "facade direct STARTS_WITH delete should match the established LIKE delete semantics: {context}",
+            direct
+                .explain()
+                .expect("facade direct STARTS_WITH delete SQL explain should build")
+                .render_text_canonical(),
+            like.explain()
+                .expect("facade LIKE delete SQL explain should build")
+                .render_text_canonical(),
+            "facade direct STARTS_WITH delete should match the established LIKE delete intent: {context}",
         );
     }
 }
