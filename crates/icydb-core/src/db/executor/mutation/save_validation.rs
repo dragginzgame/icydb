@@ -200,9 +200,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 ));
             }
 
-            let value = row_fields.required_value_by_contract(field_index)?;
+            let value = row_fields.required_value_by_contract_cow(field_index)?;
 
-            if matches!(value, Value::Null | Value::Unit) {
+            if matches!(value.as_ref(), Value::Null | Value::Unit) {
                 // Null = absent, Unit = singleton sentinel; both skip type checks.
                 continue;
             }
@@ -217,19 +217,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             };
 
-            if !literal_matches_type(&value, field_type) {
+            if !literal_matches_type(value.as_ref(), field_type) {
                 return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
                     field.name,
-                    &value,
+                    value.as_ref(),
                 ));
             }
 
             // Phase 1: enforce schema-declared decimal scales at write boundaries.
-            Self::validate_decimal_scale(field.name, &field.kind, &value)?;
+            Self::validate_decimal_scale(field.name, &field.kind, value.as_ref())?;
 
             // Phase 2: enforce deterministic collection/map encodings at runtime.
-            Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
+            Self::validate_deterministic_field_value(field.name, &field.kind, value.as_ref())?;
         }
 
         Ok(())

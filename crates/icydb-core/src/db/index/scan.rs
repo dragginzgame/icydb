@@ -205,15 +205,15 @@ impl IndexStore {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
-        // Phase 1: decode the raw key once so corruption stays owner-local and
-        // index-only predicate evaluation can reuse the decoded segments.
-        let decoded_key = IndexKey::try_from_raw(raw_key)
-            .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
-
-        if let Some(execution) = index_predicate_execution
-            && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
-        {
-            return Ok(false);
+        // Phase 1: only decode raw key components when an index-only
+        // predicate needs them. Plain membership scans only need the entry
+        // payload, so they should not pay raw-key decode on every hit.
+        if let Some(execution) = index_predicate_execution {
+            let decoded_key = IndexKey::try_from_raw(raw_key)
+                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+            if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+                return Ok(false);
+            }
         }
 
         // Phase 2: fast-path one-key entries without allocating the full
@@ -323,5 +323,56 @@ impl IndexStore {
         }
 
         Ok(false)
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::IndexStore;
+    use crate::{
+        db::{
+            data::{DataKey, StorageKey},
+            index::{RawIndexEntry, RawIndexKey},
+        },
+        model::index::IndexModel,
+        traits::Storable,
+        types::EntityTag,
+    };
+    use std::borrow::Cow;
+
+    const TEST_SCAN_INDEX_FIELDS: &[&str] = &["name"];
+    const TEST_SCAN_INDEX: IndexModel = IndexModel::new(
+        "scan::idx_name",
+        "scan::IndexStore",
+        TEST_SCAN_INDEX_FIELDS,
+        false,
+    );
+
+    #[test]
+    fn decode_index_entry_and_push_without_index_predicate_skips_raw_key_decode() {
+        let entity = EntityTag::new(7);
+        let raw_key = RawIndexKey::from_bytes(Cow::Owned(vec![0xFF]));
+        let raw_entry =
+            RawIndexEntry::try_from_keys([StorageKey::Uint(11)]).expect("encode index entry");
+        let mut out = Vec::new();
+
+        let halted = IndexStore::decode_index_entry_and_push(
+            entity,
+            &TEST_SCAN_INDEX,
+            &raw_key,
+            &raw_entry,
+            &mut out,
+            Some(1),
+            "test scan",
+            None,
+        )
+        .expect("plain membership scan should not require raw key decode");
+
+        assert!(halted, "bounded single-row scan should stop at the limit");
+        assert_eq!(out, vec![DataKey::new(entity, StorageKey::Uint(11))]);
     }
 }

@@ -5,15 +5,14 @@
 
 use crate::{
     db::{
-        cursor::{
-            CursorBoundary, CursorBoundarySlot, apply_order_direction, compare_boundary_slots,
-        },
+        contracts::canonical_value_compare,
+        cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 
 ///
 /// OrderReadableRow
@@ -25,7 +24,15 @@ use std::cmp::Ordering;
 
 pub(in crate::db::executor) trait OrderReadableRow {
     /// Read one slot value for structural ordering and predicate evaluation.
-    fn read_order_slot(&self, slot: usize) -> Option<Value>;
+    /// Structural row paths may return borrowed values so shared order/cursor
+    /// helpers do not clone already-decoded slots in comparator hot loops.
+    fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>>;
+
+    /// Read one slot value as an owned payload when a caller still needs to
+    /// leave the borrowed structural-ordering boundary.
+    fn read_order_slot(&self, slot: usize) -> Option<Value> {
+        self.read_order_slot_cow(slot).map(Cow::into_owned)
+    }
 }
 
 ///
@@ -114,13 +121,16 @@ where
     R: OrderReadableRow,
 {
     compare_structural_order_slots(resolved_order, |slot_index, field_index, direction| {
-        let row_slot = boundary_slot_from_row(row, field_index);
+        let row_slot = order_value_from_row(row, field_index);
         let boundary_slot = boundary
             .slots
             .get(slot_index)
             .expect("cursor boundary must align with resolved order");
 
-        apply_order_direction(compare_boundary_slots(&row_slot, boundary_slot), direction)
+        apply_order_direction(
+            compare_order_value_with_boundary(row_slot, boundary_slot),
+            direction,
+        )
     })
 }
 
@@ -131,10 +141,10 @@ fn compare_orderable_rows(
     resolved_order: &ResolvedOrder,
 ) -> Ordering {
     compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
-        let left_slot = boundary_slot_from_row(left, field_index);
-        let right_slot = boundary_slot_from_row(right, field_index);
+        let left_slot = order_value_from_row(left, field_index);
+        let right_slot = order_value_from_row(right, field_index);
 
-        apply_order_direction(compare_boundary_slots(&left_slot, &right_slot), direction)
+        apply_order_direction(compare_order_values(left_slot, right_slot), direction)
     })
 }
 
@@ -164,16 +174,38 @@ where
     Ordering::Equal
 }
 
-// Convert one slot-reader value into the explicit cursor ordering slot contract.
-fn boundary_slot_from_row(
+// Borrow one slot-reader value through the shared ordering seam.
+fn order_value_from_row(
     row: &dyn OrderReadableRow,
     field_index: Option<usize>,
-) -> CursorBoundarySlot {
-    let value = field_index.and_then(|slot| row.read_order_slot(slot));
+) -> Option<Cow<'_, Value>> {
+    field_index.and_then(|slot| row.read_order_slot_cow(slot))
+}
 
-    match value {
-        Some(value) => CursorBoundarySlot::Present(value),
-        None => CursorBoundarySlot::Missing,
+// Compare two optional structural ordering values under cursor boundary
+// semantics without forcing row paths to materialize owned `Value`s first.
+fn compare_order_values(left: Option<Cow<'_, Value>>, right: Option<Cow<'_, Value>>) -> Ordering {
+    match (left, right) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(left), Some(right)) => canonical_value_compare(left.as_ref(), right.as_ref()),
+    }
+}
+
+// Compare one row-provided ordering value against one persisted cursor
+// boundary slot without rebuilding the row side into an owned boundary slot.
+fn compare_order_value_with_boundary(
+    value: Option<Cow<'_, Value>>,
+    boundary: &CursorBoundarySlot,
+) -> Ordering {
+    match (value, boundary) {
+        (None, CursorBoundarySlot::Missing) => Ordering::Equal,
+        (None, CursorBoundarySlot::Present(_)) => Ordering::Less,
+        (Some(_), CursorBoundarySlot::Missing) => Ordering::Greater,
+        (Some(value), CursorBoundarySlot::Present(boundary_value)) => {
+            canonical_value_compare(value.as_ref(), boundary_value)
+        }
     }
 }
 
@@ -196,8 +228,11 @@ mod tests {
     }
 
     impl OrderReadableRow for TestRow {
-        fn read_order_slot(&self, slot: usize) -> Option<Value> {
-            self.slots.get(slot).cloned().flatten()
+        fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            self.slots
+                .get(slot)
+                .and_then(Option::as_ref)
+                .map(Cow::Borrowed)
         }
     }
 

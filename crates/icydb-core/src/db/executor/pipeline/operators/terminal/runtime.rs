@@ -17,7 +17,7 @@ use crate::{
             key_stream_budget_is_redundant,
             pipeline::contracts::RowCollectorMaterializationRequest,
             route::access_order_satisfied_by_route_contract_for_model,
-            terminal::page::{KernelRow, ScalarRowRuntimeHandle},
+            terminal::page::{KernelRow, KernelRowPayloadMode, ScalarRowRuntimeHandle},
             traversal::row_read_consistency_for_plan,
         },
         predicate::PredicateProgram,
@@ -59,18 +59,27 @@ impl ExecutionKernel {
     // Run one row-collector stream over the already decorated
     // key stream and stage structural kernel rows only.
     pub(in crate::db::executor::pipeline::operators::terminal) fn run_row_collector_stream(
-        plan: &AccessPlannedQuery,
-        scan_budget_hint: Option<usize>,
-        stream_order_contract_safe: bool,
-        continuation: ScalarContinuationBindings<'_>,
-        key_stream: &mut dyn OrderedKeyStream,
-        row_runtime: &mut ScalarRowRuntimeHandle<'_>,
-        predicate_slots: Option<&PredicateProgram>,
+        request: RowCollectorStreamRequest<'_, '_>,
     ) -> Result<(Vec<KernelRow>, usize), InternalError> {
+        let RowCollectorStreamRequest {
+            plan,
+            scan_budget_hint,
+            stream_order_contract_safe,
+            continuation,
+            row_keep_cap,
+            payload_mode,
+            key_stream,
+            row_runtime,
+            predicate_slots,
+        } = request;
+
         // Phase 1: initialize row staging and read-consistency policy.
-        let mut rows = Vec::with_capacity(
-            exact_output_key_count_hint(key_stream, scan_budget_hint).unwrap_or(0),
-        );
+        let staged_capacity = exact_output_key_count_hint(key_stream, scan_budget_hint)
+            .map_or_else(
+                || row_keep_cap.unwrap_or(0),
+                |hint| row_keep_cap.map_or(hint, |cap| usize::min(hint, cap)),
+            );
+        let mut rows = Vec::with_capacity(staged_capacity);
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
         let predicate_preapplied = plan.scalar_plan().predicate.is_some();
@@ -87,6 +96,7 @@ impl ExecutionKernel {
                 let Some(row) = row_runtime.read_kernel_row(
                     consistency,
                     &key,
+                    payload_mode,
                     predicate_preapplied,
                     predicate_slots,
                 )?
@@ -94,6 +104,9 @@ impl ExecutionKernel {
                     continue;
                 };
                 rows.push(row);
+                if row_keep_cap.is_some_and(|cap| rows.len() >= cap) {
+                    break;
+                }
             }
         } else {
             while let Some(key) = key_stream.next_key()? {
@@ -101,6 +114,7 @@ impl ExecutionKernel {
                 let Some(row) = row_runtime.read_kernel_row(
                     consistency,
                     &key,
+                    payload_mode,
                     predicate_preapplied,
                     predicate_slots,
                 )?
@@ -108,6 +122,9 @@ impl ExecutionKernel {
                     continue;
                 };
                 rows.push(row);
+                if row_keep_cap.is_some_and(|cap| rows.len() >= cap) {
+                    break;
+                }
             }
         }
 
@@ -117,10 +134,10 @@ impl ExecutionKernel {
     // Materialize one cursorless short-path load through the structural row
     // runtime under the same continuation and bounded-scan contract as the
     // canonical scalar page kernel.
-    pub(in crate::db::executor) fn try_materialize_load_via_row_collector(
-        request: RowCollectorMaterializationRequest<'_>,
+    pub(in crate::db::executor) fn try_materialize_load_via_row_collector<'a>(
+        request: RowCollectorMaterializationRequest<'a>,
         model: &'static EntityModel,
-        row_runtime: &mut ScalarRowRuntimeHandle<'_>,
+        row_runtime: &mut ScalarRowRuntimeHandle<'a>,
     ) -> Result<
         Option<(
             crate::db::executor::pipeline::contracts::StructuralCursorPage,
@@ -165,7 +182,9 @@ impl ExecutionKernel {
                 predicate_slots,
             )?
         {
-            apply_cursorless_sql_page_window(plan, &mut slot_rows);
+            if !cursorless_sql_page_window_is_redundant(plan, slot_rows.len()) {
+                apply_cursorless_sql_page_window(plan, &mut slot_rows);
+            }
             if validate_projection {
                 crate::db::executor::projection::validate_projection_over_slot_rows(
                     model,
@@ -185,16 +204,25 @@ impl ExecutionKernel {
             return Ok(Some((page, keys_scanned, post_access_rows)));
         }
 
-        let (mut rows, keys_scanned) = Self::run_row_collector_stream(
+        let payload_mode = if retain_slot_rows && cursor_boundary.is_none() {
+            KernelRowPayloadMode::SlotsOnly
+        } else {
+            KernelRowPayloadMode::FullRow
+        };
+        let row_keep_cap =
+            cursorless_row_collector_keep_cap(plan, cursor_boundary, retain_slot_rows);
+        let (mut rows, keys_scanned) = Self::run_row_collector_stream(RowCollectorStreamRequest {
             plan,
             scan_budget_hint,
             stream_order_contract_safe,
             continuation,
+            row_keep_cap,
+            payload_mode,
             key_stream,
             row_runtime,
             predicate_slots,
-        )?;
-        if retain_slot_rows {
+        })?;
+        if retain_slot_rows && !cursorless_sql_page_window_is_redundant(plan, rows.len()) {
             apply_cursorless_sql_page_window(plan, &mut rows);
         }
         if validate_projection {
@@ -206,27 +234,93 @@ impl ExecutionKernel {
             )?;
         }
         let post_access_rows = rows.len();
-        #[cfg(feature = "sql")]
-        let page = if retain_slot_rows {
-            let row_count = rows.len();
-            let slot_rows = rows.into_iter().map(KernelRow::into_slots).collect();
-            crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
-                slot_rows, row_count, None,
-            )
-        } else {
-            let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
-            crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None)
-        };
-
-        #[cfg(not(feature = "sql"))]
-        let page = {
-            let _ = retain_slot_rows;
-            let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
-            crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None)
-        };
+        let page = finalize_cursorless_row_collector_page(rows, retain_slot_rows)?;
 
         Ok(Some((page, keys_scanned, post_access_rows)))
     }
+}
+
+///
+/// RowCollectorStreamRequest
+///
+/// RowCollectorStreamRequest keeps the structural row-collector scan contract
+/// explicit while avoiding another wide helper signature in the terminal
+/// runtime. The slot-only payload mode belongs to the same boundary as the
+/// scan budget, continuation contract, and decorated key stream.
+///
+
+pub(in crate::db::executor::pipeline::operators::terminal) struct RowCollectorStreamRequest<'a, 'r>
+{
+    plan: &'a AccessPlannedQuery,
+    scan_budget_hint: Option<usize>,
+    stream_order_contract_safe: bool,
+    continuation: ScalarContinuationBindings<'a>,
+    row_keep_cap: Option<usize>,
+    payload_mode: KernelRowPayloadMode,
+    key_stream: &'a mut dyn OrderedKeyStream,
+    row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
+    predicate_slots: Option<&'a PredicateProgram>,
+}
+
+// Return the number of kept rows the cursorless structural SQL short path
+// must materialize before later pagination becomes redundant.
+fn cursorless_row_collector_keep_cap(
+    plan: &AccessPlannedQuery,
+    cursor_boundary: Option<&CursorBoundary>,
+    retain_slot_rows: bool,
+) -> Option<usize> {
+    if !retain_slot_rows || cursor_boundary.is_some() {
+        return None;
+    }
+
+    let page = plan.scalar_plan().page.as_ref()?;
+    let limit = page.limit?;
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+
+    Some(offset.saturating_add(limit))
+}
+
+// Return whether the cursorless SQL short path already staged the final page.
+fn cursorless_sql_page_window_is_redundant(plan: &AccessPlannedQuery, row_count: usize) -> bool {
+    let Some(page) = plan.scalar_plan().page.as_ref() else {
+        return true;
+    };
+
+    if page.offset != 0 {
+        return false;
+    }
+
+    page.limit
+        .is_none_or(|limit| row_count <= usize::try_from(limit).unwrap_or(usize::MAX))
+}
+
+// Finalize one cursorless structural page after short-path row collection.
+fn finalize_cursorless_row_collector_page(
+    rows: Vec<KernelRow>,
+    retain_slot_rows: bool,
+) -> Result<crate::db::executor::pipeline::contracts::StructuralCursorPage, InternalError> {
+    #[cfg(feature = "sql")]
+    {
+        if retain_slot_rows {
+            let row_count = rows.len();
+            let slot_rows = rows.into_iter().map(KernelRow::into_slots).collect();
+
+            return Ok(
+                crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
+                    slot_rows, row_count, None,
+                ),
+            );
+        }
+    }
+
+    let _ = retain_slot_rows;
+    let data_rows = rows
+        .into_iter()
+        .map(KernelRow::into_data_row)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(crate::db::executor::pipeline::contracts::StructuralCursorPage::new(data_rows, None))
 }
 
 // Apply the SQL-only cursorless LIMIT/OFFSET window directly on the collected

@@ -176,6 +176,11 @@ impl ExecutionKernel {
                 stream_order_contract_safe: route_plan.stream_order_contract_safe(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
+                cursor_emission: if inputs.emit_cursor() {
+                    crate::db::executor::pipeline::contracts::CursorEmissionMode::Emit
+                } else {
+                    crate::db::executor::pipeline::contracts::CursorEmissionMode::Suppress
+                },
                 consistency: inputs.consistency(),
                 continuation,
             })?;

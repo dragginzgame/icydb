@@ -386,6 +386,7 @@ impl ExecutionKernel {
             &descriptor.execution_preparation,
             true,
             false,
+            true,
         );
 
         // Resolve the ordered key stream using canonical routing logic.

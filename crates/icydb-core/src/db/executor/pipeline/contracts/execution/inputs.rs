@@ -21,7 +21,7 @@ use crate::{
             terminal::{
                 RowDecoder, RowLayout,
                 page::{
-                    KernelPageMaterializationRequest, ScalarRowRuntimeHandle,
+                    KernelPageMaterializationRequest, KernelRowPayloadMode, ScalarRowRuntimeHandle,
                     ScalarRowRuntimeVTable, materialize_key_stream_into_structural_page,
                 },
             },
@@ -92,6 +92,7 @@ unsafe fn structural_scalar_read_kernel_row(
     state: *mut (),
     consistency: MissingRowPolicy,
     key: &DataKey,
+    payload_mode: KernelRowPayloadMode,
     predicate_preapplied: bool,
     predicate_slots: Option<&PredicateProgram>,
 ) -> Result<Option<crate::db::executor::terminal::page::KernelRow>, InternalError> {
@@ -99,8 +100,20 @@ unsafe fn structural_scalar_read_kernel_row(
     let Some(row) = state.read_row(consistency, key)? else {
         return Ok(None);
     };
-    let data_row = (key.clone(), row);
-    let kernel_row = state.row_decoder.decode(&state.row_layout, data_row)?;
+    let kernel_row = match payload_mode {
+        KernelRowPayloadMode::FullRow => {
+            let data_row = (key.clone(), row);
+            state.row_decoder.decode(&state.row_layout, data_row)?
+        }
+        KernelRowPayloadMode::SlotsOnly => {
+            let slots =
+                state
+                    .row_decoder
+                    .decode_slots(&state.row_layout, key.storage_key(), &row)?;
+
+            crate::db::executor::terminal::page::KernelRow::new_slot_only(slots)
+        }
+    };
     if predicate_preapplied
         && let Some(predicate_program) = predicate_slots
         && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| kernel_row.slot_ref(slot))
@@ -205,6 +218,29 @@ impl StructuralCursorPage {
 }
 
 ///
+/// CursorEmissionMode
+///
+/// Cursor emission contract for structural page materialization.
+/// Shared scalar execution uses this to keep no-cursor SQL projection lanes
+/// explicit instead of inferring cursor assembly from unrelated bool flags.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum CursorEmissionMode {
+    Emit,
+    Suppress,
+}
+
+impl CursorEmissionMode {
+    /// Return whether structural page materialization should assemble an
+    /// outward continuation cursor.
+    #[must_use]
+    pub(in crate::db::executor) const fn enabled(self) -> bool {
+        matches!(self, Self::Emit)
+    }
+}
+
+///
 /// RuntimePageMaterializationRequest
 ///
 /// Generic-free page materialization envelope consumed through the executor
@@ -219,6 +255,7 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) stream_order_contract_safe: bool,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
@@ -288,9 +325,9 @@ pub(in crate::db::executor) trait ExecutionRuntime {
     ) -> Result<OrderedKeyStreamBox, InternalError>;
 
     /// Attempt the cursorless row-collector short path and erase the typed page result.
-    fn try_materialize_load_via_row_collector(
-        &self,
-        request: RowCollectorMaterializationRequest<'_>,
+    fn try_materialize_load_via_row_collector<'a>(
+        &'a self,
+        request: RowCollectorMaterializationRequest<'a>,
     ) -> Result<Option<StructuralRowCollectorPayload>, InternalError>;
 
     /// Materialize one ordered key stream into one structural scalar page payload.
@@ -507,9 +544,9 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
         )
     }
 
-    fn try_materialize_load_via_row_collector(
-        &self,
-        request: RowCollectorMaterializationRequest<'_>,
+    fn try_materialize_load_via_row_collector<'a>(
+        &'a self,
+        request: RowCollectorMaterializationRequest<'a>,
     ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
         // Reuse the adapter-owned structural row-runtime state for the whole
         // query instead of cloning and boxing the same read-only runtime
@@ -550,6 +587,7 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
                 stream_order_contract_safe: request.stream_order_contract_safe,
                 validate_projection: request.validate_projection,
                 retain_slot_rows: request.retain_slot_rows,
+                cursor_emission: request.cursor_emission,
                 consistency: request.consistency,
                 continuation: request.continuation,
             },
@@ -573,6 +611,7 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     execution_preparation: &'a ExecutionPreparation,
     validate_projection: bool,
     retain_slot_rows: bool,
+    emit_cursor: bool,
 }
 
 impl<'a> ExecutionInputs<'a> {
@@ -585,6 +624,7 @@ impl<'a> ExecutionInputs<'a> {
         execution_preparation: &'a ExecutionPreparation,
         validate_projection: bool,
         retain_slot_rows: bool,
+        emit_cursor: bool,
     ) -> Self {
         Self {
             runtime,
@@ -593,6 +633,7 @@ impl<'a> ExecutionInputs<'a> {
             execution_preparation,
             validate_projection,
             retain_slot_rows,
+            emit_cursor,
         }
     }
 
@@ -632,6 +673,13 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn retain_slot_rows(&self) -> bool {
         self.retain_slot_rows
+    }
+
+    /// Return whether this execution attempt should assemble one outward
+    /// continuation cursor from the materialized structural page.
+    #[must_use]
+    pub(in crate::db::executor) const fn emit_cursor(&self) -> bool {
+        self.emit_cursor
     }
 
     /// Return row-read missing-row policy for this execution attempt.

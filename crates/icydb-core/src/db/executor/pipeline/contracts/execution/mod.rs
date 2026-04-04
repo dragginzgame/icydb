@@ -10,8 +10,8 @@ mod stream;
 
 pub(in crate::db::executor::pipeline::contracts::execution) use erased::ErasedRuntimeBindings;
 pub(in crate::db::executor) use inputs::{
-    ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest, StructuralCursorPage,
+    CursorEmissionMode, ExecutionInputs, ExecutionRuntime, ExecutionRuntimeAdapter,
+    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest, StructuralCursorPage,
 };
 pub(in crate::db::executor) use outcomes::{ExecutionOutcomeMetrics, MaterializedExecutionAttempt};
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

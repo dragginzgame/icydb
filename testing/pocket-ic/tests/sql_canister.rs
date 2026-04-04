@@ -1,24 +1,17 @@
-use candid::{Principal, decode_one, encode_one};
+use candid::{Principal, encode_one};
+use canic_testkit::pic::{Pic, acquire_pic_serial_guard, pic as new_pic};
 use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
 use icydb_testing_integration::build_canister;
-use pocket_ic::{PocketIc, PocketIcBuilder};
 use serde::Serialize;
-use std::{
-    fs,
-    path::PathBuf,
-    sync::{Mutex, OnceLock},
-};
+use std::{fs, path::PathBuf, sync::OnceLock};
 
 const INIT_CYCLES: u128 = 2_000_000_000_000;
 const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
-static POCKET_IC_TEST_LOCK: Mutex<()> = Mutex::new(());
-static SHARED_POCKET_IC: OnceLock<Option<Mutex<PocketIc>>> = OnceLock::new();
 static QUICKSTART_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 
-// Build one shared PocketIC instance for the full test binary.
-// Each test still installs its own canister, so test state remains isolated
-// without leaking one detached PocketIC server process per test case in CI.
-fn build_shared_pocket_ic() -> Option<Mutex<PocketIc>> {
+// Resolve the PocketIC server binary lazily so tests can skip cleanly when
+// the executable is unavailable in local environments.
+fn pocket_ic_server_binary() -> Option<PathBuf> {
     let Some(server_binary_raw) = std::env::var_os(POCKET_IC_BIN_ENV) else {
         eprintln!(
             "skipping PocketIC SQL canister integration test: set {POCKET_IC_BIN_ENV} \
@@ -34,21 +27,7 @@ fn build_shared_pocket_ic() -> Option<Mutex<PocketIc>> {
         server_binary.display()
     );
 
-    Some(Mutex::new(
-        PocketIcBuilder::new()
-            // Match PocketIc::new() topology expectations: at least one subnet.
-            .with_application_subnet()
-            .with_server_binary(server_binary)
-            .build(),
-    ))
-}
-
-// Resolve the shared PocketIC instance lazily so tests can skip cleanly when
-// the server binary is unavailable.
-fn shared_pocket_ic() -> Option<&'static Mutex<PocketIc>> {
-    SHARED_POCKET_IC
-        .get_or_init(build_shared_pocket_ic)
-        .as_ref()
+    Some(server_binary)
 }
 
 fn build_quickstart_canister_wasm() -> Vec<u8> {
@@ -66,7 +45,7 @@ fn build_quickstart_canister_wasm() -> Vec<u8> {
 }
 
 // Install the quickstart fixture canister into one fresh Pocket-IC canister id.
-fn install_quickstart_canister(pic: &PocketIc) -> Principal {
+fn install_quickstart_canister(pic: &Pic) -> Principal {
     let canister_id = pic.create_canister();
     pic.add_cycles(canister_id, INIT_CYCLES);
 
@@ -82,50 +61,35 @@ fn install_quickstart_canister(pic: &PocketIc) -> Principal {
 }
 
 // Execute one unit-shaped update call and assert the canister returned `Ok(())`.
-fn expect_unit_update_ok(pic: &PocketIc, canister_id: Principal, method: &str) {
-    let response_bytes = pic
-        .update_call(
-            canister_id,
-            Principal::anonymous(),
-            method,
-            encode_one(()).expect("encode unit update args"),
-        )
+fn expect_unit_update_ok(pic: &Pic, canister_id: Principal, method: &str) {
+    let response: Result<(), icydb::Error> = pic
+        .update_call(canister_id, method, ())
         .unwrap_or_else(|err| panic!("{method} update call should succeed: {err}"));
-    let response: Result<(), icydb::Error> =
-        decode_one(&response_bytes).unwrap_or_else(|err| panic!("decode {method} response: {err}"));
     assert!(response.is_ok(), "{method} returned error: {response:?}");
 }
 
 // Load the default fixture dataset and assert the update call returned `Ok(())`.
-fn load_default_fixtures(pic: &PocketIc, canister_id: Principal) {
+fn load_default_fixtures(pic: &Pic, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_load_default");
 }
 
 // Reset the default fixture dataset and assert the update call returned `Ok(())`.
-fn reset_fixtures(pic: &PocketIc, canister_id: Principal) {
+fn reset_fixtures(pic: &Pic, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_reset");
 }
 
-// Execute one PocketIC integration test body against the shared instance.
-// Catching the test panic before dropping the MutexGuard avoids poisoning the
-// shared PocketIC handle for later tests in the same binary.
-fn run_with_pocket_ic(test_body: impl FnOnce(&PocketIc)) {
+// Execute one PocketIC integration test body against a fresh canic-testkit
+// Pic instance. Keeping the lifecycle per-test matches the harness contract
+// and avoids reusing one shared PocketIC process across the whole test binary.
+fn run_with_pocket_ic(test_body: impl FnOnce(&Pic)) {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-    // PocketIC tests must not run concurrently.
-    // The PocketIC server and test canister install path are not stable under
-    // parallel execution in CI; serialize test bodies to keep runs deterministic.
-    let _guard = POCKET_IC_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-    let Some(pic) = shared_pocket_ic() else {
+    let Some(_server_binary) = pocket_ic_server_binary() else {
         return;
     };
 
-    let pic = pic
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _serial_guard = acquire_pic_serial_guard();
+    let pic = new_pic();
     let test_result = catch_unwind(AssertUnwindSafe(|| test_body(&pic)));
     drop(pic);
 
@@ -135,24 +99,16 @@ fn run_with_pocket_ic(test_body: impl FnOnce(&PocketIc)) {
 }
 
 fn query_result(
-    pic: &PocketIc,
+    pic: &Pic,
     canister_id: Principal,
     sql: &str,
 ) -> Result<SqlQueryResult, icydb::Error> {
-    let query_bytes = pic
-        .query_call(
-            canister_id,
-            Principal::anonymous(),
-            "query",
-            encode_one(sql.to_string()).expect("encode query SQL args"),
-        )
-        .expect("query call should return encoded Result");
-
-    decode_one(&query_bytes).expect("decode query response")
+    pic.query_call(canister_id, "query", (sql.to_string(),))
+        .expect("query call should return encoded Result")
 }
 
 fn query_projection_rows(
-    pic: &PocketIc,
+    pic: &Pic,
     canister_id: Principal,
     sql: &str,
     context: &str,
@@ -333,50 +289,27 @@ struct SqlPerfScenarioRow {
     sample: SqlPerfSample,
 }
 
-fn sql_perf_sample(
-    pic: &PocketIc,
-    canister_id: Principal,
-    request: &SqlPerfRequest,
-) -> SqlPerfSample {
-    let query_bytes = pic
-        .query_call(
-            canister_id,
-            Principal::anonymous(),
-            "sql_perf",
-            encode_one(request).expect("encode sql_perf request"),
-        )
+fn sql_perf_sample(pic: &Pic, canister_id: Principal, request: &SqlPerfRequest) -> SqlPerfSample {
+    let response: Result<SqlPerfSample, icydb::Error> = pic
+        .query_call(canister_id, "sql_perf", (request,))
         .expect("sql_perf query call should return encoded Result");
-
-    let response: Result<SqlPerfSample, icydb::Error> =
-        decode_one(&query_bytes).expect("decode sql_perf response");
 
     response.expect("sql_perf should succeed for integration scenario")
 }
 
 fn sql_perf_attribution_sample(
-    pic: &PocketIc,
+    pic: &Pic,
     canister_id: Principal,
     request: &SqlPerfAttributionRequest,
 ) -> SqlPerfAttributionSample {
-    let query_bytes = pic
-        .query_call(
-            canister_id,
-            Principal::anonymous(),
-            "sql_perf_attribution",
-            encode_one(request).expect("encode sql_perf_attribution request"),
-        )
+    let response: Result<SqlPerfAttributionSample, icydb::Error> = pic
+        .query_call(canister_id, "sql_perf_attribution", (request,))
         .expect("sql_perf_attribution query call should return encoded Result");
-
-    let response: Result<SqlPerfAttributionSample, icydb::Error> =
-        decode_one(&query_bytes).expect("decode sql_perf_attribution response");
 
     response.expect("sql_perf_attribution should succeed for integration scenario")
 }
 
-fn run_sql_perf_scenarios(
-    pic: &PocketIc,
-    scenarios: Vec<SqlPerfScenario>,
-) -> Vec<SqlPerfScenarioRow> {
+fn run_sql_perf_scenarios(pic: &Pic, scenarios: Vec<SqlPerfScenario>) -> Vec<SqlPerfScenarioRow> {
     let mut rows = Vec::with_capacity(scenarios.len());
 
     for scenario in scenarios {
@@ -651,7 +584,7 @@ const fn metadata_entity_name(payload: &SqlQueryResult) -> Option<&str> {
 
 // Run one normalized metadata-lane SQL statement and assert the stable entity name.
 fn assert_metadata_entity_name(
-    pic: &PocketIc,
+    pic: &Pic,
     canister_id: Principal,
     sql: &str,
     expected_entity: &str,
@@ -670,16 +603,9 @@ fn sql_canister_smoke_flow() {
     run_with_pocket_ic(|pic| {
         let canister_id = install_quickstart_canister(pic);
 
-        let entities_bytes = pic
-            .query_call(
-                canister_id,
-                Principal::anonymous(),
-                "sql_entities",
-                encode_one(()).expect("encode sql_entities args"),
-            )
+        let entities: Vec<String> = pic
+            .query_call(canister_id, "sql_entities", ())
             .expect("sql_entities query call should succeed");
-        let entities: Vec<String> =
-            decode_one(&entities_bytes).expect("decode sql_entities response");
         assert!(entities.iter().any(|name| name == "User"));
         assert!(entities.iter().any(|name| name == "Order"));
         assert!(entities.iter().any(|name| name == "Character"));

@@ -55,6 +55,10 @@ impl ScalarProjectionRuntimeMode {
     const fn retain_slot_rows(self) -> bool {
         matches!(self, Self::SqlImmediateMaterialization)
     }
+
+    const fn emit_cursor(self) -> bool {
+        matches!(self, Self::SharedValidation)
+    }
 }
 
 ///
@@ -252,6 +256,7 @@ fn execute_scalar_execution_stage(
         &execution_preparation,
         projection_runtime_mode.validate_projection(),
         projection_runtime_mode.retain_slot_rows(),
+        projection_runtime_mode.emit_cursor(),
     );
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(

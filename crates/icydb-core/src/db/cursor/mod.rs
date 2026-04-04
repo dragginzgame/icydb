@@ -40,8 +40,8 @@ pub(in crate::db) use crate::db::index::{
 pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
-    apply_order_direction, compare_boundary_slots, validate_cursor_boundary_for_order,
-    validate_cursor_direction, validate_cursor_window_offset,
+    apply_order_direction, validate_cursor_boundary_for_order, validate_cursor_direction,
+    validate_cursor_window_offset,
 };
 pub(in crate::db) use continuation::{
     IndexScanContinuationInput, MaterializedCursorRow, effective_keep_count_for_limit,

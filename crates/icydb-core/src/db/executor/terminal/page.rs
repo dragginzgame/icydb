@@ -12,7 +12,7 @@ use crate::{
             ScalarContinuationBindings, apply_structural_order_window,
             compare_orderable_row_with_boundary, compute_page_keep_count,
             key_stream_budget_is_redundant,
-            pipeline::contracts::{PageCursor, StructuralCursorPage},
+            pipeline::contracts::{CursorEmissionMode, PageCursor, StructuralCursorPage},
             projection::validate_projection_over_slot_rows,
             resolve_structural_order,
             route::access_order_satisfied_by_route_contract_for_model,
@@ -25,7 +25,7 @@ use crate::{
     model::entity::EntityModel,
     value::Value,
 };
-use std::{marker::PhantomData, ptr};
+use std::{borrow::Cow, marker::PhantomData, ptr};
 
 ///
 /// KernelRow
@@ -35,7 +35,7 @@ use std::{marker::PhantomData, ptr};
 ///
 
 pub(in crate::db) struct KernelRow {
-    data_row: DataRow,
+    data_row: Option<DataRow>,
     slots: Vec<Option<Value>>,
 }
 
@@ -44,7 +44,19 @@ impl KernelRow {
     /// slot-indexed runtime values.
     #[must_use]
     pub(in crate::db) const fn new(data_row: DataRow, slots: Vec<Option<Value>>) -> Self {
-        Self { data_row, slots }
+        Self {
+            data_row: Some(data_row),
+            slots,
+        }
+    }
+
+    /// Build one structural kernel row that retains only decoded slot values.
+    #[must_use]
+    pub(in crate::db) const fn new_slot_only(slots: Vec<Option<Value>>) -> Self {
+        Self {
+            data_row: None,
+            slots,
+        }
     }
 
     /// Borrow one decoded slot value without cloning it back out of the
@@ -58,8 +70,12 @@ impl KernelRow {
         self.slot_ref(slot).cloned()
     }
 
-    pub(in crate::db) fn into_data_row(self) -> DataRow {
-        self.data_row
+    pub(in crate::db) fn into_data_row(self) -> Result<DataRow, InternalError> {
+        self.data_row.ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "slot-only kernel row reached data-row materialization path",
+            )
+        })
     }
 
     pub(in crate::db) fn into_slots(self) -> Vec<Option<Value>> {
@@ -67,14 +83,20 @@ impl KernelRow {
     }
 
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn into_parts(self) -> (DataRow, Vec<Option<Value>>) {
-        (self.data_row, self.slots)
+    pub(in crate::db) fn into_parts(self) -> Result<(DataRow, Vec<Option<Value>>), InternalError> {
+        let data_row = self.data_row.ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "slot-only kernel row reached delete row materialization path",
+            )
+        })?;
+
+        Ok((data_row, self.slots))
     }
 }
 
 impl OrderReadableRow for KernelRow {
-    fn read_order_slot(&self, slot: usize) -> Option<Value> {
-        self.slot(slot)
+    fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.slot_ref(slot).map(Cow::Borrowed)
     }
 }
 
@@ -96,9 +118,25 @@ type ScalarRowReadKernelRowFn = unsafe fn(
     *mut (),
     MissingRowPolicy,
     &DataKey,
+    KernelRowPayloadMode,
     bool,
     Option<&PredicateProgram>,
 ) -> Result<Option<KernelRow>, InternalError>;
+
+///
+/// KernelRowPayloadMode
+///
+/// KernelRowPayloadMode selects whether shared scalar row production must keep
+/// a full `DataRow` payload or only decoded slot values.
+/// Slot-only rows are valid for no-cursor SQL materialization lanes that never
+/// reconstruct entity rows or continuation anchors.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum KernelRowPayloadMode {
+    FullRow,
+    SlotsOnly,
+}
 
 ///
 /// ScalarRowRuntimeHandle
@@ -136,6 +174,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         &mut self,
         consistency: MissingRowPolicy,
         key: &DataKey,
+        payload_mode: KernelRowPayloadMode,
         predicate_preapplied: bool,
         predicate_slots: Option<&PredicateProgram>,
     ) -> Result<Option<KernelRow>, InternalError> {
@@ -146,6 +185,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
                 self.state,
                 consistency,
                 key,
+                payload_mode,
                 predicate_preapplied,
                 predicate_slots,
             )
@@ -180,6 +220,7 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) stream_order_contract_safe: bool,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
@@ -198,9 +239,15 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         stream_order_contract_safe,
         validate_projection,
         retain_slot_rows,
+        cursor_emission,
         consistency,
         continuation,
     } = request;
+    let payload_mode = if retain_slot_rows && !cursor_emission.enabled() {
+        KernelRowPayloadMode::SlotsOnly
+    } else {
+        KernelRowPayloadMode::FullRow
+    };
 
     let predicate_preapplied = plan.scalar_plan().predicate.is_some();
     if predicate_preapplied && predicate_slots.is_none() {
@@ -213,6 +260,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         scan_budget_hint,
         stream_order_contract_safe,
         consistency,
+        payload_mode,
         predicate_slots,
         predicate_preapplied,
         continuation,
@@ -240,21 +288,26 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     }
 
     // Phase 3: assemble the structural cursor boundary before typed page emission.
-    let last_cursor_row = resolve_last_cursor_row(model, plan, rows.as_slice())?;
     let post_access_rows = rows.len();
-    let next_cursor = next_cursor_for_materialized_rows(
-        &plan.access,
-        plan.scalar_plan().order.as_ref(),
-        plan.scalar_plan().page.as_ref(),
-        post_access_rows,
-        last_cursor_row,
-        rows_after_cursor,
-        continuation.post_access_cursor_boundary(),
-        continuation.previous_index_range_anchor(),
-        continuation.direction(),
-        continuation.continuation_signature(),
-    )?
-    .map(PageCursor::Scalar);
+    let next_cursor = if cursor_emission.enabled() {
+        let last_cursor_row = resolve_last_cursor_row(model, plan, rows.as_slice())?;
+
+        next_cursor_for_materialized_rows(
+            &plan.access,
+            plan.scalar_plan().order.as_ref(),
+            plan.scalar_plan().page.as_ref(),
+            post_access_rows,
+            last_cursor_row,
+            rows_after_cursor,
+            continuation.post_access_cursor_boundary(),
+            continuation.previous_index_range_anchor(),
+            continuation.direction(),
+            continuation.continuation_signature(),
+        )?
+        .map(PageCursor::Scalar)
+    } else {
+        None
+    };
 
     // Phase 4: finalize one structural page payload for outer typed decode.
     #[cfg(feature = "sql")]
@@ -263,14 +316,20 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         let slot_rows = rows.into_iter().map(KernelRow::into_slots).collect();
         StructuralCursorPage::new_with_slot_rows(slot_rows, row_count, next_cursor)
     } else {
-        let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+        let data_rows = rows
+            .into_iter()
+            .map(KernelRow::into_data_row)
+            .collect::<Result<Vec<_>, _>>()?;
         StructuralCursorPage::new(data_rows, next_cursor)
     };
 
     #[cfg(not(feature = "sql"))]
     let page = {
         let _ = retain_slot_rows;
-        let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
+        let data_rows = rows
+            .into_iter()
+            .map(KernelRow::into_data_row)
+            .collect::<Result<Vec<_>, _>>()?;
         StructuralCursorPage::new(data_rows, next_cursor)
     };
 
@@ -296,7 +355,15 @@ fn resolve_last_cursor_row(
 
     // Phase 2: derive the optional raw index-range anchor once for index-range paths.
     let index_anchor = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
-        let data_key = &row.data_row.0;
+        let data_key = &row
+            .data_row
+            .as_ref()
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "slot-only kernel row reached cursor anchor derivation path",
+                )
+            })?
+            .0;
         let mut read_slot = |slot| row.slot(slot);
         IndexKey::new_from_slot_reader(
             data_key.entity_tag(),
@@ -424,6 +491,7 @@ struct ScalarPageKernelRequest<'a, 'r> {
     scan_budget_hint: Option<usize>,
     stream_order_contract_safe: bool,
     consistency: MissingRowPolicy,
+    payload_mode: KernelRowPayloadMode,
     predicate_slots: Option<&'a PredicateProgram>,
     predicate_preapplied: bool,
     continuation: ScalarContinuationBindings<'a>,
@@ -438,6 +506,7 @@ fn execute_scalar_page_kernel_dyn(
         scan_budget_hint,
         stream_order_contract_safe,
         consistency,
+        payload_mode,
         predicate_slots,
         predicate_preapplied,
         continuation,
@@ -456,6 +525,7 @@ fn execute_scalar_page_kernel_dyn(
         scan_rows_into_kernel(
             &mut budgeted,
             consistency,
+            payload_mode,
             predicate_slots,
             predicate_preapplied,
             row_runtime,
@@ -464,6 +534,7 @@ fn execute_scalar_page_kernel_dyn(
         scan_rows_into_kernel(
             key_stream,
             consistency,
+            payload_mode,
             predicate_slots,
             predicate_preapplied,
             row_runtime,
@@ -474,6 +545,7 @@ fn execute_scalar_page_kernel_dyn(
 fn scan_rows_into_kernel(
     key_stream: &mut dyn OrderedKeyStream,
     consistency: MissingRowPolicy,
+    payload_mode: KernelRowPayloadMode,
     predicate_slots: Option<&PredicateProgram>,
     predicate_preapplied: bool,
     row_runtime: &mut ScalarRowRuntimeHandle<'_>,
@@ -486,6 +558,7 @@ fn scan_rows_into_kernel(
         let Some(row) = row_runtime.read_kernel_row(
             consistency,
             &key,
+            payload_mode,
             predicate_preapplied,
             predicate_slots,
         )?

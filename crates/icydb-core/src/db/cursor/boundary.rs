@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        contracts::canonical_value_compare,
         cursor::CursorPlanError,
         direction::Direction,
         query::plan::{OrderDirection, OrderSpec},
@@ -79,22 +78,6 @@ where
             }
         })
         .collect()
-}
-
-/// Compare two cursor boundary slots under canonical cursor ordering semantics.
-#[must_use]
-pub(in crate::db) fn compare_boundary_slots(
-    left: &CursorBoundarySlot,
-    right: &CursorBoundarySlot,
-) -> Ordering {
-    match (left, right) {
-        (CursorBoundarySlot::Missing, CursorBoundarySlot::Missing) => Ordering::Equal,
-        (CursorBoundarySlot::Missing, CursorBoundarySlot::Present(_)) => Ordering::Less,
-        (CursorBoundarySlot::Present(_), CursorBoundarySlot::Missing) => Ordering::Greater,
-        (CursorBoundarySlot::Present(left_value), CursorBoundarySlot::Present(right_value)) => {
-            canonical_value_compare(left_value, right_value)
-        }
-    }
 }
 
 /// Apply one order direction to one base slot ordering.

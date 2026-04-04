@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.68.x] 📚 - 2026-04-04 - First-Class Covering Reads
 
+- `0.68.1` keeps the `0.68.0` planner groundwork in place and makes common cursorless SQL projection reads cheaper by teaching that lane to skip cursor output, skip some extra page bookkeeping, and avoid carrying full row payloads when retained slot rows are already enough.
 - `0.68.0` starts the `0.68` read-path line by teaching the planner to recognize a narrow class of simple index-covered scalar projections and by sharing the direct-field projection rule between planner and executor, so later select-speed work can build on one authority without changing current query results yet.
 
 See detailed breakdown:

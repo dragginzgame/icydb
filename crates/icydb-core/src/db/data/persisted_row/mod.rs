@@ -27,7 +27,7 @@ use crate::{
     value::{StorageKey, Value, ValueEnum},
 };
 use serde_cbor::{Value as CborValue, value::to_value as to_cbor_value};
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
 
 use self::codec::{decode_scalar_slot_value, encode_scalar_slot_value};
 
@@ -321,6 +321,13 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
         decode_slot_value_from_bytes(self.model(), slot, self.required_bytes(slot)?)
+    }
+
+    /// Borrow one declared slot value when the concrete reader already owns a
+    /// validated decoded cache, while preserving the existing owned fallback
+    /// for reader implementations that still decode on demand.
+    fn required_value_by_contract_cow(&self, slot: usize) -> Result<Cow<'_, Value>, InternalError> {
+        Ok(Cow::Owned(self.required_value_by_contract(slot)?))
     }
 }
 
@@ -1469,6 +1476,22 @@ impl<'a> StructuralSlotReader<'a> {
         Ok(values)
     }
 
+    // Borrow one already-decoded slot value from the eager structural cache so
+    // callers that only need the canonical field value do not re-enter raw
+    // field-byte decoding after `from_raw_row` has already validated the row.
+    fn required_cached_value(&self, slot: usize) -> Result<&Value, InternalError> {
+        let cached = self.cached_values.get(slot).ok_or_else(|| {
+            InternalError::persisted_row_slot_cache_lookup_out_of_bounds(self.model.path(), slot)
+        })?;
+
+        match cached {
+            CachedSlotValue::Decoded(value) => Ok(value),
+            CachedSlotValue::Pending => Err(InternalError::persisted_row_decode_failed(format!(
+                "structural slot cache missing decoded value after eager decode: slot={slot}",
+            ))),
+        }
+    }
+
     // Borrow one declared slot payload, treating absence as a persisted-row
     // invariant violation instead of a normal structural branch.
     pub(in crate::db) fn required_field_bytes(
@@ -1497,6 +1520,36 @@ const fn storage_key_from_scalar_ref(value: ScalarValueRef<'_>) -> Option<Storag
     }
 }
 
+// Borrow one scalar-slot view directly from one already-decoded runtime value.
+fn scalar_slot_value_ref_from_cached_value(
+    value: &Value,
+) -> Result<ScalarSlotValueRef<'_>, InternalError> {
+    let scalar = match value {
+        Value::Null => return Ok(ScalarSlotValueRef::Null),
+        Value::Blob(value) => ScalarValueRef::Blob(value.as_slice()),
+        Value::Bool(value) => ScalarValueRef::Bool(*value),
+        Value::Date(value) => ScalarValueRef::Date(*value),
+        Value::Duration(value) => ScalarValueRef::Duration(*value),
+        Value::Float32(value) => ScalarValueRef::Float32(*value),
+        Value::Float64(value) => ScalarValueRef::Float64(*value),
+        Value::Int(value) => ScalarValueRef::Int(*value),
+        Value::Principal(value) => ScalarValueRef::Principal(*value),
+        Value::Subaccount(value) => ScalarValueRef::Subaccount(*value),
+        Value::Text(value) => ScalarValueRef::Text(value.as_str()),
+        Value::Timestamp(value) => ScalarValueRef::Timestamp(*value),
+        Value::Uint(value) => ScalarValueRef::Uint(*value),
+        Value::Ulid(value) => ScalarValueRef::Ulid(*value),
+        Value::Unit => ScalarValueRef::Unit,
+        _ => {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "cached structural scalar slot cannot borrow non-scalar value variant: {value:?}",
+            )));
+        }
+    };
+
+    Ok(ScalarSlotValueRef::Value(scalar))
+}
+
 impl SlotReader for StructuralSlotReader<'_> {
     fn model(&self) -> &'static EntityModel {
         self.model
@@ -1514,32 +1567,28 @@ impl SlotReader for StructuralSlotReader<'_> {
         let field = self.field_model(slot)?;
 
         match field.leaf_codec() {
-            LeafCodec::Scalar(codec) => decode_scalar_slot_value(
-                self.required_field_bytes(slot, field.name())?,
-                codec,
-                field.name(),
-            )
-            .map(Some),
+            LeafCodec::Scalar(_codec) => {
+                scalar_slot_value_ref_from_cached_value(self.required_cached_value(slot)?).map(Some)
+            }
             LeafCodec::CborFallback => Ok(None),
         }
     }
 
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
         self.decode_slot_into_cache(slot)?;
-
-        let cached = self.cached_values.get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_cache_lookup_out_of_bounds(self.model.path(), slot)
-        })?;
-        match cached {
-            CachedSlotValue::Decoded(value) => Ok(Some(value.clone())),
-            CachedSlotValue::Pending => Err(InternalError::persisted_row_decode_failed(format!(
-                "structural slot cache missing decoded value after eager decode: slot={slot}",
-            ))),
-        }
+        Ok(Some(self.required_cached_value(slot)?.clone()))
     }
 }
 
-impl CanonicalSlotReader for StructuralSlotReader<'_> {}
+impl CanonicalSlotReader for StructuralSlotReader<'_> {
+    fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
+        Ok(self.required_cached_value(slot)?.clone())
+    }
+
+    fn required_value_by_contract_cow(&self, slot: usize) -> Result<Cow<'_, Value>, InternalError> {
+        Ok(Cow::Borrowed(self.required_cached_value(slot)?))
+    }
+}
 
 ///
 /// CachedSlotValue

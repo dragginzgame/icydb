@@ -9,8 +9,9 @@ use crate::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, StorageKey},
         index::{
             derive_index_expression_value,
+            key::ordered::encode_canonical_index_component,
             key::{
-                EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError,
+                IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError,
                 encode_canonical_index_component_from_scalar,
             },
         },
@@ -452,12 +453,12 @@ fn index_component_bytes_from_slots(
     };
 
     match key_item {
-        IndexKeyItem::Field(_) => {
-            encode_value_index_component(slots.required_value_by_contract(field_index)?)
-        }
+        IndexKeyItem::Field(_) => encode_value_index_component_ref(
+            slots.required_value_by_contract_cow(field_index)?.as_ref(),
+        ),
         IndexKeyItem::Expression(expression) => {
-            let source = slots.required_value_by_contract(field_index)?;
-            let Some(value) = value_for_expression(index, expression, source)? else {
+            let source = slots.required_value_by_contract_cow(field_index)?;
+            let Some(value) = value_for_expression(index, expression, source.into_owned())? else {
                 return Ok(None);
             };
 
@@ -487,7 +488,13 @@ fn encode_scalar_index_component(
 
 // Encode one owned runtime value into canonical index bytes.
 fn encode_value_index_component(value: Value) -> Result<Option<Vec<u8>>, InternalError> {
-    let encoded = match EncodedValue::try_from_ref(&value) {
+    encode_value_index_component_ref(&value)
+}
+
+// Encode one borrowed runtime value into canonical index bytes without
+// forcing callers to clone already-decoded structural slot values first.
+fn encode_value_index_component_ref(value: &Value) -> Result<Option<Vec<u8>>, InternalError> {
+    let encoded = match encode_canonical_index_component(value) {
         Ok(encoded) => encoded,
         Err(
             OrderedValueEncodeError::NullNotIndexable
@@ -498,7 +505,7 @@ fn encode_value_index_component(value: Value) -> Result<Option<Vec<u8>>, Interna
         Err(err) => return Err(err.into()),
     };
 
-    Ok(Some(encoded.encoded().to_vec()))
+    Ok(Some(encoded))
 }
 
 fn normalize_range_component_bound<C: AsRef<[u8]>>(

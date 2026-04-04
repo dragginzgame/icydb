@@ -546,9 +546,9 @@ fn eval_required_value_slot(
     slots: &dyn CanonicalSlotReader,
     eval: impl FnOnce(&Value) -> bool,
 ) -> Result<bool, crate::error::InternalError> {
-    let actual = slots.required_value_by_contract(field_slot)?;
+    let actual = slots.required_value_by_contract_cow(field_slot)?;
 
-    Ok(eval(&actual))
+    Ok(eval(actual.as_ref()))
 }
 
 // Evaluate one scalar `IS EMPTY` node directly through the scalar slot seam.
@@ -663,10 +663,10 @@ fn eval_compare_with_structural_slots(
         return Ok(result);
     }
 
-    let actual = slots.required_value_by_contract(field_slot)?;
+    let actual = slots.required_value_by_contract_cow(field_slot)?;
 
     Ok(eval_compare_values(
-        &actual,
+        actual.as_ref(),
         cmp.op,
         &cmp.value,
         &cmp.coercion,

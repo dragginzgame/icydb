@@ -406,7 +406,7 @@ fn prepare_structural_delete_rows(
     let mut response_rows = Vec::with_capacity(rows.len());
     let mut rollback_rows = Vec::with_capacity(rows.len());
     for row in rows {
-        let (data_row, slots) = row.into_parts();
+        let (data_row, slots) = row.into_parts()?;
         let (key, raw) = PersistedEntityRow::from_data_row(data_row).into_parts();
         let rollback_key = key.to_raw()?;
 

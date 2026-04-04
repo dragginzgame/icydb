@@ -277,6 +277,7 @@ impl ExecutionKernel {
             &execution_preparation,
             true,
             false,
+            true,
         );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,

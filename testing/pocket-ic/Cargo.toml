@@ -11,6 +11,7 @@ authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
+canic-testkit = { workspace = true }
 icydb = { workspace = true }
 pocket-ic = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

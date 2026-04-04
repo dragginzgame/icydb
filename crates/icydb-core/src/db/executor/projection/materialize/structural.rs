@@ -253,11 +253,9 @@ fn project_generic_data_rows_from_projection_structural(
         // canonical structural row omits one.
         let mut values = Vec::with_capacity(projection.len());
         let mut slot_cache: Vec<Option<Value>> = vec![None; model.fields().len()];
-        let mut slot_decoded = vec![false; model.fields().len()];
         let mut read_slot = |slot: usize| {
-            if !slot_decoded[slot] {
+            if slot_cache[slot].is_none() {
                 slot_cache[slot] = Some(row_fields.required_value_by_contract(slot)?);
-                slot_decoded[slot] = true;
             }
 
             slot_cache[slot].clone().ok_or_else(|| {

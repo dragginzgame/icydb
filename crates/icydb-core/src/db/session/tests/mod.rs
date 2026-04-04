@@ -1950,6 +1950,64 @@ fn execute_sql_projection_index_coverable_primary_key_and_prefix_field_matches_e
 }
 
 #[test]
+fn execute_sql_projection_index_coverable_secondary_order_field_matches_entity_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic ordered secondary-index dataset on the
+    // indexed `name` field so the projection lane can stay on the same
+    // coverable order-by-name shape tracked by PocketIC attribution.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
+    );
+
+    // Phase 2: verify the projection lane returns the same ordered `name`
+    // row as the entity lane for a direct secondary-index covering query.
+    let sql = "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1";
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("secondary-order covering projection query should execute");
+    let entity_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(sql)
+        .expect("secondary-order covering entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
+        .collect::<Vec<_>>();
+
+    assert_eq!(entity_projected_rows, projected_rows);
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_secondary_order_field_with_offset_matches_entity_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic ordered secondary-index dataset so the
+    // covering projection lane can validate post-filter pagination against the
+    // entity lane on the same index-ordered shape.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
+    );
+
+    // Phase 2: verify the projection lane preserves the same ordered page
+    // window as the entity lane for a direct secondary-index covering query.
+    let sql = "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2 OFFSET 1";
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("secondary-order covering projection page query should execute");
+    let entity_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(sql)
+        .expect("secondary-order covering entity page query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
+        .collect::<Vec<_>>();
+
+    assert_eq!(entity_projected_rows, projected_rows);
+}
+
+#[test]
 fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

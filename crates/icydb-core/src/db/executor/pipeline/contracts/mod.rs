@@ -21,9 +21,9 @@ use crate::{
 };
 
 pub(in crate::db::executor) use execution::{
-    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime, ExecutionRuntimeAdapter,
-    MaterializedExecutionAttempt, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest, StructuralCursorPage,
+    CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
+    ExecutionRuntimeAdapter, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest, StructuralCursorPage,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
