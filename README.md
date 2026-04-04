@@ -479,6 +479,7 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 - Keep complexity hotspots partitioned into owner-local modules instead of letting large mixed roots regrow.
 - Continue numeric and semantic-duplication cleanup without widening public APIs or changing row/query contracts.
 - Preserve deterministic local SQL harness flows (`scripts/dev/sql.sh`), wasm audit baselines, and CI parity.
+- Keep `CandidType` wire-surface comments as plain `//` comments instead of `///` doc comments so normal canister builds do not retain those strings in wasm.
 - Track active work in `docs/ROADMAP.md` and current design docs under `docs/design/`.
 
 ---

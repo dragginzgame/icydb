@@ -143,6 +143,61 @@ fn compile_sql_command_delete_lowers_to_delete_query() {
 }
 
 #[test]
+fn compile_sql_command_delete_direct_starts_with_family_matches_like_delete_intent() {
+    let cases = [
+        (
+            "DELETE FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al') ORDER BY id ASC LIMIT 1",
+            "DELETE FROM SqlLowerEntity WHERE name LIKE 'Al%' ORDER BY id ASC LIMIT 1",
+            "strict direct STARTS_WITH delete lowering",
+        ),
+        (
+            "DELETE FROM SqlLowerEntity WHERE STARTS_WITH(LOWER(name), 'Al') ORDER BY id ASC LIMIT 1",
+            "DELETE FROM SqlLowerEntity WHERE LOWER(name) LIKE 'Al%' ORDER BY id ASC LIMIT 1",
+            "direct LOWER(field) STARTS_WITH delete lowering",
+        ),
+        (
+            "DELETE FROM SqlLowerEntity WHERE STARTS_WITH(UPPER(name), 'AL') ORDER BY id ASC LIMIT 1",
+            "DELETE FROM SqlLowerEntity WHERE UPPER(name) LIKE 'AL%' ORDER BY id ASC LIMIT 1",
+            "direct UPPER(field) STARTS_WITH delete lowering",
+        ),
+    ];
+
+    for (direct_sql, like_sql, context) in cases {
+        let direct = compile_sql_command::<SqlLowerEntity>(direct_sql, MissingRowPolicy::Ignore)
+            .expect("direct STARTS_WITH delete SQL should lower");
+        let like = compile_sql_command::<SqlLowerEntity>(like_sql, MissingRowPolicy::Ignore)
+            .expect("LIKE delete SQL should lower");
+
+        let SqlCommand::Query(direct_query) = direct else {
+            panic!("expected lowered query command for direct STARTS_WITH delete");
+        };
+        let SqlCommand::Query(like_query) = like else {
+            panic!("expected lowered query command for LIKE delete");
+        };
+
+        assert!(
+            matches!(direct_query.mode(), QueryMode::Delete(_)),
+            "direct STARTS_WITH delete should stay on the delete query lane: {context}",
+        );
+        assert!(
+            matches!(like_query.mode(), QueryMode::Delete(_)),
+            "LIKE delete should stay on the delete query lane: {context}",
+        );
+        assert_eq!(
+            direct_query
+                .plan()
+                .expect("direct STARTS_WITH delete plan should build")
+                .into_inner(),
+            like_query
+                .plan()
+                .expect("LIKE delete plan should build")
+                .into_inner(),
+            "bounded direct STARTS_WITH delete lowering should match the established LIKE delete intent: {context}",
+        );
+    }
+}
+
+#[test]
 fn compile_sql_command_describe_lowers_to_describe_entity_lane() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DESCRIBE public.SqlLowerEntity",

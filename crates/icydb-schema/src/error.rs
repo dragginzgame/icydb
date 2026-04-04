@@ -2,10 +2,10 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
-///
-/// ErrorTree
-/// Hierarchical error aggregator used by validation to keep nested context.
-///
+//
+// ErrorTree
+// Hierarchical error aggregator used by validation to keep nested context.
+//
 
 #[derive(CandidType, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErrorTree {
@@ -166,9 +166,9 @@ impl From<String> for ErrorTree {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

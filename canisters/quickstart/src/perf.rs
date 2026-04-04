@@ -22,14 +22,14 @@ use icydb_testing_quickstart_fixtures::schema::User;
 
 const MAX_REPEAT_COUNT: u32 = 100;
 
-///
-/// SqlPerfSurface
-///
-/// One measured SQL surface owned by the quickstart canister perf harness.
-/// This stays intentionally narrow so the harness can compare generated SQL
-/// dispatch against representative typed session surfaces without pretending to
-/// cover every possible query front in one first pass.
-///
+//
+// SqlPerfSurface
+//
+// One measured SQL surface owned by the quickstart canister perf harness.
+// This stays intentionally narrow so the harness can compare generated SQL
+// dispatch against representative typed session surfaces without pretending to
+// cover every possible query front in one first pass.
+//
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlPerfSurface {
@@ -57,13 +57,13 @@ pub enum SqlPerfSurface {
     FluentPagedUserOrderIdLimit2InvalidCursor,
 }
 
-///
-/// SqlPerfRequest
-///
-/// One perf-harness request for one SQL surface and one query shape.
-/// `repeat_count` runs happen inside one wasm call so the sample can report
-/// both the first execution cost and the warmed repeated-run range.
-///
+//
+// SqlPerfRequest
+//
+// One perf-harness request for one SQL surface and one query shape.
+// `repeat_count` runs happen inside one wasm call so the sample can report
+// both the first execution cost and the warmed repeated-run range.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlPerfRequest {
@@ -73,13 +73,13 @@ pub struct SqlPerfRequest {
     pub repeat_count: u32,
 }
 
-///
-/// SqlPerfOutcome
-///
-/// Compact result summary for one measured SQL surface.
-/// The audit only needs stable payload shape, cardinality, and failure class
-/// signals here; full query payload rendering stays outside the perf harness.
-///
+//
+// SqlPerfOutcome
+//
+// Compact result summary for one measured SQL surface.
+// The audit only needs stable payload shape, cardinality, and failure class
+// signals here; full query payload rendering stays outside the perf harness.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlPerfOutcome {
@@ -95,13 +95,13 @@ pub struct SqlPerfOutcome {
     pub error_message: Option<String>,
 }
 
-///
-/// SqlPerfSample
-///
-/// One repeated wasm-side instruction sample for one SQL surface.
-/// This reports first/min/max/avg/total local instruction deltas so the audit
-/// can see cold-vs-warm behavior without relying on host-side zeroed counters.
-///
+//
+// SqlPerfSample
+//
+// One repeated wasm-side instruction sample for one SQL surface.
+// This reports first/min/max/avg/total local instruction deltas so the audit
+// can see cold-vs-warm behavior without relying on host-side zeroed counters.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlPerfSample {
@@ -118,13 +118,13 @@ pub struct SqlPerfSample {
     pub outcome: SqlPerfOutcome,
 }
 
-///
-/// SqlPerfAttributionSurface
-///
-/// Representative SQL query surfaces used for fixed-cost phase attribution.
-/// This stays intentionally narrow so attribution can isolate the shared read
-/// stack for representative scalar and grouped SELECT shapes.
-///
+//
+// SqlPerfAttributionSurface
+//
+// Representative SQL query surfaces used for fixed-cost phase attribution.
+// This stays intentionally narrow so attribution can isolate the shared read
+// stack for representative scalar and grouped SELECT shapes.
+//
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlPerfAttributionSurface {
@@ -134,13 +134,13 @@ pub enum SqlPerfAttributionSurface {
     TypedGroupedUserSecondPage,
 }
 
-///
-/// SqlPerfAttributionRequest
-///
-/// One phase-attribution request for one representative SQL surface.
-/// This measures one single execution and breaks the total into parse, route,
-/// lower, core-dispatch overhead, executor, and outer-wrapper costs.
-///
+//
+// SqlPerfAttributionRequest
+//
+// One phase-attribution request for one representative SQL surface.
+// This measures one single execution and breaks the total into parse, route,
+// lower, core-dispatch overhead, executor, and outer-wrapper costs.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlPerfAttributionRequest {
@@ -149,14 +149,14 @@ pub struct SqlPerfAttributionRequest {
     pub cursor_token: Option<String>,
 }
 
-///
-/// SqlPerfAttributionSample
-///
-/// One fixed-cost SQL query attribution sample measured inside wasm.
-/// `dispatch_local_instructions` captures the core path between lowering and
-/// executor entry, while `wrapper_local_instructions` captures the remaining
-/// surface work above the attributed core path.
-///
+//
+// SqlPerfAttributionSample
+//
+// One fixed-cost SQL query attribution sample measured inside wasm.
+// `dispatch_local_instructions` captures the core path between lowering and
+// executor entry, while `wrapper_local_instructions` captures the remaining
+// surface work above the attributed core path.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlPerfAttributionSample {
@@ -172,7 +172,7 @@ pub struct SqlPerfAttributionSample {
     pub outcome: SqlPerfOutcome,
 }
 
-/// Measure one SQL surface request inside the running canister.
+// Measure one SQL surface request inside the running canister.
 pub fn sample_sql_surface(request: SqlPerfRequest) -> Result<SqlPerfSample, Error> {
     validate_perf_request(&request)?;
 
@@ -225,7 +225,7 @@ pub fn sample_sql_surface(request: SqlPerfRequest) -> Result<SqlPerfSample, Erro
     })
 }
 
-/// Attribute one representative SQL query surface into fixed-cost wasm phases.
+// Attribute one representative SQL query surface into fixed-cost wasm phases.
 pub fn attribute_sql_surface(
     request: SqlPerfAttributionRequest,
 ) -> Result<SqlPerfAttributionSample, Error> {

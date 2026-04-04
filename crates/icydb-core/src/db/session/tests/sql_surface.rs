@@ -39,6 +39,32 @@ fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
 }
 
 #[test]
+fn query_from_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .query_from_sql::<SessionSqlEntity>(
+            "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+        )
+        .expect_err("non-casefold direct STARTS_WITH delete should stay fail-closed");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "query_from_sql should reject non-casefold wrapped direct STARTS_WITH delete",
+    );
+    assert_sql_unsupported_feature_detail(
+        err,
+        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+    );
+}
+
+#[test]
 fn execute_sql_rejects_non_query_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();

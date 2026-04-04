@@ -18,9 +18,9 @@ use std::{
     ops::{Div, DivAssign, Mul, MulAssign, Rem},
 };
 
-///
-/// Nat128
-///
+//
+// Nat128
+//
 
 #[derive(
     Add,
@@ -207,9 +207,9 @@ impl ValidateCustom for Nat128 {}
 
 impl Visitable for Nat128 {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

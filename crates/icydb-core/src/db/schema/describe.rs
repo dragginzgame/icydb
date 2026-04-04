@@ -494,9 +494,9 @@ const fn summarize_relation_strength(strength: RelationStrength) -> &'static str
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

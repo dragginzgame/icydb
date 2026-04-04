@@ -806,6 +806,34 @@ fn facade_query_from_sql_preserves_unsupported_runtime_contract() {
 }
 
 #[test]
+fn facade_query_from_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    let session = fresh_facade_session();
+
+    let err = session
+        .query_from_sql::<FacadeSqlEntity>(
+            "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+        )
+        .expect_err("facade direct STARTS_WITH delete wrapper should stay fail-closed");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "unsupported runtime kind mismatch: facade query_from_sql non-casefold direct STARTS_WITH delete",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "unsupported runtime origin mismatch: facade query_from_sql non-casefold direct STARTS_WITH delete",
+    );
+    assert!(
+        err.message().contains(
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+        ),
+        "facade query_from_sql should preserve the stable unsupported direct STARTS_WITH delete detail",
+    );
+}
+
+#[test]
 fn facade_query_from_sql_rejects_non_query_statement_lanes_matrix() {
     let session = fresh_facade_session();
 
@@ -834,6 +862,62 @@ fn facade_query_from_sql_rejects_non_query_statement_lanes_matrix() {
             context,
         );
     }
+}
+
+#[test]
+fn facade_explain_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    let session = fresh_facade_session();
+
+    let err = dispatch_explain_sql::<FacadeSqlEntity>(
+        &session,
+        "EXPLAIN DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+    )
+    .expect_err("facade direct STARTS_WITH delete EXPLAIN wrapper should stay fail-closed");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "unsupported runtime kind mismatch: facade EXPLAIN DELETE non-casefold direct STARTS_WITH",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "unsupported runtime origin mismatch: facade EXPLAIN DELETE non-casefold direct STARTS_WITH",
+    );
+    assert!(
+        err.message().contains(
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+        ),
+        "facade EXPLAIN DELETE should preserve the stable unsupported direct STARTS_WITH delete detail",
+    );
+}
+
+#[test]
+fn facade_explain_json_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    let session = fresh_facade_session();
+
+    let err = dispatch_explain_sql::<FacadeSqlEntity>(
+        &session,
+        "EXPLAIN JSON DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+    )
+    .expect_err("facade direct STARTS_WITH JSON delete EXPLAIN wrapper should stay fail-closed");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "unsupported runtime kind mismatch: facade EXPLAIN JSON DELETE non-casefold direct STARTS_WITH",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "unsupported runtime origin mismatch: facade EXPLAIN JSON DELETE non-casefold direct STARTS_WITH",
+    );
+    assert!(
+        err.message().contains(
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+        ),
+        "facade EXPLAIN JSON DELETE should preserve the stable unsupported direct STARTS_WITH delete detail",
+    );
 }
 
 #[test]

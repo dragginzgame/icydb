@@ -20,9 +20,9 @@ use std::{
 };
 use thiserror::Error as ThisError;
 
-///
-/// Account
-///
+//
+// Account
+//
 
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Account {
@@ -30,11 +30,11 @@ pub struct Account {
     subaccount: Option<Subaccount>,
 }
 
-///
-/// AccountEncodeError
-///
-/// Errors returned when encoding an account for persistence.
-///
+//
+// AccountEncodeError
+//
+// Errors returned when encoding an account for persistence.
+//
 
 #[derive(Debug, ThisError)]
 pub enum AccountEncodeError {
@@ -316,9 +316,9 @@ impl ValidateCustom for Account {}
 
 impl Visitable for Account {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

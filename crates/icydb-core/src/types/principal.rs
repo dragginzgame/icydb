@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error as ThisError;
 
-///
-/// PrincipalError
-///
+//
+// PrincipalError
+//
 
 #[derive(Debug, ThisError)]
 pub enum PrincipalError {
@@ -26,11 +26,11 @@ pub enum PrincipalError {
     Wrapped(String),
 }
 
-///
-/// PrincipalDecodeError
-///
-/// Errors returned when decoding a principal from bytes.
-///
+//
+// PrincipalDecodeError
+//
+// Errors returned when decoding a principal from bytes.
+//
 
 #[derive(Debug, ThisError)]
 pub enum PrincipalDecodeError {
@@ -38,11 +38,11 @@ pub enum PrincipalDecodeError {
     TooLarge { len: usize },
 }
 
-///
-/// PrincipalEncodeError
-///
-/// Error returned when encoding a principal for persistence.
-///
+//
+// PrincipalEncodeError
+//
+// Error returned when encoding a principal for persistence.
+//
 
 #[derive(Debug, ThisError)]
 pub enum PrincipalEncodeError {
@@ -50,9 +50,9 @@ pub enum PrincipalEncodeError {
     TooLarge { len: usize, max: usize },
 }
 
-///
-/// Principal
-///
+//
+// Principal
+//
 
 #[derive(
     CandidType,
@@ -251,9 +251,9 @@ impl ValidateCustom for Principal {}
 
 impl Visitable for Principal {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

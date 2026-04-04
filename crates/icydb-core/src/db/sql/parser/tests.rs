@@ -311,6 +311,49 @@ fn parse_delete_statement_with_limit() {
 }
 
 #[test]
+fn parse_delete_statement_with_direct_starts_with_family() {
+    let cases = [
+        (
+            "DELETE FROM users WHERE STARTS_WITH(name, 'Al') ORDER BY id ASC LIMIT 1",
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        ),
+        (
+            "DELETE FROM users WHERE STARTS_WITH(LOWER(name), 'Al') ORDER BY id ASC LIMIT 1",
+            Value::Text("Al".to_string()),
+            CoercionId::TextCasefold,
+        ),
+        (
+            "DELETE FROM users WHERE STARTS_WITH(UPPER(name), 'AL') ORDER BY id ASC LIMIT 1",
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    ];
+
+    for (sql, literal, coercion) in cases {
+        let statement = parse_sql(sql).expect("direct STARTS_WITH delete statement should parse");
+
+        assert_eq!(
+            statement,
+            SqlStatement::Delete(SqlDeleteStatement {
+                entity: "users".to_string(),
+                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                    "name",
+                    CompareOp::StartsWith,
+                    literal,
+                    coercion,
+                ))),
+                order_by: vec![SqlOrderTerm {
+                    field: "id".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                }],
+                limit: Some(1),
+            }),
+        );
+    }
+}
+
+#[test]
 fn parse_explain_json_wrapped_select() {
     let statement = parse_sql("EXPLAIN JSON SELECT * FROM users LIMIT 1")
         .expect("explain statement should parse");
@@ -332,6 +375,53 @@ fn parse_explain_json_wrapped_select() {
             }),
         }),
     );
+}
+
+#[test]
+fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
+    let cases = [
+        (
+            "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(name, 'Al') ORDER BY id ASC LIMIT 1",
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(LOWER(name), 'Al') ORDER BY id ASC LIMIT 1",
+            Value::Text("Al".to_string()),
+            CoercionId::TextCasefold,
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(UPPER(name), 'AL') ORDER BY id ASC LIMIT 1",
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    ];
+
+    for (sql, literal, coercion) in cases {
+        let statement =
+            parse_sql(sql).expect("EXPLAIN JSON direct STARTS_WITH delete should parse");
+
+        assert_eq!(
+            statement,
+            SqlStatement::Explain(SqlExplainStatement {
+                mode: SqlExplainMode::Json,
+                statement: SqlExplainTarget::Delete(SqlDeleteStatement {
+                    entity: "users".to_string(),
+                    predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                        "name",
+                        CompareOp::StartsWith,
+                        literal,
+                        coercion,
+                    ))),
+                    order_by: vec![SqlOrderTerm {
+                        field: "id".to_string(),
+                        direction: SqlOrderDirection::Asc,
+                    }],
+                    limit: Some(1),
+                }),
+            }),
+        );
+    }
 }
 
 #[test]
@@ -948,6 +1038,14 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ),
         (
             "SELECT * FROM users WHERE STARTS_WITH(TRIM(name), 'Al')",
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+        ),
+        (
+            "DELETE FROM users WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY id ASC LIMIT 1",
+            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY id ASC LIMIT 1",
             "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
         ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),

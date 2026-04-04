@@ -164,12 +164,12 @@ fn query_projection_rows(
     }
 }
 
-///
-/// SqlPerfSurface
-///
-/// Mirror of the quickstart canister perf-surface enum used for Candid decode
-/// and request construction in PocketIC integration tests.
-///
+//
+// SqlPerfSurface
+//
+// Mirror of the quickstart canister perf-surface enum used for Candid decode
+// and request construction in PocketIC integration tests.
+//
 
 #[derive(candid::CandidType, Clone, Copy, Debug, candid::Deserialize, Serialize)]
 enum SqlPerfSurface {
@@ -197,12 +197,12 @@ enum SqlPerfSurface {
     FluentPagedUserOrderIdLimit2InvalidCursor,
 }
 
-///
-/// SqlPerfAttributionSurface
-///
-/// Mirror of the quickstart canister SQL attribution surface enum used by the
-/// PocketIC perf attribution test.
-///
+//
+// SqlPerfAttributionSurface
+//
+// Mirror of the quickstart canister SQL attribution surface enum used by the
+// PocketIC perf attribution test.
+//
 
 #[derive(candid::CandidType, Clone, Copy, Debug, candid::Deserialize, Serialize)]
 enum SqlPerfAttributionSurface {
@@ -212,13 +212,13 @@ enum SqlPerfAttributionSurface {
     TypedGroupedUserSecondPage,
 }
 
-///
-/// SqlPerfRequest
-///
-/// One integration-test request into the quickstart canister perf harness.
-/// This keeps scenario identity explicit in the test runner instead of hiding
-/// request shape inside inline Candid tuples.
-///
+//
+// SqlPerfRequest
+//
+// One integration-test request into the quickstart canister perf harness.
+// This keeps scenario identity explicit in the test runner instead of hiding
+// request shape inside inline Candid tuples.
+//
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
 struct SqlPerfRequest {
@@ -228,12 +228,12 @@ struct SqlPerfRequest {
     repeat_count: u32,
 }
 
-///
-/// SqlPerfAttributionRequest
-///
-/// One integration-test request into the quickstart canister SQL attribution
-/// endpoint.
-///
+//
+// SqlPerfAttributionRequest
+//
+// One integration-test request into the quickstart canister SQL attribution
+// endpoint.
+//
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
 struct SqlPerfAttributionRequest {
@@ -242,13 +242,13 @@ struct SqlPerfAttributionRequest {
     cursor_token: Option<String>,
 }
 
-///
-/// SqlPerfOutcome
-///
-/// Compact quickstart perf-harness outcome mirror used by PocketIC tests.
-/// The audit collector only needs stable surface kind and cardinality metadata
-/// here; full SQL payload inspection remains in the main SQL integration tests.
-///
+//
+// SqlPerfOutcome
+//
+// Compact quickstart perf-harness outcome mirror used by PocketIC tests.
+// The audit collector only needs stable surface kind and cardinality metadata
+// here; full SQL payload inspection remains in the main SQL integration tests.
+//
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
 struct SqlPerfOutcome {
@@ -264,12 +264,12 @@ struct SqlPerfOutcome {
     error_message: Option<String>,
 }
 
-///
-/// SqlPerfSample
-///
-/// One repeated wasm-side instruction sample returned by the quickstart
-/// canister perf harness.
-///
+//
+// SqlPerfSample
+//
+// One repeated wasm-side instruction sample returned by the quickstart
+// canister perf harness.
+//
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
 struct SqlPerfSample {
@@ -286,12 +286,12 @@ struct SqlPerfSample {
     outcome: SqlPerfOutcome,
 }
 
-///
-/// SqlPerfAttributionSample
-///
-/// One fixed-cost SQL query attribution sample returned by the quickstart
-/// canister perf harness.
-///
+//
+// SqlPerfAttributionSample
+//
+// One fixed-cost SQL query attribution sample returned by the quickstart
+// canister perf harness.
+//
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
 struct SqlPerfAttributionSample {
@@ -307,12 +307,12 @@ struct SqlPerfAttributionSample {
     outcome: SqlPerfOutcome,
 }
 
-///
-/// SqlPerfScenario
-///
-/// One named audit scenario captured through the quickstart canister perf
-/// harness.
-///
+//
+// SqlPerfScenario
+//
+// One named audit scenario captured through the quickstart canister perf
+// harness.
+//
 
 #[derive(Clone, Debug, Serialize)]
 struct SqlPerfScenario {
@@ -320,12 +320,12 @@ struct SqlPerfScenario {
     request: SqlPerfRequest,
 }
 
-///
-/// SqlPerfScenarioRow
-///
-/// Serializable row pairing one stable scenario identity with one measured
-/// quickstart perf-harness sample.
-///
+//
+// SqlPerfScenarioRow
+//
+// Serializable row pairing one stable scenario identity with one measured
+// quickstart perf-harness sample.
+//
 
 #[derive(Clone, Debug, Serialize)]
 struct SqlPerfScenarioRow {
@@ -816,7 +816,9 @@ fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() 
         ];
 
         // Phase 2: execute both spellings against fresh fixtures so the deleted
-        // row payload remains identical on the generated canister surface.
+        // row payload remains semantically identical on the generated canister
+        // surface. Fixture reloads mint fresh ids, so compare stable
+        // non-identity columns instead of the raw full-row payload.
         for (direct_sql, like_sql, context) in cases {
             reset_fixtures(pic, canister_id);
             load_default_fixtures(pic, canister_id);
@@ -840,11 +842,59 @@ fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() 
                 direct.columns, like.columns,
                 "generated direct STARTS_WITH delete should keep canonical delete columns: {context}",
             );
+            let stable_delete_rows = |rows: &SqlQueryRowsOutput| {
+                let id_index = rows
+                    .columns
+                    .iter()
+                    .position(|column| column == "id")
+                    .expect("generated delete projection should expose canonical id column");
+
+                rows.rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .enumerate()
+                            .filter(|(index, _)| *index != id_index)
+                            .map(|(_, value)| value.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            };
             assert_eq!(
-                direct.rows, like.rows,
-                "generated direct STARTS_WITH delete should match the established LIKE delete payload: {context}",
+                stable_delete_rows(&direct),
+                stable_delete_rows(&like),
+                "generated direct STARTS_WITH delete should match the established LIKE delete payload aside from regenerated ids: {context}",
             );
         }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let err = query_result(
+            pic,
+            canister_id,
+            "DELETE FROM User WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
+        )
+        .expect_err("generated direct STARTS_WITH delete wrapper should fail closed");
+
+        assert!(
+            matches!(
+                err.kind(),
+                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
+            ),
+            "generated direct STARTS_WITH delete wrapper should map to Runtime::Unsupported: {err:?}",
+        );
+        assert!(
+            err.message().contains(
+                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+            ),
+            "generated direct STARTS_WITH delete wrapper should preserve the stable unsupported-feature detail: {err:?}",
+        );
     });
 }
 
@@ -988,6 +1038,64 @@ fn sql_canister_query_lane_explain_delete_direct_starts_with_family_matches_like
                 ),
             }
         }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let err = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN DELETE FROM User WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
+        )
+        .expect_err("generated direct STARTS_WITH delete EXPLAIN wrapper should fail closed");
+
+        assert!(
+            matches!(
+                err.kind(),
+                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
+            ),
+            "generated direct STARTS_WITH delete EXPLAIN wrapper should map to Runtime::Unsupported: {err:?}",
+        );
+        assert!(
+            err.message().contains(
+                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+            ),
+            "generated direct STARTS_WITH delete EXPLAIN wrapper should preserve the stable unsupported-feature detail: {err:?}",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let err = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON DELETE FROM User WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 1",
+        )
+        .expect_err("generated direct STARTS_WITH JSON delete EXPLAIN wrapper should fail closed");
+
+        assert!(
+            matches!(
+                err.kind(),
+                icydb::error::ErrorKind::Runtime(icydb::error::RuntimeErrorKind::Unsupported)
+            ),
+            "generated direct STARTS_WITH JSON delete EXPLAIN wrapper should map to Runtime::Unsupported: {err:?}",
+        );
+        assert!(
+            err.message().contains(
+                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
+            ),
+            "generated direct STARTS_WITH JSON delete EXPLAIN wrapper should preserve the stable unsupported-feature detail: {err:?}",
+        );
     });
 }
 

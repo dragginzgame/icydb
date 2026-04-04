@@ -9,19 +9,19 @@ use icydb_core::db::{
 };
 use serde::Deserialize;
 
-///
-/// FilterExpr
-///
-/// Serialized, planner-agnostic predicate language.
-///
-/// This enum is intentionally isomorphic to the subset of core::Predicate that is:
-/// - deterministic
-/// - schema-visible
-/// - safe across API boundaries
-///
-/// No planner hints, no implicit semantics, no overloaded operators.
-/// Any new Predicate variant must be explicitly reviewed for exposure here.
-///
+//
+// FilterExpr
+//
+// Serialized, planner-agnostic predicate language.
+//
+// This enum is intentionally isomorphic to the subset of core::Predicate that is:
+// - deterministic
+// - schema-visible
+// - safe across API boundaries
+//
+// No planner hints, no implicit semantics, no overloaded operators.
+// Any new Predicate variant must be explicitly reviewed for exposure here.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -506,9 +506,9 @@ impl FilterExpr {
     }
 }
 
-///
-/// SortExpr
-///
+//
+// SortExpr
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -548,9 +548,9 @@ impl SortExpr {
     }
 }
 
-///
-/// OrderDirection
-///
+//
+// OrderDirection
+//
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -559,9 +559,9 @@ pub enum OrderDirection {
     Desc,
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

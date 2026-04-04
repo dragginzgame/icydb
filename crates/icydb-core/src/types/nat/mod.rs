@@ -22,9 +22,9 @@ use std::{
 
 pub use nat128::*;
 
-///
-/// Nat
-///
+//
+// Nat
+//
 
 #[derive(
     Add,

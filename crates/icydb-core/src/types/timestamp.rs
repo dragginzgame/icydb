@@ -53,12 +53,12 @@ const ERR_TIMESTAMP_TOO_SHORT: &str = "timestamp parse error: timestamp is too s
 // All arithmetic is millisecond-consistent.
 // Binary layout remains transparent fixed-width.
 
-///
-/// Timestamp
-///
-/// Stored as Unix milliseconds.
-/// RFC3339 JSON wire format is string-based.
-///
+//
+// Timestamp
+//
+// Stored as Unix milliseconds.
+// RFC3339 JSON wire format is string-based.
+//
 
 #[derive(
     CandidType, Clone, Copy, Debug, Default, Display, Eq, FromStr, PartialEq, Hash, Ord, PartialOrd,
@@ -185,14 +185,14 @@ fn duration_millis_to_i64(duration: Duration) -> i64 {
     i64::try_from(duration.repr()).unwrap_or(i64::MAX)
 }
 
-///
-/// ParsedRfc3339Timestamp
-///
-/// ParsedRfc3339Timestamp captures one strictly parsed RFC3339 timestamp
-/// payload before it is rebuilt through `time` constructors.
-/// It keeps text-shape validation local to `Timestamp` without exposing parser
-/// internals outside this module.
-///
+//
+// ParsedRfc3339Timestamp
+//
+// ParsedRfc3339Timestamp captures one strictly parsed RFC3339 timestamp
+// payload before it is rebuilt through `time` constructors.
+// It keeps text-shape validation local to `Timestamp` without exposing parser
+// internals outside this module.
+//
 
 struct ParsedRfc3339Timestamp {
     year: i32,
@@ -510,9 +510,9 @@ impl ValidateCustom for Timestamp {}
 
 impl Visitable for Timestamp {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

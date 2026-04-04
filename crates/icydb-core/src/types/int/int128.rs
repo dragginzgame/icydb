@@ -18,9 +18,9 @@ use std::{
     ops::{Div, DivAssign, Mul, MulAssign, Rem},
 };
 
-///
-/// Int128
-///
+//
+// Int128
+//
 
 #[derive(
     Add,
@@ -225,9 +225,9 @@ impl ValidateCustom for Int128 {}
 
 impl Visitable for Int128 {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

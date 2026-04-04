@@ -395,8 +395,14 @@ families:
     prefix intent
   - `WHERE STARTS_WITH(UPPER(<field>), '<prefix>')` lowers to the same bounded
     casefold prefix intent
+  - these accepted direct `STARTS_WITH(...)` predicate forms are valid in the
+    bounded executable `WHERE` surface for both `SELECT` and `DELETE`
+  - matching `EXPLAIN <select_or_delete>` wrappers preserve the same bounded
+    accepted family
 - broader direct predicate-function spellings remain out of scope:
   - non-casefold wrappers such as `WHERE STARTS_WITH(TRIM(field), value)`
+  - the same non-casefold wrapped direct forms remain fail-closed on
+    executable `DELETE`, `EXPLAIN DELETE`, and `EXPLAIN JSON DELETE`
   - generic text-function predicates beyond the bounded direct
     `STARTS_WITH(...)` family above
 - non-prefix wildcard shapes remain fail-closed.

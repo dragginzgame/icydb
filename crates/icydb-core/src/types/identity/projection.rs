@@ -38,32 +38,32 @@ use std::fmt;
 // Projection constants
 // -----------------------------------------------------------------------------
 
-/// Domain separator for the projection protocol.
-///
-/// Bump this if the projection envelope changes incompatibly.
+// Domain separator for the projection protocol.
+//
+// Bump this if the projection envelope changes incompatibly.
 const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v2";
 
 // -----------------------------------------------------------------------------
 // Projected identity
 // -----------------------------------------------------------------------------
 
-///
-/// ProjectedIdentity
-///
-/// Stable, opaque output of one-way identity projection.
-///
-/// ## Guarantees
-/// - Deterministic
-/// - Non-reversible
-/// - Safe to expose externally
-///
-/// ## Non-goals
-/// - Does NOT provide secrecy, authentication, or authorization
-/// - Does NOT imply ownership
-/// - Does NOT preserve ordering
-/// - Does NOT permit identity reconstruction
-/// - Does NOT imply entity existence
-///
+//
+// ProjectedIdentity
+//
+// Stable, opaque output of one-way identity projection.
+//
+// ## Guarantees
+// - Deterministic
+// - Non-reversible
+// - Safe to expose externally
+//
+// ## Non-goals
+// - Does NOT provide secrecy, authentication, or authorization
+// - Does NOT imply ownership
+// - Does NOT preserve ordering
+// - Does NOT permit identity reconstruction
+// - Does NOT imply entity existence
+//
 
 #[repr(transparent)]
 #[derive(

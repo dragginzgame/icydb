@@ -1,9 +1,9 @@
 use crate::{imp::*, prelude::*};
 use std::collections::HashSet;
 
-///
-/// Entity
-///
+//
+// Entity
+//
 
 #[derive(Debug, FromMeta)]
 pub struct Entity {
@@ -434,9 +434,9 @@ impl ToTokens for Entity {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

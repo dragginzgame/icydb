@@ -1,8 +1,8 @@
 use crate::prelude::*;
 
-///
-/// Def
-///
+//
+// Def
+//
 
 #[derive(CandidType, Clone, Debug, Serialize)]
 pub struct Def {

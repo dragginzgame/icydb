@@ -21,10 +21,10 @@ use thiserror::Error as ThisError;
 // re-exports
 pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
 
-///
-/// VisitorError
-/// Structured error type for visitor-based sanitization and validation.
-///
+//
+// VisitorError
+// Structured error type for visitor-based sanitization and validation.
+//
 
 #[derive(Debug, ThisError)]
 #[error("{issues}")]
@@ -61,14 +61,14 @@ impl From<VisitorError> for InternalError {
     }
 }
 
-///
-/// VisitorIssues
-/// Aggregated visitor diagnostics.
-///
-/// NOTE: This is not an error type. It does not represent failure.
-/// It is converted into a `VisitorError` at the runtime boundary and
-/// may be lifted into an `InternalError` as needed.
-///
+//
+// VisitorIssues
+// Aggregated visitor diagnostics.
+//
+// NOTE: This is not an error type. It does not represent failure.
+// It is converted into a `VisitorError` at the runtime boundary and
+// may be lifted into an `InternalError` as needed.
+//
 
 #[derive(
     Clone, Debug, Default, Deserialize, Deref, DerefMut, Serialize, CandidType, Eq, PartialEq,
@@ -118,10 +118,10 @@ impl fmt::Display for VisitorIssues {
 
 impl std::error::Error for VisitorIssues {}
 
-///
-/// Visitor
-/// (immutable)
-///
+//
+// Visitor
+// (immutable)
+//
 
 pub(crate) trait Visitor {
     fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
@@ -132,7 +132,7 @@ pub(crate) trait Visitor {
 // VisitorCore (object-safe traversal)
 // ============================================================================
 
-/// Object-safe visitor contract for immutable traversal dispatch.
+// Object-safe visitor contract for immutable traversal dispatch.
 pub trait VisitorCore {
     fn enter(&mut self, node: &dyn Visitable);
     fn exit(&mut self, node: &dyn Visitable);
@@ -141,14 +141,14 @@ pub trait VisitorCore {
     fn pop(&mut self) {}
 }
 
-///
-/// VisitableFieldDescriptor
-///
-/// Runtime traversal descriptor for one generated struct field.
-/// Generated code uses this to replace repeated per-field `drive` bodies with
-/// one shared descriptor loop while preserving typed field access at the
-/// boundary.
-///
+//
+// VisitableFieldDescriptor
+//
+// Runtime traversal descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `drive` bodies with
+// one shared descriptor loop while preserving typed field access at the
+// boundary.
+//
 
 pub struct VisitableFieldDescriptor<T> {
     name: &'static str,
@@ -178,7 +178,7 @@ impl<T> VisitableFieldDescriptor<T> {
     }
 }
 
-/// Drive one generated field table through immutable visitor traversal.
+// Drive one generated field table through immutable visitor traversal.
 pub fn drive_visitable_fields<T>(
     visitor: &mut dyn VisitorCore,
     node: &T,
@@ -189,7 +189,7 @@ pub fn drive_visitable_fields<T>(
     }
 }
 
-/// Drive one generated field table through mutable visitor traversal.
+// Drive one generated field table through mutable visitor traversal.
 pub fn drive_visitable_fields_mut<T>(
     visitor: &mut dyn VisitorMutCore,
     node: &mut T,
@@ -200,14 +200,14 @@ pub fn drive_visitable_fields_mut<T>(
     }
 }
 
-///
-/// SanitizeFieldDescriptor
-///
-/// Runtime sanitization descriptor for one generated struct field.
-/// Generated code uses this to replace repeated per-field `sanitize_self`
-/// bodies with one shared descriptor loop while preserving typed field access
-/// at the boundary.
-///
+//
+// SanitizeFieldDescriptor
+//
+// Runtime sanitization descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `sanitize_self`
+// bodies with one shared descriptor loop while preserving typed field access
+// at the boundary.
+//
 
 pub struct SanitizeFieldDescriptor<T> {
     sanitize: fn(&mut T, &mut dyn VisitorContext),
@@ -221,7 +221,7 @@ impl<T> SanitizeFieldDescriptor<T> {
     }
 }
 
-/// Drive one generated field table through sanitization dispatch.
+// Drive one generated field table through sanitization dispatch.
 pub fn drive_sanitize_fields<T>(
     node: &mut T,
     ctx: &mut dyn VisitorContext,
@@ -232,14 +232,14 @@ pub fn drive_sanitize_fields<T>(
     }
 }
 
-///
-/// ValidateFieldDescriptor
-///
-/// Runtime validation descriptor for one generated struct field.
-/// Generated code uses this to replace repeated per-field `validate_self`
-/// bodies with one shared descriptor loop while preserving typed field access
-/// at the boundary.
-///
+//
+// ValidateFieldDescriptor
+//
+// Runtime validation descriptor for one generated struct field.
+// Generated code uses this to replace repeated per-field `validate_self`
+// bodies with one shared descriptor loop while preserving typed field access
+// at the boundary.
+//
 
 pub struct ValidateFieldDescriptor<T> {
     validate: fn(&T, &mut dyn VisitorContext),
@@ -253,7 +253,7 @@ impl<T> ValidateFieldDescriptor<T> {
     }
 }
 
-/// Drive one generated field table through validation dispatch.
+// Drive one generated field table through validation dispatch.
 pub fn drive_validate_fields<T>(
     node: &T,
     ctx: &mut dyn VisitorContext,
@@ -410,7 +410,7 @@ pub fn perform_visit<S: Into<PathSegment>>(
 // VisitorMut (mutable)
 // ============================================================================
 
-/// Mutable visitor callbacks paired with a scoped visitor context.
+// Mutable visitor callbacks paired with a scoped visitor context.
 pub(crate) trait VisitorMut {
     fn enter_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
     fn exit_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
@@ -420,7 +420,7 @@ pub(crate) trait VisitorMut {
 // VisitorMutCore
 // ============================================================================
 
-/// Object-safe mutable visitor contract used by traversal drivers.
+// Object-safe mutable visitor contract used by traversal drivers.
 pub trait VisitorMutCore {
     fn enter_mut(&mut self, node: &mut dyn Visitable);
     fn exit_mut(&mut self, node: &mut dyn Visitable);
@@ -433,7 +433,7 @@ pub trait VisitorMutCore {
 // VisitorMutAdapter
 // ============================================================================
 
-/// Adapter that binds `VisitorMut` to object-safe traversal and path tracking.
+// Adapter that binds `VisitorMut` to object-safe traversal and path tracking.
 pub(crate) struct VisitorMutAdapter<V> {
     visitor: V,
     path: Vec<PathSegment>,
@@ -496,13 +496,13 @@ where
 // Traversal (mutable)
 // ============================================================================
 
-/// Perform a mutable visitor traversal starting at a trait-object node.
-///
-/// This is the *core* traversal entrypoint. It operates on `&mut dyn Visitable`
-/// because visitor callbacks (`enter_mut` / `exit_mut`) require a trait object.
-///
-/// Path segments are pushed/popped around the traversal unless the segment is
-/// `PathSegment::Empty`.
+// Perform a mutable visitor traversal starting at a trait-object node.
+//
+// This is the *core* traversal entrypoint. It operates on `&mut dyn Visitable`
+// because visitor callbacks (`enter_mut` / `exit_mut`) require a trait object.
+//
+// Path segments are pushed/popped around the traversal unless the segment is
+// `PathSegment::Empty`.
 pub fn perform_visit_mut<S: Into<PathSegment>>(
     visitor: &mut dyn VisitorMutCore,
     node: &mut dyn Visitable,

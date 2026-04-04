@@ -284,8 +284,10 @@ Commenting quality is a merge gate: code that is correct but under-documented is
 ### Required
 
 * Public API items (`struct`, `enum`, `trait`, `fn`, type aliases, and public re-exports) MUST have doc comments (`///`).
+* Exception: types that derive `CandidType`, plus their public fields and enum variants, MUST use plain `//` comments instead of `///` doc comments so those strings are not retained in normal canister wasm builds.
 * `mod` declarations are wiring and SHOULD NOT be individually documented; document the module in its root file instead when needed.
 * Every public `struct`, `enum`, `trait`, and `fn` MUST have a doc comment (`///`).
+* The normal public-doc-comment requirement does not apply to `CandidType` wire surfaces; keep those comments as plain `//` narration unless the docs are explicitly needed for rustdoc-only output.
 * Public `struct` and `trait` definitions MUST be preceded by **at least three consecutive doc comment lines**.
 * Every non-trivial `struct` or `trait` (public or private) MUST be preceded by **at least three consecutive doc comment lines**.
 * For every non-trivial `struct` or `trait`, use this exact doc-block shape:
@@ -297,6 +299,7 @@ Commenting quality is a merge gate: code that is correct but under-documented is
   * Then one blank source line before `struct <TypeName> { ... }` or `trait <TypeName> { ... }`
 * For every non-trivial `struct` or `trait`, the `<TypeName>` line MUST exactly repeat the declared type name.
 * After the doc comment block for a `struct` or `trait`, there MUST be a blank line before the type definition.
+* The multi-line doc-block shape above does not apply to `CandidType` wire surfaces; use concise `//` comments there instead.
 * Every non-trivial private function or type MUST have at least a brief explanatory comment.
 * For any function/struct/enum/trait/type with lint/control attributes (`#[expect]`, `#[allow]`, `#[cfg_attr]`, etc.), comments/doc comments for that item MUST come first, then attributes, then the item.
 * Inherent `impl <TypeName>` blocks SHOULD appear immediately after the type definition (after derives/attrs and doc block) and before unrelated items whenever feasible.

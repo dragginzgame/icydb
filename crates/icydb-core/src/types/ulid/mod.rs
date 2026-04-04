@@ -23,9 +23,9 @@ use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
-///
-/// UlidError
-///
+//
+// UlidError
+//
 
 #[derive(Debug, ThisError)]
 pub enum UlidError {
@@ -36,9 +36,9 @@ pub enum UlidError {
     GeneratorOverflow,
 }
 
-///
-/// UlidDecodeError
-///
+//
+// UlidDecodeError
+//
 
 #[derive(Debug, ThisError)]
 pub enum UlidDecodeError {
@@ -46,9 +46,9 @@ pub enum UlidDecodeError {
     InvalidSize { len: usize },
 }
 
-///
-/// Ulid
-///
+//
+// Ulid
+//
 
 #[derive(
     Clone, Copy, Debug, Deref, DerefMut, Display, Eq, FromStr, Hash, Ord, PartialEq, PartialOrd,

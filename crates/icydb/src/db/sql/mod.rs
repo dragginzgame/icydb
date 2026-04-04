@@ -426,9 +426,9 @@ fn render_enum(value: &ValueEnum) -> String {
     rendered
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

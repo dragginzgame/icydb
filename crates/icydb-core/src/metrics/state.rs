@@ -280,27 +280,27 @@ thread_local! {
     static EVENT_STATE: RefCell<EventState> = RefCell::new(EventState::default());
 }
 
-/// Borrow metrics immutably.
+// Borrow metrics immutably.
 pub(crate) fn with_state<R>(f: impl FnOnce(&EventState) -> R) -> R {
     EVENT_STATE.with(|m| f(&m.borrow()))
 }
 
-/// Borrow metrics mutably.
+// Borrow metrics mutably.
 pub(crate) fn with_state_mut<R>(f: impl FnOnce(&mut EventState) -> R) -> R {
     EVENT_STATE.with(|m| f(&mut m.borrow_mut()))
 }
 
-/// Reset all counters (useful in tests).
+// Reset all counters (useful in tests).
 pub(super) fn reset() {
     with_state_mut(|m| *m = EventState::default());
 }
 
-/// Reset all event state: counters, perf, and serialize counters.
+// Reset all event state: counters, perf, and serialize counters.
 pub(crate) fn reset_all() {
     reset();
 }
 
-/// Accumulate instruction counts and track a max.
+// Accumulate instruction counts and track a max.
 pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64) {
     *total = total.saturating_add(u128::from(delta_inst));
     if delta_inst > *max {
@@ -348,13 +348,13 @@ impl EventReport {
     }
 }
 
-///
-/// EventCounters
-///
-/// Top-level metrics counters returned by `icydb_metrics()`.
-/// This keeps aggregate ops/perf totals while leaving per-entity detail to the
-/// separate `entity_counters` payload.
-///
+//
+// EventCounters
+//
+// Top-level metrics counters returned by `icydb_metrics()`.
+// This keeps aggregate ops/perf totals while leaving per-entity detail to the
+// separate `entity_counters` payload.
+//
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventCounters {
@@ -432,15 +432,15 @@ impl EntitySummary {
     }
 }
 
-/// Build a metrics report gated by `window_start_ms`.
-///
-/// This is a window-start filter:
-/// - If `window_start_ms` is `None`, return the current window.
-/// - If `window_start_ms <= state.window_start_ms`, return the current window.
-/// - If `window_start_ms > state.window_start_ms`, return an empty report.
-///
-/// IcyDB stores aggregate counters only, so it cannot produce a precise
-/// sub-window report after `state.window_start_ms`.
+// Build a metrics report gated by `window_start_ms`.
+//
+// This is a window-start filter:
+// - If `window_start_ms` is `None`, return the current window.
+// - If `window_start_ms <= state.window_start_ms`, return the current window.
+// - If `window_start_ms > state.window_start_ms`, return an empty report.
+//
+// IcyDB stores aggregate counters only, so it cannot produce a precise
+// sub-window report after `state.window_start_ms`.
 #[must_use]
 pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
     let snap = with_state(Clone::clone);

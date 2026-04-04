@@ -22,12 +22,12 @@ use time::{Date as TimeDate, Duration as TimeDuration, Month};
 // API/JSON serialization uses ISO-8601 text (`YYYY-MM-DD`).
 // Ordering and arithmetic remain numeric and deterministic over day counts.
 
-///
-/// Date
-///
-/// Stored as days since Unix epoch.
-/// API/JSON wire format is ISO-8601 text (`YYYY-MM-DD`).
-///
+//
+// Date
+//
+// Stored as days since Unix epoch.
+// API/JSON wire format is ISO-8601 text (`YYYY-MM-DD`).
+//
 
 #[derive(
     Add,
@@ -271,9 +271,9 @@ impl ValidateCustom for Date {}
 
 impl Visitable for Date {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

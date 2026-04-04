@@ -16,9 +16,9 @@ use icydb_utils::next_u128;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 
-///
-/// Subaccount
-///
+//
+// Subaccount
+//
 
 type SubaccountBytes = [u8; 32];
 
@@ -139,8 +139,8 @@ impl FieldValue for Subaccount {
     }
 }
 
-/// code taken from
-/// <https://docs.rs/ic-ledger-types/latest/src/ic_ledger_types/lib.rs.html#140-148>
+// code taken from
+// <https://docs.rs/ic-ledger-types/latest/src/ic_ledger_types/lib.rs.html#140-148>
 #[expect(clippy::cast_possible_truncation)]
 impl From<Principal> for Subaccount {
     fn from(principal: Principal) -> Self {
@@ -192,9 +192,9 @@ impl ValidateCustom for Subaccount {}
 
 impl Visitable for Subaccount {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

@@ -14,9 +14,9 @@ use candid::CandidType;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
-///
-/// Unit
-///
+//
+// Unit
+//
 
 #[derive(
     CandidType,

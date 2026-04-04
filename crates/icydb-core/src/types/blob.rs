@@ -15,12 +15,12 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::fmt::{self, Display};
 
-///
-/// Blob
-///
-/// Blob is a semantic binary value; raw byte access is explicit via accessors (no `Deref`).
-/// Display prints a size summary; it does not print content.
-///
+//
+// Blob
+//
+// Blob is a semantic binary value; raw byte access is explicit via accessors (no `Deref`).
+// Display prints a size summary; it does not print content.
+//
 
 #[derive(
     CandidType, Clone, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,

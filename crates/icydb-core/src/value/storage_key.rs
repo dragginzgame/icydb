@@ -20,10 +20,10 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use thiserror::Error as ThisError;
 
-///
-/// StorageKeyEncodeError
-/// Errors returned when encoding a storage key for persistence.
-///
+//
+// StorageKeyEncodeError
+// Errors returned when encoding a storage key for persistence.
+//
 
 #[derive(Debug, ThisError)]
 pub enum StorageKeyEncodeError {
@@ -46,10 +46,10 @@ impl From<StorageKeyEncodeError> for InternalError {
     }
 }
 
-///
-/// StorageKeyDecodeError
-/// Errors returned when decoding a persisted storage key payload.
-///
+//
+// StorageKeyDecodeError
+// Errors returned when decoding a persisted storage key payload.
+//
 
 #[derive(Debug, ThisError)]
 pub enum StorageKeyDecodeError {
@@ -69,14 +69,14 @@ pub enum StorageKeyDecodeError {
     InvalidAccountPayload { reason: &'static str },
 }
 
-///
-/// StorageKey
-///
-/// Storage-normalized scalar key used by persistence and indexing.
-///
-/// This type defines the *only* on-disk representation for scalar keys.
-/// It is deliberately separated from typed primary-key values (`Id<E>`).
-///
+//
+// StorageKey
+//
+// Storage-normalized scalar key used by persistence and indexing.
+//
+// This type defines the *only* on-disk representation for scalar keys.
+// It is deliberately separated from typed primary-key values (`Id<E>`).
+//
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, Hash, PartialEq, Serialize)]
 pub enum StorageKey {
@@ -432,9 +432,9 @@ impl TryFrom<&[u8]> for StorageKey {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

@@ -20,9 +20,9 @@ use std::{
 };
 use thiserror::Error as ThisError;
 
-///
-/// Float32DecodeError
-///
+//
+// Float32DecodeError
+//
 
 #[derive(Debug, ThisError)]
 pub enum Float32DecodeError {
@@ -33,11 +33,11 @@ pub enum Float32DecodeError {
     NonFinite,
 }
 
-///
-/// Float32
-///
-/// Finite f32 only; -0.0 canonically stored as 0.0
-///
+//
+// Float32
+//
+// Finite f32 only; -0.0 canonically stored as 0.0
+//
 
 #[repr(transparent)]
 #[derive(CandidType, Clone, Copy, Debug, Default, Display, Serialize)]
@@ -222,9 +222,9 @@ impl<'de> Deserialize<'de> for Float32 {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

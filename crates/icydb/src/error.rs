@@ -212,9 +212,9 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

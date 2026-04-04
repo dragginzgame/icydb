@@ -119,8 +119,8 @@ pub mod error;
 pub mod traits;
 pub use error::Error;
 
-/// Macro/runtime wiring surface used by generated code.
-/// This is intentionally narrow and not semver-stable.
+// Macro/runtime wiring surface used by generated code.
+// This is intentionally narrow and not semver-stable.
 #[doc(hidden)]
 pub mod __macro {
     #[cfg(feature = "sql")]
@@ -133,12 +133,12 @@ pub mod __macro {
     };
 }
 
-/// re-exports
-///
-/// macros can use these, stops the user having to specify all the dependencies
-/// in the Cargo.toml file manually
-///
-/// these have to be in icydb_core because of the base library not being able to import icydb
+// re-exports
+//
+// macros can use these, stops the user having to specify all the dependencies
+// in the Cargo.toml file manually
+//
+// these have to be in icydb_core because of the base library not being able to import icydb
 #[doc(hidden)]
 pub mod __reexports {
     pub use candid;
@@ -152,10 +152,10 @@ pub mod __reexports {
     pub use serde;
 }
 
-///
-/// Actor Prelude
-/// using _ brings traits into scope and avoids name conflicts
-///
+//
+// Actor Prelude
+// using _ brings traits into scope and avoids name conflicts
+//
 
 pub mod prelude {
     pub use crate::{
@@ -181,10 +181,10 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
 }
 
-///
-/// Design Prelude
-/// For schema/design code (macros, traits, base helpers).
-///
+//
+// Design Prelude
+// For schema/design code (macros, traits, base helpers).
+//
 
 pub mod design {
     pub mod prelude {
@@ -209,21 +209,21 @@ pub mod design {
     }
 }
 
-///
-/// -------------------------- CODE -----------------------------------
-///
-///
-/// Consts
-///
+//
+// -------------------------- CODE -----------------------------------
+//
+//
+// Consts
+//
 
-/// Workspace version re-export for downstream tooling/tests.
+// Workspace version re-export for downstream tooling/tests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-///
-/// Macros
-///
+//
+// Macros
+//
 
-/// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
+// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
 #[macro_export]
 macro_rules! start {
     () => {
@@ -232,7 +232,7 @@ macro_rules! start {
     };
 }
 
-/// Access the current canister's database session; use `db!().debug()` for verbose tracing.
+// Access the current canister's database session; use `db!().debug()` for verbose tracing.
 #[macro_export]
 #[expect(clippy::crate_in_macro_def)]
 macro_rules! db {
@@ -241,28 +241,28 @@ macro_rules! db {
     };
 }
 
-///
-/// Helpers
-///
+//
+// Helpers
+//
 
-/// Run sanitization over a mutable visitable tree.
+// Run sanitization over a mutable visitable tree.
 pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
     icydb_core::sanitize::sanitize(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
 
-/// Validate a visitable tree, collecting issues by path.
+// Validate a visitable tree, collecting issues by path.
 pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
     icydb_core::validate::validate(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
 
-/// Serialize a visitable value into bytes.
-///
-/// The encoding format is an internal detail of icydb and is only
-/// guaranteed to round-trip via `deserialize`.
+// Serialize a visitable value into bytes.
+//
+// The encoding format is an internal detail of icydb and is only
+// guaranteed to round-trip via `deserialize`.
 pub fn serialize<T>(ty: &T) -> Result<Vec<u8>, Error>
 where
     T: Serialize,
@@ -278,10 +278,10 @@ where
         .map_err(Error::from)
 }
 
-/// Deserialize bytes into a concrete visitable value.
-///
-/// This is intended for testing, tooling, and round-trip verification.
-/// It should not be used in hot runtime paths.
+// Deserialize bytes into a concrete visitable value.
+//
+// This is intended for testing, tooling, and round-trip verification.
+// It should not be used in hot runtime paths.
 pub fn deserialize<T>(bytes: &[u8]) -> Result<T, Error>
 where
     T: DeserializeOwned,

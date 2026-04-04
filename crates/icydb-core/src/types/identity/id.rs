@@ -18,40 +18,40 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-///
-/// Id
-///
-/// Typed primary-key value for an entity.
-///
-/// ## Purpose
-/// `Id<E>` is a *boundary type*:
-/// - used at API, DTO, and query boundaries
-/// - enforces entity-kind correctness at compile time
-/// - prevents accidental mixing of primary keys across entities
-/// - carries identity shape only (not authority)
-///
-/// ## Security model
-/// `Id<E>` is a public identifier and is **not** a secret or capability.
-/// It may be deserialized from untrusted input.
-/// `Id<E>` is a public identifier. It is not a secret and must never be treated as proof of
-/// authorization, existence, or ownership.
-///
-/// Possession of an `Id<E>` does NOT imply:
-/// - existence of the referenced entity
-/// - authorization or ownership
-/// - correctness of the value
-///
-/// All uses of `Id<E>` must perform explicit lookup and validation.
-///
-/// ## Storage model
-/// - Entities themselves store **primitive key values only**
-/// - Conversion between `Id<E>` and the primitive key is explicit
-/// - `Id<E>` serializes identically to `E::Key`
-///
-/// ## Safety
-/// Construction from raw key material is intentionally explicit so call sites show where typed
-/// identity values are introduced. This is not an authorization or trust boundary.
-///
+//
+// Id
+//
+// Typed primary-key value for an entity.
+//
+// ## Purpose
+// `Id<E>` is a *boundary type*:
+// - used at API, DTO, and query boundaries
+// - enforces entity-kind correctness at compile time
+// - prevents accidental mixing of primary keys across entities
+// - carries identity shape only (not authority)
+//
+// ## Security model
+// `Id<E>` is a public identifier and is **not** a secret or capability.
+// It may be deserialized from untrusted input.
+// `Id<E>` is a public identifier. It is not a secret and must never be treated as proof of
+// authorization, existence, or ownership.
+//
+// Possession of an `Id<E>` does NOT imply:
+// - existence of the referenced entity
+// - authorization or ownership
+// - correctness of the value
+//
+// All uses of `Id<E>` must perform explicit lookup and validation.
+//
+// ## Storage model
+// - Entities themselves store **primitive key values only**
+// - Conversion between `Id<E>` and the primitive key is explicit
+// - `Id<E>` serializes identically to `E::Key`
+//
+// ## Safety
+// Construction from raw key material is intentionally explicit so call sites show where typed
+// identity values are introduced. This is not an authorization or trust boundary.
+//
 
 #[repr(transparent)]
 pub struct Id<E: EntityKey> {

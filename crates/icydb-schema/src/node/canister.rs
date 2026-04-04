@@ -2,9 +2,9 @@ use crate::node::{validate_memory_id_in_range, validate_memory_id_not_reserved};
 use crate::prelude::*;
 use std::collections::BTreeMap;
 
-///
-/// Canister
-///
+//
+// Canister
+//
 
 #[derive(CandidType, Clone, Debug, Serialize)]
 pub struct Canister {
@@ -127,9 +127,9 @@ impl VisitableNode for Canister {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

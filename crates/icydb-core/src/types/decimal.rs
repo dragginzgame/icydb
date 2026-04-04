@@ -29,15 +29,15 @@ const MAX_SUPPORTED_SCALE: u32 = 28;
 const DEFAULT_DIVISION_SCALE: u32 = 18;
 const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
 
-///
-/// DecimalParts
-///
-/// Canonical decomposition of a Decimal.
-///
-/// Invariant:
-/// - value == mantissa * 10^-scale
-/// - mantissa carries the sign
-///
+//
+// DecimalParts
+//
+// Canonical decomposition of a Decimal.
+//
+// Invariant:
+// - value == mantissa * 10^-scale
+// - mantissa carries the sign
+//
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DecimalParts {
@@ -59,11 +59,11 @@ impl DecimalParts {
     }
 }
 
-///
-/// ParseDecimalError
-///
-/// User-facing parse failure for decimal text input.
-///
+//
+// ParseDecimalError
+//
+// User-facing parse failure for decimal text input.
+//
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseDecimalError {
@@ -86,17 +86,17 @@ impl Display for ParseDecimalError {
     }
 }
 
-///
-/// Decimal
-///
-/// Owned fixed-point decimal with an explicit i128 mantissa and base-10 scale.
-///
-/// Numeric policy:
-/// - add/sub/mul are saturating on overflow
-/// - div by zero returns `Decimal::ZERO`
-/// - div overflow falls back to signed saturation at `DEFAULT_DIVISION_SCALE`
-/// - rem by zero returns `Decimal::ZERO` (and `checked_rem` returns `None`)
-///
+//
+// Decimal
+//
+// Owned fixed-point decimal with an explicit i128 mantissa and base-10 scale.
+//
+// Numeric policy:
+// - add/sub/mul are saturating on overflow
+// - div by zero returns `Decimal::ZERO`
+// - div overflow falls back to signed saturation at `DEFAULT_DIVISION_SCALE`
+// - rem by zero returns `Decimal::ZERO` (and `checked_rem` returns `None`)
+//
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Decimal {
@@ -1131,9 +1131,9 @@ fn strip_leading_zeros(digits: &str) -> &str {
     if trimmed.is_empty() { "0" } else { trimmed }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

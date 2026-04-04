@@ -34,9 +34,9 @@ pub(crate) use hash::with_test_hash_override;
 pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub use tag::ValueTag;
 
-///
-/// CONSTANTS
-///
+//
+// CONSTANTS
+//
 
 const F64_SAFE_I64: i64 = 1i64 << 53;
 const F64_SAFE_U64: u64 = 1u64 << 53;
@@ -44,9 +44,9 @@ const F64_SAFE_I128: i128 = 1i128 << 53;
 const F64_SAFE_U128: u128 = 1u128 << 53;
 const VALUE_WIRE_TYPE_NAME: &str = "Value";
 
-///
-/// NumericRepr
-///
+//
+// NumericRepr
+//
 
 enum NumericRepr {
     Decimal(Decimal),
@@ -174,9 +174,9 @@ where
     serializer.serialize_unit_variant(VALUE_WIRE_TYPE_NAME, variant.index(), variant.label())
 }
 
-///
-/// TextMode
-///
+//
+// TextMode
+//
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextMode {
@@ -184,11 +184,11 @@ pub enum TextMode {
     Ci, // case-insensitive
 }
 
-///
-/// MapValueError
-///
-/// Invariant violations for `Value::Map` construction/normalization.
-///
+//
+// MapValueError
+//
+// Invariant violations for `Value::Map` construction/normalization.
+//
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MapValueError {
@@ -235,11 +235,11 @@ impl std::fmt::Display for MapValueError {
 
 impl std::error::Error for MapValueError {}
 
-///
-/// SchemaInvariantError
-///
-/// Invariant violations encountered while materializing schema/runtime values.
-///
+//
+// SchemaInvariantError
+//
+// Invariant violations encountered while materializing schema/runtime values.
+//
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SchemaInvariantError {
@@ -262,13 +262,13 @@ impl From<MapValueError> for SchemaInvariantError {
     }
 }
 
-///
-/// Value
-/// can be used in WHERE statements
-///
-/// Null        → the field’s value is Option::None (i.e., SQL NULL).
-/// Unit        → internal placeholder for RHS; not a real value.
-///
+//
+// Value
+// can be used in WHERE statements
+//
+// Null        → the field’s value is Option::None (i.e., SQL NULL).
+// Unit        → internal placeholder for RHS; not a real value.
+//
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 pub enum Value {
@@ -1130,10 +1130,10 @@ impl PartialOrd for Value {
     }
 }
 
-///
-/// ValueEnum
-/// handles the Enum case; `path` is optional to allow strict (typed) or loose matching.
-///
+//
+// ValueEnum
+// handles the Enum case; `path` is optional to allow strict (typed) or loose matching.
+//
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, PartialOrd, Serialize)]
 pub struct ValueEnum {

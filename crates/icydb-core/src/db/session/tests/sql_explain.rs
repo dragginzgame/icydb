@@ -159,6 +159,58 @@ fn explain_sql_plan_returns_logical_plan_text() {
 }
 
 #[test]
+fn explain_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+    )
+    .expect_err("non-casefold direct STARTS_WITH delete EXPLAIN should stay fail-closed");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "EXPLAIN DELETE should reject non-casefold wrapped direct STARTS_WITH",
+    );
+    assert_sql_unsupported_feature_detail(
+        err,
+        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+    );
+}
+
+#[test]
+fn explain_json_sql_delete_rejects_non_casefold_wrapped_direct_starts_with() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = dispatch_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
+    )
+    .expect_err("non-casefold direct STARTS_WITH JSON delete EXPLAIN should stay fail-closed");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "EXPLAIN JSON DELETE should reject non-casefold wrapped direct STARTS_WITH",
+    );
+    assert_sql_unsupported_feature_detail(
+        err,
+        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
+    );
+}
+
+#[test]
 fn explain_sql_delete_direct_starts_with_family_matches_like_output() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

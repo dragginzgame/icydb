@@ -33,13 +33,13 @@ use std::collections::HashSet;
 // Debug assertions below are diagnostic sentinels; correctness is enforced by
 // runtime validation earlier in the pipeline.
 
-///
-/// SaveMode
-///
-/// Create  : will only insert a row if it's empty
-/// Replace : will change the row regardless of what was there
-/// Update  : will only change an existing row
-///
+//
+// SaveMode
+//
+// Create  : will only insert a row if it's empty
+// Replace : will change the row regardless of what was there
+// Update  : will only change an existing row
+//
 
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Display, Serialize)]
 enum SaveMode {
@@ -49,20 +49,20 @@ enum SaveMode {
     Update,
 }
 
-///
-/// SaveExecutor
-///
+//
+// SaveExecutor
+//
 
 #[derive(Clone, Copy)]
 pub(in crate::db) struct SaveExecutor<E: PersistedRow + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
 }
 
-///
-/// SaveRule
-///
-/// Canonical save precondition for resolving the current row baseline.
-///
+//
+// SaveRule
+//
+// Canonical save precondition for resolving the current row baseline.
+//
 #[derive(Clone, Copy)]
 enum SaveRule {
     RequireAbsent,
@@ -80,16 +80,16 @@ impl SaveRule {
     }
 }
 
-///
-/// MutationMode
-///
-/// MutationMode
-///
-/// MutationMode makes the structural patch path spell out the same
-/// row-existence contract the typed save surface already owns.
-/// This keeps future structural callers from smuggling write-mode meaning
-/// through ad hoc helper choice once the seam moves beyond `icydb-core`.
-///
+//
+// MutationMode
+//
+// MutationMode
+//
+// MutationMode makes the structural patch path spell out the same
+// row-existence contract the typed save surface already owns.
+// This keeps future structural callers from smuggling write-mode meaning
+// through ad hoc helper choice once the seam moves beyond `icydb-core`.
+//
 
 #[derive(Clone, Copy)]
 pub enum MutationMode {

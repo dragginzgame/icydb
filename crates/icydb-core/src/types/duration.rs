@@ -23,12 +23,12 @@ use std::{
 // All arithmetic is millisecond-consistent.
 // Wire format remains transparent u64.
 
-///
-/// Duration
-///
-/// Stored as milliseconds.
-/// Wire format remains a bare `u64`.
-///
+//
+// Duration
+//
+// Stored as milliseconds.
+// Wire format remains a bare `u64`.
+//
 
 #[derive(
     CandidType, Clone, Copy, Debug, Default, Display, Eq, FromStr, PartialEq, Hash, Ord, PartialOrd,
@@ -374,9 +374,9 @@ impl ValidateCustom for Duration {}
 
 impl Visitable for Duration {}
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

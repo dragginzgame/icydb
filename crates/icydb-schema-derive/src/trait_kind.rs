@@ -3,9 +3,9 @@ use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use derive_more::{Deref, DerefMut, Display, FromStr, IntoIterator};
 use std::{collections::HashSet, hash::Hash, str::FromStr, sync::LazyLock};
 
-///
-/// TraitKind
-///
+//
+// TraitKind
+//
 
 #[derive(
     Clone,
@@ -202,9 +202,9 @@ impl ToTokens for TraitKind {
     }
 }
 
-///
-/// TraitSet
-///
+//
+// TraitSet
+//
 
 #[derive(Clone, Debug, Default, Deref, DerefMut, Eq, PartialEq)]
 pub struct TraitSet(pub HashSet<TraitKind>);
@@ -251,12 +251,12 @@ impl ToTokens for TraitSet {
     }
 }
 
-///
-/// TraitBuilder
-///
-/// Collects trait additions/removals from schema attributes.
-/// After parsing, it should be treated as immutable and resolved via `.build()`.
-///
+//
+// TraitBuilder
+//
+// Collects trait additions/removals from schema attributes.
+// After parsing, it should be treated as immutable and resolved via `.build()`.
+//
 
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct TraitBuilder {
@@ -320,10 +320,10 @@ impl TraitBuilder {
     }
 }
 
-///
-/// TraitListMeta
-/// Used only for parsing trait lists from schema attributes via darling.
-///
+//
+// TraitListMeta
+// Used only for parsing trait lists from schema attributes via darling.
+//
 
 #[derive(Clone, Debug, Default, Deref, DerefMut, IntoIterator)]
 pub struct TraitListMeta(pub Vec<TraitKind>);
