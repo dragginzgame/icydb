@@ -2102,6 +2102,75 @@ fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows()
 }
 
 #[test]
+fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows() {
+    // Phase 1: define the accepted direct predicate family and the established
+    // equivalent bounded LIKE spellings they should continue to match.
+    let cases = [
+        (
+            "DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC LIMIT 2",
+            "DELETE FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "strict direct STARTS_WITH delete",
+        ),
+        (
+            "DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC LIMIT 2",
+            "DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) STARTS_WITH delete",
+        ),
+        (
+            "DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
+            "DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) STARTS_WITH delete",
+        ),
+    ];
+
+    // Phase 2: run the direct and LIKE deletes against separate fresh seeds so
+    // both the deleted rows and surviving rows must stay identical.
+    for (direct_sql, like_sql, context) in cases {
+        let run_delete = |sql: &str| {
+            reset_indexed_session_sql_store();
+            let session = indexed_sql_session();
+            seed_indexed_session_sql_entities(
+                &session,
+                &[
+                    ("Sonja She-Devil", 10),
+                    ("Stamm Bladecaster", 20),
+                    ("Syra Child of Nature", 30),
+                    ("Sir Edward Lion", 40),
+                    ("Sethra Bhoaghail", 50),
+                    ("Aldren", 60),
+                ],
+            );
+
+            let deleted_rows = session
+                .execute_sql::<IndexedSessionSqlEntity>(sql)
+                .expect("indexed STARTS_WITH/LIKE delete should execute");
+            let deleted_names = deleted_rows
+                .iter()
+                .map(|row| row.entity_ref().name.clone())
+                .collect::<Vec<_>>();
+            let remaining_names = session
+                .load::<IndexedSessionSqlEntity>()
+                .order_by("name")
+                .execute()
+                .expect("post-delete indexed load should succeed")
+                .iter()
+                .map(|row| row.entity_ref().name.clone())
+                .collect::<Vec<_>>();
+
+            (deleted_names, remaining_names)
+        };
+
+        let direct = run_delete(direct_sql);
+        let like = run_delete(like_sql);
+
+        assert_eq!(
+            direct, like,
+            "bounded direct STARTS_WITH delete should match the established LIKE delete semantics: {context}",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
     reset_session_sql_store();
     let session = sql_session();

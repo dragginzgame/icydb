@@ -791,6 +791,64 @@ fn sql_canister_query_lane_supports_delete_projection() {
 }
 
 #[test]
+fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+
+        // Phase 1: compare the accepted direct family against the established
+        // LIKE forms on the generated query/delete boundary.
+        let cases = [
+            (
+                "DELETE FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 1",
+                "DELETE FROM User WHERE name LIKE 'a%' ORDER BY id LIMIT 1",
+                "generated strict direct STARTS_WITH delete",
+            ),
+            (
+                "DELETE FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+                "DELETE FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+                "generated direct LOWER(field) STARTS_WITH delete",
+            ),
+            (
+                "DELETE FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+                "DELETE FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+                "generated direct UPPER(field) STARTS_WITH delete",
+            ),
+        ];
+
+        // Phase 2: execute both spellings against fresh fixtures so the deleted
+        // row payload remains identical on the generated canister surface.
+        for (direct_sql, like_sql, context) in cases {
+            reset_fixtures(pic, canister_id);
+            load_default_fixtures(pic, canister_id);
+            let direct = query_projection_rows(
+                pic,
+                canister_id,
+                direct_sql,
+                "generated direct STARTS_WITH delete should return projection rows",
+            );
+
+            reset_fixtures(pic, canister_id);
+            load_default_fixtures(pic, canister_id);
+            let like = query_projection_rows(
+                pic,
+                canister_id,
+                like_sql,
+                "generated LIKE delete should return projection rows",
+            );
+
+            assert_eq!(
+                direct.columns, like.columns,
+                "generated direct STARTS_WITH delete should keep canonical delete columns: {context}",
+            );
+            assert_eq!(
+                direct.rows, like.rows,
+                "generated direct STARTS_WITH delete should match the established LIKE delete payload: {context}",
+            );
+        }
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_computed_projection() {
     run_with_pocket_ic(|pic| {
         let canister_id = install_quickstart_canister(pic);
@@ -867,6 +925,68 @@ fn sql_canister_query_lane_supports_grouped_explain() {
                 );
             }
             other => panic!("grouped EXPLAIN should return Explain payload, got {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_delete_direct_starts_with_family_matches_like_output() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: compare the accepted direct family against the established
+        // LIKE delete explain outputs on the generated query surface.
+        let cases = [
+            (
+                "EXPLAIN DELETE FROM User WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 1",
+                "EXPLAIN DELETE FROM User WHERE name LIKE 'a%' ORDER BY id LIMIT 1",
+                "generated strict direct STARTS_WITH delete explain",
+            ),
+            (
+                "EXPLAIN DELETE FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+                "EXPLAIN DELETE FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+                "generated direct LOWER(field) STARTS_WITH delete explain",
+            ),
+            (
+                "EXPLAIN DELETE FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+                "EXPLAIN DELETE FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+                "generated direct UPPER(field) STARTS_WITH delete explain",
+            ),
+        ];
+
+        // Phase 2: assert the generated canister query surface emits the same
+        // logical explain payload for both spellings.
+        for (direct_sql, like_sql, context) in cases {
+            let direct = query_result(pic, canister_id, direct_sql)
+                .expect("generated direct STARTS_WITH delete EXPLAIN should succeed");
+            let like = query_result(pic, canister_id, like_sql)
+                .expect("generated LIKE delete EXPLAIN should succeed");
+
+            match (direct, like) {
+                (
+                    SqlQueryResult::Explain {
+                        entity: direct_entity,
+                        explain: direct_explain,
+                    },
+                    SqlQueryResult::Explain {
+                        entity: like_entity,
+                        explain: like_explain,
+                    },
+                ) => {
+                    assert_eq!(
+                        direct_entity, like_entity,
+                        "generated direct STARTS_WITH delete EXPLAIN should keep the same entity payload: {context}",
+                    );
+                    assert_eq!(
+                        direct_explain, like_explain,
+                        "generated direct STARTS_WITH delete EXPLAIN should match the established LIKE explain output: {context}",
+                    );
+                }
+                (direct_other, like_other) => panic!(
+                    "generated delete EXPLAIN parity case should return Explain payloads, got direct={direct_other:?} like={like_other:?}"
+                ),
+            }
         }
     });
 }

@@ -159,6 +159,46 @@ fn explain_sql_plan_returns_logical_plan_text() {
 }
 
 #[test]
+fn explain_sql_delete_direct_starts_with_family_matches_like_output() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: compare the accepted direct family against the established LIKE
+    // family so EXPLAIN stays honest and surface-coherent for delete routes too.
+    let cases = [
+        (
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC LIMIT 2",
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "strict direct STARTS_WITH delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC LIMIT 2",
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) STARTS_WITH delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
+            "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) STARTS_WITH delete explain",
+        ),
+    ];
+
+    // Phase 2: assert the logical plan text remains the same across both
+    // spellings, proving the accepted direct family reuses the same delete path.
+    for (direct_sql, like_sql, context) in cases {
+        let direct = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, direct_sql)
+            .expect("direct STARTS_WITH delete EXPLAIN should succeed");
+        let like = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, like_sql)
+            .expect("LIKE delete EXPLAIN should succeed");
+
+        assert_eq!(
+            direct, like,
+            "bounded direct STARTS_WITH delete EXPLAIN should match the established LIKE path: {context}",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_plan_qualified_identifiers_match_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();

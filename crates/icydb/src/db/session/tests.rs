@@ -85,6 +85,20 @@ fn fresh_facade_session() -> DbSession<FacadeSqlCanister> {
     facade_session()
 }
 
+// Seed one deterministic facade SQL dataset so delete/explain contract tests
+// can compare direct and LIKE spellings against the same rows.
+fn seed_facade_sql_entities(session: &DbSession<FacadeSqlCanister>, rows: &[(&str, u64)]) {
+    for (name, age) in rows {
+        session
+            .insert(FacadeSqlEntity {
+                id: crate::types::Ulid::generate(),
+                name: (*name).to_string(),
+                age: *age,
+            })
+            .expect("facade SQL seed insert should succeed");
+    }
+}
+
 fn unsupported_sql_runtime_error(message: &'static str) -> Error {
     Error::new(
         ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
@@ -459,6 +473,112 @@ fn facade_query_from_sql_upper_like_prefix_lowers_to_load_query_intent() {
         explain.contains("StartsWith") || explain.contains("starts_with"),
         "facade UPPER(field) LIKE prefix SQL explain should preserve starts-with intent",
     );
+}
+
+#[test]
+fn facade_execute_sql_delete_direct_starts_with_family_matches_like_rows() {
+    // Phase 1: define the accepted direct family and the equivalent LIKE forms
+    // the public facade should continue to route to the same delete semantics.
+    let cases = [
+        (
+            "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC LIMIT 2",
+            "DELETE FROM FacadeSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "facade strict direct STARTS_WITH delete",
+        ),
+        (
+            "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC LIMIT 2",
+            "DELETE FROM FacadeSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
+            "facade direct LOWER(field) STARTS_WITH delete",
+        ),
+        (
+            "DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
+            "DELETE FROM FacadeSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "facade direct UPPER(field) STARTS_WITH delete",
+        ),
+    ];
+
+    // Phase 2: execute both spellings against fresh seeds so the facade locks
+    // the same deleted and surviving row sets on the public API boundary.
+    for (direct_sql, like_sql, context) in cases {
+        let run_delete = |sql: &str| {
+            let session = fresh_facade_session();
+            seed_facade_sql_entities(
+                &session,
+                &[
+                    ("Sonja She-Devil", 10),
+                    ("Stamm Bladecaster", 20),
+                    ("Syra Child of Nature", 30),
+                    ("Sir Edward Lion", 40),
+                    ("Sethra Bhoaghail", 50),
+                    ("Aldren", 60),
+                ],
+            );
+
+            let deleted_names = session
+                .execute_sql::<FacadeSqlEntity>(sql)
+                .expect("facade STARTS_WITH/LIKE delete should execute")
+                .iter()
+                .map(|row| row.entity_ref().name.clone())
+                .collect::<Vec<_>>();
+            let remaining_names = session
+                .load::<FacadeSqlEntity>()
+                .order_by("name")
+                .execute()
+                .expect("facade post-delete load should succeed")
+                .iter()
+                .map(|row| row.entity_ref().name.clone())
+                .collect::<Vec<_>>();
+
+            (deleted_names, remaining_names)
+        };
+
+        let direct = run_delete(direct_sql);
+        let like = run_delete(like_sql);
+
+        assert_eq!(
+            direct, like,
+            "facade direct STARTS_WITH delete should match the established LIKE delete semantics: {context}",
+        );
+    }
+}
+
+#[test]
+fn facade_explain_delete_direct_starts_with_family_matches_like_output() {
+    let session = fresh_facade_session();
+
+    // Phase 1: compare the public EXPLAIN surface across the accepted direct
+    // family and the established LIKE path for delete queries.
+    let cases = [
+        (
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(name, 'S') ORDER BY name ASC LIMIT 2",
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE name LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "facade strict direct STARTS_WITH delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC LIMIT 2",
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
+            "facade direct LOWER(field) STARTS_WITH delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
+            "EXPLAIN DELETE FROM FacadeSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "facade direct UPPER(field) STARTS_WITH delete explain",
+        ),
+    ];
+
+    // Phase 2: assert the public facade emits identical logical EXPLAIN output
+    // for both spellings so the bounded family stays contract-coherent.
+    for (direct_sql, like_sql, context) in cases {
+        let direct = dispatch_explain_sql::<FacadeSqlEntity>(&session, direct_sql)
+            .expect("facade direct STARTS_WITH delete EXPLAIN should succeed");
+        let like = dispatch_explain_sql::<FacadeSqlEntity>(&session, like_sql)
+            .expect("facade LIKE delete EXPLAIN should succeed");
+
+        assert_eq!(
+            direct, like,
+            "facade direct STARTS_WITH delete EXPLAIN should match the established LIKE output: {context}",
+        );
+    }
 }
 
 #[test]
