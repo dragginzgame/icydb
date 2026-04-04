@@ -19,7 +19,7 @@ use crate::{
                 },
                 key::{
                     IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
-                    OrderedKeyStreamBox, VecOrderedKeyStream,
+                    OrderedKeyStreamBox, ordered_key_stream_from_materialized_keys,
                 },
             },
             traversal::IndexRangeTraversalContract,
@@ -234,12 +234,12 @@ impl AccessPlanStreamResolver {
         F: Fn(OrderedKeyStreamBox, OrderedKeyStreamBox) -> OrderedKeyStreamBox,
     {
         if streams.is_empty() {
-            return Box::new(VecOrderedKeyStream::new(Vec::new()));
+            return ordered_key_stream_from_materialized_keys(Vec::new());
         }
         if streams.len() == 1 {
             return streams
                 .pop()
-                .unwrap_or_else(|| Box::new(VecOrderedKeyStream::new(Vec::new())));
+                .unwrap_or_else(|| ordered_key_stream_from_materialized_keys(Vec::new()));
         }
 
         while streams.len() > 1 {
@@ -257,7 +257,7 @@ impl AccessPlanStreamResolver {
 
         streams
             .pop()
-            .unwrap_or_else(|| Box::new(VecOrderedKeyStream::new(Vec::new())))
+            .unwrap_or_else(|| ordered_key_stream_from_materialized_keys(Vec::new()))
     }
 
     // Build an ordered key stream for this access plan.

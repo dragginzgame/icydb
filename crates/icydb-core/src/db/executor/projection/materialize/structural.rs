@@ -11,6 +11,7 @@ use crate::{
             EntityAuthority,
             pipeline::entrypoints::execute_initial_scalar_rows_for_canister,
             projection::{
+                ProjectionEvalError,
                 eval::eval_canonical_scalar_projection_expr,
                 materialize::{
                     prepare_projection_plan, visit_prepared_projection_values_with_value_reader,
@@ -18,10 +19,13 @@ use crate::{
                 },
             },
         },
-        query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
+        query::plan::{
+            AccessPlannedQuery,
+            expr::{Expr, ProjectionField, ProjectionSpec},
+        },
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::entity::{EntityModel, resolve_field_slot},
     traits::CanisterKind,
     value::Value,
 };
@@ -72,14 +76,15 @@ where
     // Phase 1: execute the scalar rows path once for the whole canister while
     // reusing the already-derived projection contract from the caller.
     let page = execute_initial_scalar_rows_for_canister(db, debug, authority, plan)?;
+    let (slot_rows, data_rows) = page.into_sql_parts();
 
     // Phase 2: prefer already-decoded slot rows when the scalar kernel kept
     // them for immediate SQL projection materialization. Fall back to the
     // canonical structural-row reader on all other paths.
-    let projected = if let Some(slot_rows) = page.slot_rows() {
+    let projected = if let Some(slot_rows) = slot_rows {
         project_slot_rows_from_projection_structural(model, &projection, slot_rows)?
     } else {
-        project_data_rows_from_projection_structural(model, &projection, page.data_rows())?
+        project_data_rows_from_projection_structural(model, &projection, data_rows.as_slice())?
     };
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
@@ -89,14 +94,18 @@ where
 fn project_slot_rows_from_projection_structural(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
-    rows: &[Vec<Option<Value>>],
+    rows: Vec<Vec<Option<Value>>>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
+    if let Some(field_slots) = direct_projection_field_slots(model, projection) {
+        return project_slot_rows_from_direct_field_slots(rows, field_slots.as_slice());
+    }
+
     let prepared = prepare_projection_plan(model, projection);
     let mut projected_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: reuse the executor-decoded slot rows directly instead of
     // rebuilding structural readers from persisted row bytes.
-    for row in rows {
+    for row in &rows {
         let mut values = Vec::with_capacity(projection.len());
         let mut read_slot = |slot: usize| row.get(slot).cloned().flatten();
         visit_prepared_projection_values_with_value_reader(
@@ -109,6 +118,68 @@ fn project_slot_rows_from_projection_structural(
         .map_err(
             crate::db::executor::projection::ProjectionEvalError::into_invalid_logical_plan_internal_error,
         )?;
+        projected_rows.push(values);
+    }
+
+    Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+// Resolve one direct slot-copy projection shape when every output stays on one
+// canonical field reference and therefore does not need compiled scalar
+// expression evaluation.
+fn direct_projection_field_slots(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+) -> Option<Vec<(String, usize)>> {
+    let mut field_slots = Vec::with_capacity(projection.len());
+
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                let field_name = direct_projection_field_name(expr)?;
+                let slot = resolve_field_slot(model, field_name)?;
+
+                field_slots.push((field_name.to_string(), slot));
+            }
+        }
+    }
+
+    Some(field_slots)
+}
+
+#[cfg(feature = "sql")]
+// Unwrap one direct field projection through optional alias wrappers.
+fn direct_projection_field_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Field(field) => Some(field.as_str()),
+        Expr::Alias { expr, .. } => direct_projection_field_name(expr.as_ref()),
+        Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
+    }
+}
+
+#[cfg(feature = "sql")]
+// Project one retained slot-row page through direct field-slot copies only.
+fn project_slot_rows_from_direct_field_slots(
+    rows: Vec<Vec<Option<Value>>>,
+    field_slots: &[(String, usize)],
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut projected_rows = Vec::with_capacity(rows.len());
+
+    for mut row in rows {
+        let mut values = Vec::with_capacity(field_slots.len());
+        for (field_name, slot) in field_slots {
+            let value = row
+                .get_mut(*slot)
+                .and_then(Option::take)
+                .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
+                    field: field_name.clone(),
+                    index: *slot,
+                })
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+            values.push(value);
+        }
+
         projected_rows.push(values);
     }
 

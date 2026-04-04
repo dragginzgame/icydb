@@ -67,6 +67,45 @@ pub(in crate::db::executor) fn drive_key_stream_with_control_flow(
 
 pub(in crate::db::executor) type OrderedKeyStreamBox = Box<dyn OrderedKeyStream>;
 
+/// Return one canonical ordered key stream for already-materialized keys.
+pub(in crate::db::executor) fn ordered_key_stream_from_materialized_keys(
+    mut keys: Vec<DataKey>,
+) -> OrderedKeyStreamBox {
+    match keys.len() {
+        0 => Box::new(EmptyOrderedKeyStream),
+        1 => Box::new(SingleOrderedKeyStream::new(
+            keys.pop()
+                .expect("single-element key stream must contain one key"),
+        )),
+        _ => Box::new(VecOrderedKeyStream::new(keys)),
+    }
+}
+
+/// Return the exact emitted key count after applying one optional scan budget.
+#[must_use]
+pub(in crate::db::executor) fn exact_output_key_count_hint(
+    key_stream: &dyn OrderedKeyStream,
+    budget: Option<usize>,
+) -> Option<usize> {
+    let exact = key_stream.exact_key_count_hint()?;
+
+    Some(match budget {
+        Some(budget) => exact.min(budget),
+        None => exact,
+    })
+}
+
+/// Return whether one explicit scan budget is already implied by the stream.
+#[must_use]
+pub(in crate::db::executor) fn key_stream_budget_is_redundant(
+    key_stream: &dyn OrderedKeyStream,
+    budget: usize,
+) -> bool {
+    key_stream
+        .exact_key_count_hint()
+        .is_some_and(|exact| exact <= budget)
+}
+
 impl<T> OrderedKeyStream for Box<T>
 where
     T: OrderedKeyStream + ?Sized,
@@ -90,6 +129,58 @@ where
 
     fn exact_key_count_hint(&self) -> Option<usize> {
         (**self).exact_key_count_hint()
+    }
+}
+
+///
+/// EmptyOrderedKeyStream
+///
+/// Zero-allocation ordered key stream for already-proven empty key results.
+/// This keeps empty traversal/materialization cases out of the vector-backed
+/// adapter and preserves an exact zero-count hint for downstream budgeting.
+///
+
+#[derive(Debug, Default)]
+pub(in crate::db::executor) struct EmptyOrderedKeyStream;
+
+impl OrderedKeyStream for EmptyOrderedKeyStream {
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        Ok(None)
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        Some(0)
+    }
+}
+
+///
+/// SingleOrderedKeyStream
+///
+/// Single-key ordered stream for already-materialized singleton access results.
+/// This avoids wrapping one key in a vector-backed adapter while keeping the
+/// stable exact-count contract used by budgeted executor paths.
+///
+
+#[derive(Debug)]
+pub(in crate::db::executor) struct SingleOrderedKeyStream {
+    key: Option<DataKey>,
+}
+
+impl SingleOrderedKeyStream {
+    /// Construct one singleton ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(key: DataKey) -> Self {
+        Self { key: Some(key) }
+    }
+}
+
+impl OrderedKeyStream for SingleOrderedKeyStream {
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        Ok(self.key.take())
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        Some(1)
     }
 }
 

@@ -5,6 +5,10 @@
 
 #[cfg(feature = "sql")]
 use crate::value::Value;
+
+#[cfg(feature = "sql")]
+type StructuralSqlProjectionRows = (Option<Vec<Vec<Option<Value>>>>, Vec<DataRow>);
+
 use crate::{
     db::{
         cursor::CursorBoundary,
@@ -99,7 +103,7 @@ unsafe fn structural_scalar_read_kernel_row(
     let kernel_row = state.row_decoder.decode(&state.row_layout, data_row)?;
     if predicate_preapplied
         && let Some(predicate_program) = predicate_slots
-        && !predicate_program.eval_with_slot_reader(&mut |slot| kernel_row.slot(slot))
+        && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| kernel_row.slot_ref(slot))
     {
         return Ok(None);
     }
@@ -130,6 +134,7 @@ const fn borrowed_scalar_row_runtime_vtable() -> ScalarRowRuntimeVTable {
 
 pub(in crate::db::executor) struct StructuralCursorPage {
     data_rows: Vec<DataRow>,
+    row_count: usize,
     #[cfg(feature = "sql")]
     slot_rows: Option<Vec<Vec<Option<Value>>>>,
     next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
@@ -143,6 +148,7 @@ impl StructuralCursorPage {
         next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
     ) -> Self {
         Self {
+            row_count: data_rows.len(),
             data_rows,
             #[cfg(feature = "sql")]
             slot_rows: None,
@@ -155,12 +161,13 @@ impl StructuralCursorPage {
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::executor) const fn new_with_slot_rows(
-        data_rows: Vec<DataRow>,
         slot_rows: Vec<Vec<Option<Value>>>,
+        row_count: usize,
         next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
     ) -> Self {
         Self {
-            data_rows,
+            data_rows: Vec::new(),
+            row_count,
             slot_rows: Some(slot_rows),
             next_cursor,
         }
@@ -169,7 +176,7 @@ impl StructuralCursorPage {
     /// Return the number of structural rows carried by this page.
     #[must_use]
     pub(in crate::db::executor) const fn row_count(&self) -> usize {
-        self.data_rows.len()
+        self.row_count
     }
 
     /// Borrow structural scalar rows without forcing typed response assembly.
@@ -178,12 +185,11 @@ impl StructuralCursorPage {
         &self.data_rows
     }
 
-    /// Borrow retained decoded slot rows when this page came from the SQL
-    /// projection-preserving path.
+    /// Consume one structural scalar page into SQL-retained slot rows or canonical data rows.
     #[cfg(feature = "sql")]
     #[must_use]
-    pub(in crate::db::executor) fn slot_rows(&self) -> Option<&[Vec<Option<Value>>]> {
-        self.slot_rows.as_deref()
+    pub(in crate::db::executor) fn into_sql_parts(self) -> StructuralSqlProjectionRows {
+        (self.slot_rows, self.data_rows)
     }
 
     /// Consume one structural scalar page into rows plus cursor state.
@@ -215,6 +221,25 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
+}
+
+///
+/// RowCollectorMaterializationRequest
+///
+/// Structural short-path materialization envelope for the cursorless
+/// row-collector lane.
+///
+
+pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
+    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
+    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
+    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
+    pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
+    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
+    pub(in crate::db::executor) validate_projection: bool,
+    pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
 }
 
 ///
@@ -265,11 +290,7 @@ pub(in crate::db::executor) trait ExecutionRuntime {
     /// Attempt the cursorless row-collector short path and erase the typed page result.
     fn try_materialize_load_via_row_collector(
         &self,
-        plan: &AccessPlannedQuery,
-        cursor_boundary: Option<&CursorBoundary>,
-        validate_projection: bool,
-        retain_slot_rows: bool,
-        key_stream: &mut dyn OrderedKeyStream,
+        request: RowCollectorMaterializationRequest<'_>,
     ) -> Result<Option<StructuralRowCollectorPayload>, InternalError>;
 
     /// Materialize one ordered key stream into one structural scalar page payload.
@@ -488,11 +509,7 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
 
     fn try_materialize_load_via_row_collector(
         &self,
-        plan: &AccessPlannedQuery,
-        cursor_boundary: Option<&CursorBoundary>,
-        validate_projection: bool,
-        retain_slot_rows: bool,
-        key_stream: &mut dyn OrderedKeyStream,
+        request: RowCollectorMaterializationRequest<'_>,
     ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
         // Reuse the adapter-owned structural row-runtime state for the whole
         // query instead of cloning and boxing the same read-only runtime
@@ -504,12 +521,8 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
         );
 
         ExecutionKernel::try_materialize_load_via_row_collector(
-            plan,
+            request,
             self.core.model,
-            cursor_boundary,
-            validate_projection,
-            retain_slot_rows,
-            key_stream,
             &mut row_runtime,
         )
     }

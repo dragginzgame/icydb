@@ -1185,17 +1185,6 @@ impl InternalError {
         Self::persisted_row_decode_failed(format!("missing declared field `{field_name}`"))
     }
 
-    /// Construct the canonical row-decoder field-decode corruption error.
-    pub(crate) fn row_decode_field_decode_failed(
-        field_name: &str,
-        field_kind: impl fmt::Debug,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::serialize_corruption(format!(
-            "row decode failed for field '{field_name}' kind={field_kind:?}: {detail}",
-        ))
-    }
-
     /// Construct the canonical row-decoder missing primary-key slot corruption error.
     pub(crate) fn row_decode_primary_key_slot_missing() -> Self {
         Self::persisted_row_decode_failed("missing primary-key slot value")

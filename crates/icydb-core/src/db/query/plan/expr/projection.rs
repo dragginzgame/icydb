@@ -81,6 +81,23 @@ impl ProjectionSpec {
     }
 }
 
+/// Return true when every projection expression references only fields in one
+/// allowed set.
+///
+/// Semantic contract:
+/// - every output expression must stay within `allowed`
+/// - aliases do not widen field reachability
+/// - aggregate/literal leaves are admitted by the underlying expression helper
+#[must_use]
+pub(crate) fn projection_references_only_fields(
+    projection: &ProjectionSpec,
+    allowed: &[&str],
+) -> bool {
+    projection.fields().all(|field| match field {
+        ProjectionField::Scalar { expr, .. } => expr_references_only_fields(expr, allowed),
+    })
+}
+
 /// Return true when one expression references only fields in one allowed set.
 ///
 /// Semantic contract:

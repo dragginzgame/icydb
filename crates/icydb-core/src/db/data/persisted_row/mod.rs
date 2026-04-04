@@ -1403,10 +1403,53 @@ impl<'a> StructuralSlotReader<'a> {
     // later consumers inherit one globally enforced canonical-row contract.
     fn decode_all_declared_slots(&mut self) -> Result<(), InternalError> {
         for slot in 0..self.model.fields().len() {
-            let _ = self.get_value(slot)?;
+            self.decode_slot_into_cache(slot)?;
         }
 
         Ok(())
+    }
+
+    // Decode one declared slot directly into the owned cache without cloning
+    // the decoded value back out through `get_value` when the caller only
+    // needs eager validation of canonical row shape.
+    fn decode_slot_into_cache(&mut self, slot: usize) -> Result<(), InternalError> {
+        if matches!(
+            self.cached_values.get(slot),
+            Some(CachedSlotValue::Decoded(_))
+        ) {
+            return Ok(());
+        }
+
+        let field_name = self.field_model(slot)?.name();
+        let value = decode_slot_value_from_bytes(
+            self.model,
+            slot,
+            self.required_field_bytes(slot, field_name)?,
+        )?;
+        self.cached_values[slot] = CachedSlotValue::Decoded(value);
+
+        Ok(())
+    }
+
+    // Consume the structural slot reader into one slot-indexed decoded-value
+    // vector once the canonical row boundary has already forced every slot
+    // through decode. This lets hot row-decode callers reuse that validated
+    // cache instead of decoding the same declared fields a second time.
+    pub(in crate::db) fn into_decoded_values(self) -> Result<Vec<Option<Value>>, InternalError> {
+        let mut values = Vec::with_capacity(self.cached_values.len());
+
+        for (slot, cached) in self.cached_values.into_iter().enumerate() {
+            match cached {
+                CachedSlotValue::Decoded(value) => values.push(Some(value)),
+                CachedSlotValue::Pending => {
+                    return Err(InternalError::persisted_row_decode_failed(format!(
+                        "structural slot cache was not fully decoded before consumption: slot={slot}",
+                    )));
+                }
+            }
+        }
+
+        Ok(values)
     }
 
     // Borrow one declared slot payload, treating absence as a persisted-row
@@ -1465,22 +1508,17 @@ impl SlotReader for StructuralSlotReader<'_> {
     }
 
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
+        self.decode_slot_into_cache(slot)?;
+
         let cached = self.cached_values.get(slot).ok_or_else(|| {
             InternalError::persisted_row_slot_cache_lookup_out_of_bounds(self.model.path(), slot)
         })?;
-        if let CachedSlotValue::Decoded(value) = cached {
-            return Ok(Some(value.clone()));
+        match cached {
+            CachedSlotValue::Decoded(value) => Ok(Some(value.clone())),
+            CachedSlotValue::Pending => Err(InternalError::persisted_row_decode_failed(format!(
+                "structural slot cache missing decoded value after eager decode: slot={slot}",
+            ))),
         }
-
-        let field = self.field_model(slot)?;
-        let value = decode_slot_value_from_bytes(
-            self.model,
-            slot,
-            self.required_field_bytes(slot, field.name())?,
-        )?;
-        self.cached_values[slot] = CachedSlotValue::Decoded(value.clone());
-
-        Ok(Some(value))
     }
 }
 
@@ -1518,16 +1556,20 @@ mod tests {
     use crate::{
         db::{
             codec::serialize_row_payload,
-            data::{RawRow, StructuralSlotReader},
+            data::{RawRow, StructuralSlotReader, decode_structural_value_storage_bytes},
         },
         error::InternalError,
         model::{
             EntityModel,
             field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
         },
+        serialize::serialize,
         testing::SIMPLE_ENTITY_TAG,
         traits::{EntitySchema, FieldValue},
-        types::{Account, Principal, Subaccount},
+        types::{
+            Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+            Principal, Subaccount, Timestamp, Ulid,
+        },
         value::{Value, ValueEnum},
     };
     use icydb_derive::{FieldProjection, PersistedRow};
@@ -1656,6 +1698,12 @@ mod tests {
             FieldStorageDecode::ByKind,
             true,
         )];
+    static VALUE_STORAGE_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
+        [FieldModel::new_with_storage_decode(
+            "manifest",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value,
+        )];
     static STRUCTURED_MAP_VALUE_KIND: FieldKind = FieldKind::Structured { queryable: false };
     static STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS: [FieldModel; 1] =
         [FieldModel::new_with_storage_decode(
@@ -1716,6 +1764,13 @@ mod tests {
         &OPTIONAL_STRUCTURED_FIELD_MODELS,
         &INDEX_MODELS,
     );
+    static VALUE_STORAGE_STRUCTURED_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowValueStorageStructuredFieldCodecEntity",
+        "persisted_row_value_storage_structured_field_codec_entity",
+        &VALUE_STORAGE_STRUCTURED_FIELD_MODELS[0],
+        &VALUE_STORAGE_STRUCTURED_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
     static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::new(
         "tests::PersistedRowStructuredMapValueStorageEntity",
         "persisted_row_structured_map_value_storage_entity",
@@ -1723,6 +1778,156 @@ mod tests {
         &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS,
         &INDEX_MODELS,
     );
+
+    fn representative_value_storage_cases() -> Vec<Value> {
+        let nested = Value::from_map(vec![
+            (
+                Value::Text("blob".to_string()),
+                Value::Blob(vec![0x10, 0x20, 0x30]),
+            ),
+            (
+                Value::Text("i128".to_string()),
+                Value::Int128(Int128::from(-123i128)),
+            ),
+            (
+                Value::Text("u128".to_string()),
+                Value::Uint128(Nat128::from(456u128)),
+            ),
+            (
+                Value::Text("enum".to_string()),
+                Value::Enum(
+                    ValueEnum::new("Loaded", Some("tests::PersistedRowManifest"))
+                        .with_payload(Value::Blob(vec![0xAA, 0xBB])),
+                ),
+            ),
+        ])
+        .expect("nested value storage case should normalize");
+
+        vec![
+            Value::Account(Account::dummy(7)),
+            Value::Blob(vec![1u8, 2u8, 3u8]),
+            Value::Bool(true),
+            Value::Date(Date::new(2024, 1, 2)),
+            Value::Decimal(Decimal::new(123, 2)),
+            Value::Duration(Duration::from_secs(1)),
+            Value::Enum(
+                ValueEnum::new("Ready", Some("tests::PersistedRowState"))
+                    .with_payload(nested.clone()),
+            ),
+            Value::Float32(Float32::try_new(1.25).expect("float32 sample should be finite")),
+            Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
+            Value::Int(-7),
+            Value::Int128(Int128::from(123i128)),
+            Value::IntBig(Int::from(99i32)),
+            Value::List(vec![
+                Value::Blob(vec![0xCC, 0xDD]),
+                Value::Text("nested".to_string()),
+                nested.clone(),
+            ]),
+            nested,
+            Value::Null,
+            Value::Principal(Principal::dummy(9)),
+            Value::Subaccount(Subaccount::new([7u8; 32])),
+            Value::Text("example".to_string()),
+            Value::Timestamp(Timestamp::from_secs(1)),
+            Value::Uint(7),
+            Value::Uint128(Nat128::from(9u128)),
+            Value::UintBig(Nat::from(11u64)),
+            Value::Ulid(Ulid::from_u128(42)),
+            Value::Unit,
+        ]
+    }
+
+    fn representative_structured_value_storage_cases() -> Vec<Value> {
+        let nested_map = Value::from_map(vec![
+            (
+                Value::Text("account".to_string()),
+                Value::Account(Account::dummy(7)),
+            ),
+            (
+                Value::Text("blob".to_string()),
+                Value::Blob(vec![1u8, 2u8, 3u8]),
+            ),
+            (Value::Text("bool".to_string()), Value::Bool(true)),
+            (
+                Value::Text("date".to_string()),
+                Value::Date(Date::new(2024, 1, 2)),
+            ),
+            (
+                Value::Text("decimal".to_string()),
+                Value::Decimal(Decimal::new(123, 2)),
+            ),
+            (
+                Value::Text("duration".to_string()),
+                Value::Duration(Duration::from_secs(1)),
+            ),
+            (
+                Value::Text("enum".to_string()),
+                Value::Enum(
+                    ValueEnum::new("Loaded", Some("tests::PersistedRowManifest"))
+                        .with_payload(Value::Blob(vec![0xAA, 0xBB])),
+                ),
+            ),
+            (
+                Value::Text("f32".to_string()),
+                Value::Float32(Float32::try_new(1.25).expect("float32 sample should be finite")),
+            ),
+            (
+                Value::Text("f64".to_string()),
+                Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
+            ),
+            (Value::Text("i64".to_string()), Value::Int(-7)),
+            (
+                Value::Text("i128".to_string()),
+                Value::Int128(Int128::from(123i128)),
+            ),
+            (
+                Value::Text("ibig".to_string()),
+                Value::IntBig(Int::from(99i32)),
+            ),
+            (Value::Text("null".to_string()), Value::Null),
+            (
+                Value::Text("principal".to_string()),
+                Value::Principal(Principal::dummy(9)),
+            ),
+            (
+                Value::Text("subaccount".to_string()),
+                Value::Subaccount(Subaccount::new([7u8; 32])),
+            ),
+            (
+                Value::Text("text".to_string()),
+                Value::Text("example".to_string()),
+            ),
+            (
+                Value::Text("timestamp".to_string()),
+                Value::Timestamp(Timestamp::from_secs(1)),
+            ),
+            (Value::Text("u64".to_string()), Value::Uint(7)),
+            (
+                Value::Text("u128".to_string()),
+                Value::Uint128(Nat128::from(9u128)),
+            ),
+            (
+                Value::Text("ubig".to_string()),
+                Value::UintBig(Nat::from(11u64)),
+            ),
+            (
+                Value::Text("ulid".to_string()),
+                Value::Ulid(Ulid::from_u128(42)),
+            ),
+            (Value::Text("unit".to_string()), Value::Unit),
+        ])
+        .expect("structured value-storage map should normalize");
+
+        vec![
+            nested_map.clone(),
+            Value::List(vec![
+                Value::Blob(vec![0xCC, 0xDD]),
+                Value::Text("nested".to_string()),
+                nested_map,
+            ]),
+        ]
+    }
 
     fn encode_slot_payload_allowing_missing_for_tests(
         model: &'static EntityModel,
@@ -1816,6 +2021,30 @@ mod tests {
     }
 
     #[test]
+    fn encode_slot_value_from_value_roundtrips_structured_value_storage_slots_for_all_cases() {
+        for value in representative_structured_value_storage_cases() {
+            let payload = encode_slot_value_from_value(&VALUE_STORAGE_STRUCTURED_MODEL, 0, &value)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "structured value-storage slot should encode for value {value:?}: {err:?}"
+                    )
+                });
+            let decoded = decode_slot_value_from_bytes(
+                &VALUE_STORAGE_STRUCTURED_MODEL,
+                0,
+                payload.as_slice(),
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "structured value-storage slot should decode for value {value:?} with payload {payload:?}: {err:?}"
+                )
+            });
+
+            assert_eq!(decoded, value);
+        }
+    }
+
+    #[test]
     fn encode_slot_value_from_value_roundtrips_list_by_kind_slots() {
         let payload = encode_slot_value_from_value(
             &LIST_MODEL,
@@ -1874,6 +2103,26 @@ mod tests {
         .expect("decode structured map slot");
 
         assert_eq!(decoded, projects);
+    }
+
+    #[test]
+    fn structured_value_storage_cases_decode_through_direct_value_storage_boundary() {
+        for value in representative_value_storage_cases() {
+            let payload = serialize(&value).unwrap_or_else(|err| {
+                panic!(
+                    "structured value-storage payload should serialize for value {value:?}: {err:?}"
+                )
+            });
+            let decoded = decode_structural_value_storage_bytes(payload.as_slice()).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "structured value-storage payload should decode for value {value:?} with payload {payload:?}: {err:?}"
+                    )
+                },
+            );
+
+            assert_eq!(decoded, value);
+        }
     }
 
     #[test]

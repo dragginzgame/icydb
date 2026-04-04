@@ -291,11 +291,17 @@ impl StorageKey {
     }
 
     pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, StorageKeyDecodeError> {
-        // Phase 1: enforce frame size before reading tag/payload.
-        if bytes.len() != Self::STORED_SIZE_USIZE {
-            return Err(StorageKeyDecodeError::InvalidSize);
-        }
+        let bytes: &[u8; Self::STORED_SIZE_USIZE] = bytes
+            .try_into()
+            .map_err(|_| StorageKeyDecodeError::InvalidSize)?;
 
+        Self::try_from_stored_bytes(bytes)
+    }
+
+    /// Decode one storage key from one already size-validated stored frame.
+    pub(crate) fn try_from_stored_bytes(
+        bytes: &[u8; Self::STORED_SIZE_USIZE],
+    ) -> Result<Self, StorageKeyDecodeError> {
         let tag = bytes[Self::TAG_OFFSET];
         let payload = &bytes[Self::PAYLOAD_OFFSET..=Self::PAYLOAD_SIZE];
 
@@ -384,6 +390,17 @@ impl StorageKey {
             Self::Ulid(v) => Value::Ulid(*v),
             Self::Unit => Value::Unit,
         }
+    }
+
+    /// Convert one authoritative persisted primary-key storage value back into
+    /// its semantic query value.
+    ///
+    /// This helper is intentionally narrower than `as_value`: it is only for
+    /// row-identity paths that already trust `DataKey` / index-entry primary-key
+    /// ownership and need the semantic value without rereading the row.
+    #[must_use]
+    pub(crate) const fn as_primary_key_value(&self) -> Value {
+        self.as_value()
     }
 }
 

@@ -79,7 +79,8 @@ mod tests {
     };
     use crate::{
         model::field::{FieldKind, RelationStrength},
-        types::{Account, Decimal, EntityTag, Principal, Subaccount, Ulid},
+        serialize::serialize,
+        types::{Account, Decimal, EntityTag, Int128, Nat128, Principal, Subaccount, Ulid},
         value::{StorageKey, Value, ValueEnum},
     };
     use std::collections::BTreeMap;
@@ -209,5 +210,45 @@ mod tests {
 
         assert_eq!(decoded_account, Value::Account(account));
         assert_eq!(decoded_decimal, Value::Decimal(decimal));
+    }
+
+    #[test]
+    fn structural_field_decode_value_storage_roundtrips_nested_bytes_like_variants() {
+        let nested = Value::from_map(vec![
+            (
+                Value::Text("blob".to_string()),
+                Value::Blob(vec![0x10, 0x20, 0x30]),
+            ),
+            (
+                Value::Text("i128".to_string()),
+                Value::Int128(Int128::from(-123i128)),
+            ),
+            (
+                Value::Text("u128".to_string()),
+                Value::Uint128(Nat128::from(456u128)),
+            ),
+            (
+                Value::Text("list".to_string()),
+                Value::List(vec![
+                    Value::Blob(vec![0xAA, 0xBB]),
+                    Value::Int128(Int128::from(7i128)),
+                    Value::Uint128(Nat128::from(8u128)),
+                ]),
+            ),
+            (
+                Value::Text("enum".to_string()),
+                Value::Enum(
+                    ValueEnum::new("Loaded", Some("tests::StructuredPayload"))
+                        .with_payload(Value::Blob(vec![0xCC, 0xDD])),
+                ),
+            ),
+        ])
+        .expect("nested value payload should normalize");
+        let bytes = serialize(&nested).expect("nested value payload should serialize");
+
+        let decoded = decode_structural_value_storage_bytes(&bytes)
+            .expect("nested value payload should decode through value storage");
+
+        assert_eq!(decoded, nested);
     }
 }

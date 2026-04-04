@@ -29,6 +29,7 @@ const CBOR_U16_WIDTH: usize = 2;
 const CBOR_U32_WIDTH: usize = 4;
 const CBOR_U64_WIDTH: usize = 8;
 
+const CBOR_FLOAT16_ARGUMENT: u64 = 25;
 const CBOR_FLOAT32_ARGUMENT: u64 = 26;
 const CBOR_FLOAT64_ARGUMENT: u64 = 27;
 
@@ -178,7 +179,11 @@ fn parse_cbor_head(
                 .ok_or_else(|| FieldDecodeError::new("typed CBOR: truncated CBOR head"))?;
             next_cursor += CBOR_U16_WIDTH;
 
-            u64::from(u16::from_be_bytes([payload[0], payload[1]]))
+            if major == CBOR_MAJOR_SIMPLE_OR_FLOAT {
+                u64::from(CBOR_ADDITIONAL_INFO_U16)
+            } else {
+                u64::from(u16::from_be_bytes([payload[0], payload[1]]))
+            }
         }
         CBOR_ADDITIONAL_INFO_U32 => {
             let payload = bytes
@@ -186,9 +191,13 @@ fn parse_cbor_head(
                 .ok_or_else(|| FieldDecodeError::new("typed CBOR: truncated CBOR head"))?;
             next_cursor += CBOR_U32_WIDTH;
 
-            u64::from(u32::from_be_bytes([
-                payload[0], payload[1], payload[2], payload[3],
-            ]))
+            if major == CBOR_MAJOR_SIMPLE_OR_FLOAT {
+                u64::from(CBOR_ADDITIONAL_INFO_U32)
+            } else {
+                u64::from(u32::from_be_bytes([
+                    payload[0], payload[1], payload[2], payload[3],
+                ]))
+            }
         }
         CBOR_ADDITIONAL_INFO_U64 => {
             let payload = bytes
@@ -196,10 +205,14 @@ fn parse_cbor_head(
                 .ok_or_else(|| FieldDecodeError::new("typed CBOR: truncated CBOR head"))?;
             next_cursor += CBOR_U64_WIDTH;
 
-            u64::from_be_bytes([
-                payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
-                payload[7],
-            ])
+            if major == CBOR_MAJOR_SIMPLE_OR_FLOAT {
+                u64::from(CBOR_ADDITIONAL_INFO_U64)
+            } else {
+                u64::from_be_bytes([
+                    payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
+                    payload[6], payload[7],
+                ])
+            }
         }
         CBOR_ADDITIONAL_INFO_INDEFINITE => {
             return Err(FieldDecodeError::new(
@@ -423,7 +436,23 @@ pub(super) fn decode_cbor_float(
     payload_start: usize,
 ) -> Result<f64, FieldDecodeError> {
     match argument {
+        CBOR_FLOAT16_ARGUMENT => {
+            let payload_start = payload_start
+                .checked_sub(CBOR_U16_WIDTH)
+                .ok_or_else(|| FieldDecodeError::new("typed CBOR: truncated float payload"))?;
+            let payload: [u8; CBOR_U16_WIDTH] =
+                payload_bytes(raw_bytes, CBOR_U16_WIDTH as u64, payload_start, "float")?
+                    .try_into()
+                    .map_err(|_| {
+                        FieldDecodeError::new("typed CBOR: expected two-byte float payload")
+                    })?;
+
+            Ok(decode_cbor_half_float(u16::from_be_bytes(payload)))
+        }
         CBOR_FLOAT32_ARGUMENT => {
+            let payload_start = payload_start
+                .checked_sub(CBOR_U32_WIDTH)
+                .ok_or_else(|| FieldDecodeError::new("typed CBOR: truncated float payload"))?;
             let payload: [u8; CBOR_U32_WIDTH] =
                 payload_bytes(raw_bytes, CBOR_U32_WIDTH as u64, payload_start, "float")?
                     .try_into()
@@ -433,6 +462,9 @@ pub(super) fn decode_cbor_float(
             Ok(f64::from(f32::from_be_bytes(payload)))
         }
         CBOR_FLOAT64_ARGUMENT => {
+            let payload_start = payload_start
+                .checked_sub(CBOR_U64_WIDTH)
+                .ok_or_else(|| FieldDecodeError::new("typed CBOR: truncated float payload"))?;
             let payload: [u8; CBOR_U64_WIDTH] =
                 payload_bytes(raw_bytes, CBOR_U64_WIDTH as u64, payload_start, "float")?
                     .try_into()
@@ -445,4 +477,28 @@ pub(super) fn decode_cbor_float(
             "typed CBOR: invalid type, expected a float",
         )),
     }
+}
+
+fn decode_cbor_half_float(bits: u16) -> f64 {
+    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let exponent = i32::from((bits >> 10) & 0x1f);
+    let mantissa = u32::from(bits & 0x03ff);
+
+    if exponent == 0 {
+        if mantissa == 0 {
+            return sign * 0.0;
+        }
+
+        return sign * (f64::from(mantissa) / 1024.0) * 2f64.powi(-14);
+    }
+
+    if exponent == 0x1f {
+        if mantissa == 0 {
+            return sign * f64::INFINITY;
+        }
+
+        return f64::NAN;
+    }
+
+    sign * (1.0 + f64::from(mantissa) / 1024.0) * 2f64.powi(exponent - 15)
 }

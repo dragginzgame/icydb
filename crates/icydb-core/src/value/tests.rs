@@ -38,6 +38,55 @@ fn v_txt(s: &str) -> Value {
     Value::Text(s.to_string())
 }
 
+fn representative_roundtrip_values() -> Vec<Value> {
+    let nested_map = Value::from_map(vec![
+        (v_txt("blob"), Value::Blob(vec![0x00, 0x7F, 0xFF])),
+        (v_txt("count"), Value::Uint(7)),
+        (v_txt("signed"), Value::Int128(Int128::from(-123i128))),
+        (v_txt("unsigned"), Value::Uint128(Nat128::from(456u128))),
+    ])
+    .expect("nested map should normalize");
+
+    vec![
+        Value::Account(Account::dummy(7)),
+        Value::Blob(vec![1u8, 2u8, 3u8]),
+        Value::Bool(true),
+        Value::Date(Date::new(2024, 1, 2)),
+        Value::Decimal(Decimal::new(123, 2)),
+        Value::Duration(Duration::from_secs(1)),
+        Value::Enum(
+            ValueEnum::new("Loaded", Some("tests::RoundtripStatus")).with_payload(
+                Value::from_map(vec![
+                    (v_txt("payload"), Value::Blob(vec![0xAA, 0xBB])),
+                    (v_txt("ok"), Value::Bool(true)),
+                ])
+                .expect("enum payload map should normalize"),
+            ),
+        ),
+        Value::Float32(F32::try_new(1.25).expect("float32 sample should be finite")),
+        Value::Float64(F64::try_new(2.5).expect("float64 sample should be finite")),
+        Value::Int(-7),
+        Value::Int128(Int128::from(123i128)),
+        Value::IntBig(Int::from(99i32)),
+        Value::List(vec![
+            Value::Blob(vec![0x10, 0x20]),
+            Value::Text("nested".to_string()),
+            nested_map.clone(),
+        ]),
+        nested_map,
+        Value::Null,
+        Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
+        Value::Subaccount(Subaccount::new([1u8; 32])),
+        Value::Text("example".to_string()),
+        Value::Timestamp(Timestamp::from_secs(1)),
+        Value::Uint(7),
+        Value::Uint128(Nat128::from(9u128)),
+        Value::UintBig(Nat::from(11u64)),
+        Value::Ulid(Ulid::from_u128(42)),
+        Value::Unit,
+    ]
+}
+
 macro_rules! sample_value_for_scalar {
     (Account) => {
         Value::Account(Account::dummy(7))
@@ -496,6 +545,19 @@ fn deserialize_normalizes_non_canonical_map_encoding() {
     let expected = Value::from_map(vec![(v_txt("a"), v_u(1)), (v_txt("z"), v_u(9))])
         .expect("expected canonical map");
     assert_eq!(decoded, expected);
+}
+
+#[test]
+fn serialize_deserialize_roundtrips_all_value_variants_and_nested_shapes() {
+    for value in representative_roundtrip_values() {
+        let bytes = serialize(&value)
+            .unwrap_or_else(|err| panic!("value should serialize for {value:?}: {err:?}"));
+        let decoded = deserialize::<Value>(&bytes).unwrap_or_else(|err| {
+            panic!("value should deserialize for {value:?} with bytes {bytes:?}: {err:?}")
+        });
+
+        assert_eq!(decoded, value);
+    }
 }
 
 #[test]

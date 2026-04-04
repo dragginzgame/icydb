@@ -11,6 +11,7 @@ use crate::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderReadableRow, OrderedKeyStream,
             ScalarContinuationBindings, apply_structural_order_window,
             compare_orderable_row_with_boundary, compute_page_keep_count,
+            key_stream_budget_is_redundant,
             pipeline::contracts::{PageCursor, StructuralCursorPage},
             projection::validate_projection_over_slot_rows,
             resolve_structural_order,
@@ -46,8 +47,15 @@ impl KernelRow {
         Self { data_row, slots }
     }
 
+    /// Borrow one decoded slot value without cloning it back out of the
+    /// structural row cache.
+    #[must_use]
+    pub(in crate::db) fn slot_ref(&self, slot: usize) -> Option<&Value> {
+        self.slots.get(slot).and_then(Option::as_ref)
+    }
+
     pub(in crate::db) fn slot(&self, slot: usize) -> Option<Value> {
-        self.slots.get(slot).cloned().flatten()
+        self.slot_ref(slot).cloned()
     }
 
     pub(in crate::db) fn into_data_row(self) -> DataRow {
@@ -251,9 +259,9 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     // Phase 4: finalize one structural page payload for outer typed decode.
     #[cfg(feature = "sql")]
     let page = if retain_slot_rows {
-        let (data_rows, slot_rows): (Vec<_>, Vec<_>) =
-            rows.into_iter().map(KernelRow::into_parts).unzip();
-        StructuralCursorPage::new_with_slot_rows(data_rows, slot_rows, next_cursor)
+        let row_count = rows.len();
+        let slot_rows = rows.into_iter().map(KernelRow::into_slots).collect();
+        StructuralCursorPage::new_with_slot_rows(slot_rows, row_count, next_cursor)
     } else {
         let data_rows = rows.into_iter().map(KernelRow::into_data_row).collect();
         StructuralCursorPage::new(data_rows, next_cursor)
@@ -324,8 +332,8 @@ fn apply_post_access_to_kernel_rows_dyn(
             };
 
             rows.retain(|row| {
-                let mut read_slot = |slot| row.slot(slot);
-                predicate_program.eval_with_slot_reader(&mut read_slot)
+                let mut read_slot = |slot| row.slot_ref(slot);
+                predicate_program.eval_with_slot_value_ref_reader(&mut read_slot)
             });
         }
 
@@ -440,7 +448,9 @@ fn execute_scalar_page_kernel_dyn(
     continuation.validate_load_scan_budget_hint(scan_budget_hint, stream_order_contract_safe)?;
 
     // Phase 2: run the scalar row loop (scan -> read -> decode/filter/push).
-    if let Some(scan_budget) = scan_budget_hint {
+    if let Some(scan_budget) = scan_budget_hint
+        && !key_stream_budget_is_redundant(key_stream, scan_budget)
+    {
         let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
 
         scan_rows_into_kernel(
@@ -469,7 +479,7 @@ fn scan_rows_into_kernel(
     row_runtime: &mut ScalarRowRuntimeHandle<'_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
-    let mut rows = Vec::new();
+    let mut rows = Vec::with_capacity(key_stream.exact_key_count_hint().unwrap_or(0));
 
     while let Some(key) = key_stream.next_key()? {
         rows_scanned = rows_scanned.saturating_add(1);

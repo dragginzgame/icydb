@@ -12,7 +12,7 @@ use crate::{
         executor::stream::access::AccessScanContinuationInput,
         executor::{
             ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
+            OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
             traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,
@@ -384,7 +384,7 @@ where
         key_order_state,
     );
 
-    Ok(Box::new(VecOrderedKeyStream::new(candidates)))
+    Ok(ordered_key_stream_from_materialized_keys(candidates))
 }
 
 impl ExecutableAccessPath<'_, AccessKey> {

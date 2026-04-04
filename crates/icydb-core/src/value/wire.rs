@@ -7,7 +7,72 @@ use crate::{
     types::*,
     value::{MapValueError, Value, ValueEnum},
 };
-use serde::{Deserialize, Deserializer};
+use candid::{Int as WrappedInt, Nat as WrappedNat};
+use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
+use serde::{Deserialize, Deserializer, de};
+use serde_bytes::ByteBuf;
+
+///
+/// IntBigWire
+///
+/// IntBigWire accepts the persisted bigint `(sign, limbs)` payload shape and
+/// rebuilds the public `Int` wrapper without routing through the derived
+/// `Deserialize` form of `candid::Int`.
+///
+
+struct IntBigWire(Int);
+
+impl IntBigWire {
+    fn into_inner(self) -> Int {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for IntBigWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let (sign, limbs): (i8, Vec<u32>) = Deserialize::deserialize(deserializer)?;
+        let sign = match sign {
+            -1 => BigIntSign::Minus,
+            0 => BigIntSign::NoSign,
+            1 => BigIntSign::Plus,
+            _ => return Err(de::Error::custom(format!("invalid bigint sign {sign}"))),
+        };
+        let magnitude = BigUint::new(limbs);
+
+        Ok(Self(Int::from(WrappedInt::from(BigInt::from_biguint(
+            sign, magnitude,
+        )))))
+    }
+}
+
+///
+/// UintBigWire
+///
+/// UintBigWire accepts the persisted biguint limb payload shape and rebuilds
+/// the public `Nat` wrapper without routing through the derived `Deserialize`
+/// form of `candid::Nat`.
+///
+
+struct UintBigWire(Nat);
+
+impl UintBigWire {
+    fn into_inner(self) -> Nat {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for UintBigWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let limbs: Vec<u32> = Deserialize::deserialize(deserializer)?;
+        Ok(Self(Nat::from(WrappedNat::from(BigUint::new(limbs)))))
+    }
+}
 
 ///
 /// ValueWire
@@ -17,7 +82,7 @@ use serde::{Deserialize, Deserializer};
 #[derive(Deserialize)]
 enum ValueWire {
     Account(Account),
-    Blob(Vec<u8>),
+    Blob(ByteBuf),
     Bool(bool),
     Date(Date),
     Decimal(Decimal),
@@ -27,7 +92,7 @@ enum ValueWire {
     Float64(Float64),
     Int(i64),
     Int128(Int128),
-    IntBig(Int),
+    IntBig(IntBigWire),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
@@ -37,7 +102,7 @@ enum ValueWire {
     Timestamp(Timestamp),
     Uint(u64),
     Uint128(Nat128),
-    UintBig(Nat),
+    UintBig(UintBigWire),
     Ulid(Ulid),
     Unit,
 }
@@ -47,7 +112,7 @@ impl ValueWire {
     fn into_value(self) -> Result<Value, MapValueError> {
         match self {
             Self::Account(v) => Ok(Value::Account(v)),
-            Self::Blob(v) => Ok(Value::Blob(v)),
+            Self::Blob(v) => Ok(Value::Blob(v.into_vec())),
             Self::Bool(v) => Ok(Value::Bool(v)),
             Self::Date(v) => Ok(Value::Date(v)),
             Self::Decimal(v) => Ok(Value::Decimal(v)),
@@ -57,7 +122,7 @@ impl ValueWire {
             Self::Float64(v) => Ok(Value::Float64(v)),
             Self::Int(v) => Ok(Value::Int(v)),
             Self::Int128(v) => Ok(Value::Int128(v)),
-            Self::IntBig(v) => Ok(Value::IntBig(v)),
+            Self::IntBig(v) => Ok(Value::IntBig(v.into_inner())),
             Self::List(items) => {
                 let items = items
                     .into_iter()
@@ -79,7 +144,7 @@ impl ValueWire {
             Self::Timestamp(v) => Ok(Value::Timestamp(v)),
             Self::Uint(v) => Ok(Value::Uint(v)),
             Self::Uint128(v) => Ok(Value::Uint128(v)),
-            Self::UintBig(v) => Ok(Value::UintBig(v)),
+            Self::UintBig(v) => Ok(Value::UintBig(v.into_inner())),
             Self::Ulid(v) => Ok(Value::Ulid(v)),
             Self::Unit => Ok(Value::Unit),
         }

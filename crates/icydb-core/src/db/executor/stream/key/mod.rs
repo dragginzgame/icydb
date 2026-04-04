@@ -9,9 +9,12 @@ mod distinct;
 mod order;
 
 pub(in crate::db::executor) use composite::{IntersectOrderedKeyStream, MergeOrderedKeyStream};
+#[cfg(test)]
+pub(in crate::db::executor) use contracts::VecOrderedKeyStream;
 pub(in crate::db::executor) use contracts::{
     BudgetedOrderedKeyStream, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,
-    VecOrderedKeyStream, drive_key_stream_with_control_flow,
+    drive_key_stream_with_control_flow, exact_output_key_count_hint,
+    key_stream_budget_is_redundant, ordered_key_stream_from_materialized_keys,
 };
 pub(in crate::db::executor) use distinct::DistinctOrderedKeyStream;
 pub(in crate::db::executor) use order::KeyOrderComparator;
@@ -29,6 +32,7 @@ mod tests {
             executor::stream::key::{
                 BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
                 MergeOrderedKeyStream, OrderedKeyStream, VecOrderedKeyStream,
+                ordered_key_stream_from_materialized_keys,
             },
         },
         error::{ErrorClass, ErrorOrigin, InternalError},
@@ -153,6 +157,56 @@ mod tests {
         assert_eq!(first, Some(data_key(9)));
         assert_eq!(second, None);
         assert_eq!(third, None);
+    }
+
+    #[test]
+    fn materialized_key_stream_helper_handles_empty_results() {
+        let mut stream = ordered_key_stream_from_materialized_keys(Vec::new());
+
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(0),
+            "empty helper stream must report a stable zero-count hint"
+        );
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("empty helper stream must not fail"),
+            None
+        );
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(0),
+            "empty helper stream exact count must remain stable after polling"
+        );
+    }
+
+    #[test]
+    fn materialized_key_stream_helper_handles_singleton_results() {
+        let mut stream = ordered_key_stream_from_materialized_keys(vec![data_key(7)]);
+
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(1),
+            "singleton helper stream must report one exact emitted key"
+        );
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("singleton helper stream must not fail"),
+            Some(data_key(7))
+        );
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("singleton helper stream exhaustion must not fail"),
+            None
+        );
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(1),
+            "singleton helper stream exact count must remain stable after consumption"
+        );
     }
 
     #[test]

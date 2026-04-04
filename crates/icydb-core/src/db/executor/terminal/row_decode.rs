@@ -9,34 +9,13 @@ use crate::model::field::EnumVariantModel;
 use crate::types::Ulid;
 use crate::{
     db::{
-        data::{
-            CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, StorageKey,
-            StructuralSlotReader, decode_structural_field_by_kind_bytes,
-            decode_structural_value_storage_bytes,
-        },
+        data::{DataRow, RawRow, StorageKey, StructuralSlotReader},
         executor::terminal::page::KernelRow,
     },
     error::InternalError,
     model::entity::{EntityModel, resolve_primary_key_slot},
-    model::field::{FieldKind, FieldStorageDecode, LeafCodec},
     value::Value,
 };
-///
-/// RowFieldLayout
-///
-/// RowFieldLayout is one structural field-decode descriptor for scalar row
-/// production.
-/// It precomputes the stable persisted field key and runtime field kind once
-/// so hot row decode can stay slot-driven and non-generic.
-///
-
-#[derive(Clone, Debug)]
-struct RowFieldLayout {
-    name: &'static str,
-    kind: FieldKind,
-    storage_decode: FieldStorageDecode,
-    leaf_codec: LeafCodec,
-}
 
 ///
 /// RowLayout
@@ -51,7 +30,7 @@ struct RowFieldLayout {
 #[derive(Clone, Debug)]
 pub(in crate::db::executor) struct RowLayout {
     model: &'static EntityModel,
-    fields: Vec<RowFieldLayout>,
+    field_count: usize,
     primary_key_slot: Option<usize>,
 }
 
@@ -59,20 +38,9 @@ impl RowLayout {
     /// Build one structural row layout from model metadata.
     #[must_use]
     pub(in crate::db::executor) fn from_model(model: &'static EntityModel) -> Self {
-        let fields = model
-            .fields()
-            .iter()
-            .map(|field| RowFieldLayout {
-                name: field.name(),
-                kind: field.kind(),
-                storage_decode: field.storage_decode(),
-                leaf_codec: field.leaf_codec(),
-            })
-            .collect::<Vec<_>>();
-
         Self {
             model,
-            fields,
+            field_count: model.fields().len(),
             primary_key_slot: resolve_primary_key_slot(model),
         }
     }
@@ -146,13 +114,10 @@ fn decode_structural_slots(
     expected_key: StorageKey,
     row: &RawRow,
 ) -> Result<Vec<Option<Value>>, InternalError> {
-    let row_fields = decode_row_fields(row, layout.model)?;
-    let mut slots = Vec::with_capacity(layout.fields.len());
-
-    // Phase 1: decode declared slots through the canonical structural slot reader.
-    for (slot, field) in layout.fields.iter().enumerate() {
-        slots.push(decode_row_field(&row_fields, slot, field)?);
-    }
+    // Phase 1: reuse the canonical structural slot cache that `from_raw_row`
+    // already forced through full declared-slot decode.
+    let slots = decode_row_fields(row, layout.model)?.into_decoded_values()?;
+    debug_assert_eq!(slots.len(), layout.field_count);
 
     // Phase 2: verify the decoded primary-key value still matches storage identity.
     validate_primary_key_slot(layout, expected_key, slots.as_slice())?;
@@ -166,34 +131,6 @@ fn decode_row_fields<'a>(
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
     StructuralSlotReader::from_raw_row(row, model)
-}
-
-// Decode one declared field from the persisted row field bytes.
-fn decode_row_field(
-    row_fields: &StructuralSlotReader<'_>,
-    slot: usize,
-    field: &RowFieldLayout,
-) -> Result<Option<Value>, InternalError> {
-    // Phase 1: keep scalar slots on the borrowed fast path when possible.
-    if matches!(field.leaf_codec, LeafCodec::Scalar(_)) {
-        let value = row_fields.required_scalar(slot)?;
-
-        return Ok(Some(match value {
-            ScalarSlotValueRef::Null => Value::Null,
-            ScalarSlotValueRef::Value(value) => value.into_value(),
-        }));
-    }
-
-    // Phase 2: fall back to the declared field decode contract for complex
-    // payloads without permitting canonical-row slot absence.
-    let bytes = row_fields.required_bytes(slot)?;
-    let value = match field.storage_decode {
-        FieldStorageDecode::ByKind => decode_structural_field_by_kind_bytes(bytes, field.kind),
-        FieldStorageDecode::Value => decode_structural_value_storage_bytes(bytes),
-    }
-    .map_err(|err| InternalError::row_decode_field_decode_failed(field.name, field.kind, err))?;
-
-    Ok(Some(value))
 }
 
 // Validate the decoded primary-key slot against the authoritative data-key suffix.

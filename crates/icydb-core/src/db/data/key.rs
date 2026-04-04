@@ -247,8 +247,11 @@ impl DataKey {
         let entity = EntityTag::new(u64::from_be_bytes(tag_bytes));
 
         // Phase 2: decode fixed-size storage-key suffix.
-        let key = StorageKey::try_from_bytes(&bytes[Self::ENTITY_TAG_SIZE_USIZE..])
-            .map_err(KeyDecodeError::from)?;
+        let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes
+            [Self::ENTITY_TAG_SIZE_USIZE..])
+            .try_into()
+            .map_err(|_| KeyDecodeError::from(StorageKeyDecodeError::InvalidSize))?;
+        let key = StorageKey::try_from_stored_bytes(key_bytes).map_err(KeyDecodeError::from)?;
 
         Ok(Self { entity, key })
     }

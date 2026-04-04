@@ -1915,6 +1915,41 @@ fn execute_sql_entity_strict_like_prefix_matches_projection_rows() {
 }
 
 #[test]
+fn execute_sql_projection_index_coverable_primary_key_and_prefix_field_matches_entity_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic equality-prefix dataset on the indexed
+    // `name` field so the projection lane can stay on the same query shape as
+    // the hot canister attribution benchmark.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alice", 10), ("alice", 20), ("bob", 30), ("carol", 40)],
+    );
+
+    // Phase 2: verify the projection lane returns the same `(id, name)` row
+    // as the entity lane for an index-covered equality-prefix query.
+    let sql =
+        "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id LIMIT 1";
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("index-covered projection query should execute");
+    let entity_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(sql)
+        .expect("index-covered entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.entity_ref().id),
+                Value::Text(row.entity_ref().name.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(entity_projected_rows, projected_rows);
+}
+
+#[test]
 fn execute_sql_projection_direct_starts_with_matches_indexed_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

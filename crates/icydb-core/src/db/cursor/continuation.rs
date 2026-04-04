@@ -42,6 +42,12 @@ impl<'a> IndexScanContinuationInput<'a> {
         Self { anchor, direction }
     }
 
+    /// Return whether this scan is resuming from one validated anchor.
+    #[must_use]
+    pub(in crate::db) const fn has_anchor(&self) -> bool {
+        self.anchor.is_some()
+    }
+
     /// Borrow scan direction for continuation traversal.
     #[must_use]
     pub(in crate::db) const fn direction(&self) -> Direction {

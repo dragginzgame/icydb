@@ -12,10 +12,12 @@ use crate::{
         data::DataKey,
         direction::Direction,
         index::{
-            IndexKey, envelope_is_empty,
+            IndexKey,
+            entry::RawIndexEntry,
+            envelope_is_empty,
             key::RawIndexKey,
             predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
-            store::{IndexStore, StoredIndexValue},
+            store::IndexStore,
         },
     },
     error::InternalError,
@@ -25,6 +27,11 @@ use crate::{
 use std::ops::Bound;
 
 impl IndexStore {
+    // Keep bounded scan preallocation modest so common page-limited reads
+    // avoid the first growth step without reserving pathologically large
+    // vectors from caller-supplied limits.
+    const LIMITED_SCAN_PREALLOC_CAP: usize = 32;
+
     pub(in crate::db) fn resolve_data_values_in_raw_range_limited(
         &self,
         entity: EntityTag,
@@ -83,13 +90,41 @@ impl IndexStore {
         mut decode_and_push: F,
     ) -> Result<Vec<T>, InternalError>
     where
-        F: FnMut(&RawIndexKey, &StoredIndexValue, &mut Vec<T>) -> Result<bool, InternalError>,
+        F: FnMut(&RawIndexKey, &RawIndexEntry, &mut Vec<T>) -> Result<bool, InternalError>,
     {
-        // Phase 1: derive validated cursor-owned resume bounds.
+        // Phase 1: handle degenerate and initial-window cases without paying
+        // continuation-runtime setup when there is no resume anchor.
         if limit == 0 {
             return Ok(Vec::new());
         }
 
+        if !continuation.has_anchor() {
+            if envelope_is_empty(bounds.0, bounds.1) {
+                return Ok(Vec::new());
+            }
+
+            let mut out = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
+            match continuation.direction() {
+                Direction::Asc => {
+                    for entry in self.map.range((bounds.0.clone(), bounds.1.clone())) {
+                        if decode_and_push(entry.key(), &entry.value(), &mut out)? {
+                            return Ok(out);
+                        }
+                    }
+                }
+                Direction::Desc => {
+                    for entry in self.map.range((bounds.0.clone(), bounds.1.clone())).rev() {
+                        if decode_and_push(entry.key(), &entry.value(), &mut out)? {
+                            return Ok(out);
+                        }
+                    }
+                }
+            }
+
+            return Ok(out);
+        }
+
+        // Phase 2: derive validated cursor-owned resume bounds for resumed scans.
         let continuation =
             ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
         let (start_raw, end_raw) = continuation.scan_bounds(bounds)?;
@@ -98,8 +133,8 @@ impl IndexStore {
             return Ok(Vec::new());
         }
 
-        // Phase 2: scan in directional order and decode entries until limit.
-        let mut out = Vec::new();
+        // Phase 3: scan in directional order and decode entries until limit.
+        let mut out = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
 
         match continuation.direction() {
             Direction::Asc => {
@@ -143,12 +178,12 @@ impl IndexStore {
     fn scan_range_entry<T, F>(
         continuation: &ContinuationRuntime<'_>,
         raw_key: &RawIndexKey,
-        value: &StoredIndexValue,
+        value: &RawIndexEntry,
         out: &mut Vec<T>,
         decode_and_push: &mut F,
     ) -> Result<bool, InternalError>
     where
-        F: FnMut(&RawIndexKey, &StoredIndexValue, &mut Vec<T>) -> Result<bool, InternalError>,
+        F: FnMut(&RawIndexKey, &RawIndexEntry, &mut Vec<T>) -> Result<bool, InternalError>,
     {
         match continuation.accept_key(ContinuationKeyRef::scan(raw_key))? {
             LoopAction::Skip => return Ok(false),
@@ -164,16 +199,14 @@ impl IndexStore {
         entity: EntityTag,
         index: &IndexModel,
         raw_key: &RawIndexKey,
-        value: &StoredIndexValue,
+        value: &RawIndexEntry,
         out: &mut Vec<DataKey>,
         limit: Option<usize>,
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
-        #[cfg(debug_assertions)]
-        Self::verify_if_debug(raw_key, value);
-
-        // Phase 1: decode key + evaluate optional index-only predicate.
+        // Phase 1: decode the raw key once so corruption stays owner-local and
+        // index-only predicate evaluation can reuse the decoded segments.
         let decoded_key = IndexKey::try_from_raw(raw_key)
             .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
 
@@ -183,9 +216,25 @@ impl IndexStore {
             return Ok(false);
         }
 
-        // Phase 2: decode entry payload and push bounded data keys.
+        // Phase 2: fast-path one-key entries without allocating the full
+        // membership vector.
+        if let Some(storage_key) = value
+            .decode_single_key()
+            .map_err(InternalError::index_entry_decode_failed)?
+        {
+            out.push(DataKey::new(entity, storage_key));
+
+            if let Some(limit) = limit
+                && out.len() == limit
+            {
+                return Ok(true);
+            }
+
+            return Ok(false);
+        }
+
+        // Phase 3: decode multi-key entry payload and push bounded data keys.
         let storage_keys = value
-            .entry
             .decode_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
 
@@ -211,16 +260,13 @@ impl IndexStore {
         entity: EntityTag,
         index: &IndexModel,
         raw_key: &RawIndexKey,
-        value: &StoredIndexValue,
+        value: &RawIndexEntry,
         out: &mut Vec<(DataKey, Vec<u8>)>,
         limit: Option<usize>,
         component_index: usize,
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
-        #[cfg(debug_assertions)]
-        Self::verify_if_debug(raw_key, value);
-
         // Phase 1: decode key, extract requested component, and evaluate optional
         // index-only predicate.
         let decoded_key = IndexKey::try_from_raw(raw_key)
@@ -239,9 +285,26 @@ impl IndexStore {
             return Ok(false);
         }
 
-        // Phase 2: decode entry payload and push bounded `(data_key, component)`.
+        // Phase 2: fast-path one-key entries without allocating the full
+        // membership vector.
+        if let Some(storage_key) = value
+            .decode_single_key()
+            .map_err(InternalError::index_entry_decode_failed)?
+        {
+            out.push((DataKey::new(entity, storage_key), component));
+
+            if let Some(limit) = limit
+                && out.len() == limit
+            {
+                return Ok(true);
+            }
+
+            return Ok(false);
+        }
+
+        // Phase 3: decode multi-key entry payload and push bounded
+        // `(data_key, component)`.
         let storage_keys = value
-            .entry
             .decode_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
 

@@ -6,6 +6,7 @@
 mod aggregate;
 mod authority;
 mod continuation;
+mod covering;
 mod delete;
 pub(in crate::db::executor) mod diagnostics;
 mod executable_plan;
@@ -50,6 +51,7 @@ pub(in crate::db::executor) use continuation::{
     ResolvedScalarContinuationContext, RouteContinuationPlan, ScalarContinuationBindings,
     ScalarRouteContinuationInvariantProjection,
 };
+pub(in crate::db::executor) use covering::decode_covering_projection_component;
 pub(super) use delete::DeleteExecutor;
 #[cfg(feature = "sql")]
 pub(in crate::db) use delete::execute_sql_delete_projection_for_canister;
@@ -78,7 +80,8 @@ pub(in crate::db) use runtime_context::*;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
-    OrderedKeyStreamBox, VecOrderedKeyStream, drive_key_stream_with_control_flow,
+    OrderedKeyStreamBox, drive_key_stream_with_control_flow, exact_output_key_count_hint,
+    key_stream_budget_is_redundant, ordered_key_stream_from_materialized_keys,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use terminal::KernelRow;

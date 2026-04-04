@@ -454,6 +454,76 @@ fn sql_perf_scenario(
     }
 }
 
+// Keep scalar attribution focused on a small representative SELECT cohort so
+// read-path tuning does not overfit one especially friendly benchmark query.
+const fn scalar_select_attribution_cases() -> [(&'static str, &'static str); 4] {
+    [
+        (
+            "user_name_eq_limit1",
+            "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+        ),
+        (
+            "user_full_row_limit2",
+            "SELECT * FROM User ORDER BY id LIMIT 2",
+        ),
+        (
+            "user_name_order_name_limit1",
+            "SELECT name FROM User ORDER BY name ASC LIMIT 1",
+        ),
+        (
+            "user_age_order_id_limit1",
+            "SELECT age FROM User ORDER BY id ASC LIMIT 1",
+        ),
+    ]
+}
+
+// Assert one scalar attribution sample stays structurally sane for perf
+// reporting across the representative SELECT cohort.
+fn assert_positive_scalar_attribution_sample(
+    label: &str,
+    sample: &SqlPerfAttributionSample,
+    expect_positive_route: bool,
+) {
+    assert!(
+        sample.outcome.success,
+        "{label} attribution must keep the representative SELECT successful: {sample:?}",
+    );
+    assert!(
+        sample.parse_local_instructions > 0,
+        "{label} parse phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.lower_local_instructions > 0,
+        "{label} lower phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.execute_local_instructions > 0,
+        "{label} execute phase must be positive: {sample:?}",
+    );
+    assert!(
+        sample.total_local_instructions
+            >= sample.parse_local_instructions
+                + sample.route_local_instructions
+                + sample.lower_local_instructions
+                + sample.dispatch_local_instructions
+                + sample.execute_local_instructions
+                + sample.wrapper_local_instructions,
+        "{label} total must cover every attributed phase: {sample:?}",
+    );
+
+    if expect_positive_route {
+        assert!(
+            sample.route_local_instructions > 0,
+            "{label} attribution must report positive authority routing cost: {sample:?}",
+        );
+    } else {
+        assert_eq!(
+            sample.route_local_instructions, 0,
+            "{label} attribution should not report dynamic route-authority cost: {sample:?}",
+        );
+    }
+}
+
 fn select_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
     let sql = "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1";
 
@@ -1373,74 +1443,52 @@ fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
 #[test]
 fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
     run_with_pocket_ic(|pic| {
-        let sql = "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1";
         let canister_id = install_quickstart_canister(pic);
         load_default_fixtures(pic, canister_id);
+        let mut rows = Vec::new();
 
-        let generated = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::GeneratedDispatch,
-                sql: sql.to_string(),
-                cursor_token: None,
-            },
-        );
-        let typed = sql_perf_attribution_sample(
-            pic,
-            canister_id,
-            &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::TypedDispatchUser,
-                sql: sql.to_string(),
-                cursor_token: None,
-            },
-        );
+        for (scenario_key, sql) in scalar_select_attribution_cases() {
+            let generated = sql_perf_attribution_sample(
+                pic,
+                canister_id,
+                &SqlPerfAttributionRequest {
+                    surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                    sql: sql.to_string(),
+                    cursor_token: None,
+                },
+            );
+            let typed = sql_perf_attribution_sample(
+                pic,
+                canister_id,
+                &SqlPerfAttributionRequest {
+                    surface: SqlPerfAttributionSurface::TypedDispatchUser,
+                    sql: sql.to_string(),
+                    cursor_token: None,
+                },
+            );
 
-        for (label, sample) in [("generated", &generated), ("typed", &typed)] {
-            assert!(
-                sample.outcome.success,
-                "{label} attribution must keep the representative SELECT successful: {sample:?}",
+            assert_positive_scalar_attribution_sample(
+                &format!("generated.{scenario_key}"),
+                &generated,
+                true,
             );
-            assert!(
-                sample.parse_local_instructions > 0,
-                "{label} parse phase must be positive: {sample:?}",
+            assert_positive_scalar_attribution_sample(
+                &format!("typed.{scenario_key}"),
+                &typed,
+                false,
             );
-            assert!(
-                sample.lower_local_instructions > 0,
-                "{label} lower phase must be positive: {sample:?}",
-            );
-            assert!(
-                sample.execute_local_instructions > 0,
-                "{label} execute phase must be positive: {sample:?}",
-            );
-            assert!(
-                sample.total_local_instructions
-                    >= sample.parse_local_instructions
-                        + sample.route_local_instructions
-                        + sample.lower_local_instructions
-                        + sample.dispatch_local_instructions
-                        + sample.execute_local_instructions
-                        + sample.wrapper_local_instructions,
-                "{label} total must cover every attributed phase: {sample:?}",
-            );
+
+            rows.push(serde_json::json!({
+                "scenario_key": scenario_key,
+                "generated": generated,
+                "typed": typed,
+            }));
         }
-
-        assert!(
-            generated.route_local_instructions > 0,
-            "generated attribution must report positive authority routing cost: {generated:?}",
-        );
-        assert_eq!(
-            typed.route_local_instructions, 0,
-            "typed attribution should not report dynamic route-authority cost: {typed:?}",
-        );
 
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "generated": generated,
-                "typed": typed,
-            }))
-            .expect("query attribution samples should serialize to JSON")
+            serde_json::to_string_pretty(&rows)
+                .expect("query attribution samples should serialize to JSON")
         );
     });
 }

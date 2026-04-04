@@ -99,6 +99,17 @@ impl PredicateProgram {
         eval_with_executable_slots(&self.executable, read_slot)
     }
 
+    /// Evaluate one precompiled predicate program against one borrowed slot
+    /// reader so structural row paths do not clone already-decoded values on
+    /// every predicate access.
+    #[must_use]
+    pub(in crate::db) fn eval_with_slot_value_ref_reader<'a, F>(&self, read_slot: &mut F) -> bool
+    where
+        F: FnMut(usize) -> Option<&'a Value>,
+    {
+        eval_with_executable_slot_refs(&self.executable, read_slot)
+    }
+
     /// Evaluate one precompiled predicate program against one structural slot reader.
     pub(in crate::db) fn eval_with_structural_slot_reader(
         &self,
@@ -116,6 +127,12 @@ impl PredicateProgram {
     #[must_use]
     pub(in crate::db) const fn executable(&self) -> &ExecutablePredicate {
         &self.executable
+    }
+
+    /// Return whether this compiled predicate only touches one covered slot set.
+    #[must_use]
+    pub(in crate::db) fn references_only_slots(&self, covered_slots: &[bool]) -> bool {
+        executable_predicate_references_only_slots(&self.executable, covered_slots)
     }
 
     #[cfg(test)]
@@ -214,6 +231,36 @@ fn compile_scalar_predicate_program(
         .then_some(ScalarPredicateProgram)
 }
 
+// Return whether the executable predicate can be evaluated from one covered
+// slot set without reading any additional row fields.
+fn executable_predicate_references_only_slots(
+    predicate: &ExecutablePredicate,
+    covered_slots: &[bool],
+) -> bool {
+    let slot_is_covered = |slot: Option<usize>| {
+        slot.and_then(|slot| covered_slots.get(slot).copied())
+            .unwrap_or(false)
+    };
+
+    match predicate {
+        ExecutablePredicate::True | ExecutablePredicate::False => true,
+        ExecutablePredicate::And(children) | ExecutablePredicate::Or(children) => children
+            .iter()
+            .all(|child| executable_predicate_references_only_slots(child, covered_slots)),
+        ExecutablePredicate::Not(child) => {
+            executable_predicate_references_only_slots(child.as_ref(), covered_slots)
+        }
+        ExecutablePredicate::Compare(compare) => slot_is_covered(compare.field_slot),
+        ExecutablePredicate::IsNull { field_slot }
+        | ExecutablePredicate::IsNotNull { field_slot }
+        | ExecutablePredicate::IsMissing { field_slot }
+        | ExecutablePredicate::IsEmpty { field_slot }
+        | ExecutablePredicate::IsNotEmpty { field_slot }
+        | ExecutablePredicate::TextContains { field_slot, .. }
+        | ExecutablePredicate::TextContainsCi { field_slot, .. } => slot_is_covered(*field_slot),
+    }
+}
+
 /// Read one field by pre-resolved slot through one runtime slot reader.
 fn field_from_slot(
     field_slot: Option<usize>,
@@ -237,6 +284,27 @@ fn on_present_slot(
         FieldPresence::Present(value) => f(&value),
         FieldPresence::Missing => false,
     }
+}
+
+// Read one field by pre-resolved slot through one borrowed runtime slot reader.
+fn field_from_slot_ref<'a, F>(field_slot: Option<usize>, read_slot: &mut F) -> Option<&'a Value>
+where
+    F: FnMut(usize) -> Option<&'a Value>,
+{
+    field_slot.and_then(read_slot)
+}
+
+// Evaluate one slot-based field predicate only when the field is present and
+// already available by reference.
+fn on_present_slot_ref<'a, F>(
+    field_slot: Option<usize>,
+    read_slot: &mut F,
+    f: impl FnOnce(&Value) -> bool,
+) -> bool
+where
+    F: FnMut(usize) -> Option<&'a Value>,
+{
+    field_from_slot_ref(field_slot, read_slot).is_some_and(f)
 }
 
 /// Evaluate one executable predicate against one runtime slot reader.
@@ -302,6 +370,68 @@ fn eval_with_executable_slots(
     }
 }
 
+// Evaluate one executable predicate against one borrowed runtime slot reader.
+fn eval_with_executable_slot_refs<'a, F>(predicate: &ExecutablePredicate, read_slot: &mut F) -> bool
+where
+    F: FnMut(usize) -> Option<&'a Value>,
+{
+    match predicate {
+        ExecutablePredicate::True => true,
+        ExecutablePredicate::False => false,
+        ExecutablePredicate::And(children) => {
+            for child in children {
+                if !eval_with_executable_slot_refs(child, read_slot) {
+                    return false;
+                }
+            }
+
+            true
+        }
+        ExecutablePredicate::Or(children) => {
+            for child in children {
+                if eval_with_executable_slot_refs(child, read_slot) {
+                    return true;
+                }
+            }
+
+            false
+        }
+        ExecutablePredicate::Not(inner) => !eval_with_executable_slot_refs(inner, read_slot),
+        ExecutablePredicate::Compare(cmp) => eval_compare_with_executable_slot_refs(cmp, read_slot),
+        ExecutablePredicate::IsNull { field_slot } => {
+            matches!(
+                field_from_slot_ref(*field_slot, read_slot),
+                Some(Value::Null)
+            )
+        }
+        ExecutablePredicate::IsNotNull { field_slot } => {
+            matches!(
+                field_from_slot_ref(*field_slot, read_slot),
+                Some(value) if !matches!(value, Value::Null)
+            )
+        }
+        ExecutablePredicate::IsMissing { field_slot } => {
+            field_from_slot_ref(*field_slot, read_slot).is_none()
+        }
+        ExecutablePredicate::IsEmpty { field_slot } => {
+            on_present_slot_ref(*field_slot, read_slot, is_empty_value)
+        }
+        ExecutablePredicate::IsNotEmpty { field_slot } => {
+            on_present_slot_ref(*field_slot, read_slot, |value| !is_empty_value(value))
+        }
+        ExecutablePredicate::TextContains { field_slot, value } => {
+            on_present_slot_ref(*field_slot, read_slot, |actual| {
+                actual.text_contains(value, TextMode::Cs).unwrap_or(false)
+            })
+        }
+        ExecutablePredicate::TextContainsCi { field_slot, value } => {
+            on_present_slot_ref(*field_slot, read_slot, |actual| {
+                actual.text_contains(value, TextMode::Ci).unwrap_or(false)
+            })
+        }
+    }
+}
+
 /// Evaluate an executable comparison predicate against one runtime slot reader.
 fn eval_compare_with_executable_slots(
     cmp: &ExecutableComparePredicate,
@@ -312,6 +442,22 @@ fn eval_compare_with_executable_slots(
     };
 
     eval_compare_values(&actual, cmp.op, &cmp.value, &cmp.coercion)
+}
+
+// Evaluate one executable comparison predicate against one borrowed runtime
+// slot reader.
+fn eval_compare_with_executable_slot_refs<'a, F>(
+    cmp: &ExecutableComparePredicate,
+    read_slot: &mut F,
+) -> bool
+where
+    F: FnMut(usize) -> Option<&'a Value>,
+{
+    let Some(actual) = field_from_slot_ref(cmp.field_slot, read_slot) else {
+        return false;
+    };
+
+    eval_compare_values(actual, cmp.op, &cmp.value, &cmp.coercion)
 }
 
 // Evaluate one scalar-only compiled predicate program without generic fallback.

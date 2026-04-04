@@ -30,6 +30,10 @@ use std::ops::Bound;
 pub(in crate::db::executor) struct PrimaryScan;
 
 impl PrimaryScan {
+    // Keep bounded scan preallocation modest so small page-limited reads avoid
+    // the first growth step without reserving huge vectors for large limits.
+    const LIMITED_SCAN_PREALLOC_CAP: usize = 32;
+
     /// Resolve one inclusive primary-key range through structural store authority.
     pub(in crate::db::executor) fn range_structural(
         store: StoreHandle,
@@ -60,10 +64,11 @@ impl PrimaryScan {
         limit: usize,
     ) -> Result<Vec<DataKey>, InternalError> {
         let keys = store.with_data(|store| -> Result<Vec<DataKey>, InternalError> {
-            let mut out = Vec::new();
             if limit == 0 {
-                return Ok(out);
+                return Ok(Vec::new());
             }
+
+            let mut out = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
 
             let start_raw = start.to_raw()?;
             let end_raw = end.to_raw()?;

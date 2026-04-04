@@ -9,7 +9,8 @@ use crate::{
             ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
                 ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
-                RuntimePageMaterializationRequest, StructuralCursorPage,
+                RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
+                StructuralCursorPage,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
         },
@@ -148,14 +149,19 @@ impl ExecutionKernel {
         continuation: ScalarContinuationBindings<'_>,
         resolved: &mut ResolvedExecutionKeyStream,
     ) -> Result<(StructuralCursorPage, usize, usize), InternalError> {
-        if let Some((page, keys_scanned, post_access_rows)) =
-            inputs.runtime().try_materialize_load_via_row_collector(
-                inputs.plan(),
-                continuation.post_access_cursor_boundary(),
-                inputs.validate_projection(),
-                inputs.retain_slot_rows(),
-                resolved.key_stream_mut(),
-            )?
+        if let Some((page, keys_scanned, post_access_rows)) = inputs
+            .runtime()
+            .try_materialize_load_via_row_collector(RowCollectorMaterializationRequest {
+                plan: inputs.plan(),
+                scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+                stream_order_contract_safe: route_plan.stream_order_contract_safe(),
+                continuation,
+                cursor_boundary: continuation.post_access_cursor_boundary(),
+                predicate_slots: inputs.execution_preparation().compiled_predicate(),
+                validate_projection: inputs.validate_projection(),
+                retain_slot_rows: inputs.retain_slot_rows(),
+                key_stream: resolved.key_stream_mut(),
+            })?
         {
             return Ok((page, keys_scanned, post_access_rows));
         }

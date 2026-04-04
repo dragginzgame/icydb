@@ -22,7 +22,8 @@ use crate::{
     types::*,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_bytes::Bytes;
 use std::cmp::Ordering;
 
 // re-exports
@@ -41,6 +42,7 @@ const F64_SAFE_I64: i64 = 1i64 << 53;
 const F64_SAFE_U64: u64 = 1u64 << 53;
 const F64_SAFE_I128: i128 = 1i128 << 53;
 const F64_SAFE_U128: u128 = 1u128 << 53;
+const VALUE_WIRE_TYPE_NAME: &str = "Value";
 
 ///
 /// NumericRepr
@@ -50,6 +52,126 @@ enum NumericRepr {
     Decimal(Decimal),
     F64(f64),
     None,
+}
+
+// Name and discriminant owner for the stable `Value` serde wire shape.
+#[derive(Clone, Copy)]
+enum ValueWireVariant {
+    Account,
+    Blob,
+    Bool,
+    Date,
+    Decimal,
+    Duration,
+    Enum,
+    Float32,
+    Float64,
+    Int,
+    Int128,
+    IntBig,
+    List,
+    Map,
+    Null,
+    Principal,
+    Subaccount,
+    Text,
+    Timestamp,
+    Uint,
+    Uint128,
+    UintBig,
+    Ulid,
+    Unit,
+}
+
+impl ValueWireVariant {
+    // Return the stable serde discriminant index for this `Value` variant.
+    const fn index(self) -> u32 {
+        match self {
+            Self::Account => 0,
+            Self::Blob => 1,
+            Self::Bool => 2,
+            Self::Date => 3,
+            Self::Decimal => 4,
+            Self::Duration => 5,
+            Self::Enum => 6,
+            Self::Float32 => 7,
+            Self::Float64 => 8,
+            Self::Int => 9,
+            Self::Int128 => 10,
+            Self::IntBig => 11,
+            Self::List => 12,
+            Self::Map => 13,
+            Self::Null => 14,
+            Self::Principal => 15,
+            Self::Subaccount => 16,
+            Self::Text => 17,
+            Self::Timestamp => 18,
+            Self::Uint => 19,
+            Self::Uint128 => 20,
+            Self::UintBig => 21,
+            Self::Ulid => 22,
+            Self::Unit => 23,
+        }
+    }
+
+    // Return the stable serde variant label for this `Value` variant.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Account => "Account",
+            Self::Blob => "Blob",
+            Self::Bool => "Bool",
+            Self::Date => "Date",
+            Self::Decimal => "Decimal",
+            Self::Duration => "Duration",
+            Self::Enum => "Enum",
+            Self::Float32 => "Float32",
+            Self::Float64 => "Float64",
+            Self::Int => "Int",
+            Self::Int128 => "Int128",
+            Self::IntBig => "IntBig",
+            Self::List => "List",
+            Self::Map => "Map",
+            Self::Null => "Null",
+            Self::Principal => "Principal",
+            Self::Subaccount => "Subaccount",
+            Self::Text => "Text",
+            Self::Timestamp => "Timestamp",
+            Self::Uint => "Uint",
+            Self::Uint128 => "Uint128",
+            Self::UintBig => "UintBig",
+            Self::Ulid => "Ulid",
+            Self::Unit => "Unit",
+        }
+    }
+}
+
+// Serialize one non-unit `Value` variant through the stable wire descriptor.
+fn serialize_value_newtype_variant<S, T>(
+    serializer: S,
+    variant: ValueWireVariant,
+    value: &T,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: ?Sized + Serialize,
+{
+    serializer.serialize_newtype_variant(
+        VALUE_WIRE_TYPE_NAME,
+        variant.index(),
+        variant.label(),
+        value,
+    )
+}
+
+// Serialize one unit `Value` variant through the stable wire descriptor.
+fn serialize_value_unit_variant<S>(
+    serializer: S,
+    variant: ValueWireVariant,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_unit_variant(VALUE_WIRE_TYPE_NAME, variant.index(), variant.label())
 }
 
 ///
@@ -148,7 +270,7 @@ impl From<MapValueError> for SchemaInvariantError {
 /// Unit        → internal placeholder for RHS; not a real value.
 ///
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 pub enum Value {
     Account(Account),
     Blob(Vec<u8>),
@@ -193,6 +315,89 @@ impl FieldTypeMeta for Value {
 impl Value {
     pub const __KIND: FieldKind = FieldKind::Structured { queryable: false };
     pub const __STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl Serialize for Value {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Keep `Value` serialization aligned with the structural value-storage
+        // decoder so persisted `FieldStorageDecode::Value` slots can roundtrip
+        // every nested variant through fresh write + immediate readback.
+        match self {
+            Self::Account(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Account, value)
+            }
+            Self::Blob(value) => serialize_value_newtype_variant(
+                serializer,
+                ValueWireVariant::Blob,
+                &Bytes::new(value.as_slice()),
+            ),
+            Self::Bool(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Bool, value)
+            }
+            Self::Date(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Date, value)
+            }
+            Self::Decimal(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Decimal, value)
+            }
+            Self::Duration(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Duration, value)
+            }
+            Self::Enum(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Enum, value)
+            }
+            Self::Float32(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Float32, &value.get())
+            }
+            Self::Float64(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Float64, &value.get())
+            }
+            Self::Int(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Int, value)
+            }
+            Self::Int128(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Int128, value)
+            }
+            Self::IntBig(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::IntBig, value)
+            }
+            Self::List(items) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::List, items)
+            }
+            Self::Map(entries) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Map, entries)
+            }
+            Self::Null => serialize_value_unit_variant(serializer, ValueWireVariant::Null),
+            Self::Principal(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Principal, value)
+            }
+            Self::Subaccount(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Subaccount, value)
+            }
+            Self::Text(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Text, value)
+            }
+            Self::Timestamp(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Timestamp, value)
+            }
+            Self::Uint(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Uint, value)
+            }
+            Self::Uint128(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Uint128, value)
+            }
+            Self::UintBig(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::UintBig, value)
+            }
+            Self::Ulid(value) => {
+                serialize_value_newtype_variant(serializer, ValueWireVariant::Ulid, value)
+            }
+            Self::Unit => serialize_value_unit_variant(serializer, ValueWireVariant::Unit),
+        }
+    }
 }
 
 // Local helpers to expand the scalar registry into match arms.

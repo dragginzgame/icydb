@@ -112,28 +112,9 @@ impl IndexKey {
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
-        // Phase 1: validate frame size and read fixed prefix fields.
         let bytes = raw.as_bytes();
-        if bytes.len() < Self::MIN_STORED_SIZE_USIZE || bytes.len() > Self::STORED_SIZE_USIZE {
-            return Err(ERR_INVALID_SIZE);
-        }
-
-        let mut offset = 0;
-
-        let key_kind = IndexKeyKind::from_tag(bytes[offset])?;
-        offset += KEY_KIND_TAG_SIZE;
-
-        let index_id = IndexId::from_bytes(&bytes[offset..offset + INDEX_ID_SIZE])
-            .ok_or(ERR_INVALID_INDEX_ID_BYTES)?;
-        offset += INDEX_ID_SIZE;
-
-        let component_count = bytes[offset];
-        offset += COMPONENT_COUNT_SIZE;
-
-        let component_count_usize = usize::from(component_count);
-        if component_count_usize > MAX_INDEX_FIELDS {
-            return Err(ERR_INVALID_INDEX_LENGTH);
-        }
+        let (key_kind, index_id, component_count_usize, mut offset) =
+            parse_index_key_header(bytes)?;
 
         // Phase 2: decode length-prefixed components + primary key.
         let mut components = Vec::with_capacity(component_count_usize);
@@ -186,8 +167,42 @@ impl IndexKey {
     }
 
     pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, StorageKeyDecodeError> {
-        StorageKey::try_from_bytes(&self.primary_key)
+        let bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = self
+            .primary_key
+            .as_slice()
+            .try_into()
+            .map_err(|_| StorageKeyDecodeError::InvalidSize)?;
+
+        StorageKey::try_from_stored_bytes(bytes)
     }
+}
+
+// Parse the fixed-width index-key prefix and return the decoded frame header.
+fn parse_index_key_header(
+    bytes: &[u8],
+) -> Result<(IndexKeyKind, IndexId, usize, usize), &'static str> {
+    if bytes.len() < IndexKey::MIN_STORED_SIZE_USIZE || bytes.len() > IndexKey::STORED_SIZE_USIZE {
+        return Err(ERR_INVALID_SIZE);
+    }
+
+    let mut offset = 0;
+
+    let key_kind = IndexKeyKind::from_tag(bytes[offset])?;
+    offset += KEY_KIND_TAG_SIZE;
+
+    let index_id = IndexId::from_bytes(&bytes[offset..offset + INDEX_ID_SIZE])
+        .ok_or(ERR_INVALID_INDEX_ID_BYTES)?;
+    offset += INDEX_ID_SIZE;
+
+    let component_count = bytes[offset];
+    offset += COMPONENT_COUNT_SIZE;
+
+    let component_count_usize = usize::from(component_count);
+    if component_count_usize > MAX_INDEX_FIELDS {
+        return Err(ERR_INVALID_INDEX_LENGTH);
+    }
+
+    Ok((key_kind, index_id, component_count_usize, offset))
 }
 
 ///

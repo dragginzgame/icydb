@@ -8,8 +8,8 @@ use crate::{
         data::{DataKey, StorageKey},
         direction::Direction,
         executor::{
-            KeyOrderComparator, OrderedKeyStream, VecOrderedKeyStream,
-            stream::key::DistinctOrderedKeyStream,
+            KeyOrderComparator, OrderedKeyStream,
+            stream::key::{DistinctOrderedKeyStream, VecOrderedKeyStream},
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},

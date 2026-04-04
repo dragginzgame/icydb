@@ -245,6 +245,26 @@ impl RawIndexEntry {
         self.decode_keys_checked()
     }
 
+    // Decode one single-key entry without allocating the full membership
+    // vector when the frame declares exactly one storage key.
+    pub(crate) fn decode_single_key(&self) -> Result<Option<StorageKey>, IndexEntryCorruption> {
+        let count = self.validate_frame()?;
+        if count != 1 {
+            return Ok(None);
+        }
+
+        let bytes = self.0.as_slice();
+        let start = INDEX_ENTRY_LEN_BYTES;
+        let end = start + StorageKey::STORED_SIZE_USIZE;
+        let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes[start..end])
+            .try_into()
+            .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+        let key = StorageKey::try_from_stored_bytes(key_bytes)
+            .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+
+        Ok(Some(key))
+    }
+
     // Decode the canonical storage-key payload while validating the raw entry
     // shape and duplicate-key invariants in the same pass.
     fn decode_keys_checked(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
@@ -261,7 +281,10 @@ impl RawIndexEntry {
         // duplicate memberships before any planner or commit path consumes it.
         for _ in 0..count {
             let end = offset + StorageKey::STORED_SIZE_USIZE;
-            let sk = StorageKey::try_from(&bytes[offset..end])
+            let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes[offset..end])
+                .try_into()
+                .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+            let sk = StorageKey::try_from_stored_bytes(key_bytes)
                 .map_err(|_| IndexEntryCorruption::InvalidKey)?;
 
             if !unique.insert(sk) {
@@ -316,6 +339,7 @@ impl RawIndexEntry {
         Ok(count)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
@@ -381,6 +405,27 @@ mod tests {
         assert_eq!(decoded.len(), keys.len());
         assert!(decoded.contains(&StorageKey::Int(1)));
         assert!(decoded.contains(&StorageKey::Uint(2)));
+    }
+
+    #[test]
+    fn raw_index_entry_decode_single_key_recovers_single_member_without_vector_allocation() {
+        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(9)]).expect("encode index entry");
+
+        assert_eq!(
+            raw.decode_single_key().expect("decode single key"),
+            Some(StorageKey::Int(9))
+        );
+    }
+
+    #[test]
+    fn raw_index_entry_decode_single_key_rejects_multi_key_entries() {
+        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(1), StorageKey::Uint(2)])
+            .expect("encode index entry");
+
+        assert_eq!(
+            raw.decode_single_key().expect("decode multi-key entry"),
+            None
+        );
     }
 
     #[test]

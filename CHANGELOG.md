@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.67.x] 🧩 - 2026-04-01 - SQL Surface Coherence
 
+- `0.67.6` fixes structured value-storage roundtrips so fresh inserts with nested blob, float, or big-int payloads no longer fail immediate row decode during commit preparation, and adds regression coverage that locks those fresh-write/readback shapes in place.
 - `0.67.5` keeps the current SQL feature set intact but makes grouped and aggregate SQL queries cheaper by removing repeated aggregate compile work, trimming grouped page/cursor overhead, and cutting the instruction budget for common `COUNT`, `MIN`, `MAX`, and grouped `GROUP BY` paths without changing query results.
 - `0.67.4` keeps the current SQL feature set intact but makes common SQL reads cheaper by removing repeated dispatch and executor setup work from the shared query path, while also moving the workspace onto `canic-cdk` / `canic-memory` `0.22.6`.
 - `0.67.3` keeps the current SQL feature set intact but makes SQL-enabled canisters much smaller by removing a duplicated generated `query(sql)` router, so generated canister SQL now reuses the shared core route family instead of carrying its own extra copy of that logic.
