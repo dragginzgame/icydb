@@ -8,14 +8,55 @@ use crate::{
         access::{AccessPath, AccessPlan},
         direction::Direction,
         predicate::{MissingRowPolicy, Predicate},
-        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
+        query::plan::{
+            AccessPlannedQuery, OrderDirection, OrderSpec,
+            expr::{BinaryOp, Expr, FieldId, ProjectionSelection},
+        },
     },
+    model::{field::FieldKind, index::IndexModel},
+    traits::EntitySchema,
+    types::Ulid,
     value::Value,
 };
 use std::ops::Bound;
 
 const INDEX_FIELDS_RANK: [&str; 1] = ["rank"];
 const INDEX_FIELDS_GROUP_RANK: [&str; 2] = ["group", "rank"];
+const COVERING_READ_FIELDS_GROUP_RANK: [&str; 2] = ["group", "rank"];
+const COVERING_READ_INDEX: IndexModel = IndexModel::new(
+    "covering::tests::idx_group_rank",
+    "covering::tests::CoveringReadEntity",
+    &COVERING_READ_FIELDS_GROUP_RANK,
+    false,
+);
+
+crate::test_entity! {
+    ident = CoveringReadEntity,
+    id = Ulid,
+    entity_name = "CoveringReadEntity",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("group", FieldKind::Uint),
+        ("rank", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&COVERING_READ_INDEX],
+}
+
+fn covering_read_model() -> &'static crate::model::entity::EntityModel {
+    <CoveringReadEntity as EntitySchema>::MODEL
+}
+
+fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
+    AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: COVERING_READ_INDEX,
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    )
+}
 
 #[test]
 fn index_covering_existing_rows_terminal_requires_index_shape() {
@@ -295,4 +336,117 @@ fn constant_covering_projection_value_from_access_returns_none_when_target_unbou
     let value =
         super::constant_covering_projection_value_from_access(&AccessPlan::path(access), "rank");
     assert_eq!(value, None);
+}
+
+#[test]
+fn covering_read_plan_accepts_direct_index_component_projection() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+        .expect("direct indexed field projection should derive one covering-read plan");
+
+    assert_eq!(covering.prefix_len, 1);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "rank");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::IndexComponent { component_index: 1 }
+    );
+}
+
+#[test]
+fn covering_read_plan_accepts_primary_key_projection() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Desc)],
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+        .expect("primary-key projection should derive one covering-read plan");
+
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc)
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey
+    );
+}
+
+#[test]
+fn covering_read_plan_accepts_prefix_bound_constant_projection() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("group")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+        .expect("prefix-bound field projection should derive one covering-read plan");
+
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "group");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::Constant(Value::Uint(7))
+    );
+}
+
+#[test]
+fn covering_read_plan_rejects_non_field_expression_projection() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Expression(Expr::Binary {
+        op: BinaryOp::Add,
+        left: Box::new(Expr::Field(FieldId::new("rank"))),
+        right: Box::new(Expr::Literal(Value::Uint(1))),
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true);
+    assert!(
+        covering.is_none(),
+        "computed scalar projections must remain outside the phase-1 covering-read contract",
+    );
+}
+
+#[test]
+fn covering_read_plan_rejects_non_coverable_row_field_projection() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("label")]);
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true);
+    assert!(
+        covering.is_none(),
+        "row-only projected fields must stay on the materialized read path",
+    );
+}
+
+#[test]
+fn covering_read_plan_requires_strict_predicate_compatibility() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+
+    assert!(
+        super::covering_read_plan(covering_read_model(), &plan, "id", false).is_none(),
+        "phase-1 covering reads must reject residual predicate shapes without strict compatibility",
+    );
+    assert!(
+        super::covering_read_plan(covering_read_model(), &plan, "id", true).is_some(),
+        "phase-1 covering reads should admit residual predicate shapes when strict compatibility is present",
+    );
 }

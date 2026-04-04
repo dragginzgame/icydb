@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.68.x] 📚 - 2026-04-04 - First-Class Covering Reads
+
+- `0.68.0` starts the `0.68` read-path line by teaching the planner to recognize a narrow class of simple index-covered scalar projections and by sharing the direct-field projection rule between planner and executor, so later select-speed work can build on one authority without changing current query results yet.
+
+See detailed breakdown:
+[docs/changelog/0.68.md](docs/changelog/0.68.md)
+
+---
+
 ## [0.67.x] 🧩 - 2026-04-01 - SQL Surface Coherence
 
 - `0.67.7` closes the `0.67` line by switching `CandidType` wire-surface comments from Rustdoc to plain comments, trimming about `2.3 KB` from the `minimal` SQL-on wasm audit canister and making that lighter comment style the rule for `CandidType` surfaces going forward.

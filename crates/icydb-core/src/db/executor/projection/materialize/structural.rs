@@ -21,7 +21,7 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery,
-            expr::{Expr, ProjectionField, ProjectionSpec},
+            expr::{ProjectionField, ProjectionSpec, projection_field_direct_field_name},
         },
     },
     error::InternalError,
@@ -136,8 +136,8 @@ fn direct_projection_field_slots(
 
     for field in projection.fields() {
         match field {
-            ProjectionField::Scalar { expr, .. } => {
-                let field_name = direct_projection_field_name(expr)?;
+            ProjectionField::Scalar { .. } => {
+                let field_name = projection_field_direct_field_name(field)?;
                 let slot = resolve_field_slot(model, field_name)?;
 
                 // The direct slot-copy path moves values out of retained slot
@@ -160,16 +160,6 @@ fn direct_projection_field_slots(
     }
 
     Some(field_slots)
-}
-
-#[cfg(feature = "sql")]
-// Unwrap one direct field projection through optional alias wrappers.
-fn direct_projection_field_name(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Field(field) => Some(field.as_str()),
-        Expr::Alias { expr, .. } => direct_projection_field_name(expr.as_ref()),
-        Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
-    }
 }
 
 #[cfg(feature = "sql")]

@@ -81,6 +81,26 @@ impl ProjectionSpec {
     }
 }
 
+/// Return one direct projected field name when the output stays on one field
+/// leaf under optional alias wrappers.
+#[must_use]
+pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField) -> Option<&str> {
+    match field {
+        ProjectionField::Scalar { expr, .. } => direct_projection_expr_field_name(expr),
+    }
+}
+
+/// Return one direct field name when the expression is only a field leaf plus
+/// optional alias wrappers.
+#[must_use]
+pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Field(field) => Some(field.as_str()),
+        Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
+        Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
+    }
+}
+
 /// Return true when every projection expression references only fields in one
 /// allowed set.
 ///
