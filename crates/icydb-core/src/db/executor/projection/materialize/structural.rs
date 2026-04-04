@@ -140,6 +140,20 @@ fn direct_projection_field_slots(
                 let field_name = direct_projection_field_name(expr)?;
                 let slot = resolve_field_slot(model, field_name)?;
 
+                // The direct slot-copy path moves values out of retained slot
+                // rows with `Option::take()`, so it is valid only when each
+                // projected output reads a unique source slot exactly once.
+                // Repeated source fields such as computed-projection base
+                // rewrites (`TRIM(name), LOWER(name), ...`) must fall back to
+                // the generic reader, which can read the same slot multiple
+                // times without consuming it.
+                if field_slots
+                    .iter()
+                    .any(|(_, existing_slot)| *existing_slot == slot)
+                {
+                    return None;
+                }
+
                 field_slots.push((field_name.to_string(), slot));
             }
         }
