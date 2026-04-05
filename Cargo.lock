@@ -213,9 +213,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.22.11"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb6f055b862c249593b8fd0a73dbb51fb2ca85320081d7119bc0323e71c9a7ac"
+checksum = "00863adc738ff6a8b603840bbba57e815bc286a54bfe99c644f4ba5c70fb98de"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -229,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.22.11"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d7623c1072ad168539e8b5137a323127c1951414e6c3d0f490dc2473251e5d6"
+checksum = "b2075c25a68997c9ce688fad8f812054f1375cc7900eab4e0c85f4e4d203d0e9"
 dependencies = [
  "candid",
  "derive_more",
@@ -246,26 +246,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "canic-control-plane"
-version = "0.22.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06eaac19535bbce6df386784fcf26e9440aa5bb39dafcad03c797a3800638d22"
-dependencies = [
- "async-trait",
- "candid",
- "canic-cdk",
- "canic-core",
- "canic-memory",
- "serde",
- "sha2 0.11.0",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "canic-core"
-version = "0.22.11"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45f52d2925569ce844de48ff005b6381561ec5b0f1ad54e9782c6039130e0b35"
+checksum = "c2a84007fd2aa0117a0a11fa2fdd33c98b3b86cfe3b8464dabb01b151936b0ca"
 dependencies = [
  "async-trait",
  "candid",
@@ -286,9 +270,9 @@ dependencies = [
 
 [[package]]
 name = "canic-dsl-macros"
-version = "0.22.11"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4909c198d9fa2c86360b5a0d0ad9f3dfef95f5e1dbc0b351f85ffae34d47c508"
+checksum = "813fe1fd6e08c7720eab98a18a18da8892ed5a38f9d1ed92b4afcfea6ce8768a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -297,9 +281,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.22.11"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a6a218c6acab929d7536d352926e5cd4a1277fb8882082b3de799dfe5f9e22"
+checksum = "3b2537009fa0135b023f033fe69832d7eafe88e036769af43a74b7592b4bcd69"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -311,13 +295,12 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.22.11"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e109db539c93b821659388a75a769730b4fc37d912712d546abcf2fd3618cd3"
+checksum = "6a6e33cbf58798474f925b1df5e4f508608d7d17f472bc3268f480a54b939c9b"
 dependencies = [
  "candid",
  "canic",
- "canic-control-plane",
  "derive_more",
  "pocket-ic",
  "serde",
