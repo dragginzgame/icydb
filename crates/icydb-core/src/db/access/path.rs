@@ -248,6 +248,16 @@ impl<K> AccessPath<K> {
         }
     }
 
+    /// Borrow the selected secondary index model when this path uses one.
+    #[must_use]
+    pub(crate) const fn selected_index_model(&self) -> Option<&IndexModel> {
+        match self {
+            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => Some(index),
+            Self::IndexRange { spec } => Some(spec.index()),
+            Self::ByKey(_) | Self::ByKeys(_) | Self::KeyRange { .. } | Self::FullScan => None,
+        }
+    }
+
     /// Map the key payload of this access path while preserving structural shape.
     pub(crate) fn map_keys<T, E, F>(self, mut map_key: F) -> Result<AccessPath<T>, E>
     where

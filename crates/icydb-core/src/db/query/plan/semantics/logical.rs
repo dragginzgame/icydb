@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
@@ -162,19 +162,8 @@ impl AccessPlannedQuery {
         let Some(query_predicate) = self.scalar_plan().predicate.as_ref() else {
             return false;
         };
-        let Some(path) = self.access.as_path() else {
+        let Some(index) = self.access.selected_index_model() else {
             return false;
-        };
-
-        let index = match path {
-            AccessPath::IndexPrefix { index, .. } | AccessPath::IndexMultiLookup { index, .. } => {
-                index
-            }
-            AccessPath::IndexRange { spec } => spec.index(),
-            AccessPath::ByKey(_)
-            | AccessPath::ByKeys(_)
-            | AccessPath::KeyRange { .. }
-            | AccessPath::FullScan => return false,
         };
 
         filtered_index_predicate_satisfies_query(index, query_predicate)

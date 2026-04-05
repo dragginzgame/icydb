@@ -155,6 +155,13 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(|path| path.as_index_range())
     }
 
+    /// Borrow the selected secondary index model when this is a single
+    /// secondary-index access path.
+    #[must_use]
+    pub(crate) fn selected_index_model(&self) -> Option<&IndexModel> {
+        self.as_path().and_then(|path| path.selected_index_model())
+    }
+
     /// Resolve one pre-lowered access strategy contract for runtime execution.
     #[must_use]
     pub(in crate::db) fn resolve_strategy(&self) -> AccessStrategy<'_, K> {
