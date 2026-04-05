@@ -11,6 +11,7 @@ pub(in crate::db::executor) use crate::db::executor::{
     AccessWindow, ContinuationMode, RouteContinuationPlan,
 };
 pub(in crate::db::executor) use capabilities::RouteCapabilities;
+pub(in crate::db) use execution::LoadOrderRouteContract;
 pub(in crate::db::executor) use execution::{
     AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRoutePlan, ExecutionRouteShape,
     GroupedExecutionStrategy, GroupedRouteDecisionOutcome, IndexRangeLimitSpec, RouteExecutionMode,

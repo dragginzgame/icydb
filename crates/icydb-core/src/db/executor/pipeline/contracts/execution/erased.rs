@@ -113,13 +113,24 @@ impl ErasedRuntimeBindings {
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let access = ExecutableAccess::from_executable_plan(
-            access.resolve_strategy().into_executable(),
-            bindings,
-            physical_fetch_hint,
-            index_predicate_execution,
-        );
+        let access = if preserve_leaf_index_order {
+            ExecutableAccess::from_executable_plan(
+                access.resolve_strategy().into_executable(),
+                bindings,
+                physical_fetch_hint,
+                index_predicate_execution,
+            )
+            .with_preserved_leaf_index_order()
+        } else {
+            ExecutableAccess::from_executable_plan(
+                access.resolve_strategy().into_executable(),
+                bindings,
+                physical_fetch_hint,
+                index_predicate_execution,
+            )
+        };
 
         self.runtime.ordered_key_stream_from_runtime_access(access)
     }

@@ -7,17 +7,19 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
+            ExecutionKernel,
             aggregate::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
             },
             route::{
-                bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported_for_model,
+                LoadOrderRouteContract, bounded_probe_hint_is_safe,
+                pk_order_stream_fast_path_shape_supported_for_model,
                 secondary_order_contract_active,
             },
         },
         query::{
             builder::AggregateExpr,
-            plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
+            plan::{AccessPlannedQuery, OrderDirection, secondary_order_contract_is_deterministic},
         },
     },
     model::entity::EntityModel,
@@ -31,6 +33,9 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     plan: &AccessPlannedQuery,
 ) -> (bool, bool, bool) {
     let logical = plan.scalar_plan();
+    // Route-budget safety only needs the post-access residual view here.
+    // Guard predicates already proven by the chosen access path must not force
+    // otherwise ordered index routes back to materialized execution.
     let has_residual_filter = plan.has_residual_predicate();
     let access_order_satisfied_by_path =
         crate::db::executor::route::access_order_satisfied_by_route_contract_for_model(model, plan);
@@ -47,15 +52,64 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     )
 }
 
-/// Return whether one plan shape is safe for direct streaming execution.
-pub(in crate::db::executor) fn stream_order_contract_safe_for_model(
+/// Derive the route-owned load ordering contract for one executable plan.
+pub(in crate::db::executor) fn load_order_route_contract_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-) -> bool {
+) -> LoadOrderRouteContract {
+    if !plan.scalar_plan().mode.is_load() {
+        return LoadOrderRouteContract::MaterializedFallback;
+    }
+
     let (has_residual_filter, _, requires_post_access_sort) =
         derive_budget_safety_flags_for_model(model, plan);
+    if has_residual_filter || requires_post_access_sort {
+        return LoadOrderRouteContract::MaterializedFallback;
+    }
 
-    plan.scalar_plan().mode.is_load() && !has_residual_filter && !requires_post_access_sort
+    if secondary_prefix_streaming_requires_materialized_boundary(plan) {
+        return LoadOrderRouteContract::MaterializedBoundary;
+    }
+
+    LoadOrderRouteContract::DirectStreaming
+}
+
+// Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
+// but still rely on the canonical materialized page boundary for correctness.
+// Keep that runtime limitation local to route capability derivation so ordered
+// access contracts stay visible while unsafe streaming windows fail closed.
+fn secondary_prefix_streaming_requires_materialized_boundary(plan: &AccessPlannedQuery) -> bool {
+    let logical = plan.scalar_plan();
+    let access_class = plan.access_strategy().class();
+    let Some((index, _prefix_len)) = access_class.single_path_index_prefix_details() else {
+        return false;
+    };
+
+    // Offset windows over secondary-prefix routes still need the canonical
+    // materialized boundary so skip semantics and emitted continuations stay
+    // aligned with fallback execution.
+    let offset =
+        usize::try_from(ExecutionKernel::effective_page_offset(plan, None)).unwrap_or(usize::MAX);
+    if offset > 0 {
+        return true;
+    }
+
+    // DISTINCT over secondary-prefix routes still depends on materialized
+    // deduplication rather than direct ordered streaming.
+    if logical.distinct {
+        return true;
+    }
+
+    // Reverse streaming over non-unique secondary-prefix routes is still not
+    // page-stable when duplicate secondary values are present, so keep those
+    // shapes on the canonical materialized lane for now.
+    !index.is_unique()
+        && logical.order.as_ref().is_some_and(|order| {
+            order
+                .fields
+                .iter()
+                .any(|(_, direction)| *direction == OrderDirection::Desc)
+        })
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -101,7 +155,7 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
     let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
     RouteCapabilities {
-        stream_order_contract_safe: stream_order_contract_safe_for_model(model, plan),
+        load_order_route_contract: load_order_route_contract_for_model(model, plan),
         pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported_for_model(
             model, plan,
         ),

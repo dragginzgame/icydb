@@ -49,7 +49,7 @@ pub(in crate::db::executor::route) fn load_scan_budget_hint(
 
     plan.access_strategy().load_window_early_stop_hint(
         continuation_capabilities.applied(),
-        capabilities.stream_order_contract_safe,
+        capabilities.load_order_route_contract,
         fetch_hint,
     )
 }
@@ -69,7 +69,10 @@ pub(in crate::db::executor::route) fn top_n_seek_spec_for_model(
         .is_some_and(|order| !order.fields.is_empty());
     (logical.mode.is_load() && has_order).then_some(())?;
     secondary_order_contract_is_deterministic(model, logical).then_some(())?;
-    capabilities.stream_order_contract_safe.then_some(())?;
+    capabilities
+        .load_order_route_contract
+        .allows_top_n_seek()
+        .then_some(())?;
     (!continuation_capabilities.applied()).then_some(())?;
 
     bounded_window_fetch_hint(access_window).map(TopNSeekSpec::new)

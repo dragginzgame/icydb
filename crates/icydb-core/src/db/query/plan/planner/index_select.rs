@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::AccessPath,
         index::canonical_index_predicate,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -36,20 +37,6 @@ pub(in crate::db::query::plan) fn sorted_model_indexes(
     indexes
 }
 
-pub(in crate::db::query::plan::planner) fn better_index(
-    candidate: (usize, bool, &IndexModel),
-    current: (usize, bool, &IndexModel),
-) -> bool {
-    let (cand_len, cand_exact, cand_index) = candidate;
-    let (best_len, best_exact, best_index) = current;
-
-    cand_len > best_len
-        || (cand_len == best_len && cand_exact && !best_exact)
-        || (cand_len == best_len
-            && cand_exact == best_exact
-            && cand_index.name() < best_index.name())
-}
-
 pub(in crate::db::query::plan) fn index_literal_matches_schema(
     schema: &SchemaInfo,
     field: &str,
@@ -73,32 +60,67 @@ fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predic
         return true;
     }
 
-    filtered_index_predicate_query_relation(
-        index,
-        query_predicate,
-        PredicateImplicationDirection::QueryImpliesIndex,
-    )
+    filtered_index_predicate_query_relation(index, query_predicate)
 }
 
-pub(in crate::db) fn filtered_index_predicate_satisfies_query(
+pub(in crate::db) fn residual_query_predicate_after_filtered_access(
     index: &IndexModel,
     query_predicate: &Predicate,
-) -> bool {
+) -> Option<Predicate> {
     if index.predicate().is_none() {
-        return false;
+        return Some(query_predicate.clone());
+    }
+    let Ok(index_predicate) = canonical_index_predicate(index) else {
+        return Some(query_predicate.clone());
+    };
+    let Some(index_predicate) = index_predicate else {
+        return Some(query_predicate.clone());
+    };
+
+    // Phase 1: only strip filtered-guard clauses after the full query has
+    // already proven the index predicate. Otherwise execution must keep the
+    // original predicate intact and fail closed.
+    if !predicate_implies_predicate(query_predicate, index_predicate) {
+        return Some(query_predicate.clone());
     }
 
-    filtered_index_predicate_query_relation(
-        index,
-        query_predicate,
-        PredicateImplicationDirection::IndexImpliesQuery,
-    )
+    // Phase 2: remove only the query clauses the filtered guard itself
+    // guarantees. Stronger user predicates must remain, even when they also
+    // imply the guard, because index membership alone does not satisfy them.
+    strip_query_clauses_satisfied_by_filtered_guard(query_predicate, index_predicate)
+}
+
+pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
+    access_path: Option<&AccessPath<Value>>,
+    query_predicate: &Predicate,
+) -> Option<Predicate> {
+    let Some(access_path) = access_path else {
+        return Some(query_predicate.clone());
+    };
+
+    // Phase 1: derive only equality clauses that the concrete access path
+    // already guarantees. Range and multi-lookup paths intentionally keep
+    // their open bounds as residual semantics unless they appear in the fixed
+    // equality prefix.
+    let implied_equalities = if let Some((index, values)) = access_path.as_index_prefix() {
+        access_bound_equalities(index, values)
+    } else if let Some((index, prefix_values, _, _)) = access_path.as_index_range() {
+        access_bound_equalities(index, prefix_values)
+    } else {
+        Vec::new()
+    };
+    if implied_equalities.is_empty() {
+        return Some(query_predicate.clone());
+    }
+
+    // Phase 2: strip only clauses already implied by those fixed equality
+    // bounds so execution does not retain redundant post-access filtering.
+    strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_equalities)
 }
 
 fn filtered_index_predicate_query_relation(
     index: &IndexModel,
     query_predicate: &Predicate,
-    direction: PredicateImplicationDirection,
 ) -> bool {
     if index.predicate().is_none() {
         return false;
@@ -110,14 +132,7 @@ fn filtered_index_predicate_query_relation(
         return false;
     };
 
-    match direction {
-        PredicateImplicationDirection::QueryImpliesIndex => {
-            predicate_implies_predicate(query_predicate, index_predicate)
-        }
-        PredicateImplicationDirection::IndexImpliesQuery => {
-            predicate_implies_predicate(index_predicate, query_predicate)
-        }
-    }
+    predicate_implies_predicate(query_predicate, index_predicate)
 }
 
 fn predicate_implies_predicate(implying: &Predicate, required: &Predicate) -> bool {
@@ -142,9 +157,109 @@ fn predicate_implies_predicate(implying: &Predicate, required: &Predicate) -> bo
     }
 }
 
-enum PredicateImplicationDirection {
-    QueryImpliesIndex,
-    IndexImpliesQuery,
+fn strip_query_clauses_satisfied_by_filtered_guard(
+    query_predicate: &Predicate,
+    index_predicate: &Predicate,
+) -> Option<Predicate> {
+    match query_predicate {
+        Predicate::And(children) => {
+            let mut residual_children = Vec::with_capacity(children.len());
+            for child in children {
+                if let Some(residual_child) =
+                    strip_query_clauses_satisfied_by_filtered_guard(child, index_predicate)
+                {
+                    residual_children.push(residual_child);
+                }
+            }
+
+            match residual_children.len() {
+                0 => None,
+                1 => residual_children.pop(),
+                _ => Some(Predicate::And(residual_children)),
+            }
+        }
+        Predicate::Compare(cmp)
+            if compare_clause_supported(cmp)
+                && predicate_implies_predicate(
+                    index_predicate,
+                    &Predicate::Compare(cmp.clone()),
+                ) =>
+        {
+            None
+        }
+        Predicate::True => None,
+        Predicate::False
+        | Predicate::Or(_)
+        | Predicate::Not(_)
+        | Predicate::Compare(_)
+        | Predicate::IsNull { .. }
+        | Predicate::IsNotNull { .. }
+        | Predicate::IsMissing { .. }
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. } => Some(query_predicate.clone()),
+    }
+}
+
+fn access_bound_equalities(index: &IndexModel, values: &[Value]) -> Vec<ComparePredicate> {
+    index
+        .fields()
+        .iter()
+        .zip(values.iter())
+        .map(|(field, value)| {
+            ComparePredicate::with_coercion(
+                *field,
+                CompareOp::Eq,
+                value.clone(),
+                CoercionId::Strict,
+            )
+        })
+        .collect()
+}
+
+fn strip_query_clauses_satisfied_by_access_bounds(
+    query_predicate: &Predicate,
+    implied_equalities: &[ComparePredicate],
+) -> Option<Predicate> {
+    match query_predicate {
+        Predicate::And(children) => {
+            let mut residual_children = Vec::with_capacity(children.len());
+            for child in children {
+                if let Some(residual_child) =
+                    strip_query_clauses_satisfied_by_access_bounds(child, implied_equalities)
+                {
+                    residual_children.push(residual_child);
+                }
+            }
+
+            match residual_children.len() {
+                0 => None,
+                1 => residual_children.pop(),
+                _ => Some(Predicate::And(residual_children)),
+            }
+        }
+        Predicate::Compare(cmp)
+            if compare_clause_supported(cmp)
+                && implied_equalities
+                    .iter()
+                    .any(|bound| query_clause_implies_required(bound, cmp)) =>
+        {
+            None
+        }
+        Predicate::True => None,
+        Predicate::False
+        | Predicate::Or(_)
+        | Predicate::Not(_)
+        | Predicate::Compare(_)
+        | Predicate::IsNull { .. }
+        | Predicate::IsNotNull { .. }
+        | Predicate::IsMissing { .. }
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. } => Some(query_predicate.clone()),
+    }
 }
 
 ///

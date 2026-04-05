@@ -18,7 +18,7 @@ use crate::{
         data::{DataKey, DataStore},
         direction::Direction,
         executor::ExecutorPlanError,
-        index::IndexStore,
+        index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::explain::{ExplainExecutionNodeDescriptor, ExplainExecutionNodeType},
         query::plan::{
@@ -93,6 +93,13 @@ thread_local! {
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
 static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
     Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
+static FILTERED_EXPRESSION_SESSION_SQL_ROWS: [(u128, &str, bool, &str, &str, u64); 5] = [
+    (9_231, "alpha", false, "gold", "bramble", 10),
+    (9_232, "bravo-user", true, "gold", "bravo", 20),
+    (9_233, "bristle-user", true, "gold", "bristle", 30),
+    (9_234, "brisk-user", true, "silver", "Brisk", 40),
+    (9_235, "charlie-user", true, "gold", "charlie", 50),
+];
 
 ///
 /// SessionSqlEntity
@@ -139,6 +146,8 @@ struct FilteredIndexedSessionSqlEntity {
     id: Ulid,
     name: String,
     active: bool,
+    tier: String,
+    handle: String,
     age: u64,
 }
 
@@ -235,10 +244,50 @@ static INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     false,
 )];
 static FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_predicate(
+    [IndexModel::new_with_ordinal_and_predicate(
+        0,
         "name_active_only",
         IndexedSessionSqlStore::PATH,
         &INDEXED_SESSION_SQL_INDEX_FIELDS,
+        false,
+        Some("active = true"),
+    )];
+static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
+static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_ordinal_and_predicate(
+        1,
+        "tier_handle_active_only",
+        IndexedSessionSqlStore::PATH,
+        &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_FIELDS,
+        false,
+        Some("active = true"),
+    )];
+static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["handle"];
+static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("handle"))];
+static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_ordinal_and_key_items_and_predicate(
+        2,
+        "handle_lower_active_only",
+        IndexedSessionSqlStore::PATH,
+        &FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_FIELDS,
+        Some(&FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_KEY_ITEMS),
+        false,
+        Some("active = true"),
+    )];
+static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_FIELDS: [&str; 2] =
+    ["tier", "handle"];
+static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 2] = [
+    IndexKeyItem::Field("tier"),
+    IndexKeyItem::Expression(IndexExpression::Lower("handle")),
+];
+static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_ordinal_and_key_items_and_predicate(
+        3,
+        "tier_handle_lower_active_only",
+        IndexedSessionSqlStore::PATH,
+        &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_FIELDS,
+        Some(&FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_KEY_ITEMS),
         false,
         Some("active = true"),
     )];
@@ -331,9 +380,16 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text),
         ("active", FieldKind::Bool),
+        ("tier", FieldKind::Text),
+        ("handle", FieldKind::Text),
         ("age", FieldKind::Uint),
     ],
-    indexes = [&FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    indexes = [
+        &FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS[0],
+        &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_MODELS[0],
+        &FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS[0],
+        &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS[0],
+    ],
     store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,
 }
@@ -829,10 +885,115 @@ fn seed_filtered_indexed_session_sql_entities(
                 id: Ulid::from_u128(id),
                 name: name.to_string(),
                 active,
+                tier: "standard".to_string(),
+                handle: format!("handle-{name}"),
                 age,
             })
             .expect("filtered indexed seed insert should succeed");
     }
+}
+
+// Seed one deterministic filtered composite-indexed SQL fixture dataset used by
+// equality-prefix plus bounded-text window tests.
+fn seed_filtered_composite_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, &'static str, bool, &'static str, &'static str, u64)],
+) {
+    for (id, name, active, tier, handle, age) in rows.iter().copied() {
+        session
+            .insert(FilteredIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                active,
+                tier: tier.to_string(),
+                handle: handle.to_string(),
+                age,
+            })
+            .expect("filtered composite indexed seed insert should succeed");
+    }
+}
+
+// Seed the canonical mixed-case filtered expression fixture used by the
+// guarded `LOWER(handle)` query tests.
+fn seed_filtered_expression_indexed_session_sql_entities(session: &DbSession<SessionSqlCanister>) {
+    seed_filtered_composite_indexed_session_sql_entities(
+        session,
+        &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
+    );
+}
+
+// Inspect the raw index-range scan chosen by the filtered expression order-only
+// SQL route so tests can assert both index isolation and scan order directly.
+fn inspect_filtered_expression_order_only_raw_scan(
+    session: &DbSession<SessionSqlCanister>,
+) -> (Vec<(StorageKey, Vec<StorageKey>)>, Vec<Ulid>) {
+    let plan = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered expression-order SQL query should lower")
+        .plan()
+        .expect("filtered expression-order SQL query should plan")
+        .into_inner();
+    let lowered_specs =
+        lower_index_range_specs(FilteredIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
+            .expect("filtered expression-order access plan should lower to one raw index range");
+    let [spec] = lowered_specs.as_slice() else {
+        panic!("filtered expression-order access plan should use exactly one index-range spec");
+    };
+    let store = INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("filtered expression indexed store should recover");
+
+    // Inspect stored entries that fall inside the lowered raw envelope.
+    let entries_in_range = store.with_index(|index_store| {
+        index_store
+            .entries()
+            .into_iter()
+            .filter(|(raw_key, _)| key_within_envelope(raw_key, spec.lower(), spec.upper()))
+            .map(|(raw_key, raw_entry)| {
+                let decoded_key =
+                    IndexKey::try_from_raw(&raw_key).expect("filtered expression test key");
+                let decoded_ids = raw_entry
+                    .decode_keys()
+                    .expect("filtered expression test entry")
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                (
+                    decoded_key
+                        .primary_storage_key()
+                        .expect("primary storage key"),
+                    decoded_ids,
+                )
+            })
+            .collect::<Vec<_>>()
+    });
+
+    // Then inspect the actual scan order produced by the shared raw range resolver.
+    let keys = store
+        .with_index(|index_store| {
+            index_store.resolve_data_values_in_raw_range_limited(
+                FilteredIndexedSessionSqlEntity::ENTITY_TAG,
+                spec.index(),
+                (spec.lower(), spec.upper()),
+                IndexScanContinuationInput::new(None, Direction::Asc),
+                4,
+                None,
+            )
+        })
+        .expect("filtered expression index range scan should succeed");
+    let scanned_ids = keys
+        .into_iter()
+        .map(|key: DataKey| match key.storage_key() {
+            StorageKey::Ulid(id) => id,
+            other => panic!(
+                "filtered expression fixture keys should stay on ULID primary keys: {other:?}"
+            ),
+        })
+        .collect::<Vec<_>>();
+
+    (entries_in_range, scanned_ids)
 }
 
 // Seed one deterministic aggregate fixture dataset used by revived session aggregate tests.
@@ -2878,6 +3039,102 @@ fn session_explain_execution_order_only_filtered_covering_query_uses_index_range
 }
 
 #[test]
+fn session_explain_execution_order_only_filtered_desc_residual_query_fails_closed_before_top_n() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite dataset where the
+    // descending `handle` order uses the `tier, handle` index, but the extra
+    // `age >= 20` predicate must remain residual.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "amber", false, "gold", "bramble", 10),
+            (9_222, "bravo", true, "gold", "bravo", 20),
+            (9_223, "charlie", true, "gold", "bristle", 30),
+            (9_224, "delta", false, "silver", "brisk", 40),
+            (9_225, "echo", true, "silver", "Brisk", 50),
+        ],
+    );
+
+    // Phase 2: require the residual descending filtered composite order-only
+    // shape to keep the secondary-prefix route while failing closed before
+    // Top-N derivation.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND age >= 20 ORDER BY handle DESC, id DESC LIMIT 2",
+        )
+        .expect("descending filtered composite residual order-only SQL query should lower")
+        .explain_execution()
+        .expect(
+            "descending filtered composite residual order-only SQL explain_execution should succeed",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "descending filtered composite residual order-only queries should keep the filtered index-prefix root",
+    );
+    assert_eq!(
+        descriptor.execution_mode(),
+        crate::db::ExplainExecutionMode::Materialized,
+        "descending filtered composite residual order-only queries should stay materialized",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "descending filtered composite residual order-only projections should materialize rows because the residual filter needs non-index fields",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "descending filtered composite residual order-only roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "descending filtered composite residual order-only roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::ResidualPredicateFilter
+        )
+        .is_some(),
+        "descending filtered composite residual order-only roots should expose the residual filter stage",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending filtered composite residual order-only roots should still report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_some(),
+        "descending filtered composite residual order-only roots should fail closed to a materialized sort",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_none(),
+        "descending filtered composite residual order-only roots must not derive Top-N seek",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_none(),
+        "descending filtered composite residual order-only roots must not report access-satisfied ordering after failing closed",
+    );
+}
+
+#[test]
 fn session_explain_execution_order_only_filtered_query_without_guard_falls_back_to_full_scan() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -2920,6 +3177,1596 @@ fn session_explain_execution_order_only_filtered_query_without_guard_falls_back_
         descriptor.node_properties().get("cov_read_route"),
         Some(&Value::Text("materialized".to_string())),
         "unguarded filtered-order explains must surface the explicit materialized fallback route",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_equivalent_strict_prefix_forms_match_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered-index dataset where only the
+    // guarded active rows should participate in the bounded `br...` window.
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_201, "amber", false, 10),
+            (9_202, "bravo", true, 20),
+            (9_203, "bristle", true, 30),
+            (9_204, "broom", false, 40),
+            (9_205, "charlie", true, 50),
+        ],
+    );
+
+    // Phase 2: require strict LIKE, direct STARTS_WITH, and explicit text
+    // ranges to return the same guarded filtered-index rows.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered strict LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered direct STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered strict text-range projection should execute");
+
+    let expected_rows = vec![
+        vec![Value::Text("bravo".to_string())],
+        vec![Value::Text("bristle".to_string())],
+    ];
+
+    assert_eq!(
+        like_rows, expected_rows,
+        "filtered strict LIKE prefix projection must return the guarded bounded rows",
+    );
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "filtered direct STARTS_WITH projection must preserve row parity with strict LIKE",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "filtered strict text-range projection must preserve row parity with strict LIKE",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_equivalent_desc_strict_prefix_forms_match_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered-index dataset where the same
+    // guarded `br...` window can prove descending parity across the accepted
+    // bounded text spellings.
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_201, "amber", false, 10),
+            (9_202, "bravo", true, 20),
+            (9_203, "bristle", true, 30),
+            (9_204, "broom", false, 40),
+            (9_205, "charlie", true, 50),
+        ],
+    );
+
+    // Phase 2: require strict LIKE, direct STARTS_WITH, and explicit text
+    // ranges to return the same reverse guarded filtered-index window.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered strict LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered direct STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered strict text-range projection should execute");
+
+    let expected_rows = vec![
+        vec![Value::Text("bristle".to_string())],
+        vec![Value::Text("bravo".to_string())],
+    ];
+
+    assert_eq!(
+        like_rows, expected_rows,
+        "descending filtered strict LIKE prefix projection must return the guarded reverse bounded rows",
+    );
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "descending filtered direct STARTS_WITH projection must preserve row parity with strict LIKE",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "descending filtered strict text-range projection must preserve row parity with strict LIKE",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_equivalent_strict_prefix_forms_preserve_covering_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered-index dataset so the guarded
+    // bounded text forms all target the same filtered secondary index window.
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_201, "amber", false, 10),
+            (9_202, "bravo", true, 20),
+            (9_203, "bristle", true, 30),
+            (9_204, "broom", false, 40),
+            (9_205, "charlie", true, 50),
+        ],
+    );
+
+    // Phase 2: require strict LIKE, direct STARTS_WITH, and explicit text
+    // ranges to preserve the same covering filtered index-range route.
+    let queries = [
+        (
+            "filtered strict LIKE prefix",
+            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 2",
+        ),
+        (
+            "filtered direct STARTS_WITH",
+            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 2",
+        ),
+        (
+            "filtered strict text range",
+            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 2",
+        ),
+    ];
+
+    for (context, sql) in queries {
+        let descriptor = session
+            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
+            .explain_execution()
+            .unwrap_or_else(|err| {
+                panic!("{context} SQL explain_execution should succeed: {err:?}")
+            });
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} queries should stay on the shared index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(true),
+            "{context} projections should keep the explicit covering-read route",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("cov_read_route"),
+            Some(&Value::Text("covering_read".to_string())),
+            "{context} explain roots should expose the covering-read route label",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::SecondaryOrderPushdown
+            )
+            .is_some(),
+            "{context} roots should report secondary order pushdown",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::OrderByAccessSatisfied
+            )
+            .is_some(),
+            "{context} roots should report access-satisfied ordering",
+        );
+    }
+}
+
+#[test]
+fn session_explain_execution_filtered_equivalent_desc_strict_prefix_forms_preserve_covering_route()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered-index dataset so the guarded
+    // bounded text forms all target the same reverse filtered secondary index
+    // window.
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_201, "amber", false, 10),
+            (9_202, "bravo", true, 20),
+            (9_203, "bristle", true, 30),
+            (9_204, "broom", false, 40),
+            (9_205, "charlie", true, 50),
+        ],
+    );
+
+    // Phase 2: require strict LIKE, direct STARTS_WITH, and explicit text
+    // ranges to preserve the same reverse covering filtered index-range route.
+    let queries = [
+        (
+            "descending filtered strict LIKE prefix",
+            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 2",
+        ),
+        (
+            "descending filtered direct STARTS_WITH",
+            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 2",
+        ),
+        (
+            "descending filtered strict text range",
+            "SELECT name FROM FilteredIndexedSessionSqlEntity WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 2",
+        ),
+    ];
+
+    for (context, sql) in queries {
+        let descriptor = session
+            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
+            .explain_execution()
+            .unwrap_or_else(|err| {
+                panic!("{context} SQL explain_execution should succeed: {err:?}")
+            });
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} queries should stay on the shared reverse index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(true),
+            "{context} projections should keep the explicit reverse covering-read route",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("cov_read_route"),
+            Some(&Value::Text("covering_read".to_string())),
+            "{context} explain roots should expose the reverse covering-read route label",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::SecondaryOrderPushdown
+            )
+            .is_some(),
+            "{context} roots should report secondary order pushdown",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::OrderByAccessSatisfied
+            )
+            .is_some(),
+            "{context} roots should report access-satisfied reverse ordering",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_equivalent_strict_prefix_forms_match_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset where
+    // the guard, equality prefix, and bounded text window together isolate one
+    // ordered `(tier, handle)` range on the filtered secondary index.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require strict LIKE, direct STARTS_WITH, and explicit text
+    // ranges to return the same guarded equality-prefix filtered window.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered composite strict LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered composite direct STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered composite strict text-range projection should execute");
+
+    let expected_rows = vec![
+        vec![
+            Value::Text("gold".to_string()),
+            Value::Text("bravo".to_string()),
+        ],
+        vec![
+            Value::Text("gold".to_string()),
+            Value::Text("bristle".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        like_rows, expected_rows,
+        "filtered composite strict LIKE prefix projection must return the guarded equality-prefix rows",
+    );
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "filtered composite direct STARTS_WITH projection must preserve row parity with strict LIKE",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "filtered composite strict text-range projection must preserve row parity with strict LIKE",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_equivalent_desc_strict_prefix_forms_match_guarded_rows()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset where
+    // the reverse bounded window still depends on the same guard and equality
+    // prefix before traversing the `handle` suffix.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require strict LIKE, direct STARTS_WITH, and explicit text
+    // ranges to return the same reverse guarded equality-prefix window.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered composite strict LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered composite direct STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered composite strict text-range projection should execute");
+
+    let expected_rows = vec![
+        vec![
+            Value::Text("gold".to_string()),
+            Value::Text("bristle".to_string()),
+        ],
+        vec![
+            Value::Text("gold".to_string()),
+            Value::Text("bravo".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        like_rows, expected_rows,
+        "descending filtered composite strict LIKE prefix projection must return the guarded reverse equality-prefix rows",
+    );
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "descending filtered composite direct STARTS_WITH projection must preserve row parity with strict LIKE",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "descending filtered composite strict text-range projection must preserve row parity with strict LIKE",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_composite_equivalent_strict_prefix_forms_preserve_covering_route()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset so the
+    // guard and equality prefix drive the same bounded `handle` suffix window.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the three accepted bounded text spellings to preserve
+    // one shared composite filtered covering route with a one-slot equality prefix.
+    let queries = [
+        (
+            "filtered composite strict LIKE prefix",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        ),
+        (
+            "filtered composite direct STARTS_WITH",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
+        ),
+        (
+            "filtered composite strict text range",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+        ),
+    ];
+
+    for (context, sql) in queries {
+        let descriptor = session
+            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
+            .explain_execution()
+            .unwrap_or_else(|err| {
+                panic!("{context} SQL explain_execution should succeed: {err:?}")
+            });
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} queries should stay on the shared composite index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(true),
+            "{context} projections should keep the explicit composite covering-read route",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("cov_read_route"),
+            Some(&Value::Text("covering_read".to_string())),
+            "{context} explain roots should expose the composite covering-read route label",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("prefix_len"),
+            Some(&Value::Uint(1)),
+            "{context} explain roots should report one equality-prefix slot before the bounded text suffix",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("prefix_values"),
+            Some(&Value::List(vec![Value::Text("gold".to_string())])),
+            "{context} explain roots should expose the concrete equality-prefix value before the bounded text suffix",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::SecondaryOrderPushdown
+            )
+            .is_some(),
+            "{context} roots should report secondary order pushdown",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::OrderByAccessSatisfied
+            )
+            .is_some(),
+            "{context} roots should report access-satisfied suffix ordering",
+        );
+    }
+}
+
+#[test]
+fn session_explain_execution_filtered_composite_equivalent_desc_strict_prefix_forms_preserve_covering_route()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset so the
+    // reverse bounded route still depends on the same guard and equality prefix.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the reverse bounded text spellings to preserve one
+    // shared composite filtered covering route with the same equality prefix.
+    let queries = [
+        (
+            "descending filtered composite strict LIKE prefix",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        ),
+        (
+            "descending filtered composite direct STARTS_WITH",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
+        ),
+        (
+            "descending filtered composite strict text range",
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+        ),
+    ];
+
+    for (context, sql) in queries {
+        let descriptor = session
+            .query_from_sql::<FilteredIndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"))
+            .explain_execution()
+            .unwrap_or_else(|err| {
+                panic!("{context} SQL explain_execution should succeed: {err:?}")
+            });
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} queries should stay on the shared reverse composite index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(true),
+            "{context} projections should keep the explicit reverse composite covering-read route",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("cov_read_route"),
+            Some(&Value::Text("covering_read".to_string())),
+            "{context} explain roots should expose the reverse composite covering-read route label",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("prefix_len"),
+            Some(&Value::Uint(1)),
+            "{context} explain roots should report the same equality-prefix slot before reverse bounded traversal",
+        );
+        assert_eq!(
+            descriptor.node_properties().get("prefix_values"),
+            Some(&Value::List(vec![Value::Text("gold".to_string())])),
+            "{context} explain roots should expose the same concrete equality-prefix value before reverse bounded traversal",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::SecondaryOrderPushdown
+            )
+            .is_some(),
+            "{context} roots should report secondary order pushdown",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::OrderByAccessSatisfied
+            )
+            .is_some(),
+            "{context} roots should report access-satisfied reverse suffix ordering",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_order_only_covering_query_returns_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset where
+    // the guarded `tier = 'gold'` equality prefix should expose one ordered
+    // `handle` suffix window without needing an extra bounded text predicate.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the projection lane to return only the guarded
+    // equality-prefix subset under the `ORDER BY handle, id` suffix shape.
+    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+        .expect("filtered composite order-only covering projection query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ],
+        "guarded filtered composite order-only queries should return only rows admitted by the equality-prefix filtered window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_order_only_desc_covering_query_returns_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset where
+    // reverse traversal still depends on the same guarded `tier = 'gold'`
+    // equality prefix before ordering by the `handle` suffix.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require reverse ordered projection rows from the same guarded
+    // equality-prefix composite window.
+    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+        .expect(
+            "descending filtered composite order-only covering projection query should execute",
+        );
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("charlie".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ],
+        "descending guarded filtered composite order-only queries should return the reverse equality-prefix window",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_filtered_composite_covering_query_uses_index_prefix_access()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset so
+    // EXPLAIN EXECUTION can prove the guarded equality-prefix query uses the
+    // composite filtered secondary index instead of materializing rows.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the guarded composite order-only SQL lane to surface
+    // the shared index-prefix covering route with access-satisfied suffix ordering.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("filtered composite order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "guarded filtered composite-order queries should stay on the shared index-prefix root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "guarded filtered composite-order coverable projections should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "guarded filtered composite-order explain roots should expose the covering-read route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "guarded filtered composite-order explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "guarded filtered composite-order explain roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered composite-order roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered composite-order roots should report access-satisfied suffix ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_filtered_composite_desc_covering_query_uses_index_prefix_access()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset so
+    // reverse EXPLAIN EXECUTION can prove the same guarded equality-prefix
+    // route instead of a materialized reverse sort.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the descending guarded composite order-only SQL lane
+    // to surface the shared index-prefix covering route.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        )
+        .expect("descending filtered composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("descending filtered composite order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "descending guarded filtered composite-order queries should stay on the shared index-prefix root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "descending guarded filtered composite-order coverable projections should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "descending guarded filtered composite-order explain roots should expose the covering-read route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "descending guarded filtered composite-order explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "descending guarded filtered composite-order explain roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending guarded filtered composite-order roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_none(),
+        "descending guarded filtered composite-order roots should fail closed on reverse suffix streaming safety",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_filtered_composite_desc_offset_query_stays_on_materialized_boundary()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered composite-index dataset where
+    // the `tier = 'gold'` equality prefix keeps the suffix order meaningful
+    // even though reverse offset paging must still stay on the shared
+    // materialized boundary.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the descending offset composite filtered order-only
+    // shape to keep the index-prefix route but stop before Top-N derivation.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("descending filtered composite order-only offset SQL query should lower")
+        .explain_execution()
+        .expect(
+            "descending filtered composite order-only offset SQL explain_execution should succeed",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "descending filtered composite order-only offset queries should keep the shared index-prefix root",
+    );
+    assert_eq!(
+        descriptor.execution_mode(),
+        crate::db::ExplainExecutionMode::Materialized,
+        "descending filtered composite order-only offset queries should stay on the materialized boundary",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "descending filtered composite order-only offset projections should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "descending filtered composite order-only offset roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "descending filtered composite order-only offset roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending filtered composite order-only offset roots should still report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_some(),
+        "descending filtered composite order-only offset roots should stay on the materialized boundary sort contract",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_none(),
+        "descending filtered composite order-only offset roots must not derive Top-N seek",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_none(),
+        "descending filtered composite order-only offset roots must not report direct access-satisfied ordering",
+    );
+    let limit_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::LimitOffset,
+    )
+    .expect("descending filtered composite order-only offset roots should expose one limit node");
+    assert_eq!(
+        limit_node.node_properties().get("offset"),
+        Some(&Value::Uint(1)),
+        "descending filtered composite order-only offset roots should expose the retained offset window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_expression_order_only_covering_query_returns_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered dataset where the active rows
+    // include one mixed-case `handle` value so `ORDER BY LOWER(handle)` has one
+    // real expression-ordering contract to preserve.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231, "alpha", false, "gold", "bramble", 10),
+            (9_232, "bravo-user", true, "gold", "bravo", 20),
+            (9_233, "bristle-user", true, "gold", "bristle", 30),
+            (9_234, "brisk-user", true, "silver", "Brisk", 40),
+            (9_235, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the projection lane to keep the guarded active-only
+    // window on the filtered `LOWER(handle)` route.
+    let sql = "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+        .expect("filtered expression order-only projection query should execute");
+    let entity_rows = session
+        .execute_sql::<FilteredIndexedSessionSqlEntity>(sql)
+        .expect("filtered expression order-only entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().handle.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        vec![
+            Value::Ulid(Ulid::from_u128(9_232)),
+            Value::Text("bravo".to_string()),
+        ],
+        vec![
+            Value::Ulid(Ulid::from_u128(9_234)),
+            Value::Text("Brisk".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        entity_projected_rows, expected_rows,
+        "guarded filtered expression order-only entity queries should preserve the canonical LOWER(handle) window",
+    );
+    assert_eq!(
+        projected_rows, expected_rows,
+        "guarded filtered expression order-only projection queries should preserve the canonical LOWER(handle) window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_expression_order_only_desc_covering_query_returns_guarded_rows()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the same mixed-case filtered dataset so reverse
+    // `LOWER(handle)` traversal keeps the same guarded route.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231, "alpha", false, "gold", "bramble", 10),
+            (9_232, "bravo-user", true, "gold", "bravo", 20),
+            (9_233, "bristle-user", true, "gold", "bristle", 30),
+            (9_234, "brisk-user", true, "silver", "Brisk", 40),
+            (9_235, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require reverse ordered projection rows from the same guarded
+    // filtered expression window.
+    let sql = "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+        .expect("descending filtered expression order-only projection query should execute");
+    let entity_rows = session
+        .execute_sql::<FilteredIndexedSessionSqlEntity>(sql)
+        .expect("descending filtered expression order-only entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().handle.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        vec![
+            Value::Ulid(Ulid::from_u128(9_235)),
+            Value::Text("charlie".to_string()),
+        ],
+        vec![
+            Value::Ulid(Ulid::from_u128(9_233)),
+            Value::Text("bristle".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        entity_projected_rows, expected_rows,
+        "descending guarded filtered expression order-only entity queries should preserve the reverse LOWER(handle) window",
+    );
+    assert_eq!(
+        projected_rows, expected_rows,
+        "descending guarded filtered expression order-only projection queries should preserve the reverse LOWER(handle) window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_expression_equivalent_prefix_forms_match_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one mixed-case filtered dataset so the casefold
+    // `STARTS_WITH(LOWER(handle), ...)` spellings share one real guarded route.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231, "alpha", false, "gold", "bramble", 10),
+            (9_232, "bravo-user", true, "gold", "bravo", 20),
+            (9_233, "bristle-user", true, "gold", "bristle", 30),
+            (9_234, "brisk-user", true, "silver", "Brisk", 40),
+            (9_235, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the accepted filtered expression prefix spellings to
+    // keep one guarded projection result set.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered expression LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered expression STARTS_WITH projection should execute");
+    let entity_rows = session
+        .execute_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered expression LIKE prefix entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().handle.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        vec![
+            Value::Ulid(Ulid::from_u128(9_232)),
+            Value::Text("bravo".to_string()),
+        ],
+        vec![
+            Value::Ulid(Ulid::from_u128(9_234)),
+            Value::Text("Brisk".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "guarded filtered expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        entity_projected_rows, expected_rows,
+        "guarded filtered expression prefix entity queries should preserve the canonical LOWER(handle) window",
+    );
+    assert_eq!(
+        like_rows, expected_rows,
+        "guarded filtered expression prefix projection queries should preserve the canonical LOWER(handle) window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_expression_equivalent_desc_prefix_forms_match_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the same mixed-case filtered dataset so reverse casefold
+    // prefix traversal stays on the same guarded route.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231, "alpha", false, "gold", "bramble", 10),
+            (9_232, "bravo-user", true, "gold", "bravo", 20),
+            (9_233, "bristle-user", true, "gold", "bristle", 30),
+            (9_234, "brisk-user", true, "silver", "Brisk", 40),
+            (9_235, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the accepted descending filtered expression prefix
+    // spellings to keep one reverse guarded projection result set.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered expression LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered expression STARTS_WITH projection should execute");
+    let entity_rows = session
+        .execute_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        )
+        .expect("descending filtered expression LIKE prefix entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().handle.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        vec![
+            Value::Ulid(Ulid::from_u128(9_233)),
+            Value::Text("bristle".to_string()),
+        ],
+        vec![
+            Value::Ulid(Ulid::from_u128(9_234)),
+            Value::Text("Brisk".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "descending guarded filtered expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        entity_projected_rows, expected_rows,
+        "descending guarded filtered expression prefix entity queries should preserve the reverse LOWER(handle) window",
+    );
+    assert_eq!(
+        like_rows, expected_rows,
+        "descending guarded filtered expression prefix projection queries should preserve the reverse LOWER(handle) window",
+    );
+}
+
+#[test]
+fn execute_sql_filtered_expression_index_range_scan_preserves_lower_handle_order() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic filtered dataset whose canonical
+    // `LOWER(handle), id` order differs from primary-key order.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: lower the shared filtered expression-order SQL shape and
+    // inspect the raw index-range scan order directly.
+    let (entries_in_range_keys, scanned_ids) =
+        inspect_filtered_expression_order_only_raw_scan(&session);
+
+    assert_eq!(
+        entries_in_range_keys,
+        vec![
+            (
+                StorageKey::Ulid(Ulid::from_u128(9_232)),
+                vec![StorageKey::Ulid(Ulid::from_u128(9_232))]
+            ),
+            (
+                StorageKey::Ulid(Ulid::from_u128(9_234)),
+                vec![StorageKey::Ulid(Ulid::from_u128(9_234))]
+            ),
+            (
+                StorageKey::Ulid(Ulid::from_u128(9_233)),
+                vec![StorageKey::Ulid(Ulid::from_u128(9_233))]
+            ),
+            (
+                StorageKey::Ulid(Ulid::from_u128(9_235)),
+                vec![StorageKey::Ulid(Ulid::from_u128(9_235))]
+            ),
+        ],
+        "filtered expression raw bounds must isolate the expression index instead of bleeding into sibling filtered indexes",
+    );
+    assert_eq!(
+        scanned_ids,
+        vec![
+            Ulid::from_u128(9_232),
+            Ulid::from_u128(9_234),
+            Ulid::from_u128(9_233),
+            Ulid::from_u128(9_235),
+        ],
+        "raw filtered expression index-range scans must preserve canonical LOWER(handle), id order before later pagination/windowing",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_filtered_expression_covering_query_uses_index_range_access()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one mixed-case filtered dataset so EXPLAIN EXECUTION can
+    // prove the guarded `LOWER(handle)` order-only route.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231, "alpha", false, "gold", "bramble", 10),
+            (9_232, "bravo-user", true, "gold", "bravo", 20),
+            (9_233, "bristle-user", true, "gold", "bristle", 30),
+            (9_234, "brisk-user", true, "silver", "Brisk", 40),
+            (9_235, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the guarded filtered expression order-only SQL lane to
+    // surface the shared index-range covering route.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered expression order-only SQL query should lower")
+        .explain_execution()
+        .expect("filtered expression order-only SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "guarded filtered expression-order queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "guarded filtered expression-order explain roots should expose the materialized route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered expression-order roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered expression-order roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_expression_prefix_covering_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one mixed-case filtered dataset so EXPLAIN EXECUTION can
+    // prove the guarded casefold prefix route stays on the same expression index.
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231, "alpha", false, "gold", "bramble", 10),
+            (9_232, "bravo-user", true, "gold", "bravo", 20),
+            (9_233, "bristle-user", true, "gold", "bristle", 30),
+            (9_234, "brisk-user", true, "silver", "Brisk", 40),
+            (9_235, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+
+    // Phase 2: require the guarded filtered expression prefix SQL lane to
+    // surface the shared index-range covering route and access-satisfied order.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered expression prefix SQL query should lower")
+        .explain_execution()
+        .expect("filtered expression prefix SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "guarded filtered expression-prefix queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "guarded filtered expression-prefix explain roots should expose the materialized route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered expression-prefix roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered expression-prefix roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_expression_order_only_query_returns_guarded_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the canonical mixed-case filtered expression dataset so
+    // the guarded `tier = 'gold'` window traverses one `LOWER(handle)` suffix.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the projection lane to keep the guarded equality-prefix
+    // window on the filtered composite `tier, LOWER(handle)` route.
+    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+        .expect("filtered composite expression order-only projection query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ],
+        "guarded filtered composite expression order-only projections should preserve the canonical LOWER(handle) suffix window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_expression_order_only_desc_query_returns_guarded_rows()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: reuse the same guarded mixed-case dataset so reverse
+    // `LOWER(handle)` traversal keeps the same equality-prefix route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the reverse projection lane to keep the guarded
+    // `tier = 'gold'` equality-prefix window on the same composite route.
+    let sql = "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(&session, sql)
+        .expect(
+            "descending filtered composite expression order-only projection query should execute",
+        );
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("charlie".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ],
+        "descending guarded filtered composite expression order-only projections should preserve the reverse LOWER(handle) suffix window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_expression_equivalent_prefix_forms_match_guarded_rows()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the canonical mixed-case filtered dataset so the guarded
+    // equality prefix and casefolded suffix range share one real route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the accepted bounded casefold spellings to keep one
+    // guarded equality-prefix projection result set.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered composite expression LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered composite expression STARTS_WITH projection should execute");
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "guarded filtered composite expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        like_rows,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+        ],
+        "guarded filtered composite expression prefix projections should preserve the canonical LOWER(handle) equality-prefix window",
+    );
+}
+
+#[test]
+fn execute_sql_projection_filtered_composite_expression_equivalent_desc_prefix_forms_match_guarded_rows()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the same guarded mixed-case dataset so reverse casefold
+    // prefix traversal stays on the same equality-prefix route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the accepted descending bounded casefold spellings to
+    // keep one reverse guarded equality-prefix result set.
+    let like_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered composite expression LIKE prefix projection should execute");
+    let starts_with_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered composite expression STARTS_WITH projection should execute");
+
+    assert_eq!(
+        starts_with_rows, like_rows,
+        "descending guarded filtered composite expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        like_rows,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bristle".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("bravo".to_string()),
+            ],
+        ],
+        "descending guarded filtered composite expression prefix projections should preserve the reverse LOWER(handle) equality-prefix window",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_composite_expression_order_only_query_uses_index_range_access()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
+    // prove the filtered composite `tier, LOWER(handle)` order-only route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the guarded equality-prefix composite expression lane
+    // to stay on one shared index-prefix root with materialized projection rows.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression order-only SQL query should lower")
+        .explain_execution()
+        .expect("filtered composite expression order-only SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "guarded filtered composite expression order-only queries should stay on the shared index-prefix root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "guarded filtered composite expression projections should materialize original handle values instead of claiming a covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "guarded filtered composite expression explain roots should expose the materialized route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "guarded filtered composite expression explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "guarded filtered composite expression explain roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered composite expression roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered composite expression roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_composite_expression_prefix_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
+    // prove the filtered composite bounded `LOWER(handle)` suffix route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the guarded equality-prefix composite expression prefix
+    // lane to preserve the same shared index-range root.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression prefix SQL query should lower")
+        .explain_execution()
+        .expect("filtered composite expression prefix SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "guarded filtered composite expression-prefix queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "guarded filtered composite expression-prefix projections should materialize original handle values instead of claiming a covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "guarded filtered composite expression-prefix explain roots should expose the materialized route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "guarded filtered composite expression-prefix explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "guarded filtered composite expression-prefix explain roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered composite expression-prefix roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered composite expression-prefix roots should report access-satisfied LOWER(handle) ordering",
     );
 }
 

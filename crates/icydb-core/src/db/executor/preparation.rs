@@ -41,14 +41,10 @@ impl ExecutionPreparation {
         slot_map: Option<Vec<usize>>,
     ) -> Self {
         // Phase 1: Compile the row-predicate once from logical plan semantics.
-        let compiled_predicate = if plan.has_residual_predicate() {
-            plan.scalar_plan()
-                .predicate
-                .as_ref()
-                .map(|predicate| PredicateProgram::compile_with_model(model, predicate))
-        } else {
-            None
-        };
+        let effective_predicate = plan.execution_preparation_predicate();
+        let compiled_predicate = effective_predicate
+            .as_ref()
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
 
         // Phase 2: Derive canonical predicate capability once for runtime/explain consumers.
         let predicate_capability_profile = match (compiled_predicate.as_ref(), slot_map.as_deref())
@@ -93,14 +89,10 @@ impl ExecutionPreparation {
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
     ) -> Self {
-        let compiled_predicate = if plan.has_residual_predicate() {
-            plan.scalar_plan()
-                .predicate
-                .as_ref()
-                .map(|predicate| PredicateProgram::compile_with_model(model, predicate))
-        } else {
-            None
-        };
+        let effective_predicate = plan.effective_execution_predicate();
+        let compiled_predicate = effective_predicate
+            .as_ref()
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
         let conservative_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
             (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
                 compiled_predicate.executable(),
@@ -132,14 +124,10 @@ impl ExecutionPreparation {
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
     ) -> Self {
-        let compiled_predicate = if plan.has_residual_predicate() {
-            plan.scalar_plan()
-                .predicate
-                .as_ref()
-                .map(|predicate| PredicateProgram::compile_with_model(model, predicate))
-        } else {
-            None
-        };
+        let effective_predicate = plan.execution_preparation_predicate();
+        let compiled_predicate = effective_predicate
+            .as_ref()
+            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
             (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
                 compiled_predicate.executable(),

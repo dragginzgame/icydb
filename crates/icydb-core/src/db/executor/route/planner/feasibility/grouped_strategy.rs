@@ -21,12 +21,12 @@ use crate::db::{
 struct GroupedOrderedEligibility {
     ordered_hint: bool,
     direction_compatible: bool,
-    stream_order_contract_safe: bool,
+    ordered_streaming_safe: bool,
 }
 
 impl GroupedOrderedEligibility {
     const fn is_eligible(self) -> bool {
-        self.ordered_hint && self.direction_compatible && self.stream_order_contract_safe
+        self.ordered_hint && self.direction_compatible && self.ordered_streaming_safe
     }
 }
 
@@ -36,13 +36,13 @@ const fn derive_grouped_ordered_eligibility(
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
-    stream_order_contract_safe: bool,
+    ordered_streaming_safe: bool,
 ) -> GroupedOrderedEligibility {
     GroupedOrderedEligibility {
         ordered_hint: matches!(plan_hint, GroupedPlanStrategyHint::OrderedGroup),
         direction_compatible: !matches!(direction, Direction::Desc)
             || desc_physical_reverse_supported,
-        stream_order_contract_safe,
+        ordered_streaming_safe,
     }
 }
 
@@ -63,14 +63,14 @@ pub(super) const fn grouped_execution_strategy_for_runtime(
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
-    stream_order_contract_safe: bool,
+    ordered_streaming_safe: bool,
 ) -> GroupedExecutionStrategy {
     let grouped_ordered_eligibility = derive_grouped_ordered_eligibility(
         plan,
         plan_hint,
         direction,
         desc_physical_reverse_supported,
-        stream_order_contract_safe,
+        ordered_streaming_safe,
     );
 
     grouped_execution_strategy_for_plan_hint(grouped_ordered_eligibility)

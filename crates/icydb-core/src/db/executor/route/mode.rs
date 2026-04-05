@@ -32,7 +32,14 @@ pub(in crate::db::executor) fn aggregate_non_count_streaming_allowed(
         };
     }
 
-    if capabilities.stream_order_contract_safe || index_range_limit_enabled {
+    if index_range_limit_enabled {
+        return true;
+    }
+    if capabilities
+        .load_order_route_contract
+        .allows_streaming_load()
+        && !secondary_pushdown_eligible
+    {
         return true;
     }
 
@@ -54,7 +61,10 @@ pub(in crate::db::executor) const fn load_streaming_allowed(
     capabilities: RouteCapabilities,
     index_range_limit_enabled: bool,
 ) -> bool {
-    capabilities.stream_order_contract_safe || index_range_limit_enabled
+    capabilities
+        .load_order_route_contract
+        .allows_streaming_load()
+        || index_range_limit_enabled
 }
 
 pub(in crate::db::executor::route) fn derive_load_route_direction(

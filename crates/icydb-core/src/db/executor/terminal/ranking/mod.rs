@@ -147,7 +147,7 @@ where
     ) -> Result<RankingTerminalBoundaryOutput<E>, InternalError> {
         match request {
             RankingTerminalBoundaryRequest::Take { take_count } => {
-                let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+                let page = self.execute_scalar_materialized_rank_page_boundary(prepared)?;
                 let (mut data_rows, _) = page.into_parts();
                 let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
                 if data_rows.len() > take_len {
@@ -237,7 +237,7 @@ where
             &target_field,
         )
         .map_err(AggregateFieldValueError::into_internal_error)?;
-        let page = self.execute_scalar_materialized_page_boundary(prepared)?;
+        let page = self.execute_scalar_materialized_rank_page_boundary(prepared)?;
         let data_rows = page.data_rows();
         let target_field = target_field.field();
 

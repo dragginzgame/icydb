@@ -9,6 +9,7 @@ use crate::{
         index::next_text_prefix,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
+            OrderSpec,
             key_item_match::{leading_index_key_item, starts_with_lookup_value_for_key_item},
             planner::{
                 index_literal_matches_schema,
@@ -28,6 +29,7 @@ pub(super) fn plan_compare(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
+    order: Option<&OrderSpec>,
 ) -> AccessPlan<Value> {
     if cmp.coercion.id == CoercionId::Strict
         && cmp.field == model.primary_key.name
@@ -52,8 +54,9 @@ pub(super) fn plan_compare(
                 &cmp.value,
                 cmp.coercion.id,
                 query_predicate,
+                order,
             ) {
-                return AccessPlan::union(paths);
+                return paths;
             }
         }
         CompareOp::In => {

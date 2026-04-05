@@ -10,7 +10,7 @@ mod semantics;
 mod structural_guards;
 
 use crate::{
-    db::access::{AccessPath, AccessPlan},
+    db::access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
     db::predicate::{
         CoercionId, CompareOp, ComparePredicate, Predicate, PredicateProgram, normalize,
     },
@@ -575,6 +575,49 @@ fn plan_access_filtered_expression_index_requires_predicate_implication() {
             values: vec![Value::Text("alice@example.com".to_string())],
         }),
         "query implication should unlock filtered expression-index prefix planning",
+    );
+}
+
+#[test]
+fn plan_access_filtered_expression_prefix_requires_predicate_implication() {
+    let model = model_with_filtered_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+
+    let missing_implication = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("Alice".to_string()),
+    );
+    let missing_plan = plan_access_for_test(model, &schema, Some(&missing_implication))
+        .expect("plan should build");
+    assert_eq!(
+        missing_plan,
+        AccessPlan::full_scan(),
+        "filtered expression prefix route must be rejected when query does not imply predicate",
+    );
+
+    let implied_predicate = Predicate::And(vec![
+        compare_text_casefold(
+            "email",
+            CompareOp::StartsWith,
+            Value::Text("Alice".to_string()),
+        ),
+        compare_strict("active", CompareOp::Eq, Value::Bool(true)),
+    ]);
+    let implied_plan =
+        plan_access_for_test(model, &schema, Some(&implied_predicate)).expect("plan should build");
+    assert_eq!(
+        implied_plan,
+        AccessPlan::path(AccessPath::IndexRange {
+            spec: SemanticIndexRangeSpec::new(
+                FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL,
+                vec![0usize],
+                Vec::new(),
+                Bound::Included(Value::Text("alice".to_string())),
+                Bound::Unbounded,
+            ),
+        }),
+        "query implication should unlock filtered expression-index prefix range planning",
     );
 }
 

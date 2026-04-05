@@ -17,7 +17,7 @@ use crate::{
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
-                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
                 write_access_strategy_label,
             },
             plan::{
@@ -57,6 +57,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
+    let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let has_residual_predicate = plan.has_residual_predicate();
     let strict_predicate_compatible = !has_residual_predicate
         || predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
@@ -95,10 +96,10 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     annotate_fast_path_reason_node_properties(&mut root, &route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
-    let explain_predicate = if has_residual_predicate {
-        explain_predicate_for_plan(plan)
+    let explain_predicate = if strict_predicate_compatible {
+        logical_predicate.map(ExplainPredicate::from_predicate)
     } else {
-        None
+        explain_predicate_for_plan(plan)
     };
     for predicate_stage in predicate_stage_descriptors(
         explain_predicate,
@@ -183,6 +184,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
+    let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let has_residual_predicate = plan.has_residual_predicate();
     let strict_predicate_compatible = !has_residual_predicate
         || execution_preparation_predicate_index_capability(&execution_preparation)
@@ -220,7 +222,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-    let predicate_stage = if !has_residual_predicate {
+    let predicate_stage = if logical_predicate.is_none() {
         "none"
     } else if strict_predicate_compatible {
         "index_prefilter(strict_all_or_none)"

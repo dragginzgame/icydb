@@ -153,14 +153,15 @@ fn validate_expression_order_support(
     let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()
         && !logical_pushdown_eligibility.requires_full_materialization();
     let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
-    let unique_prefix_ok = index_prefix_details.is_none_or(|(index, _)| index.is_unique());
+    let prefix_order_contract_safe =
+        index_prefix_details.is_none() || access_class.prefix_order_contract_safe();
     let secondary_pushdown_eligible = access_class
         .secondary_order_pushdown_applicability(model, order)
         .is_eligible();
 
     if secondary_contract_active
         && has_index_path
-        && unique_prefix_ok
+        && prefix_order_contract_safe
         && secondary_pushdown_eligible
     {
         return Ok(());

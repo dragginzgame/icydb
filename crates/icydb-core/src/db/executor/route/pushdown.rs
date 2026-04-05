@@ -71,12 +71,18 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_mode
         .logical_pushdown_eligibility();
     let index_prefix_details = access_class.single_path_index_prefix_details();
     let index_range_details = access_class.single_path_index_range_details();
-    let has_order_fields = !order.fields.is_empty();
-    let primary_key_order_satisfied =
-        order.is_primary_key_only(model.primary_key.name) && access_class.ordered();
-    let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
     let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
-    let unique_prefix_ok = index_prefix_details.is_none_or(|(index, _)| index.is_unique());
+    let has_order_fields = !order.fields.is_empty();
+    // `ORDER BY primary_key` is satisfied by access shapes whose final stream
+    // order is already primary-key ordered. Secondary index paths stay ordered,
+    // but that order is owned by the index key, so they must not claim PK-order
+    // satisfaction merely because they are monotonic.
+    let primary_key_order_satisfied = order.is_primary_key_only(model.primary_key.name)
+        && access_class.ordered()
+        && !has_index_path;
+    let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
+    let prefix_order_contract_safe =
+        index_prefix_details.is_none() || access_class.prefix_order_contract_safe();
     let secondary_pushdown_eligible = derive_secondary_pushdown_applicability_from_contract(
         model,
         plan,
@@ -88,6 +94,6 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_mode
         && (primary_key_order_satisfied
             || (secondary_contract_active
                 && has_index_path
-                && unique_prefix_ok
+                && prefix_order_contract_safe
                 && secondary_pushdown_eligible))
 }

@@ -125,10 +125,12 @@ impl ExecutionKernel {
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         let fallback_fetch_hint =
             route_plan.fallback_physical_fetch_hint(inputs.stream_bindings().direction());
+        let preserve_leaf_index_order = route_plan.secondary_fast_path_eligible();
         let key_stream = inputs.runtime().resolve_fallback_execution_key_stream(
             *inputs.stream_bindings(),
             fallback_fetch_hint,
             index_predicate_execution,
+            preserve_leaf_index_order,
         )?;
 
         Ok(ResolvedExecutionKeyStream::new(

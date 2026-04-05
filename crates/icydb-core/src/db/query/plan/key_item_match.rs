@@ -41,6 +41,30 @@ pub(in crate::db::query::plan) const fn leading_index_key_item(
     }
 }
 
+/// Return the canonical key-item at one stable zero-based slot.
+#[must_use]
+pub(in crate::db::query::plan) const fn index_key_item_at(
+    index: &IndexModel,
+    slot: usize,
+) -> Option<IndexKeyItem> {
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => {
+            if slot < fields.len() {
+                Some(IndexKeyItem::Field(fields[slot]))
+            } else {
+                None
+            }
+        }
+        IndexKeyItemsRef::Items(items) => {
+            if slot < items.len() {
+                Some(items[slot])
+            } else {
+                None
+            }
+        }
+    }
+}
+
 /// Return whether one key-item can match a predicate field/coercion pair.
 #[must_use]
 pub(in crate::db::query::plan) fn key_item_matches_field_and_coercion(

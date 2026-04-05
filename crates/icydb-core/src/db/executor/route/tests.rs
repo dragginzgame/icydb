@@ -5,8 +5,9 @@
 
 use super::{
     AGGREGATE_FAST_PATH_ORDER, ExecutionModeRouteCase, FastPathOrder, GroupedExecutionStrategy,
-    GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER, LoadTerminalFastPathContract,
-    RouteExecutionMode, TopNSeekSpec, build_execution_route_plan_for_aggregate_spec_with_model,
+    GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER, LoadOrderRouteContract,
+    LoadTerminalFastPathContract, RouteExecutionMode, TopNSeekSpec,
+    build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
     derive_load_terminal_fast_path_contract_for_model,
@@ -471,7 +472,11 @@ fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
     });
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
 
-    assert!(route_plan.stream_order_contract_safe());
+    assert!(
+        route_plan
+            .load_order_route_contract()
+            .allows_streaming_load()
+    );
     assert!(route_plan.desc_physical_reverse_supported());
     assert!(route_plan.capabilities.count_pushdown_shape_supported);
     assert!(
@@ -510,7 +515,11 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
     });
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
 
-    assert!(route_plan.stream_order_contract_safe());
+    assert!(
+        route_plan
+            .load_order_route_contract()
+            .allows_streaming_load()
+    );
     assert!(!route_plan.desc_physical_reverse_supported());
     assert!(!route_plan.capabilities.count_pushdown_shape_supported);
     assert!(
@@ -548,7 +557,11 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
     });
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
 
-    assert!(route_plan.stream_order_contract_safe());
+    assert!(
+        route_plan
+            .load_order_route_contract()
+            .allows_streaming_load()
+    );
     assert!(
         route_plan
             .capabilities
@@ -624,8 +637,33 @@ fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() 
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
 
     assert!(
-        !route_plan.stream_order_contract_safe(),
+        !route_plan
+            .load_order_route_contract()
+            .allows_streaming_load(),
         "non-unique index-prefix ordering must preserve post-access sorting",
+    );
+}
+
+#[test]
+fn route_capabilities_bound_non_unique_index_prefix_order_is_streaming_safe() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(10)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
+
+    assert!(
+        route_plan
+            .load_order_route_contract()
+            .allows_streaming_load(),
+        "bound non-unique index-prefix ordering should stream when the equality prefix collapses traversal to one suffix window",
     );
 }
 
@@ -1069,6 +1107,215 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
     assert_eq!(
         route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
         Some(2)
+    );
+}
+
+#[test]
+fn route_matrix_load_non_unique_secondary_order_desc_limit_one_fails_closed_before_top_n() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 0,
+    });
+
+    let route_plan = build_load_route_plan(&plan)
+        .expect("non-unique descending secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedFallback,
+        "non-unique descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "non-unique descending secondary order must fail closed to materialized execution",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "non-unique descending secondary order must not derive top-n seek",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint, None,
+        "non-unique descending secondary order must not derive bounded scan-budget hints",
+    );
+}
+
+#[test]
+fn route_matrix_load_non_unique_secondary_order_desc_offset_fails_closed_before_top_n() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 1,
+    });
+
+    let route_plan = build_load_route_plan(&plan)
+        .expect("offset-sensitive descending secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedFallback,
+        "offset-sensitive descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "offset-sensitive descending secondary order must fail closed to materialized execution",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "offset-sensitive descending secondary order must not derive top-n seek",
+    );
+}
+
+#[test]
+fn route_matrix_load_unique_secondary_order_desc_offset_stays_on_materialized_boundary() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 1,
+    });
+
+    let route_plan = build_unique_load_route_plan(&plan)
+        .expect("offset-sensitive unique descending secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedBoundary,
+        "offset-sensitive unique descending secondary order should keep the ordered materialized boundary contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "offset-sensitive unique descending secondary order must stay materialized",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "offset-sensitive unique descending secondary order must not derive top-n seek",
+    );
+}
+
+#[test]
+fn route_matrix_load_non_unique_secondary_order_desc_distinct_fails_closed_before_top_n() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().distinct = true;
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 0,
+    });
+
+    let route_plan = build_load_route_plan(&plan)
+        .expect("distinct descending secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedFallback,
+        "distinct descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "distinct descending secondary order must fail closed to materialized execution",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "distinct descending secondary order must not derive top-n seek",
+    );
+}
+
+#[test]
+fn route_matrix_load_secondary_order_with_residual_filter_fails_closed_before_top_n() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq(
+        "label".to_string(),
+        Value::Text("keep".to_string()),
+    ));
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 0,
+    });
+
+    let route_plan = build_load_route_plan(&plan)
+        .expect("residual descending secondary order route should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedFallback,
+        "residual descending secondary order must fail closed to the fallback materialized contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "residual descending secondary order must fail closed to materialized execution",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "residual descending secondary order must not derive top-n seek",
     );
 }
 

@@ -63,7 +63,8 @@ use crate::{
             read_row_with_consistency_from_store, reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
             route::{
-                LoadTerminalFastPathContract, access_order_satisfied_by_route_contract_for_model,
+                LoadOrderRouteContract, LoadTerminalFastPathContract,
+                access_order_satisfied_by_route_contract_for_model,
             },
             terminal::page::{KernelRow, KernelRowPayloadMode, ScalarRowRuntimeHandle},
             traversal::row_read_consistency_for_plan,
@@ -114,7 +115,7 @@ impl ExecutionKernel {
         let RowCollectorStreamRequest {
             plan,
             scan_budget_hint,
-            stream_order_contract_safe,
+            load_order_route_contract,
             continuation,
             row_keep_cap,
             payload_mode,
@@ -134,7 +135,7 @@ impl ExecutionKernel {
         let consistency = row_read_consistency_for_plan(plan);
         let predicate_preapplied = plan.has_residual_predicate();
         let _ = continuation;
-        let _ = stream_order_contract_safe;
+        let _ = load_order_route_contract;
 
         // Phase 2: materialize rows from keys and append staged structural outputs.
         if let Some(scan_budget) = scan_budget_hint
@@ -203,7 +204,7 @@ impl ExecutionKernel {
         let RowCollectorMaterializationRequest {
             plan,
             scan_budget_hint,
-            stream_order_contract_safe,
+            load_order_route_contract,
             continuation,
             cursor_boundary,
             load_terminal_fast_path,
@@ -222,8 +223,7 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        continuation
-            .validate_load_scan_budget_hint(scan_budget_hint, stream_order_contract_safe)?;
+        continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
 
         #[cfg(feature = "sql")]
         let sql_covering_context = SqlCoveringMaterializationContext {
@@ -273,7 +273,7 @@ impl ExecutionKernel {
         let (mut rows, keys_scanned) = Self::run_row_collector_stream(RowCollectorStreamRequest {
             plan,
             scan_budget_hint,
-            stream_order_contract_safe,
+            load_order_route_contract,
             continuation,
             row_keep_cap,
             payload_mode,
@@ -312,7 +312,7 @@ pub(in crate::db::executor::pipeline::operators::terminal) struct RowCollectorSt
 {
     plan: &'a AccessPlannedQuery,
     scan_budget_hint: Option<usize>,
-    stream_order_contract_safe: bool,
+    load_order_route_contract: LoadOrderRouteContract,
     continuation: ScalarContinuationBindings<'a>,
     row_keep_cap: Option<usize>,
     payload_mode: KernelRowPayloadMode,

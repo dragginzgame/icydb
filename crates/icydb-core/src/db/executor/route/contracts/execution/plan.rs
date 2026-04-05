@@ -16,7 +16,7 @@ use crate::db::{
                     AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRouteShape,
                     GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
                     GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
-                    RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+                    LoadOrderRouteContract, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
                 },
                 shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
             },
@@ -185,8 +185,10 @@ impl ExecutionRoutePlan {
     }
 
     // True when access shape is streaming-safe for final order semantics.
-    pub(in crate::db::executor) const fn stream_order_contract_safe(&self) -> bool {
-        self.capabilities.stream_order_contract_safe
+    pub(in crate::db::executor) const fn load_order_route_contract(
+        &self,
+    ) -> LoadOrderRouteContract {
+        self.capabilities.load_order_route_contract
     }
 
     // True when index-range limit pushdown is enabled for this route.

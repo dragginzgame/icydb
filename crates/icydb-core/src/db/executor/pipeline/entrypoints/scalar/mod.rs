@@ -559,8 +559,9 @@ where
             None,
         )?;
 
-    // Phase 2: clear bounded scan hints before entering the shared scalar
-    // runtime so materialized callers observe full row budgets.
+    // Phase 2: shared materialized scalar boundaries suppress routed scan
+    // hints so route-owned ordered streaming contracts cannot leak back in as
+    // executor-local materialized shortcuts.
     route_plan.scan_hints.physical_fetch_hint = None;
     route_plan.scan_hints.load_scan_budget_hint = None;
 
@@ -661,6 +662,23 @@ where
     // Materialize one scalar page structurally from the neutral non-aggregate
     // prepared boundary without forcing typed entity response assembly.
     pub(in crate::db::executor) fn execute_scalar_materialized_page_boundary(
+        &self,
+        prepared: PreparedScalarMaterializedBoundary<'_>,
+    ) -> Result<StructuralCursorPage, InternalError> {
+        execute_scalar_materialized_rows_boundary(
+            self,
+            prepared.store,
+            prepared.authority,
+            prepared.logical_plan,
+            prepared.index_prefix_specs,
+            prepared.index_range_specs,
+        )
+    }
+
+    // Materialize one scalar page structurally through the shared
+    // materialized boundary. Ranking surfaces must rely on route-owned
+    // execution-mode and hint eligibility instead of re-enabling hints here.
+    pub(in crate::db::executor) fn execute_scalar_materialized_rank_page_boundary(
         &self,
         prepared: PreparedScalarMaterializedBoundary<'_>,
     ) -> Result<StructuralCursorPage, InternalError> {

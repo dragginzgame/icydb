@@ -154,7 +154,7 @@ impl ExecutionKernel {
             .try_materialize_load_via_row_collector(RowCollectorMaterializationRequest {
                 plan: inputs.plan(),
                 scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-                stream_order_contract_safe: route_plan.stream_order_contract_safe(),
+                load_order_route_contract: route_plan.load_order_route_contract(),
                 continuation,
                 cursor_boundary: continuation.post_access_cursor_boundary(),
                 load_terminal_fast_path: route_plan.load_terminal_fast_path(),
@@ -174,7 +174,7 @@ impl ExecutionKernel {
                 predicate_slots: inputs.execution_preparation().compiled_predicate(),
                 key_stream: resolved.key_stream_mut(),
                 scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-                stream_order_contract_safe: route_plan.stream_order_contract_safe(),
+                load_order_route_contract: route_plan.load_order_route_contract(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
                 cursor_emission: if inputs.emit_cursor() {

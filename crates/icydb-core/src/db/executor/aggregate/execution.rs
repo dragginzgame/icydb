@@ -148,10 +148,16 @@ impl PreparedAggregateStreamingInputs<'_> {
         self.logical_plan.scalar_plan().page.as_ref()
     }
 
-    /// Return whether prepared aggregate execution still has a residual predicate.
+    /// Return whether prepared aggregate execution still carries one logical
+    /// predicate contract.
+    ///
+    /// Projection/rank terminals keep this broader gate instead of the
+    /// narrower residual-only view because their scan-budget and effective
+    /// window contracts still follow the filtered query surface, even when the
+    /// chosen access path proves the predicate exactly.
     #[must_use]
-    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
-        self.logical_plan.has_residual_predicate()
+    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
+        self.logical_plan.scalar_plan().predicate.is_some()
     }
 
     /// Return whether prepared aggregate execution still has scalar DISTINCT enabled.
@@ -162,7 +168,7 @@ impl PreparedAggregateStreamingInputs<'_> {
 
     /// Return whether the prepared aggregate shape clears predicate and DISTINCT gates.
     #[must_use]
-    pub(in crate::db::executor) fn has_no_predicate_or_distinct(&self) -> bool {
+    pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
         !self.has_predicate() && !self.is_distinct()
     }
 

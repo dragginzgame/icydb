@@ -3,7 +3,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::aggregate::capability::AggregateFieldExtremaIneligibilityReason;
+use crate::db::executor::{
+    aggregate::capability::AggregateFieldExtremaIneligibilityReason, route::LoadOrderRouteContract,
+};
 
 ///
 /// FieldExtremaIneligibilityReason
@@ -26,7 +28,7 @@ pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteCapabilities {
-    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
     pub(in crate::db::executor) desc_physical_reverse_supported: bool,
     pub(in crate::db::executor) count_pushdown_shape_supported: bool,

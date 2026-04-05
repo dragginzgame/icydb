@@ -92,6 +92,20 @@ impl AccessRouteClass {
     }
 
     #[must_use]
+    pub(in crate::db) const fn prefix_order_contract_safe(self) -> bool {
+        let Some((index, prefix_len)) = self.single_path_index_prefix_details() else {
+            return false;
+        };
+
+        // Empty non-unique prefix scans still interleave several leading-key
+        // groups, so their traversal order cannot satisfy arbitrary suffix
+        // ordering on its own. Once at least one prefix slot is bound, the
+        // scan is confined to one deterministic suffix window and can satisfy
+        // `ORDER BY suffix..., primary_key` without a materialized sort.
+        index.is_unique() || prefix_len > 0
+    }
+
+    #[must_use]
     pub(in crate::db) const fn single_path_index_range_details(
         self,
     ) -> Option<(IndexModel, usize)> {

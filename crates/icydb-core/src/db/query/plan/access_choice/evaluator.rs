@@ -14,7 +14,7 @@ use crate::{
                     CandidateEvaluation, CandidateScore, RangeCompareKind, RangeFieldConstraint,
                 },
                 key_item_match::{
-                    eq_lookup_value_for_key_item, index_key_item_count,
+                    eq_lookup_value_for_key_item, index_key_item_at, index_key_item_count,
                     key_item_matches_field_and_coercion, leading_index_key_item,
                     starts_with_lookup_value_for_key_item,
                 },
@@ -348,18 +348,6 @@ pub(crate) fn evaluate_range_candidate(
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> CandidateEvaluation {
-    if index.has_expression_key_items()
-        && !matches!(
-            predicate,
-            Predicate::Compare(cmp)
-                if cmp.op == CompareOp::StartsWith && cmp.coercion.id == CoercionId::TextCasefold
-        )
-    {
-        return CandidateEvaluation::Rejected(
-            AccessChoiceRejectedReason::OperatorNotRangeSupported,
-        );
-    }
-
     match predicate {
         Predicate::Compare(cmp) => evaluate_range_compare_candidate(index, schema, cmp),
         Predicate::And(children) => evaluate_range_and_candidate(index, schema, children),
@@ -419,13 +407,24 @@ fn collect_range_and_compares(
         };
         if !matches!(
             cmp.op,
-            CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+            CompareOp::Eq
+                | CompareOp::Gt
+                | CompareOp::Gte
+                | CompareOp::Lt
+                | CompareOp::Lte
+                | CompareOp::StartsWith
         ) {
             return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
         }
         if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::NumericWiden
+            (cmp.op, cmp.coercion.id),
+            (
+                CompareOp::Eq | CompareOp::StartsWith,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) | (
+                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte,
+                CoercionId::Strict,
+            )
         ) {
             return Err(AccessChoiceRejectedReason::NonStrictCoercion);
         }
@@ -448,8 +447,12 @@ fn range_candidate_score_from_compares(
     let mut range_seen = false;
     let mut has_range = false;
 
-    for field in index.fields() {
-        let constraint = classify_range_constraints_for_field(index, schema, field, compares)?;
+    for slot in 0..index_key_item_count(index) {
+        let Some(key_item) = index_key_item_at(index, slot) else {
+            return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
+        };
+        let constraint =
+            classify_range_constraints_for_key_item(index, schema, key_item, compares)?;
 
         if !range_seen {
             if constraint.eq_value.is_some() {
@@ -508,6 +511,12 @@ fn evaluate_starts_with_range_compare_candidate(
     let Some(leading_key_item) = leading_index_key_item(index) else {
         return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
+    if matches!(leading_key_item, IndexKeyItem::Expression(_))
+        && cmp.coercion.id == CoercionId::Strict
+    {
+        return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+    }
+
     let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
 
     if starts_with_lookup_value_for_key_item(
@@ -537,11 +546,14 @@ fn evaluate_ordered_range_compare_candidate(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<(), AccessChoiceRejectedReason> {
-    if !matches!(
-        cmp.coercion.id,
-        CoercionId::Strict | CoercionId::NumericWiden
-    ) {
+    if cmp.coercion.id != CoercionId::Strict {
         return Err(AccessChoiceRejectedReason::NonStrictCoercion);
+    }
+    let Some(leading_key_item) = leading_index_key_item(index) else {
+        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    };
+    if !matches!(leading_key_item, IndexKeyItem::Field(_)) {
+        return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
     }
     if index.fields().first() != Some(&cmp.field.as_str()) {
         return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
@@ -559,38 +571,76 @@ fn evaluate_ordered_range_compare_candidate(
     Ok(())
 }
 
-fn classify_range_constraints_for_field<'a>(
+fn classify_range_constraints_for_key_item(
     index: &IndexModel,
     schema: &SchemaInfo,
-    field: &str,
-    compares: &[&'a ComparePredicate],
-) -> Result<RangeFieldConstraint<'a>, AccessChoiceRejectedReason> {
+    key_item: IndexKeyItem,
+    compares: &[&ComparePredicate],
+) -> Result<RangeFieldConstraint, AccessChoiceRejectedReason> {
     let mut constraint = RangeFieldConstraint::default();
 
     for cmp in compares {
-        if cmp.field.as_str() != field {
+        if cmp.field.as_str() != key_item.field() {
             continue;
-        }
-        if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
-            return Err(AccessChoiceRejectedReason::LiteralIncompatible);
-        }
-        if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-            return Err(AccessChoiceRejectedReason::OperatorNotSupported);
         }
 
         match cmp.op {
             CompareOp::Eq => {
+                let literal_compatible =
+                    index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+                let Some(candidate) = eq_lookup_value_for_key_item(
+                    key_item,
+                    cmp.field.as_str(),
+                    cmp.value(),
+                    cmp.coercion.id,
+                    literal_compatible,
+                ) else {
+                    continue;
+                };
                 if constraint.has_range {
                     return Err(AccessChoiceRejectedReason::EqRangeConflict);
                 }
-                if let Some(existing) = constraint.eq_value
-                    && existing != cmp.value()
+                if let Some(existing) = constraint.eq_value.as_ref()
+                    && existing != &candidate
                 {
                     return Err(AccessChoiceRejectedReason::ConflictingEqConstraints);
                 }
-                constraint.eq_value = Some(cmp.value());
+                constraint.eq_value = Some(candidate);
             }
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+                if !matches!(key_item, IndexKeyItem::Field(_)) {
+                    return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+                }
+                if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
+                    return Err(AccessChoiceRejectedReason::LiteralIncompatible);
+                }
+                if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
+                    return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+                }
+                if constraint.eq_value.is_some() {
+                    return Err(AccessChoiceRejectedReason::EqRangeConflict);
+                }
+                constraint.has_range = true;
+            }
+            CompareOp::StartsWith => {
+                if matches!(key_item, IndexKeyItem::Expression(_))
+                    && cmp.coercion.id == CoercionId::Strict
+                {
+                    return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+                }
+                let literal_compatible =
+                    index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+                if starts_with_lookup_value_for_key_item(
+                    key_item,
+                    cmp.field.as_str(),
+                    cmp.value(),
+                    cmp.coercion.id,
+                    literal_compatible,
+                )
+                .is_none()
+                {
+                    return Err(AccessChoiceRejectedReason::StartsWithPrefixInvalid);
+                }
                 if constraint.eq_value.is_some() {
                     return Err(AccessChoiceRejectedReason::EqRangeConflict);
                 }

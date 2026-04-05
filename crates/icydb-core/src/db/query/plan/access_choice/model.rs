@@ -180,9 +180,9 @@ pub(super) enum RangeCompareKind {
 /// one index field during ordered range scoring.
 ///
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) struct RangeFieldConstraint<'a> {
-    pub(super) eq_value: Option<&'a crate::value::Value>,
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct RangeFieldConstraint {
+    pub(super) eq_value: Option<crate::value::Value>,
     pub(super) has_range: bool,
 }
 

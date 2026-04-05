@@ -212,7 +212,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
             planner_grouped_strategy_hint,
             direction,
             capabilities.desc_physical_reverse_supported,
-            capabilities.stream_order_contract_safe,
+            capabilities.load_order_route_contract.allows_streaming_load(),
         )
     });
 

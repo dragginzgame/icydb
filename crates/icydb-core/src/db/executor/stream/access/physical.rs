@@ -53,6 +53,7 @@ pub(super) struct StructuralPhysicalStreamRequest<'a> {
     pub(super) continuation: AccessScanContinuationInput<'a>,
     pub(super) physical_fetch_hint: Option<usize>,
     pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    pub(super) preserve_leaf_index_order: bool,
 }
 
 ///
@@ -71,6 +72,7 @@ struct PhysicalStreamBindings<'a> {
     continuation: AccessScanContinuationInput<'a>,
     physical_fetch_hint: Option<usize>,
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    preserve_leaf_index_order: bool,
 }
 
 ///
@@ -339,13 +341,14 @@ fn resolve_physical_key_stream<K>(
 where
     K: Clone,
 {
+    let dispatch = dispatch_executable_access_path(path);
     let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
         request.physical_fetch_hint
     } else {
         None
     };
 
-    let (mut candidates, key_order_state) = match dispatch_executable_access_path(path) {
+    let (mut candidates, mut key_order_state) = match dispatch {
         ExecutableAccessPathDispatch::ByKey(key) => runtime.resolve_by_key(key.clone())?,
         ExecutableAccessPathDispatch::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
         ExecutableAccessPathDispatch::KeyRange { start, end } => runtime.resolve_key_range(
@@ -378,6 +381,22 @@ where
         )?,
     };
 
+    // Top-level single-path secondary-index scans must preserve physical index
+    // traversal order so route-owned secondary ORDER BY contracts can drive
+    // paging without an extra materialized reorder. Composite child streams
+    // still disable this flag so merge/intersection reducers continue to
+    // consume canonical `DataKey` order.
+    if request.preserve_leaf_index_order
+        && matches!(
+            dispatch,
+            ExecutableAccessPathDispatch::IndexPrefix { .. }
+                | ExecutableAccessPathDispatch::IndexRange { .. }
+        )
+        && matches!(key_order_state, KeyOrderState::Unordered)
+    {
+        key_order_state = KeyOrderState::FinalOrder;
+    }
+
     normalize_ordered_keys(
         &mut candidates,
         request.continuation.direction(),
@@ -403,6 +422,7 @@ impl ExecutableAccessPath<'_, AccessKey> {
             continuation: request.continuation,
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
+            preserve_leaf_index_order: request.preserve_leaf_index_order,
         };
 
         resolve_physical_key_stream(self, bindings, &runtime)

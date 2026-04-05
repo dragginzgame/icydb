@@ -6,12 +6,14 @@
 use crate::{
     db::{
         access::AccessPlan,
+        predicate::PredicateExecutionModel,
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
             ScalarPlan, derive_logical_pushdown_eligibility, expr::ProjectionSpec,
-            filtered_index_predicate_satisfies_query, grouped_cursor_policy_violation,
-            lower_projection_identity, lower_projection_intent,
+            grouped_cursor_policy_violation, lower_projection_identity, lower_projection_intent,
+            residual_query_predicate_after_access_path_bounds,
+            residual_query_predicate_after_filtered_access,
         },
     },
     model::entity::EntityModel,
@@ -121,6 +123,37 @@ impl AccessPlannedQuery {
         lower_projection_identity(&self.logical)
     }
 
+    /// Return the executor-facing predicate after removing only filtered-index
+    /// guard clauses the chosen access path already proves.
+    ///
+    /// This conservative form is used by preparation/explain surfaces that
+    /// still need to see access-bound equalities as index-predicate input.
+    #[must_use]
+    pub(in crate::db) fn execution_preparation_predicate(&self) -> Option<PredicateExecutionModel> {
+        let query_predicate = self.scalar_plan().predicate.as_ref()?;
+
+        match self.access.selected_index_model() {
+            Some(index) => residual_query_predicate_after_filtered_access(index, query_predicate),
+            None => Some(query_predicate.clone()),
+        }
+    }
+
+    /// Return the executor-facing residual predicate after removing any
+    /// filtered-index guard clauses and fixed access-bound equalities already
+    /// guaranteed by the chosen path.
+    #[must_use]
+    pub(in crate::db) fn effective_execution_predicate(&self) -> Option<PredicateExecutionModel> {
+        // Phase 1: strip only filtered-index guard clauses the chosen access
+        // path already proves.
+        let filtered_residual = self.execution_preparation_predicate();
+        let filtered_residual = filtered_residual.as_ref()?;
+
+        // Phase 2: strip any additional equality clauses already guaranteed by
+        // the concrete access-path bounds, such as `tier = 'gold'` on one
+        // selected `IndexPrefix(tier='gold', ...)` route.
+        residual_query_predicate_after_access_path_bounds(self.access.as_path(), filtered_residual)
+    }
+
     /// Lower scalar DISTINCT semantics into one executor-facing execution strategy.
     #[must_use]
     pub(in crate::db) fn distinct_execution_strategy(&self) -> DistinctExecutionStrategy {
@@ -155,26 +188,20 @@ impl AccessPlannedQuery {
         ExecutionShapeSignature::new(self.continuation_signature(entity_path))
     }
 
-    /// Return whether one filtered index predicate fully satisfies the current
+    /// Return whether the chosen access contract fully satisfies the current
     /// scalar query predicate without any additional post-access filtering.
     #[must_use]
-    pub(in crate::db) fn predicate_fully_satisfied_by_filtered_access(&self) -> bool {
-        let Some(query_predicate) = self.scalar_plan().predicate.as_ref() else {
-            return false;
-        };
-        let Some(index) = self.access.selected_index_model() else {
-            return false;
-        };
-
-        filtered_index_predicate_satisfies_query(index, query_predicate)
+    pub(in crate::db) fn predicate_fully_satisfied_by_access_contract(&self) -> bool {
+        self.scalar_plan().predicate.is_some() && self.effective_execution_predicate().is_none()
     }
 
     /// Return whether the scalar logical predicate still requires post-access
-    /// filtering after accounting for filtered-index guard predicates.
+    /// filtering after accounting for filtered-index guard predicates and
+    /// access-path equality bounds.
     #[must_use]
     pub(in crate::db) fn has_residual_predicate(&self) -> bool {
         self.scalar_plan().predicate.is_some()
-            && !self.predicate_fully_satisfied_by_filtered_access()
+            && !self.predicate_fully_satisfied_by_access_contract()
     }
 }
 

@@ -6560,6 +6560,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         prefix: u128,
         order: [(&'static str, OrderDirection); 2],
         include_filter: bool,
+        expected_optimization: Option<ExecutionOptimization>,
     }
 
     let cases = [
@@ -6568,18 +6569,21 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
             prefix: 16_000,
             order: [("rank", OrderDirection::Asc), ("id", OrderDirection::Asc)],
             include_filter: true,
+            expected_optimization: Some(ExecutionOptimization::SecondaryOrderTopNSeek),
         },
         Case {
             name: "accepted_with_filter",
             prefix: 17_000,
             order: [("rank", OrderDirection::Asc), ("id", OrderDirection::Asc)],
             include_filter: true,
+            expected_optimization: Some(ExecutionOptimization::SecondaryOrderTopNSeek),
         },
         Case {
             name: "rejected_descending",
             prefix: 18_000,
             order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Asc)],
             include_filter: true,
+            expected_optimization: None,
         },
     ];
 
@@ -6611,8 +6615,9 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
             )
             .expect("trace outcome execution should succeed for case");
         let trace = trace.expect("debug trace should be present");
-        assert!(
-            trace.optimization().is_none(),
+        assert_eq!(
+            trace.optimization(),
+            case.expected_optimization,
             "trace should emit expected secondary-order pushdown outcome for case '{}'",
             case.name,
         );
@@ -7769,8 +7774,8 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     let uniform_trace = uniform_trace.expect("debug trace should be present");
     assert_eq!(
         uniform_trace.optimization(),
-        None,
-        "uniform-direction residual-filter execution should remain materialized",
+        Some(ExecutionOptimization::SecondaryOrderTopNSeek),
+        "uniform-direction unique-suffix execution should report the bounded secondary top-N route",
     );
 
     // Phase 3: row order, emitted boundaries, and token resumes must all stay

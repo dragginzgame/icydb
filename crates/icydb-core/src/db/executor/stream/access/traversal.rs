@@ -44,6 +44,7 @@ struct TraversalInputs<'a> {
     continuation: AccessScanContinuationInput<'a>,
     physical_fetch_hint: Option<usize>,
     index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'a>>,
+    preserve_leaf_index_order: bool,
 }
 
 impl<'a> TraversalInputs<'a> {
@@ -51,6 +52,15 @@ impl<'a> TraversalInputs<'a> {
     const fn with_physical_fetch_hint(self, physical_fetch_hint: Option<usize>) -> Self {
         Self {
             physical_fetch_hint,
+            ..self
+        }
+    }
+
+    // Composite child streams must stay canonicalized by `DataKey` order so
+    // merge/intersection reducers can consume them under one shared key comparator.
+    const fn without_leaf_index_order_preservation(self) -> Self {
+        Self {
+            preserve_leaf_index_order: false,
             ..self
         }
     }
@@ -127,6 +137,7 @@ impl TraversalRuntime {
             continuation: request.bindings.continuation,
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
+            preserve_leaf_index_order: request.preserve_leaf_index_order,
         };
         let mut spec_cursor = inputs.spec_cursor();
         let key_stream = AccessPlanStreamResolver::produce_key_stream(
@@ -166,6 +177,7 @@ impl AccessTraversalRuntime<AccessKey> for TraversalRuntime {
             continuation: inputs.continuation,
             physical_fetch_hint: hints.physical_fetch_hint,
             index_predicate_execution: hints.predicate_execution,
+            preserve_leaf_index_order: inputs.preserve_leaf_index_order,
         })
     }
 }
@@ -213,7 +225,9 @@ impl AccessPlanStreamResolver {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
             // Composite plans never need physical fetch-hint expansion on child lookups.
-            let child_inputs = inputs.with_physical_fetch_hint(None);
+            let child_inputs = inputs
+                .with_physical_fetch_hint(None)
+                .without_leaf_index_order_preservation();
             streams.push(Self::produce_key_stream(
                 runtime,
                 child,

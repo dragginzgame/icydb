@@ -11,6 +11,7 @@ use crate::db::access::{
     lowering::lower_executable_access_plan,
     plan::AccessPlan,
 };
+use crate::db::executor::route::LoadOrderRouteContract;
 use std::fmt;
 
 ///
@@ -75,13 +76,13 @@ impl<'a, K> AccessStrategy<'a, K> {
     pub(in crate::db) const fn load_window_early_stop_hint(
         &self,
         continuation_applied: bool,
-        stream_order_contract_safe: bool,
+        load_order_route_contract: LoadOrderRouteContract,
         fetch_count: Option<usize>,
     ) -> Option<usize> {
         if continuation_applied {
             return None;
         }
-        if !stream_order_contract_safe {
+        if !load_order_route_contract.allows_streaming_load() {
             return None;
         }
         if !self.class().ordered() {

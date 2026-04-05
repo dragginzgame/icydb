@@ -241,7 +241,7 @@ where
 
     // Return whether predicate and distinct planner flags preserve one
     // canonical direct stream-fold contract.
-    fn aggregate_predicate_safe(prepared: &PreparedAggregateStreamingInputs<'_>) -> bool {
+    const fn aggregate_predicate_safe(prepared: &PreparedAggregateStreamingInputs<'_>) -> bool {
         prepared.has_no_predicate_or_distinct()
     }
 

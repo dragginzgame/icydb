@@ -224,10 +224,13 @@ const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Opti
 }
 
 fn access_prefix_values(access_strategy: Option<&ExplainAccessRoute>) -> Option<Vec<Value>> {
-    if let Some(ExplainAccessRoute::IndexMultiLookup { values, .. }) = access_strategy {
-        Some(values.clone())
-    } else {
-        None
+    match access_strategy {
+        Some(
+            ExplainAccessRoute::IndexPrefix { values, .. }
+            | ExplainAccessRoute::IndexMultiLookup { values, .. },
+        ) => Some(values.clone()),
+        Some(ExplainAccessRoute::IndexRange { prefix, .. }) => Some(prefix.clone()),
+        _ => None,
     }
 }
 
@@ -738,8 +741,7 @@ fn index_range_pushdown_predicate_text(
 pub(in crate::db::executor::explain::descriptor) fn explain_predicate_for_plan(
     plan: &AccessPlannedQuery,
 ) -> Option<ExplainPredicate> {
-    plan.scalar_plan()
-        .predicate
+    plan.effective_execution_predicate()
         .as_ref()
         .map(ExplainPredicate::from_predicate)
 }

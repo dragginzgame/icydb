@@ -8,10 +8,11 @@ use crate::{
         access::AccessPlan,
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
+            OrderSpec, index_order_terms,
             key_item_match::{
                 eq_lookup_value_for_key_item, index_key_item_count, leading_index_key_item,
             },
-            planner::{index_literal_matches_schema, index_select::better_index, sorted_indexes},
+            planner::{index_literal_matches_schema, sorted_indexes},
         },
         schema::SchemaInfo,
     },
@@ -40,10 +41,11 @@ pub(super) fn index_prefix_for_eq(
     value: &Value,
     coercion: CoercionId,
     query_predicate: &Predicate,
-) -> Option<Vec<AccessPlan<Value>>> {
+    order: Option<&OrderSpec>,
+) -> Option<AccessPlan<Value>> {
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
-    let mut out = Vec::new();
+    let mut best: Option<(bool, &'static IndexModel, Value)> = None;
     for index in sorted_indexes(model, query_predicate) {
         let Some(lookup_value) =
             leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
@@ -51,10 +53,20 @@ pub(super) fn index_prefix_for_eq(
             continue;
         };
 
-        out.push(AccessPlan::index_prefix(*index, vec![lookup_value]));
+        let order_match = prefix_candidate_satisfies_secondary_order(model, order, index, 1);
+        match best {
+            None => best = Some((order_match, index, lookup_value)),
+            Some((best_order_match, best_index, _))
+                if order_match && !best_order_match
+                    || (order_match == best_order_match && index.name() < best_index.name()) =>
+            {
+                best = Some((order_match, index, lookup_value));
+            }
+            _ => {}
+        }
     }
 
-    if out.is_empty() { None } else { Some(out) }
+    best.map(|(_, index, lookup_value)| AccessPlan::index_prefix(*index, vec![lookup_value]))
 }
 
 pub(super) fn index_multi_lookup_for_in(
@@ -98,6 +110,7 @@ pub(super) fn index_prefix_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
     query_predicate: &Predicate,
+    order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     // Cache literal/schema compatibility once per equality literal so index
     // candidate selection does not repeat schema checks on every index iteration.
@@ -124,7 +137,7 @@ pub(super) fn index_prefix_from_and(
         });
     }
 
-    let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
+    let mut best: Option<(usize, bool, bool, &IndexModel, Vec<Value>)> = None;
     for index in sorted_indexes(model, query_predicate) {
         let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
             continue;
@@ -134,20 +147,59 @@ pub(super) fn index_prefix_from_and(
         }
 
         let exact = prefix.len() == index_key_item_count(index);
+        let order_match =
+            prefix_candidate_satisfies_secondary_order(model, order, index, prefix.len());
         match &best {
-            None => best = Some((prefix.len(), exact, index, prefix)),
-            Some((best_len, best_exact, best_index, _)) => {
-                if better_index(
-                    (prefix.len(), exact, index),
-                    (*best_len, *best_exact, best_index),
-                ) {
-                    best = Some((prefix.len(), exact, index, prefix));
+            None => best = Some((prefix.len(), exact, order_match, index, prefix)),
+            Some((best_len, best_exact, best_order_match, best_index, _)) => {
+                if prefix.len() > *best_len
+                    || (prefix.len() == *best_len && exact && !*best_exact)
+                    || (prefix.len() == *best_len
+                        && exact == *best_exact
+                        && order_match
+                        && !*best_order_match)
+                    || (prefix.len() == *best_len
+                        && exact == *best_exact
+                        && order_match == *best_order_match
+                        && index.name() < best_index.name())
+                {
+                    best = Some((prefix.len(), exact, order_match, index, prefix));
                 }
             }
         }
     }
 
-    best.map(|(_, _, index, values)| AccessPlan::index_prefix(*index, values))
+    best.map(|(_, _, _, index, values)| AccessPlan::index_prefix(*index, values))
+}
+
+// Prefix ranking preserves the old selectivity-first policy and only uses
+// ORDER BY satisfaction as a deterministic tie-break for equally selective
+// candidates.
+fn prefix_candidate_satisfies_secondary_order(
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> bool {
+    let Some(order) = order else {
+        return false;
+    };
+    if order
+        .deterministic_secondary_order_direction(model.primary_key.name)
+        .is_none()
+    {
+        return false;
+    }
+
+    let index_terms = index_order_terms(index);
+
+    order.matches_expected_term_sequence_plus_primary_key(
+        index_terms.iter().skip(prefix_len).map(String::as_str),
+        model.primary_key.name,
+    ) || order.matches_expected_term_sequence_plus_primary_key(
+        index_terms.iter().map(String::as_str),
+        model.primary_key.name,
+    )
 }
 
 ///

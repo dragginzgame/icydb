@@ -86,6 +86,31 @@ static PLANNER_ORDER_FILTERED_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_FILTERED_INDEX_REFS,
 );
+static PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS: [FieldModel; 5] = [
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("name", FieldKind::Text),
+    FieldModel::new("active", FieldKind::Bool),
+    FieldModel::new("tier", FieldKind::Text),
+    FieldModel::new("handle", FieldKind::Text),
+];
+static PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
+static PLANNER_ORDER_FILTERED_COMPOSITE_INDEXES: [IndexModel; 1] =
+    [IndexModel::new_with_predicate(
+        "tier_handle_idx_active_only",
+        "planner::order_filtered_composite_test_entity",
+        &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS,
+        false,
+        Some("active = true"),
+    )];
+static PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_REFS: [&IndexModel; 1] =
+    [&PLANNER_ORDER_FILTERED_COMPOSITE_INDEXES[0]];
+static PLANNER_ORDER_FILTERED_COMPOSITE_MODEL: EntityModel = entity_model_from_static(
+    "planner::order_filtered_composite_test_entity",
+    "PlannerOrderFilteredCompositeTestEntity",
+    &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS[0],
+    &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS,
+    &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_REFS,
+);
 static PLANNER_ORDER_COMPOSITE_FIELDS: [FieldModel; 4] = [
     FieldModel::new("id", FieldKind::Ulid),
     FieldModel::new("code", FieldKind::Text),
@@ -124,6 +149,24 @@ static PLANNER_ORDER_EXPRESSION_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_ORDER_FIELDS[0],
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_EXPRESSION_INDEX_REFS,
+);
+static PLANNER_ORDER_FILTERED_EXPRESSION_INDEXES: [IndexModel; 1] =
+    [IndexModel::new_with_key_items_and_predicate(
+        "name_lower_idx_active_only",
+        "planner::order_filtered_expression_test_entity",
+        &PLANNER_ORDER_INDEX_FIELDS,
+        Some(&PLANNER_ORDER_EXPRESSION_KEY_ITEMS),
+        false,
+        Some("active = true"),
+    )];
+static PLANNER_ORDER_FILTERED_EXPRESSION_INDEX_REFS: [&IndexModel; 1] =
+    [&PLANNER_ORDER_FILTERED_EXPRESSION_INDEXES[0]];
+static PLANNER_ORDER_FILTERED_EXPRESSION_MODEL: EntityModel = entity_model_from_static(
+    "planner::order_filtered_expression_test_entity",
+    "PlannerOrderFilteredExpressionTestEntity",
+    &PLANNER_ORDER_FIELDS[0],
+    &PLANNER_ORDER_FIELDS,
+    &PLANNER_ORDER_FILTERED_EXPRESSION_INDEX_REFS,
 );
 
 fn plan_access_for_test(
@@ -403,6 +446,111 @@ fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard()
 }
 
 #[test]
+fn planner_filtered_index_accepts_strict_text_prefix_when_query_implies_guard() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_MODEL)
+        .expect("planner filtered strict text-prefix test model should produce schema info");
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("br".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+    let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("guarded filtered strict text-prefix access planning should succeed");
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("guarded filtered strict text-prefix predicate should lower to one index path");
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!("guarded filtered strict text-prefix predicate should lower to one index range");
+    };
+
+    assert_eq!(spec.index().name(), "name_idx_active_only");
+    assert!(spec.prefix_values().is_empty());
+    assert_eq!(
+        spec.lower(),
+        &Bound::Included(Value::Text("br".to_string()))
+    );
+    assert_eq!(
+        spec.upper(),
+        &Bound::Excluded(Value::Text("bs".to_string()))
+    );
+}
+
+#[test]
+fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_prefix() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL).expect(
+        "planner filtered composite strict text-prefix test model should produce schema info",
+    );
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "handle",
+            CompareOp::StartsWith,
+            Value::Text("br".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+    let order = canonical_order(&[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_COMPOSITE_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("guarded filtered composite strict text-prefix access planning should succeed");
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!(
+            "guarded filtered composite strict text-prefix predicate should lower to one index path"
+        );
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!(
+            "guarded filtered composite strict text-prefix predicate should lower to one index range"
+        );
+    };
+
+    assert_eq!(spec.index().name(), "tier_handle_idx_active_only");
+    assert_eq!(spec.prefix_values(), &[Value::Text("gold".to_string())]);
+    assert_eq!(
+        spec.lower(),
+        &Bound::Included(Value::Text("br".to_string()))
+    );
+    assert_eq!(
+        spec.upper(),
+        &Bound::Excluded(Value::Text("bs".to_string()))
+    );
+}
+
+#[test]
 fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
     let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_MODEL)
         .expect("planner strict text-prefix order-only test model should produce schema info");
@@ -519,5 +667,102 @@ fn planner_order_only_expression_index_fails_closed_for_raw_field_order() {
         planner_shape,
         AccessPlan::full_scan(),
         "raw field ORDER BY must not silently treat expression-key indexes as field-order-compatible",
+    );
+}
+
+#[test]
+fn planner_order_only_filtered_expression_index_fails_closed_without_guard_predicate() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL)
+        .expect("planner filtered expression order-only test model should produce schema info");
+    let order = canonical_order(&[
+        ("LOWER(name)", OrderDirection::Asc),
+        ("id", OrderDirection::Asc),
+    ]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_EXPRESSION_MODEL,
+        &schema,
+        None,
+        Some(order),
+    )
+    .expect("filtered expression order-only access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::full_scan(),
+        "filtered expression ORDER BY must fail closed when the query does not imply the guard",
+    );
+}
+
+#[test]
+fn planner_order_only_filtered_expression_index_uses_index_range_when_query_implies_guard() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL)
+        .expect("planner filtered expression order-only test model should produce schema info");
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "active",
+        CompareOp::Eq,
+        Value::Bool(true),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[
+        ("LOWER(name)", OrderDirection::Asc),
+        ("id", OrderDirection::Asc),
+    ]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_EXPRESSION_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("filtered expression order-only access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            PLANNER_ORDER_FILTERED_EXPRESSION_INDEXES[0],
+            vec![0usize],
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        )),
+        "guarded filtered LOWER(field) order-only scans should use the matching expression index range",
+    );
+}
+
+#[test]
+fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query_implies_guard() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_EXPRESSION_MODEL).expect(
+        "planner descending filtered expression order-only test model should produce schema info",
+    );
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "active",
+        CompareOp::Eq,
+        Value::Bool(true),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[
+        ("LOWER(name)", OrderDirection::Desc),
+        ("id", OrderDirection::Desc),
+    ]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_EXPRESSION_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("descending filtered expression order-only access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            PLANNER_ORDER_FILTERED_EXPRESSION_INDEXES[0],
+            vec![0usize],
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        )),
+        "guarded descending LOWER(field) order-only scans should use the matching expression index range",
     );
 }

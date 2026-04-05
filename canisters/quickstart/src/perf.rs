@@ -7,7 +7,7 @@ use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
     db::{
-        EntityAuthority, SqlStatementRoute, identifiers_tail_match,
+        EntityAuthority, PersistedRow, SqlStatementRoute, identifiers_tail_match,
         query::Predicate,
         response::{
             PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
@@ -15,10 +15,10 @@ use icydb::{
         sql::SqlQueryResult,
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
-    traits::EntitySchema,
+    traits::{EntitySchema, EntityValue},
     value::Value,
 };
-use icydb_testing_quickstart_fixtures::schema::User;
+use icydb_testing_quickstart_fixtures::schema::{ActiveUser, Character, QuickstartCanister, User};
 
 const MAX_REPEAT_COUNT: u32 = 100;
 
@@ -35,6 +35,8 @@ const MAX_REPEAT_COUNT: u32 = 100;
 pub enum SqlPerfSurface {
     GeneratedDispatch,
     TypedDispatchUser,
+    TypedDispatchCharacter,
+    TypedDispatchActiveUser,
     TypedQueryFromSqlUserExecute,
     TypedExecuteSqlUser,
     TypedInsertUser,
@@ -130,6 +132,8 @@ pub struct SqlPerfSample {
 pub enum SqlPerfAttributionSurface {
     GeneratedDispatch,
     TypedDispatchUser,
+    TypedDispatchCharacter,
+    TypedDispatchActiveUser,
     TypedGroupedUser,
     TypedGroupedUserSecondPage,
 }
@@ -235,8 +239,21 @@ pub fn attribute_sql_surface(
         SqlPerfAttributionSurface::GeneratedDispatch => {
             attribute_generated_dispatch_surface(sql.as_str())
         }
-        SqlPerfAttributionSurface::TypedDispatchUser => {
-            attribute_typed_dispatch_surface(sql.as_str())
+        SqlPerfAttributionSurface::TypedDispatchUser => attribute_typed_dispatch_surface::<User>(
+            sql.as_str(),
+            SqlPerfAttributionSurface::TypedDispatchUser,
+        ),
+        SqlPerfAttributionSurface::TypedDispatchCharacter => {
+            attribute_typed_dispatch_surface::<Character>(
+                sql.as_str(),
+                SqlPerfAttributionSurface::TypedDispatchCharacter,
+            )
+        }
+        SqlPerfAttributionSurface::TypedDispatchActiveUser => {
+            attribute_typed_dispatch_surface::<ActiveUser>(
+                sql.as_str(),
+                SqlPerfAttributionSurface::TypedDispatchActiveUser,
+            )
         }
         SqlPerfAttributionSurface::TypedGroupedUser => {
             attribute_typed_grouped_surface(sql.as_str(), request.cursor_token.as_deref())
@@ -416,9 +433,18 @@ fn attribute_generated_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionS
     })
 }
 
-fn attribute_typed_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionSample, Error> {
+// Attribute one typed `execute_sql_dispatch::<E>` surface through the same
+// core phases used by the generated lane while keeping the entity binding
+// explicit at the typed facade boundary.
+fn attribute_typed_dispatch_surface<E>(
+    sql: &str,
+    surface: SqlPerfAttributionSurface,
+) -> Result<SqlPerfAttributionSample, Error>
+where
+    E: PersistedRow<Canister = QuickstartCanister> + EntityValue,
+{
     let core = core_db();
-    let authority = EntityAuthority::for_type::<User>();
+    let authority = EntityAuthority::for_type::<E>();
 
     // Phase 1: parse once and attribute the core typed dispatch path after
     // parse so the remaining outer facade wrapper can be measured cleanly.
@@ -427,14 +453,14 @@ fn attribute_typed_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionSampl
     let parsed = parsed_result?;
 
     let (core_dispatch_total, core_dispatch_result) = measure_result(|| {
-        core.execute_sql_dispatch_parsed::<User>(&parsed)
+        core.execute_sql_dispatch_parsed::<E>(&parsed)
             .map_err(Error::from)
     });
     let _core_dispatch_result = core_dispatch_result?;
 
     let (lower_local_instructions, lowered_result) = measure_result(|| {
         parsed
-            .lower_query_lane_for_entity(User::MODEL.name(), User::MODEL.primary_key().name())
+            .lower_query_lane_for_entity(E::MODEL.name(), E::MODEL.primary_key().name())
             .map_err(Error::from)
     });
     let lowered = lowered_result?;
@@ -451,14 +477,14 @@ fn attribute_typed_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionSampl
     // Phase 2: measure the full facade surface total and assign the remaining
     // cost above the attributed core path to the outer wrapper.
     let (total_local_instructions, outcome) = measure_surface_call(|| {
-        db().execute_sql_dispatch::<User>(sql)
+        db().execute_sql_dispatch::<E>(sql)
             .map_or_else(outcome_from_error, outcome_from_sql_query_result)
     });
     let attributed_core = parse_local_instructions.saturating_add(core_dispatch_total);
     let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
 
     Ok(SqlPerfAttributionSample {
-        surface: SqlPerfAttributionSurface::TypedDispatchUser,
+        surface,
         sql: sql.to_string(),
         parse_local_instructions,
         route_local_instructions: 0,
@@ -701,6 +727,18 @@ fn measure_typed_insert_many_non_atomic_user(batch_size: u32) -> (u64, SqlPerfOu
     })
 }
 
+// Measure one typed `execute_sql_dispatch::<E>` projection surface while
+// keeping the entity binding explicit in the checked-in perf harness.
+fn measure_typed_dispatch_surface<E>(sql: &str) -> (u64, SqlPerfOutcome)
+where
+    E: PersistedRow<Canister = QuickstartCanister> + EntityValue,
+{
+    measure_surface_call(|| {
+        db().execute_sql_dispatch::<E>(sql)
+            .map_or_else(outcome_from_error, outcome_from_sql_query_result)
+    })
+}
+
 fn measure_once(
     surface: SqlPerfSurface,
     sql: &str,
@@ -710,10 +748,11 @@ fn measure_once(
         SqlPerfSurface::GeneratedDispatch => measure_surface_call(|| {
             sql_dispatch::query(sql).map_or_else(outcome_from_error, outcome_from_sql_query_result)
         }),
-        SqlPerfSurface::TypedDispatchUser => measure_surface_call(|| {
-            db().execute_sql_dispatch::<User>(sql)
-                .map_or_else(outcome_from_error, outcome_from_sql_query_result)
-        }),
+        SqlPerfSurface::TypedDispatchUser => measure_typed_dispatch_surface::<User>(sql),
+        SqlPerfSurface::TypedDispatchCharacter => measure_typed_dispatch_surface::<Character>(sql),
+        SqlPerfSurface::TypedDispatchActiveUser => {
+            measure_typed_dispatch_surface::<ActiveUser>(sql)
+        }
         SqlPerfSurface::TypedQueryFromSqlUserExecute => measure_surface_call(|| {
             let session = db();
             session

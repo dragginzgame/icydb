@@ -15,7 +15,7 @@ use crate::{
             pipeline::contracts::{CursorEmissionMode, PageCursor, StructuralCursorPage},
             projection::validate_projection_over_slot_rows,
             resolve_structural_order,
-            route::access_order_satisfied_by_route_contract_for_model,
+            route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract_for_model},
         },
         index::IndexKey,
         predicate::{MissingRowPolicy, PredicateProgram},
@@ -217,7 +217,7 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
@@ -236,7 +236,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         predicate_slots,
         key_stream,
         scan_budget_hint,
-        stream_order_contract_safe,
+        load_order_route_contract,
         validate_projection,
         retain_slot_rows,
         cursor_emission,
@@ -258,7 +258,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
-        stream_order_contract_safe,
+        load_order_route_contract,
         consistency,
         payload_mode,
         predicate_slots,
@@ -390,9 +390,10 @@ fn apply_post_access_to_kernel_rows_dyn(
     predicate_preapplied: bool,
 ) -> Result<usize, InternalError> {
     let logical = plan.scalar_plan();
+    let has_residual_predicate = plan.has_residual_predicate();
 
     // Phase 1: predicate filtering.
-    let filtered = if logical.predicate.is_some() {
+    let filtered = if has_residual_predicate {
         if !predicate_preapplied {
             let Some(predicate_program) = predicate_slots else {
                 return Err(InternalError::scalar_page_predicate_slots_required());
@@ -415,7 +416,7 @@ fn apply_post_access_to_kernel_rows_dyn(
     if let Some(order) = logical.order.as_ref()
         && !order.fields.is_empty()
     {
-        if logical.predicate.is_some() && !filtered {
+        if has_residual_predicate && !filtered {
             return Err(InternalError::scalar_page_ordering_after_filtering_required());
         }
 
@@ -489,7 +490,7 @@ fn apply_post_access_to_kernel_rows_dyn(
 struct ScalarPageKernelRequest<'a, 'r> {
     key_stream: &'a mut dyn OrderedKeyStream,
     scan_budget_hint: Option<usize>,
-    stream_order_contract_safe: bool,
+    load_order_route_contract: LoadOrderRouteContract,
     consistency: MissingRowPolicy,
     payload_mode: KernelRowPayloadMode,
     predicate_slots: Option<&'a PredicateProgram>,
@@ -504,7 +505,7 @@ fn execute_scalar_page_kernel_dyn(
     let ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
-        stream_order_contract_safe,
+        load_order_route_contract,
         consistency,
         payload_mode,
         predicate_slots,
@@ -514,7 +515,7 @@ fn execute_scalar_page_kernel_dyn(
     } = request;
 
     // Phase 1: continuation-owned budget hints remain validated centrally.
-    continuation.validate_load_scan_budget_hint(scan_budget_hint, stream_order_contract_safe)?;
+    continuation.validate_load_scan_budget_hint(scan_budget_hint, load_order_route_contract)?;
 
     // Phase 2: run the scalar row loop (scan -> read -> decode/filter/push).
     if let Some(scan_budget) = scan_budget_hint

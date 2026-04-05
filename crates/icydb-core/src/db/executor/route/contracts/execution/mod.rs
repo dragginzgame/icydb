@@ -14,6 +14,37 @@ pub(in crate::db::executor) use observability::{
 pub(in crate::db::executor) use plan::ExecutionRoutePlan;
 
 ///
+/// LoadOrderRouteContract
+///
+/// Canonical route-owned load ordering contract for one executable load shape.
+/// `DirectStreaming` means the access path already preserves the final order
+/// contract and the route may derive bounded streaming hints directly.
+/// `MaterializedBoundary` means access order is still meaningful, but the
+/// shared materialized boundary must own the final windowing/sort behavior.
+/// `MaterializedFallback` means the route must fail closed and materialize
+/// without ordered streaming assumptions.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum LoadOrderRouteContract {
+    DirectStreaming,
+    MaterializedBoundary,
+    MaterializedFallback,
+}
+
+impl LoadOrderRouteContract {
+    #[must_use]
+    pub(in crate::db) const fn allows_streaming_load(self) -> bool {
+        matches!(self, Self::DirectStreaming)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn allows_top_n_seek(self) -> bool {
+        matches!(self, Self::DirectStreaming)
+    }
+}
+
+///
 /// RouteExecutionMode
 ///
 /// Canonical route-level execution shape selected by the routing gate.

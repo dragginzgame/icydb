@@ -30,9 +30,12 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
-pub(in crate::db) use index_select::filtered_index_predicate_satisfies_query;
 pub(in crate::db::query::plan) use index_select::{
     index_literal_matches_schema, sorted_indexes, sorted_model_indexes,
+};
+pub(in crate::db) use index_select::{
+    residual_query_predicate_after_access_path_bounds,
+    residual_query_predicate_after_filtered_access,
 };
 
 ///
@@ -96,7 +99,7 @@ pub(crate) fn plan_access_with_order(
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
     let plan = normalize_access_plan_value(predicate::plan_predicate(
-        model, schema, predicate, predicate,
+        model, schema, predicate, predicate, order,
     )?);
     if !plan.is_single_full_scan() {
         return Ok(plan);

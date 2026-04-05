@@ -30,7 +30,11 @@ impl UnpagedLoadHintStrategy {
         }
 
         if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec() {
-            if !route_plan.shape().is_streaming() || !route_plan.stream_order_contract_safe() {
+            if !route_plan.shape().is_streaming()
+                || !route_plan
+                    .load_order_route_contract()
+                    .allows_streaming_load()
+            {
                 return Self::None;
             }
 

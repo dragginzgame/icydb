@@ -16,7 +16,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
-            continuation::capabilities::ContinuationCapabilities,
+            continuation::capabilities::ContinuationCapabilities, route::LoadOrderRouteContract,
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
@@ -349,7 +349,7 @@ impl<'a> ScalarContinuationBindings<'a> {
     pub(in crate::db::executor) fn validate_load_scan_budget_hint(
         &self,
         scan_budget_hint: Option<usize>,
-        stream_order_contract_safe: bool,
+        load_order_route_contract: LoadOrderRouteContract,
     ) -> Result<(), InternalError> {
         if scan_budget_hint.is_some() {
             if self.continuation_applied() {
@@ -357,7 +357,7 @@ impl<'a> ScalarContinuationBindings<'a> {
                     "load page scan budget hint requires non-continuation execution",
                 ));
             }
-            if !stream_order_contract_safe {
+            if !load_order_route_contract.allows_streaming_load() {
                 return Err(InternalError::query_executor_invariant(
                     "load page scan budget hint requires streaming-safe access shape",
                 ));

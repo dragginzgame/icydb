@@ -1,4 +1,4 @@
-//! Shared Pocket-IC test harness helpers.
+//! Shared canic-testkit-backed PocketIC integration harness helpers.
 
 use std::{
     env, fs,

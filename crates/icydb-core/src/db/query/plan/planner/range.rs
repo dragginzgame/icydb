@@ -6,12 +6,19 @@
 use crate::{
     db::{
         access::SemanticIndexRangeSpec,
+        index::next_text_prefix,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
-        query::plan::planner::{index_literal_matches_schema, sorted_indexes},
+        query::plan::{
+            key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
+            planner::{index_literal_matches_schema, sorted_indexes},
+        },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    },
     value::Value,
 };
 use std::{cmp::Ordering, ops::Bound};
@@ -64,9 +71,9 @@ struct CachedCompare<'a> {
 //
 // Extraction contract:
 // - Every child must be a Compare predicate.
-// - Supported operators are Eq/Gt/Gte/Lt/Lte only.
-// - For a chosen index: fields 0..k must be Eq, field k must be Range,
-//   fields after k must be unconstrained.
+// - Supported operators are Eq/Gt/Gte/Lt/Lte plus StartsWith.
+// - For a chosen index: slots 0..k must be Eq, slot k must be Range,
+//   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,
@@ -80,13 +87,24 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         };
         if !matches!(
             cmp.op,
-            CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+            CompareOp::Eq
+                | CompareOp::Gt
+                | CompareOp::Gte
+                | CompareOp::Lt
+                | CompareOp::Lte
+                | CompareOp::StartsWith
         ) {
             return None;
         }
         if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::NumericWiden
+            (cmp.op, cmp.coercion.id),
+            (
+                CompareOp::Eq | CompareOp::StartsWith,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) | (
+                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte,
+                CoercionId::Strict
+            )
         ) {
             return None;
         }
@@ -130,9 +148,9 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     })
 }
 
-// Extract an index-range candidate for one concrete index by walking index
-// fields directly instead of materializing a temporary per-field constraint
-// vector that is only consumed once.
+// Extract an index-range candidate for one concrete index by walking canonical
+// key slots directly instead of field names. That keeps mixed field/expression
+// indexes on the same planner contract as field-only indexes.
 fn index_range_candidate_for_index(
     index: &'static IndexModel,
     schema: &SchemaInfo,
@@ -142,19 +160,40 @@ fn index_range_candidate_for_index(
     let mut range: Option<RangeConstraint> = None;
     let mut range_position = None;
 
-    for (position, field_name) in index.fields().iter().enumerate() {
-        let constraint = field_constraint_for_index_field(index, schema, field_name, compares)?;
-        match constraint {
-            IndexFieldConstraint::Eq(value) if range.is_none() => {
-                prefix.push(value);
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => {
+            for (position, &field_name) in fields.iter().enumerate() {
+                let constraint = key_item_constraint_for_index_slot(
+                    index,
+                    schema,
+                    IndexKeyItem::Field(field_name),
+                    compares,
+                )?;
+                if !consume_index_slot_constraint(
+                    &mut prefix,
+                    &mut range,
+                    &mut range_position,
+                    position,
+                    constraint,
+                ) {
+                    return None;
+                }
             }
-            IndexFieldConstraint::Range(candidate) if range.is_none() => {
-                range = Some(candidate);
-                range_position = Some(position);
+        }
+        IndexKeyItemsRef::Items(items) => {
+            for (position, &key_item) in items.iter().enumerate() {
+                let constraint =
+                    key_item_constraint_for_index_slot(index, schema, key_item, compares)?;
+                if !consume_index_slot_constraint(
+                    &mut prefix,
+                    &mut range,
+                    &mut range_position,
+                    position,
+                    constraint,
+                ) {
+                    return None;
+                }
             }
-            IndexFieldConstraint::None if range.is_none() => return None,
-            IndexFieldConstraint::None => {}
-            _ => return None,
         }
     }
 
@@ -168,48 +207,125 @@ fn index_range_candidate_for_index(
     Some((range_position, prefix, range))
 }
 
-// Build the effective constraint class for one concrete index field from the
-// compare predicates that target it.
-fn field_constraint_for_index_field(
+// Consume one canonical slot constraint into the contiguous prefix/range
+// extractor state machine.
+fn consume_index_slot_constraint(
+    prefix: &mut Vec<Value>,
+    range: &mut Option<RangeConstraint>,
+    range_position: &mut Option<usize>,
+    position: usize,
+    constraint: IndexFieldConstraint,
+) -> bool {
+    match constraint {
+        IndexFieldConstraint::Eq(value) if range.is_none() => {
+            prefix.push(value);
+            true
+        }
+        IndexFieldConstraint::Range(candidate) if range.is_none() => {
+            *range = Some(candidate);
+            *range_position = Some(position);
+            true
+        }
+        IndexFieldConstraint::None if range.is_none() => false,
+        IndexFieldConstraint::None => true,
+        _ => false,
+    }
+}
+
+// Build the effective constraint class for one canonical index slot from the
+// compare predicates that can lower onto that slot.
+fn key_item_constraint_for_index_slot(
     index: &'static IndexModel,
     schema: &SchemaInfo,
-    field_name: &&'static str,
+    key_item: IndexKeyItem,
     compares: &[CachedCompare<'_>],
 ) -> Option<IndexFieldConstraint> {
     let mut constraint = IndexFieldConstraint::None;
-    let field_type = schema.field(field_name)?;
+    let field_type = schema.field(key_item.field())?;
 
     for cached in compares {
         let cmp = cached.cmp;
-        if cmp.field.as_str() != *field_name {
+        if cmp.field.as_str() != key_item.field() {
             continue;
         }
-        if cmp.coercion.id == CoercionId::Strict && !field_type.is_orderable() {
-            return None;
-        }
-        if !cached.literal_compatible || !index.is_field_indexable(field_name, cmp.op) {
+        if matches!(key_item, IndexKeyItem::Field(_))
+            && cmp.coercion.id == CoercionId::Strict
+            && !field_type.is_orderable()
+        {
             return None;
         }
 
         match cmp.op {
             CompareOp::Eq => match &constraint {
                 IndexFieldConstraint::None => {
-                    constraint = IndexFieldConstraint::Eq(cmp.value.clone());
+                    let Some(candidate) = eq_lookup_value_for_key_item(
+                        key_item,
+                        cmp.field.as_str(),
+                        &cmp.value,
+                        cmp.coercion.id,
+                        cached.literal_compatible,
+                    ) else {
+                        continue;
+                    };
+                    constraint = IndexFieldConstraint::Eq(candidate);
                 }
                 IndexFieldConstraint::Eq(existing) => {
-                    if existing != &cmp.value {
+                    let Some(candidate) = eq_lookup_value_for_key_item(
+                        key_item,
+                        cmp.field.as_str(),
+                        &cmp.value,
+                        cmp.coercion.id,
+                        cached.literal_compatible,
+                    ) else {
+                        continue;
+                    };
+                    if existing != &candidate {
                         return None;
                     }
                 }
                 IndexFieldConstraint::Range(_) => return None,
             },
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+                if !matches!(key_item, IndexKeyItem::Field(_))
+                    || !cached.literal_compatible
+                    || !index.is_field_indexable(key_item.field(), cmp.op)
+                {
+                    continue;
+                }
                 let mut range = match &constraint {
                     IndexFieldConstraint::None => RangeConstraint::default(),
                     IndexFieldConstraint::Eq(_) => return None,
                     IndexFieldConstraint::Range(existing) => existing.clone(),
                 };
                 if !merge_range_constraint(&mut range, cmp.op, &cmp.value) {
+                    return None;
+                }
+                constraint = IndexFieldConstraint::Range(range);
+            }
+            CompareOp::StartsWith => {
+                let Some(prefix) = starts_with_lookup_value_for_key_item(
+                    key_item,
+                    cmp.field.as_str(),
+                    &cmp.value,
+                    cmp.coercion.id,
+                    cached.literal_compatible,
+                ) else {
+                    continue;
+                };
+
+                let candidate = RangeConstraint {
+                    lower: Bound::Included(Value::Text(prefix.clone())),
+                    upper: match key_item {
+                        IndexKeyItem::Field(_) => strict_text_prefix_upper_bound(&prefix),
+                        IndexKeyItem::Expression(_) => Bound::Unbounded,
+                    },
+                };
+                let mut range = match &constraint {
+                    IndexFieldConstraint::None => candidate.clone(),
+                    IndexFieldConstraint::Eq(_) => return None,
+                    IndexFieldConstraint::Range(existing) => existing.clone(),
+                };
+                if !merge_range_constraint_bounds(&mut range, &candidate) {
                     return None;
                 }
                 constraint = IndexFieldConstraint::Range(range);
@@ -237,6 +353,28 @@ fn merge_range_constraint(existing: &mut RangeConstraint, op: CompareOp, value: 
     }
 
     range_bounds_are_compatible(existing)
+}
+
+// Merge one pre-built bounded interval into the current constraint so
+// STARTS_WITH can share the same compatibility checks as explicit inequalities.
+fn merge_range_constraint_bounds(
+    existing: &mut RangeConstraint,
+    candidate: &RangeConstraint,
+) -> bool {
+    if !merge_lower_bound(&mut existing.lower, candidate.lower.clone()) {
+        return false;
+    }
+    if !merge_upper_bound(&mut existing.upper, candidate.upper.clone()) {
+        return false;
+    }
+
+    range_bounds_are_compatible(existing)
+}
+
+fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {
+    next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
+        Bound::Excluded(Value::Text(next_prefix))
+    })
 }
 
 fn merge_lower_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bool {

@@ -735,6 +735,804 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated ActiveUser STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated ActiveUser text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending ActiveUser STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending ActiveUser text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, handle FROM ActiveUser WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM ActiveUser WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, handle FROM ActiveUser WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM ActiveUser WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated ActiveUser filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_desc_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending ActiveUser filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated ActiveUser filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_desc_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending ActiveUser filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated ActiveUser filtered composite STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated ActiveUser filtered composite text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending ActiveUser filtered composite STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending ActiveUser filtered composite text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 1);
+                assert_eq!(rows.rows.len(), 1);
+                assert_eq!(rows.rows[0][1], "bravo");
+            }
+            other => panic!(
+                "filtered strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 1);
+                assert_eq!(rows.rows.len(), 1);
+                assert_eq!(rows.rows[0][1], "bravo");
+            }
+            other => panic!(
+                "descending filtered strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bravo");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "filtered expression order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bristle");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "descending filtered expression order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bravo");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "filtered expression strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bristle");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "descending filtered expression strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite expression order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite expression order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite expression strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite expression strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
     fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_expected_rows() {
         reload_default_fixtures();
 
@@ -772,8 +1570,8 @@ mod tests {
                 assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
                 assert_eq!(rows.row_count, 2);
                 assert_eq!(rows.rows.len(), 2);
-                assert_eq!(rows.rows[0][1], "charlie");
-                assert_eq!(rows.rows[1][1], "bravo");
+                assert_eq!(rows.rows[0][1], "echo");
+                assert_eq!(rows.rows[1][1], "charlie");
             }
             other => panic!(
                 "descending filtered order-only ActiveUser projection should return a projection payload: {other:?}"

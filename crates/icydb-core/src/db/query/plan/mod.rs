@@ -68,10 +68,13 @@ pub(crate) use model::{
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{ExecutionOrderContract, ExecutionOrdering};
 pub(in crate::db) use order_term::{ExpressionOrderTerm, index_order_terms};
-pub(in crate::db) use planner::filtered_index_predicate_satisfies_query;
 #[cfg(test)]
 pub(crate) use planner::plan_access;
 pub(crate) use planner::{PlannerError, plan_access_with_order};
+pub(in crate::db) use planner::{
+    residual_query_predicate_after_access_path_bounds,
+    residual_query_predicate_after_filtered_access,
+};
 pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{

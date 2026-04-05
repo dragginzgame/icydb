@@ -18,7 +18,7 @@ use crate::{
         executor::{
             AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
-            route::LoadTerminalFastPathContract,
+            route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             terminal::{
                 RowDecoder, RowLayout,
                 page::{
@@ -271,7 +271,7 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
@@ -292,7 +292,7 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
 pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
     pub(in crate::db::executor) load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
@@ -345,6 +345,7 @@ pub(in crate::db::executor) trait ExecutionRuntime {
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError>;
 
     /// Attempt the cursorless row-collector short path and erase the typed page result.
@@ -459,12 +460,14 @@ impl ExecutionRuntimeAdapterCore<'_> {
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.runtime.fallback_execution_keys(
             self.access,
             bindings,
             physical_fetch_hint,
             index_predicate_execution,
+            preserve_leaf_index_order,
         )
     }
 }
@@ -585,11 +588,13 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         self.core.resolve_fallback_execution_key_stream(
             bindings,
             physical_fetch_hint,
             index_predicate_execution,
+            preserve_leaf_index_order,
         )
     }
 
@@ -635,7 +640,7 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
                 predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,
                 scan_budget_hint: request.scan_budget_hint,
-                stream_order_contract_safe: request.stream_order_contract_safe,
+                load_order_route_contract: request.load_order_route_contract,
                 validate_projection: request.validate_projection,
                 retain_slot_rows: request.retain_slot_rows,
                 cursor_emission: request.cursor_emission,

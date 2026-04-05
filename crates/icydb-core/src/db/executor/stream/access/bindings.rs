@@ -193,6 +193,7 @@ pub(in crate::db::executor) struct ExecutableAccess<'a, K> {
     pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    pub(in crate::db::executor) preserve_leaf_index_order: bool,
 }
 
 impl<'a, K> ExecutableAccess<'a, K> {
@@ -225,7 +226,16 @@ impl<'a, K> ExecutableAccess<'a, K> {
             bindings,
             physical_fetch_hint,
             index_predicate_execution,
+            preserve_leaf_index_order: false,
         }
+    }
+
+    /// Mark this executable access request as one top-level single-path index
+    /// scan whose physical traversal order is part of the observable contract.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_preserved_leaf_index_order(mut self) -> Self {
+        self.preserve_leaf_index_order = true;
+        self
     }
 }
 

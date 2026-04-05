@@ -55,21 +55,36 @@ pub fn active_users() -> Vec<ActiveUser> {
         ActiveUser {
             name: "amber".to_string(),
             active: false,
+            tier: "gold".to_string(),
+            handle: "bramble".to_string(),
             ..Default::default()
         },
         ActiveUser {
             name: "bravo".to_string(),
             active: true,
+            tier: "gold".to_string(),
+            handle: "bravo".to_string(),
             ..Default::default()
         },
         ActiveUser {
             name: "charlie".to_string(),
             active: true,
+            tier: "gold".to_string(),
+            handle: "bristle".to_string(),
             ..Default::default()
         },
         ActiveUser {
             name: "delta".to_string(),
             active: false,
+            tier: "silver".to_string(),
+            handle: "brisk".to_string(),
+            ..Default::default()
+        },
+        ActiveUser {
+            name: "echo".to_string(),
+            active: true,
+            tier: "silver".to_string(),
+            handle: "Brisk".to_string(),
             ..Default::default()
         },
     ]
