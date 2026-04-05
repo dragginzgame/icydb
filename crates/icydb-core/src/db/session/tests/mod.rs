@@ -4225,6 +4225,11 @@ fn execute_sql_projection_filtered_expression_equivalent_prefix_forms_match_guar
         "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
     )
     .expect("filtered expression STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered expression text-range projection should execute");
     let entity_rows = session
         .execute_sql::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -4253,6 +4258,10 @@ fn execute_sql_projection_filtered_expression_equivalent_prefix_forms_match_guar
     assert_eq!(
         starts_with_rows, like_rows,
         "guarded filtered expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "guarded filtered expression text-range and LIKE prefix projections should stay in parity",
     );
     assert_eq!(
         entity_projected_rows, expected_rows,
@@ -4294,6 +4303,11 @@ fn execute_sql_projection_filtered_expression_equivalent_desc_prefix_forms_match
         "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
     )
     .expect("descending filtered expression STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered expression text-range projection should execute");
     let entity_rows = session
         .execute_sql::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -4322,6 +4336,10 @@ fn execute_sql_projection_filtered_expression_equivalent_desc_prefix_forms_match
     assert_eq!(
         starts_with_rows, like_rows,
         "descending guarded filtered expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "descending guarded filtered expression text-range and LIKE prefix projections should stay in parity",
     );
     assert_eq!(
         entity_projected_rows, expected_rows,
@@ -4495,6 +4513,53 @@ fn session_explain_execution_filtered_expression_prefix_covering_query_uses_inde
 }
 
 #[test]
+fn session_explain_execution_filtered_expression_text_range_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
+    // prove explicit casefold bounds stay on the same expression index route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the guarded filtered expression text-range lane to stay
+    // on the shared index-range root with access-satisfied ordering.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered expression text-range SQL query should lower")
+        .explain_execution()
+        .expect("filtered expression text-range SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "guarded filtered expression text-range queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "guarded filtered expression text-range explain roots should expose the materialized route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered expression text-range roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered expression text-range roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
 fn execute_sql_projection_filtered_composite_expression_order_only_query_returns_guarded_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -4581,10 +4646,19 @@ fn execute_sql_projection_filtered_composite_expression_equivalent_prefix_forms_
         "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
     )
     .expect("filtered composite expression STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect("filtered composite expression text-range projection should execute");
 
     assert_eq!(
         starts_with_rows, like_rows,
         "guarded filtered composite expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "guarded filtered composite expression text-range and LIKE prefix projections should stay in parity",
     );
     assert_eq!(
         like_rows,
@@ -4624,10 +4698,19 @@ fn execute_sql_projection_filtered_composite_expression_equivalent_desc_prefix_f
         "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
     )
     .expect("descending filtered composite expression STARTS_WITH projection should execute");
+    let range_rows = dispatch_projection_rows::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending filtered composite expression text-range projection should execute");
 
     assert_eq!(
         starts_with_rows, like_rows,
         "descending guarded filtered composite expression STARTS_WITH and LIKE prefix projections should stay in parity",
+    );
+    assert_eq!(
+        range_rows, like_rows,
+        "descending guarded filtered composite expression text-range and LIKE prefix projections should stay in parity",
     );
     assert_eq!(
         like_rows,
@@ -4767,6 +4850,69 @@ fn session_explain_execution_filtered_composite_expression_prefix_query_uses_ind
         )
         .is_some(),
         "guarded filtered composite expression-prefix roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_composite_expression_text_range_query_uses_index_range_access()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so EXPLAIN EXECUTION can
+    // prove explicit casefold bounds keep the equality-prefix expression route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require the guarded equality-prefix composite expression
+    // text-range lane to preserve the shared index-range root.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression text-range SQL query should lower")
+        .explain_execution()
+        .expect("filtered composite expression text-range SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "guarded filtered composite expression text-range queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "guarded filtered composite expression text-range projections should materialize original handle values instead of claiming a covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "guarded filtered composite expression text-range explain roots should expose the materialized route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "guarded filtered composite expression text-range explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "guarded filtered composite expression text-range explain roots should expose the concrete equality-prefix value",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "guarded filtered composite expression text-range roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered composite expression text-range roots should report access-satisfied LOWER(handle) ordering",
     );
 }
 

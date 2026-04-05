@@ -99,11 +99,13 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         if !matches!(
             (cmp.op, cmp.coercion.id),
             (
-                CompareOp::Eq | CompareOp::StartsWith,
+                CompareOp::Eq
+                    | CompareOp::StartsWith
+                    | CompareOp::Gt
+                    | CompareOp::Gte
+                    | CompareOp::Lt
+                    | CompareOp::Lte,
                 CoercionId::Strict | CoercionId::TextCasefold
-            ) | (
-                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte,
-                CoercionId::Strict
             )
         ) {
             return None;
@@ -286,21 +288,12 @@ fn key_item_constraint_for_index_slot(
                 IndexFieldConstraint::Range(_) => return None,
             },
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-                if !matches!(key_item, IndexKeyItem::Field(_))
-                    || !cached.literal_compatible
-                    || !index.is_field_indexable(key_item.field(), cmp.op)
-                {
-                    continue;
-                }
-                let mut range = match &constraint {
-                    IndexFieldConstraint::None => RangeConstraint::default(),
-                    IndexFieldConstraint::Eq(_) => return None,
-                    IndexFieldConstraint::Range(existing) => existing.clone(),
-                };
-                if !merge_range_constraint(&mut range, cmp.op, &cmp.value) {
-                    return None;
-                }
-                constraint = IndexFieldConstraint::Range(range);
+                merge_ordered_compare_constraint_for_key_item(
+                    index,
+                    key_item,
+                    cached,
+                    &mut constraint,
+                )?;
             }
             CompareOp::StartsWith => {
                 let Some(prefix) = starts_with_lookup_value_for_key_item(
@@ -335,6 +328,52 @@ fn key_item_constraint_for_index_slot(
     }
 
     Some(constraint)
+}
+
+// Merge one ordered compare onto one canonical key-item slot.
+// This keeps Eq/In/prefix/range on the same canonical literal-lowering path
+// for both raw field keys and the accepted TextCasefold expression keys.
+fn merge_ordered_compare_constraint_for_key_item(
+    index: &'static IndexModel,
+    key_item: IndexKeyItem,
+    cached: &CachedCompare<'_>,
+    constraint: &mut IndexFieldConstraint,
+) -> Option<()> {
+    let cmp = cached.cmp;
+    let candidate = eq_lookup_value_for_key_item(
+        key_item,
+        cmp.field.as_str(),
+        &cmp.value,
+        cmp.coercion.id,
+        cached.literal_compatible,
+    )?;
+
+    match key_item {
+        IndexKeyItem::Field(_) => {
+            if cmp.coercion.id != CoercionId::Strict
+                || !index.is_field_indexable(key_item.field(), cmp.op)
+            {
+                return Some(());
+            }
+        }
+        IndexKeyItem::Expression(_) => {
+            if cmp.coercion.id != CoercionId::TextCasefold {
+                return Some(());
+            }
+        }
+    }
+
+    let mut range = match constraint {
+        IndexFieldConstraint::None => RangeConstraint::default(),
+        IndexFieldConstraint::Eq(_) => return None,
+        IndexFieldConstraint::Range(existing) => existing.clone(),
+    };
+    if !merge_range_constraint(&mut range, cmp.op, &candidate) {
+        return None;
+    }
+
+    *constraint = IndexFieldConstraint::Range(range);
+    Some(())
 }
 
 // Merge one comparison operator into one bounded range under shared numeric

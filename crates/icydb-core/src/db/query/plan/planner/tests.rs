@@ -168,6 +168,28 @@ static PLANNER_ORDER_FILTERED_EXPRESSION_MODEL: EntityModel = entity_model_from_
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_FILTERED_EXPRESSION_INDEX_REFS,
 );
+static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_KEY_ITEMS: [IndexKeyItem; 2] = [
+    IndexKeyItem::Field("tier"),
+    IndexKeyItem::Expression(IndexExpression::Lower("handle")),
+];
+static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEXES: [IndexModel; 1] =
+    [IndexModel::new_with_key_items_and_predicate(
+        "tier_handle_lower_idx_active_only",
+        "planner::order_filtered_composite_expression_test_entity",
+        &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS,
+        Some(&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_KEY_ITEMS),
+        false,
+        Some("active = true"),
+    )];
+static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS: [&IndexModel; 1] =
+    [&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEXES[0]];
+static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL: EntityModel = entity_model_from_static(
+    "planner::order_filtered_composite_expression_test_entity",
+    "PlannerOrderFilteredCompositeExpressionTestEntity",
+    &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS[0],
+    &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS,
+    &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS,
+);
 
 fn plan_access_for_test(
     model: &EntityModel,
@@ -764,5 +786,89 @@ fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query
             Bound::Unbounded,
         )),
         "guarded descending LOWER(field) order-only scans should use the matching expression index range",
+    );
+}
+
+#[test]
+fn planner_expression_text_range_uses_expression_index_range() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL)
+        .expect("planner expression range test model should produce schema info");
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::Gte,
+        Value::Text("BR".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    let planner_shape =
+        plan_access_for_test(&PLANNER_ORDER_EXPRESSION_MODEL, &schema, Some(&predicate))
+            .expect("expression text range access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            PLANNER_ORDER_EXPRESSION_INDEXES[0],
+            vec![0usize],
+            Vec::new(),
+            Bound::Included(Value::Text("br".to_string())),
+            Bound::Unbounded,
+        )),
+        "canonical LOWER(field) ordered text bounds should lower onto the matching expression index range",
+    );
+}
+
+#[test]
+fn planner_filtered_composite_expression_text_range_uses_index_range_when_query_implies_guard() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL)
+        .expect("planner filtered composite expression range model should produce schema info");
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(true),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "handle",
+            CompareOp::Gte,
+            Value::Text("BR".to_string()),
+            CoercionId::TextCasefold,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "handle",
+            CompareOp::Lt,
+            Value::Text("BS".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    ]);
+    let order = canonical_order(&[
+        ("LOWER(handle)", OrderDirection::Asc),
+        ("id", OrderDirection::Asc),
+    ]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("filtered composite expression text range access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEXES[0],
+            vec![0usize, 1usize],
+            vec![Value::Text("gold".to_string())],
+            Bound::Included(Value::Text("br".to_string())),
+            Bound::Excluded(Value::Text("bs".to_string())),
+        )),
+        "guarded equality-prefix LOWER(field) ordered text bounds should lower onto the composite expression index range",
     );
 }

@@ -1,40 +1,21 @@
 use candid::{Principal, encode_one};
-use canic_testkit::pic::{Pic, acquire_pic_serial_guard, pic};
+use canic_testkit::pic::{
+    Pic, PicStartError, StandaloneCanisterFixture, StandaloneCanisterFixtureError,
+    try_acquire_pic_serial_guard, try_install_prebuilt_canister_with_cycles, try_pic,
+};
 use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
 use icydb_testing_integration::build_canister;
 use serde::Serialize;
-use std::{fs, path::PathBuf, sync::OnceLock};
+use std::{fs, sync::OnceLock};
 
 const INIT_CYCLES: u128 = 2_000_000_000_000;
 const ANY_PROJECTION_VALUE: &str = "<any>";
-const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
 const SQL_PERF_PROBE_SQL_ENV: &str = "ICYDB_SQL_PERF_PROBE_SQL";
 const SQL_PERF_PROBE_SURFACE_ENV: &str = "ICYDB_SQL_PERF_PROBE_SURFACE";
 const SQL_PERF_PROBE_CURSOR_ENV: &str = "ICYDB_SQL_PERF_PROBE_CURSOR";
 const SQL_PERF_PROBE_REPEAT_ENV: &str = "ICYDB_SQL_PERF_PROBE_REPEAT_COUNT";
 const DEFAULT_SQL_PERF_PROBE_SQL: &str = "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2";
 static QUICKSTART_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
-
-// Resolve the PocketIC server binary lazily so canic-testkit-backed tests can
-// skip cleanly when the executable is unavailable in local environments.
-fn pocket_ic_server_binary() -> Option<PathBuf> {
-    let Some(server_binary_raw) = std::env::var_os(POCKET_IC_BIN_ENV) else {
-        eprintln!(
-            "skipping canic-testkit-backed SQL canister integration test: set {POCKET_IC_BIN_ENV} \
-             to an executable pocket-ic server binary"
-        );
-
-        return None;
-    };
-    let server_binary = PathBuf::from(server_binary_raw);
-    assert!(
-        server_binary.is_file(),
-        "{POCKET_IC_BIN_ENV} points to {}, but that file does not exist",
-        server_binary.display()
-    );
-
-    Some(server_binary)
-}
 
 fn build_quickstart_canister_wasm() -> Vec<u8> {
     QUICKSTART_CANISTER_WASM
@@ -50,18 +31,23 @@ fn build_quickstart_canister_wasm() -> Vec<u8> {
         .clone()
 }
 
-// Create the resolved temp root up front so canic-testkit can place its
-// underlying PocketIC process lock under caller-provided TMPDIR paths without requiring
-// every test command to pre-create that directory manually.
-fn ensure_pic_temp_root_exists() {
-    let temp_root = std::env::temp_dir();
+// Skip cleanly when PocketIC is unavailable locally instead of panicking.
+//
+// The new canic-testkit `try_*` startup APIs classify startup failures for us,
+// so the suite no longer needs its own `POCKET_IC_BIN` preflight. Missing
+// binaries or blocked auto-downloads are local setup gaps rather than test
+// failures; other startup errors still panic because they indicate a broken
+// runtime we should notice.
+const fn should_skip_pic_start(err: &PicStartError) -> bool {
+    matches!(
+        err,
+        PicStartError::BinaryUnavailable { .. } | PicStartError::DownloadFailed { .. }
+    )
+}
 
-    fs::create_dir_all(&temp_root).unwrap_or_else(|err| {
-        panic!(
-            "failed to create canic-testkit temp root at {}: {err}",
-            temp_root.display()
-        )
-    });
+// Emit the shared skip message for one local PocketIC availability gap.
+fn skip_sql_canister_test(reason: impl std::fmt::Display) {
+    eprintln!("skipping canic-testkit-backed SQL canister integration test: {reason}");
 }
 
 // Install the quickstart fixture canister into one existing Pic instance.
@@ -71,7 +57,33 @@ fn ensure_pic_temp_root_exists() {
 // installation now goes through canic-testkit's generic public install helper.
 fn install_quickstart_canister(pic: &Pic) -> Principal {
     let wasm = build_quickstart_canister_wasm();
-    pic.create_and_install_with_args(wasm, encode_one(()).expect("encode init args"), INIT_CYCLES)
+
+    pic.try_create_and_install_with_args(
+        wasm,
+        encode_one(()).expect("encode init args"),
+        INIT_CYCLES,
+    )
+    .unwrap_or_else(|err| panic!("failed to install quickstart canister: {err}"))
+}
+
+// Install one quickstart canister into a fresh canic-testkit fixture.
+//
+// This is the common integration-test shape: one fresh Pic, one real
+// quickstart canister, public update/query calls only. Keep it on the public
+// prebuilt-install helper so the suite stays testkit-first.
+fn install_fresh_quickstart_fixture() -> Option<StandaloneCanisterFixture> {
+    match try_install_prebuilt_canister_with_cycles(
+        build_quickstart_canister_wasm(),
+        encode_one(()).expect("encode init args"),
+        INIT_CYCLES,
+    ) {
+        Ok(fixture) => Some(fixture),
+        Err(StandaloneCanisterFixtureError::Start(err)) if should_skip_pic_start(&err) => {
+            skip_sql_canister_test(err);
+            None
+        }
+        Err(err) => panic!("failed to install quickstart fixture: {err}"),
+    }
 }
 
 // Execute one unit-shaped update call and assert the canister returned `Ok(())`.
@@ -99,19 +111,49 @@ fn reset_fixtures(pic: &Pic, canister_id: Principal) {
 fn run_with_pic(test_body: impl FnOnce(&Pic)) {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-    let Some(_server_binary) = pocket_ic_server_binary() else {
-        return;
+    let _serial_guard = try_acquire_pic_serial_guard()
+        .unwrap_or_else(|err| panic!("failed to acquire PocketIC serial guard: {err}"));
+    let pic = match try_pic() {
+        Ok(pic) => pic,
+        Err(err) if should_skip_pic_start(&err) => {
+            skip_sql_canister_test(err);
+            return;
+        }
+        Err(err) => panic!("failed to start PocketIC: {err}"),
     };
-
-    ensure_pic_temp_root_exists();
-    let _serial_guard = acquire_pic_serial_guard();
-    let pic = pic();
     let test_result = catch_unwind(AssertUnwindSafe(|| test_body(&pic)));
     drop(pic);
 
     if let Err(test_panic) = test_result {
         resume_unwind(test_panic);
     }
+}
+
+// Execute one integration test body against the dominant fixture shape: a
+// fresh Pic with one installed quickstart canister.
+fn run_with_quickstart_canister(test_body: impl FnOnce(&Pic, Principal)) {
+    use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+
+    let Some(fixture) = install_fresh_quickstart_fixture() else {
+        return;
+    };
+    let test_result = catch_unwind(AssertUnwindSafe(|| {
+        test_body(&fixture.pic, fixture.canister_id);
+    }));
+    drop(fixture);
+
+    if let Err(test_panic) = test_result {
+        resume_unwind(test_panic);
+    }
+}
+
+// Execute one integration test body against the common loaded-fixture shape:
+// a fresh Pic, one installed quickstart canister, and the default dataset.
+fn run_with_loaded_quickstart_canister(test_body: impl FnOnce(&Pic, Principal)) {
+    run_with_quickstart_canister(|pic, canister_id| {
+        load_default_fixtures(pic, canister_id);
+        test_body(pic, canister_id);
+    });
 }
 
 fn query_result(
@@ -1031,9 +1073,7 @@ fn assert_metadata_entity_name(
 
 #[test]
 fn sql_canister_smoke_flow() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-
+    run_with_quickstart_canister(|pic, canister_id| {
         let entities: Vec<String> = pic
             .query_call(canister_id, "sql_entities", ())
             .expect("sql_entities query call should succeed");
@@ -1118,10 +1158,7 @@ fn sql_canister_smoke_flow() {
 
 #[test]
 fn sql_canister_query_lane_supports_delete_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let deleted_rows = query_projection_rows(
             pic,
             canister_id,
@@ -1141,9 +1178,7 @@ fn sql_canister_query_lane_supports_delete_projection() {
 
 #[test]
 fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-
+    run_with_quickstart_canister(|pic, canister_id| {
         // Phase 1: compare the accepted direct family against the established
         // LIKE forms on the generated query/delete boundary.
         let cases = [
@@ -1220,10 +1255,7 @@ fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() 
 
 #[test]
 fn sql_canister_query_lane_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let err = query_result(
             pic,
             canister_id,
@@ -1249,10 +1281,7 @@ fn sql_canister_query_lane_delete_rejects_non_casefold_wrapped_direct_starts_wit
 
 #[test]
 fn sql_canister_query_lane_supports_computed_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -1272,10 +1301,7 @@ fn sql_canister_query_lane_supports_computed_projection() {
 
 #[test]
 fn sql_canister_query_lane_supports_user_expression_order_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one expression-order User projection so the
         // generated SQL lane proves the new LOWER(name) secondary order path.
         let rows = query_projection_rows(
@@ -1306,10 +1332,7 @@ fn sql_canister_query_lane_supports_user_expression_order_covering_projection() 
 
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_covering_route() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the new expression
         // order-only User projection shape.
         let payload = query_result(
@@ -1340,10 +1363,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_cove
 
 #[test]
 fn sql_canister_query_lane_supports_user_expression_order_desc_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending expression-order User projection so
         // reverse traversal stays locked in the generated SQL harness.
         let rows = query_projection_rows(
@@ -1374,10 +1394,7 @@ fn sql_canister_query_lane_supports_user_expression_order_desc_covering_projecti
 
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_desc_covering_route() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending
         // expression order-only User projection shape.
         let payload = query_result(
@@ -1408,10 +1425,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_desc
 
 #[test]
 fn sql_canister_query_lane_supports_character_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one direct indexed Character projection on the
         // generated query surface so dynamic entity routing still reaches the
         // shared covering-read lane.
@@ -1434,10 +1448,7 @@ fn sql_canister_query_lane_supports_character_covering_projection() {
 
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_character_covering_read_route() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the same indexed
         // Character covering projection shape.
         let payload = query_result(
@@ -1464,10 +1475,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_covering_read_ro
 
 #[test]
 fn sql_canister_query_lane_supports_character_order_only_composite_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one order-only composite Character projection so
         // dynamic entity routing reaches the shared planner fallback instead of
         // materializing a full scan by accident.
@@ -1497,10 +1505,7 @@ fn sql_canister_query_lane_supports_character_order_only_composite_covering_proj
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_composite_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the order-only
         // Character composite covering projection shape.
         let payload = query_result(
@@ -1531,10 +1536,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_compo
 
 #[test]
 fn sql_canister_query_lane_supports_character_order_only_composite_desc_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending order-only composite Character
         // projection so the generated SQL lane proves reverse index traversal
         // instead of a materialized full-row reverse sort.
@@ -1574,10 +1576,7 @@ fn sql_canister_query_lane_supports_character_order_only_composite_desc_covering
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_composite_desc_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending
         // order-only Character composite covering projection shape.
         let payload = query_result(
@@ -1608,10 +1607,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_compo
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_order_only_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one filtered-index guarded order-only projection so
         // the generated SQL lane reaches the guarded secondary-index route.
         let rows = query_projection_rows(
@@ -1639,10 +1635,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_order_only_covering_pro
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order_only_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
         // order-only ActiveUser projection shape.
         let payload = query_result(
@@ -1674,10 +1667,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_order_only_desc_covering_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending filtered-index guarded order-only
         // projection so reverse traversal stays locked in the generated lane.
         let rows = query_projection_rows(
@@ -1705,10 +1695,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_order_only_desc_coverin
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order_only_desc_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // filtered order-only ActiveUser projection shape.
         let payload = query_result(
@@ -1740,10 +1727,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one guarded filtered-index strict prefix projection
         // so the generated SQL lane reaches the bounded filtered route.
         let rows = query_projection_rows(
@@ -1768,10 +1752,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_proj
 #[test]
 fn sql_canister_query_lane_filtered_equivalent_strict_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted guarded strict prefix spellings
         // against the same ordered ActiveUser projection window.
         let like_rows = query_projection_rows(
@@ -1809,10 +1790,7 @@ fn sql_canister_query_lane_filtered_equivalent_strict_prefix_forms_match_active_
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_strict_like_prefix_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
         // strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -1845,10 +1823,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_stric
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_desc_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded filtered-index strict prefix
         // projection so the generated SQL lane reaches the reverse bounded route.
         let rows = query_projection_rows(
@@ -1873,10 +1848,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_desc
 #[test]
 fn sql_canister_query_lane_filtered_equivalent_desc_strict_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted descending guarded strict prefix
         // spellings against the same reverse ActiveUser projection window.
         let like_rows = query_projection_rows(
@@ -1914,10 +1886,7 @@ fn sql_canister_query_lane_filtered_equivalent_desc_strict_prefix_forms_match_ac
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_strict_like_prefix_desc_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // filtered strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -1950,10 +1919,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_stric
 
 #[test]
 fn sql_canister_query_lane_rejects_grouped_sql_execution() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let err = query_result(
             pic,
             canister_id,
@@ -1982,10 +1948,7 @@ fn sql_canister_query_lane_rejects_grouped_sql_execution() {
 
 #[test]
 fn sql_canister_query_lane_supports_grouped_explain() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let payload = query_result(
             pic,
             canister_id,
@@ -2004,10 +1967,7 @@ fn sql_canister_query_lane_supports_grouped_explain() {
 
 #[test]
 fn sql_canister_query_lane_explain_delete_direct_starts_with_family_matches_like_output() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: compare the accepted direct family against the established
         // LIKE delete explain outputs on the generated query surface.
         let cases = [
@@ -2066,10 +2026,7 @@ fn sql_canister_query_lane_explain_delete_direct_starts_with_family_matches_like
 
 #[test]
 fn sql_canister_query_lane_explain_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let err = query_result(
             pic,
             canister_id,
@@ -2095,10 +2052,7 @@ fn sql_canister_query_lane_explain_delete_rejects_non_casefold_wrapped_direct_st
 
 #[test]
 fn sql_canister_query_lane_explain_json_delete_rejects_non_casefold_wrapped_direct_starts_with() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let err = query_result(
             pic,
             canister_id,
@@ -2124,10 +2078,7 @@ fn sql_canister_query_lane_explain_json_delete_rejects_non_casefold_wrapped_dire
 
 #[test]
 fn sql_canister_query_lane_supports_strict_like_prefix_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -2146,10 +2097,7 @@ fn sql_canister_query_lane_supports_strict_like_prefix_predicate() {
 
 #[test]
 fn sql_canister_query_lane_supports_strict_like_prefix_desc_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -2168,10 +2116,7 @@ fn sql_canister_query_lane_supports_strict_like_prefix_desc_predicate() {
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_prefix_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one guarded composite filtered strict-prefix
         // projection so the generated SQL lane reaches the equality-prefix
         // plus bounded-suffix route.
@@ -2200,10 +2145,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_p
 #[test]
 fn sql_canister_query_lane_filtered_composite_equivalent_strict_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted guarded composite strict prefix
         // spellings against the same equality-prefix ActiveUser projection window.
         let like_rows = query_projection_rows(
@@ -2241,10 +2183,7 @@ fn sql_canister_query_lane_filtered_composite_equivalent_strict_prefix_forms_mat
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_strict_like_prefix_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
         // filtered strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -2282,10 +2221,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_prefix_desc_projection()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite filtered
         // strict-prefix projection so the generated SQL lane reaches the
         // reverse equality-prefix plus bounded-suffix route.
@@ -2314,10 +2250,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_p
 #[test]
 fn sql_canister_query_lane_filtered_composite_equivalent_desc_strict_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted descending guarded composite
         // strict prefix spellings against the same reverse equality-prefix window.
         let like_rows = query_projection_rows(
@@ -2355,10 +2288,7 @@ fn sql_canister_query_lane_filtered_composite_equivalent_desc_strict_prefix_form
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_strict_like_prefix_desc_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // composite filtered strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -2395,10 +2325,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one guarded composite filtered order-only
         // projection so the generated SQL lane reaches the equality-prefix
         // suffix-order route without an extra bounded text predicate.
@@ -2427,10 +2354,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_pr
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_order_only_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
         // filtered order-only ActiveUser projection shape.
         let payload = query_result(
@@ -2467,10 +2391,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_desc_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite filtered
         // order-only projection so reverse suffix traversal stays pinned.
         let rows = query_projection_rows(
@@ -2498,10 +2419,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_de
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_order_only_desc_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // composite filtered order-only ActiveUser projection shape.
         let payload = query_result(
@@ -2540,10 +2458,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_desc_offset_projection()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite filtered offset
         // projection so the materialized-boundary route stays pinned on the
         // existing equality-prefix index path.
@@ -2569,10 +2484,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_de
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_order_only_desc_offset_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // composite filtered offset order-only ActiveUser projection shape.
         let payload = query_result(
@@ -2610,10 +2522,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_desc_residual_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite residual
         // projection so the generated SQL lane proves the `tier, handle` route
         // still owns ordering while `name >= 'a'` remains residual.
@@ -2642,10 +2551,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_desc_residual
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_desc_residual_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // composite residual ActiveUser projection shape.
         let payload = query_result(
@@ -2679,10 +2585,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one filtered expression-order ActiveUser
         // projection so the generated SQL lane proves the guarded
         // `LOWER(handle)` secondary order path.
@@ -2711,10 +2614,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_p
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_order_only_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
         // expression-order ActiveUser projection shape.
         let payload = query_result(
@@ -2748,10 +2648,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_desc_projection() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending filtered expression-order
         // ActiveUser projection so reverse traversal stays locked in the
         // generated SQL harness.
@@ -2780,10 +2677,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_d
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_order_only_desc_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending
         // filtered expression-order ActiveUser projection shape.
         let payload = query_result(
@@ -2819,10 +2713,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 #[test]
 fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the accepted guarded expression prefix spellings
         // against the same ordered ActiveUser projection window.
         let like_rows = query_projection_rows(
@@ -2837,12 +2728,22 @@ fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_act
             "SELECT id, handle FROM ActiveUser WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
             "ActiveUser filtered expression STARTS_WITH predicate should return projected rows",
         );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "ActiveUser filtered expression text-range predicate should return projected rows",
+        );
 
         // Phase 2: keep the canister query lane pinned to one shared filtered
         // result set across the equivalent expression prefix spellings.
         assert_eq!(
             starts_with_rows, like_rows,
             "ActiveUser filtered expression STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "ActiveUser filtered expression text-range and LIKE prefix query rows should stay in parity",
         );
         assert_eq!(like_rows.entity, "ActiveUser");
         assert_eq!(
@@ -2859,10 +2760,7 @@ fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_act
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_like_prefix_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
         // expression strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -2895,12 +2793,41 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_text_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query ActiveUser filtered expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexRangeScan",
+                "cov_read_route",
+                "materialized",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "id",
+                "handle",
+            ],
+            &[],
+            "ActiveUser filtered expression strict text-range EXPLAIN EXECUTION should expose the index-range materialized route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the accepted descending guarded expression prefix
         // spellings against the same reverse ActiveUser projection window.
         let like_rows = query_projection_rows(
@@ -2915,12 +2842,22 @@ fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_matc
             "SELECT id, handle FROM ActiveUser WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
             "descending ActiveUser filtered expression STARTS_WITH predicate should return projected rows",
         );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "descending ActiveUser filtered expression text-range predicate should return projected rows",
+        );
 
         // Phase 2: keep the reverse canister query lane pinned to one shared
         // filtered result set across the equivalent expression prefix spellings.
         assert_eq!(
             starts_with_rows, like_rows,
             "descending ActiveUser filtered expression STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "descending ActiveUser filtered expression text-range and LIKE prefix query rows should stay in parity",
         );
         assert_eq!(like_rows.entity, "ActiveUser");
         assert_eq!(
@@ -2937,10 +2874,7 @@ fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_matc
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_like_prefix_desc_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending
         // filtered expression strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -2974,12 +2908,41 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_text_range_desc_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending ActiveUser filtered expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexRangeScan",
+                "cov_read_route",
+                "materialized",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "id",
+                "handle",
+            ],
+            &[],
+            "descending ActiveUser filtered expression strict text-range EXPLAIN EXECUTION should expose the index-range materialized route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_order_only_projection()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one guarded composite expression order-only
         // projection so the generated SQL lane proves the equality-prefix
         // `tier, LOWER(handle)` route.
@@ -3008,10 +2971,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_or
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_order_only_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
         // expression order-only ActiveUser projection shape.
         let payload = query_result(
@@ -3050,10 +3010,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 #[test]
 fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_order_only_desc_projection()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite expression
         // order-only projection so reverse `LOWER(handle)` traversal stays pinned.
         let rows = query_projection_rows(
@@ -3081,10 +3038,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_or
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_order_only_desc_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // composite expression order-only ActiveUser projection shape.
         let payload = query_result(
@@ -3124,10 +3078,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 #[test]
 fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the accepted guarded composite expression prefix
         // spellings against the same equality-prefix ActiveUser window.
         let like_rows = query_projection_rows(
@@ -3142,12 +3093,22 @@ fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefi
             "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
             "ActiveUser filtered composite expression STARTS_WITH predicate should return projected rows",
         );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "ActiveUser filtered composite expression text-range predicate should return projected rows",
+        );
 
         // Phase 2: keep the canister query lane pinned to one shared composite
         // expression result set across the equivalent strict prefix spellings.
         assert_eq!(
             starts_with_rows, like_rows,
             "ActiveUser filtered composite expression STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "ActiveUser filtered composite expression text-range and LIKE prefix query rows should stay in parity",
         );
         assert_eq!(like_rows.entity, "ActiveUser");
         assert_eq!(
@@ -3164,10 +3125,7 @@ fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefi
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_like_prefix_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
         // expression strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -3204,12 +3162,45 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_text_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query ActiveUser filtered composite expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexRangeScan",
+                "cov_read_route",
+                "materialized",
+                "prefix_len",
+                "Uint(1)",
+                "prefix_values",
+                "gold",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "tier",
+                "handle",
+            ],
+            &[],
+            "ActiveUser filtered composite expression strict text-range EXPLAIN EXECUTION should expose the materialized index-range route with one equality prefix",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_active_user_projection_rows()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the accepted descending guarded composite
         // expression prefix spellings against the same reverse equality-prefix window.
         let like_rows = query_projection_rows(
@@ -3224,12 +3215,22 @@ fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_
             "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
             "descending ActiveUser filtered composite expression STARTS_WITH predicate should return projected rows",
         );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "descending ActiveUser filtered composite expression text-range predicate should return projected rows",
+        );
 
         // Phase 2: keep the reverse canister query lane pinned to one shared
         // composite expression result set across the equivalent prefix spellings.
         assert_eq!(
             starts_with_rows, like_rows,
             "descending ActiveUser filtered composite expression STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "descending ActiveUser filtered composite expression text-range and LIKE prefix query rows should stay in parity",
         );
         assert_eq!(like_rows.entity, "ActiveUser");
         assert_eq!(
@@ -3246,10 +3247,7 @@ fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_like_prefix_desc_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
         // composite expression strict-prefix ActiveUser projection shape.
         let payload = query_result(
@@ -3286,11 +3284,44 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_strict_text_range_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_text_range_desc_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending ActiveUser filtered composite expression strict text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
 
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexRangeScan",
+                "cov_read_route",
+                "materialized",
+                "prefix_len",
+                "Uint(1)",
+                "prefix_values",
+                "gold",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "tier",
+                "handle",
+            ],
+            &[],
+            "descending ActiveUser filtered composite expression strict text-range EXPLAIN EXECUTION should expose the reverse materialized index-range route with one equality prefix",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_strict_text_range_predicate() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -3309,10 +3340,7 @@ fn sql_canister_query_lane_supports_strict_text_range_predicate() {
 
 #[test]
 fn sql_canister_query_lane_supports_strict_text_range_desc_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -3331,10 +3359,7 @@ fn sql_canister_query_lane_supports_strict_text_range_desc_predicate() {
 
 #[test]
 fn sql_canister_query_lane_equivalent_strict_prefix_forms_match_character_projection_rows() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted strict text-prefix spellings
         // against the same ordered Character projection window.
         let like_rows = query_projection_rows(
@@ -3371,10 +3396,7 @@ fn sql_canister_query_lane_equivalent_strict_prefix_forms_match_character_projec
 
 #[test]
 fn sql_canister_query_lane_equivalent_desc_strict_prefix_forms_match_character_projection_rows() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted descending strict text-prefix
         // spellings against the same reverse Character projection window.
         let like_rows = query_projection_rows(
@@ -3411,10 +3433,7 @@ fn sql_canister_query_lane_equivalent_desc_strict_prefix_forms_match_character_p
 
 #[test]
 fn sql_canister_query_lane_supports_direct_starts_with_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -3432,10 +3451,7 @@ fn sql_canister_query_lane_supports_direct_starts_with_predicate() {
 
 #[test]
 fn sql_canister_query_lane_supports_direct_lower_starts_with_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -3453,10 +3469,7 @@ fn sql_canister_query_lane_supports_direct_lower_starts_with_predicate() {
 
 #[test]
 fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
             pic,
             canister_id,
@@ -3474,10 +3487,7 @@ fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
 
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_strict_like_prefix_covering_route() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let payload = query_result(
             pic,
             canister_id,
@@ -3504,10 +3514,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_strict_like_prefix_coverin
 
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_covering_route() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let payload = query_result(
             pic,
             canister_id,
@@ -3534,10 +3541,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_covering
 
 #[test]
 fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_desc_covering_route() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let payload = query_result(
             pic,
             canister_id,
@@ -3568,10 +3572,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_desc_cov
 #[test]
 fn sql_canister_query_lane_explain_execution_equivalent_strict_prefix_forms_preserve_character_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted strict text-prefix spellings on
         // the same ordered Character explain window.
         let explains = [
@@ -3627,10 +3628,7 @@ fn sql_canister_query_lane_explain_execution_equivalent_strict_prefix_forms_pres
 #[test]
 fn sql_canister_query_lane_explain_execution_equivalent_desc_strict_prefix_forms_preserve_character_covering_route()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted descending strict text-prefix
         // spellings on the same reverse Character explain window.
         let explains = [
@@ -3686,10 +3684,7 @@ fn sql_canister_query_lane_explain_execution_equivalent_desc_strict_prefix_forms
 
 #[test]
 fn sql_canister_query_lane_rejects_non_casefold_wrapped_direct_starts_with_predicate() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let err = query_result(
             pic,
             canister_id,
@@ -4591,9 +4586,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
 
 #[test]
 fn sql_canister_perf_non_user_ordered_covering_generated_and_typed_dispatch_stay_aligned() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let mut rows = Vec::new();
 
         // Phase 1: measure the representative non-User ordered covering cohort
@@ -4650,10 +4643,7 @@ fn sql_canister_perf_non_user_ordered_covering_generated_and_typed_dispatch_stay
 #[test]
 fn sql_canister_perf_generated_dispatch_user_expression_order_reports_positive_instruction_samples()
 {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the new
         // expression-order User covering shape so perf regression checks track
         // the exact canister lane this slice changed.
@@ -4711,10 +4701,7 @@ fn sql_canister_perf_generated_dispatch_user_expression_order_reports_positive_i
 #[test]
 fn sql_canister_perf_generated_dispatch_user_expression_order_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // expression-order User covering shape so reverse traversal stays
         // pinned in the checked-in perf suite.
@@ -4772,10 +4759,7 @@ fn sql_canister_perf_generated_dispatch_user_expression_order_desc_reports_posit
 #[test]
 fn sql_canister_perf_generated_dispatch_character_order_only_composite_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the new order-only
         // composite Character covering shape so perf regression checks track
         // the exact canister lane this slice changed.
@@ -4833,10 +4817,7 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_reports_p
 #[test]
 fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // order-only composite Character covering shape so reverse traversal
         // stays pinned in the checked-in perf suite.
@@ -4895,10 +4876,7 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_repo
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
         // filtered-index order-only ActiveUser covering shape.
         let sample = sql_perf_sample(
@@ -4955,10 +4933,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_reports_
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // guarded filtered-index order-only ActiveUser covering shape.
         let sample = sql_perf_sample(
@@ -5015,10 +4990,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_rep
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
         // filtered-index strict LIKE prefix ActiveUser covering shape.
         let sample = sql_perf_sample(
@@ -5075,10 +5047,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // guarded filtered-index strict LIKE prefix ActiveUser covering shape.
         let sample = sql_perf_sample(
@@ -5135,10 +5104,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
         // composite filtered order-only ActiveUser covering shape.
         let sample = sql_perf_sample(
@@ -5195,10 +5161,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // guarded composite filtered order-only ActiveUser shape.
         let sample = sql_perf_sample(
@@ -5255,10 +5218,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
         // composite filtered strict LIKE prefix ActiveUser covering shape.
         let sample = sql_perf_sample(
@@ -5315,10 +5275,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // guarded composite filtered strict LIKE prefix ActiveUser shape.
         let sample = sql_perf_sample(
@@ -5375,10 +5332,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
 #[test]
 fn sql_canister_perf_generated_dispatch_character_strict_text_range_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the explicit
         // Character strict text-range covering shape so perf regression checks
         // stay on the checked-in bounded-range SQL form.
@@ -5436,10 +5390,7 @@ fn sql_canister_perf_generated_dispatch_character_strict_text_range_reports_posi
 #[test]
 fn sql_canister_perf_generated_dispatch_character_strict_text_range_desc_reports_positive_instruction_samples()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
         // explicit Character strict text-range covering shape so reverse
         // bounded traversal stays pinned in the checked-in perf suite.
@@ -5498,10 +5449,7 @@ fn sql_canister_perf_generated_dispatch_character_strict_text_range_desc_reports
 #[test]
 #[ignore = "manual perf probe for before/after measurement runs"]
 fn sql_canister_perf_probe_reports_sample_as_json() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: resolve one repo-owned sample probe request from env so
         // before/after perf runs can reuse this checked-in harness instead of
         // ad hoc temp crates.
@@ -5552,10 +5500,7 @@ fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
 #[test]
 #[ignore = "manual perf probe for before/after measurement runs"]
 fn sql_canister_perf_probe_reports_attribution_as_json() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: resolve one repo-owned attribution probe request from env
         // so stage-by-stage before/after comparisons stay on the checked-in
         // checked-in canic-testkit-backed harness.
@@ -5596,10 +5541,7 @@ fn sql_canister_perf_probe_reports_attribution_as_json() {
 #[test]
 fn sql_canister_perf_generated_dispatch_user_expression_order_attribution_reports_positive_stages()
 {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the exact User
         // expression-order covering shape added in this slice.
         let sample = sql_perf_attribution_sample(
@@ -5632,10 +5574,7 @@ fn sql_canister_perf_generated_dispatch_user_expression_order_attribution_report
 #[test]
 fn sql_canister_perf_generated_dispatch_user_expression_order_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // User expression-order covering shape added to the harness.
         let sample = sql_perf_attribution_sample(
@@ -5672,10 +5611,7 @@ fn sql_canister_perf_generated_dispatch_user_expression_order_desc_attribution_r
 #[test]
 fn sql_canister_perf_generated_dispatch_character_order_only_composite_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the exact
         // Character order-only composite covering shape added in this slice.
         let sample = sql_perf_attribution_sample(
@@ -5712,10 +5648,7 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_attributi
 #[test]
 fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // Character order-only composite covering shape added to the harness.
         let sample = sql_perf_attribution_sample(
@@ -5752,10 +5685,7 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_attr
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
         // filtered-index order-only ActiveUser covering shape.
         let sample = sql_perf_attribution_sample(
@@ -5792,10 +5722,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribut
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // guarded filtered-index order-only ActiveUser covering shape.
         let sample = sql_perf_attribution_sample(
@@ -5832,10 +5759,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_att
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
         // composite filtered order-only ActiveUser covering shape.
         let sample = sql_perf_attribution_sample(
@@ -5872,10 +5796,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // guarded composite filtered order-only ActiveUser shape.
         let sample = sql_perf_attribution_sample(
@@ -5912,10 +5833,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
         // filtered-index strict LIKE prefix ActiveUser covering shape.
         let sample = sql_perf_attribution_sample(
@@ -5952,10 +5870,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // guarded filtered-index strict LIKE prefix ActiveUser covering shape.
         let sample = sql_perf_attribution_sample(
@@ -5992,10 +5907,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
         // composite filtered strict LIKE prefix ActiveUser covering shape.
         let sample = sql_perf_attribution_sample(
@@ -6032,10 +5944,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
 #[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // guarded composite filtered strict LIKE prefix ActiveUser shape.
         let sample = sql_perf_attribution_sample(
@@ -6072,10 +5981,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
 #[test]
 fn sql_canister_perf_generated_dispatch_character_strict_text_range_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the explicit
         // Character strict text-range covering shape added to the harness.
         let sample = sql_perf_attribution_sample(
@@ -6112,10 +6018,7 @@ fn sql_canister_perf_generated_dispatch_character_strict_text_range_attribution_
 #[test]
 fn sql_canister_perf_generated_dispatch_character_strict_text_range_desc_attribution_reports_positive_stages()
  {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
         // explicit Character strict text-range covering shape added to the
         // harness.
@@ -6152,9 +6055,7 @@ fn sql_canister_perf_generated_dispatch_character_strict_text_range_desc_attribu
 
 #[test]
 fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let mut rows = Vec::new();
 
         for (scenario_key, sql, typed_surface, expected_entity, expected_row_count) in
@@ -6227,10 +6128,8 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
 
 #[test]
 fn sql_canister_perf_grouped_phase_attribution_reports_positive_stages() {
-    run_with_pic(|pic| {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let sql = "SELECT age, COUNT(*) FROM User GROUP BY age ORDER BY age ASC LIMIT 10";
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
 
         let grouped = sql_perf_attribution_sample(
             pic,
@@ -6288,10 +6187,7 @@ fn sql_canister_perf_grouped_phase_attribution_reports_positive_stages() {
 
 #[test]
 fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let full_page = sql_perf_attribution_sample(
             pic,
             canister_id,
@@ -6388,10 +6284,7 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
 #[test]
 #[expect(clippy::too_many_lines)]
 fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Property 1: resolution is by parsed SQL entity name for Character.
         let character_rows = query_projection_rows(
             pic,
@@ -6515,10 +6408,7 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
 #[test]
 #[expect(clippy::redundant_closure_for_method_calls)]
 fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
-    run_with_pic(|pic| {
-        let canister_id = install_quickstart_canister(pic);
-        load_default_fixtures(pic, canister_id);
-
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
         let describe_payload = query_result(pic, canister_id, "DESCRIBE Character")
             .expect("query DESCRIBE should return an Ok payload");
         let describe_lines = describe_payload.render_lines();

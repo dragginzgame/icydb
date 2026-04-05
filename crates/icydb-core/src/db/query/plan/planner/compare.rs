@@ -10,7 +10,10 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
             OrderSpec,
-            key_item_match::{leading_index_key_item, starts_with_lookup_value_for_key_item},
+            key_item_match::{
+                eq_lookup_value_for_key_item, index_key_item_count, leading_index_key_item,
+                starts_with_lookup_value_for_key_item,
+            },
             planner::{
                 index_literal_matches_schema,
                 prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
@@ -87,40 +90,23 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-            if cmp.coercion.id != CoercionId::Strict {
+            if !matches!(
+                cmp.coercion.id,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) {
                 return AccessPlan::full_scan();
             }
             let Some(field_type) = schema.field(&cmp.field) else {
                 return AccessPlan::full_scan();
             };
-            if !field_type.is_orderable() {
+            if cmp.coercion.id == CoercionId::Strict && !field_type.is_orderable() {
                 return AccessPlan::full_scan();
             }
-
-            // Single compare predicates only map directly to one-field indexes.
-            // Composite prefix+range extraction remains AND-group driven.
-            if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
+            if cmp.coercion.id == CoercionId::TextCasefold && !field_type.is_text() {
                 return AccessPlan::full_scan();
             }
-
-            let (lower, upper) = match cmp.op {
-                CompareOp::Gt => (Bound::Excluded(cmp.value.clone()), Bound::Unbounded),
-                CompareOp::Gte => (Bound::Included(cmp.value.clone()), Bound::Unbounded),
-                CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(cmp.value.clone())),
-                CompareOp::Lte => (Bound::Unbounded, Bound::Included(cmp.value.clone())),
-                _ => unreachable!("range arm must be one of Gt/Gte/Lt/Lte"),
-            };
-
-            for index in sorted_indexes(model, query_predicate) {
-                if index.fields().len() == 1
-                    && index.fields()[0] == cmp.field.as_str()
-                    && index.is_field_indexable(&cmp.field, cmp.op)
-                {
-                    let semantic_range =
-                        SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
-
-                    return AccessPlan::index_range(semantic_range);
-                }
+            if let Some(path) = plan_ordered_compare(model, schema, cmp, query_predicate) {
+                return path;
             }
         }
         CompareOp::StartsWith => {
@@ -232,6 +218,67 @@ fn plan_starts_with_compare(
 
         let semantic_range =
             SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
+        return Some(AccessPlan::index_range(semantic_range));
+    }
+
+    None
+}
+
+fn plan_ordered_compare(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+    query_predicate: &Predicate,
+) -> Option<AccessPlan<Value>> {
+    // Ordered bounds must reuse the same canonical literal-lowering authority
+    // as Eq/In/prefix matching so expression-key comparisons stay aligned with
+    // the stored normalized index value order.
+    let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
+
+    for index in sorted_indexes(model, query_predicate) {
+        let Some(leading_key_item) = leading_index_key_item(index) else {
+            continue;
+        };
+        if index_key_item_count(index) != 1 {
+            continue;
+        }
+
+        let Some(bound_value) = eq_lookup_value_for_key_item(
+            leading_key_item,
+            cmp.field.as_str(),
+            &cmp.value,
+            cmp.coercion.id,
+            literal_compatible,
+        ) else {
+            continue;
+        };
+
+        match leading_key_item {
+            crate::model::index::IndexKeyItem::Field(_) => {
+                if cmp.coercion.id != CoercionId::Strict
+                    || index.fields().first() != Some(&cmp.field.as_str())
+                    || !index.is_field_indexable(cmp.field.as_str(), cmp.op)
+                {
+                    continue;
+                }
+            }
+            crate::model::index::IndexKeyItem::Expression(_) => {
+                if cmp.coercion.id != CoercionId::TextCasefold {
+                    continue;
+                }
+            }
+        }
+
+        let (lower, upper) = match cmp.op {
+            CompareOp::Gt => (Bound::Excluded(bound_value), Bound::Unbounded),
+            CompareOp::Gte => (Bound::Included(bound_value), Bound::Unbounded),
+            CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(bound_value)),
+            CompareOp::Lte => (Bound::Unbounded, Bound::Included(bound_value)),
+            _ => unreachable!("ordered compare helper must receive one of Gt/Gte/Lt/Lte"),
+        };
+        let semantic_range =
+            SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
+
         return Some(AccessPlan::index_range(semantic_range));
     }
 

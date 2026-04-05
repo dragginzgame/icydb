@@ -419,11 +419,13 @@ fn collect_range_and_compares(
         if !matches!(
             (cmp.op, cmp.coercion.id),
             (
-                CompareOp::Eq | CompareOp::StartsWith,
-                CoercionId::Strict | CoercionId::TextCasefold
-            ) | (
-                CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte,
-                CoercionId::Strict,
+                CompareOp::Eq
+                    | CompareOp::StartsWith
+                    | CompareOp::Gt
+                    | CompareOp::Gte
+                    | CompareOp::Lt
+                    | CompareOp::Lte,
+                CoercionId::Strict | CoercionId::TextCasefold,
             )
         ) {
             return Err(AccessChoiceRejectedReason::NonStrictCoercion);
@@ -546,25 +548,68 @@ fn evaluate_ordered_range_compare_candidate(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<(), AccessChoiceRejectedReason> {
-    if cmp.coercion.id != CoercionId::Strict {
+    if !matches!(
+        cmp.coercion.id,
+        CoercionId::Strict | CoercionId::TextCasefold
+    ) {
         return Err(AccessChoiceRejectedReason::NonStrictCoercion);
     }
     let Some(leading_key_item) = leading_index_key_item(index) else {
         return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
-    if !matches!(leading_key_item, IndexKeyItem::Field(_)) {
+    if matches!(leading_key_item, IndexKeyItem::Expression(_))
+        && cmp.coercion.id == CoercionId::Strict
+    {
         return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
     }
-    if index.fields().first() != Some(&cmp.field.as_str()) {
-        return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+    let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+
+    // Ordered range eligibility must reuse the same canonical literal-lowering
+    // path as Eq/In/prefix matching so explain access-choice and planner range
+    // routing stay on one expression-lookup contract.
+    if eq_lookup_value_for_key_item(
+        leading_key_item,
+        cmp.field.as_str(),
+        cmp.value(),
+        cmp.coercion.id,
+        literal_compatible,
+    )
+    .is_none()
+    {
+        if !key_item_matches_field_and_coercion(
+            leading_key_item,
+            cmp.field.as_str(),
+            cmp.coercion.id,
+        ) {
+            return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+        }
+        if !literal_compatible {
+            return Err(AccessChoiceRejectedReason::LiteralIncompatible);
+        }
+
+        return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
     }
-    if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
-        return Err(AccessChoiceRejectedReason::LiteralIncompatible);
+
+    match leading_key_item {
+        IndexKeyItem::Field(_) => {
+            if cmp.coercion.id != CoercionId::Strict {
+                return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+            }
+            if index.fields().first() != Some(&cmp.field.as_str()) {
+                return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
+            }
+            if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
+                return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+            }
+        }
+        IndexKeyItem::Expression(_) => {
+            if cmp.coercion.id != CoercionId::TextCasefold {
+                return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+            }
+        }
     }
-    if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-        return Err(AccessChoiceRejectedReason::OperatorNotSupported);
-    }
-    if index.fields().len() != 1 {
+
+    if index_key_item_count(index) != 1 {
         return Err(AccessChoiceRejectedReason::SingleFieldRangeRequired);
     }
 
@@ -608,14 +653,30 @@ fn classify_range_constraints_for_key_item(
                 constraint.eq_value = Some(candidate);
             }
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-                if !matches!(key_item, IndexKeyItem::Field(_)) {
-                    return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
-                }
-                if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
-                    return Err(AccessChoiceRejectedReason::LiteralIncompatible);
-                }
-                if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-                    return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+                let Some(_candidate) = eq_lookup_value_for_key_item(
+                    key_item,
+                    cmp.field.as_str(),
+                    cmp.value(),
+                    cmp.coercion.id,
+                    index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()),
+                ) else {
+                    continue;
+                };
+
+                match key_item {
+                    IndexKeyItem::Field(_) => {
+                        if cmp.coercion.id != CoercionId::Strict {
+                            continue;
+                        }
+                        if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
+                            return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+                        }
+                    }
+                    IndexKeyItem::Expression(_) => {
+                        if cmp.coercion.id != CoercionId::TextCasefold {
+                            continue;
+                        }
+                    }
                 }
                 if constraint.eq_value.is_some() {
                     return Err(AccessChoiceRejectedReason::EqRangeConflict);

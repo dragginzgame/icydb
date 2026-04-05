@@ -1417,6 +1417,74 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated ActiveUser filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated ActiveUser filtered expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, handle FROM ActiveUser WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending ActiveUser filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending ActiveUser filtered expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_expected_rows()
      {
         reload_default_fixtures();
@@ -1530,6 +1598,74 @@ mod tests {
                 "descending filtered composite expression strict LIKE prefix ActiveUser projection should return a projection payload: {other:?}"
             ),
         }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated ActiveUser filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated ActiveUser filtered composite expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending ActiveUser filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending ActiveUser filtered composite expression text-range and LIKE prefix queries should keep projection parity",
+        );
     }
 
     #[test]

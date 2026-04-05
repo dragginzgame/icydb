@@ -300,7 +300,7 @@ fn evaluate_multi_lookup_candidate_rejects_text_casefold_for_unsupported_express
 }
 
 #[test]
-fn evaluate_range_candidate_rejects_gt_for_expression_index() {
+fn evaluate_range_candidate_rejects_strict_gt_for_expression_index() {
     let predicate = crate::db::predicate::Predicate::Compare(
         crate::db::predicate::ComparePredicate::with_coercion(
             "email",
@@ -316,6 +316,55 @@ fn evaluate_range_candidate_rejects_gt_for_expression_index() {
     assert_eq!(
         evaluation,
         CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotRangeSupported),
+    );
+}
+
+#[test]
+fn evaluate_range_candidate_accepts_text_casefold_gt_for_expression_index() {
+    let predicate = crate::db::predicate::Predicate::Compare(
+        crate::db::predicate::ComparePredicate::with_coercion(
+            "email",
+            crate::db::predicate::CompareOp::Gt,
+            Value::Text("ALICE@example.com".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    );
+
+    let evaluation =
+        evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 0,
+            exact: true,
+        }),
+    );
+}
+
+#[test]
+fn evaluate_range_candidate_accepts_text_casefold_lt_for_upper_expression_index() {
+    let predicate = crate::db::predicate::Predicate::Compare(
+        crate::db::predicate::ComparePredicate::with_coercion(
+            "email",
+            crate::db::predicate::CompareOp::Lt,
+            Value::Text("ALICE@example.com".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    );
+
+    let evaluation = evaluate_range_candidate(
+        &ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES[0],
+        &schema(),
+        &predicate,
+    );
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 0,
+            exact: true,
+        }),
     );
 }
 

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.68.x] 📚 - 2026-04-04 - First-Class Covering Reads
 
+- `0.68.7` extends the same bounded read path to canonical case-insensitive expression ranges such as `LOWER(field) >= 'a' AND LOWER(field) < 'b'`, keeps unsupported wrapped range shapes fail-closed, and cleans up the PocketIC SQL harness so it uses the newer fallible `canic-testkit` setup APIs instead of carrying its own local startup glue.
 - `0.68.6` keeps more filtered `ORDER BY ... LIMIT` reads on the shared index-backed path, makes risky descending secondary-order shapes fail closed to the safer materialized route, shows composite equality-prefix values in `EXPLAIN EXECUTION`, and adds side-by-side generated-vs-typed perf coverage for `Character` and `ActiveUser` ordered reads.
 - `0.68.5` removes the old `num-traits`-style numeric conversion layer, replaces it with one narrower `NumericValue` contract for numeric validation and sanitization, and switches wrapper types plus generated numeric newtypes to explicit conversions, so code using `NumCast`, `NumFromPrimitive`, or `NumToPrimitive` must move to the new explicit APIs.
 - `0.68.4` makes equivalent text-prefix SQL forms such as `LIKE 'A%'`, `STARTS_WITH(name, 'A')`, and explicit `>= / <` bounds stay on the same bounded index-backed read path, keeps that same bounded covering route intact when the secondary index is filtered and the query proves the guard, and broadens canister and perf coverage around those cases.

@@ -758,6 +758,86 @@ fn compile_sql_command_upper_like_prefix_parity_matches_casefold_starts_with_int
 }
 
 #[test]
+fn compile_sql_command_lower_ordered_text_range_parity_matches_casefold_range_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) >= 'Al' AND LOWER(name) < 'Am'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("LOWER(field) ordered text range SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query =
+        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Gte,
+                Value::Text("Al".to_string()),
+                CoercionId::TextCasefold,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Lt,
+                Value::Text("Am".to_string()),
+                CoercionId::TextCasefold,
+            )),
+        ]));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("LOWER(field) ordered text range SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold range plan should build")
+            .into_inner(),
+        "LOWER(field) ordered text range SQL lowering and fluent text-casefold range query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
+fn compile_sql_command_upper_ordered_text_range_parity_matches_casefold_range_intent() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) >= 'AL' AND UPPER(name) < 'AM'",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("UPPER(field) ordered text range SQL query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+
+    let fluent_query =
+        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Gte,
+                Value::Text("AL".to_string()),
+                CoercionId::TextCasefold,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Lt,
+                Value::Text("AM".to_string()),
+                CoercionId::TextCasefold,
+            )),
+        ]));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("UPPER(field) ordered text range SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold range plan should build")
+            .into_inner(),
+        "UPPER(field) ordered text range SQL lowering and fluent text-casefold range query must produce identical normalized planned intent",
+    );
+}
+
+#[test]
 fn compile_sql_command_like_non_prefix_pattern_rejects() {
     let cases = [
         "SELECT * FROM SqlLowerEntity WHERE name LIKE '%Al'",

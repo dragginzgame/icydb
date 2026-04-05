@@ -104,6 +104,63 @@ fn parse_sql_predicate_ordered_text_compares_stay_strict() {
 }
 
 #[test]
+fn parse_sql_predicate_wrapped_ordered_text_compares_lower_to_text_casefold() {
+    let lower = parse_sql_predicate("LOWER(name) >= 'Al' AND LOWER(name) < 'Am'")
+        .expect("LOWER(field) ordered text range should parse");
+    let upper = parse_sql_predicate("UPPER(name) >= 'AL' AND UPPER(name) < 'AM'")
+        .expect("UPPER(field) ordered text range should parse");
+
+    assert_eq!(
+        lower,
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Gte,
+                Value::Text("Al".to_string()),
+                CoercionId::TextCasefold,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Lt,
+                Value::Text("Am".to_string()),
+                CoercionId::TextCasefold,
+            )),
+        ]),
+    );
+    assert_eq!(
+        upper,
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Gte,
+                Value::Text("AL".to_string()),
+                CoercionId::TextCasefold,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Lt,
+                Value::Text("AM".to_string()),
+                CoercionId::TextCasefold,
+            )),
+        ]),
+    );
+}
+
+#[test]
+fn parse_sql_predicate_wrapped_equality_remains_fail_closed() {
+    let err = parse_sql_predicate("LOWER(name) = 'Al'").expect_err(
+        "wrapped equality should stay outside the reduced SQL expression predicate slice",
+    );
+
+    assert_eq!(
+        err,
+        SqlParseError::UnsupportedFeature {
+            feature: "LOWER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds",
+        }
+    );
+}
+
+#[test]
 fn parse_sql_predicate_direct_starts_with_lowers_to_strict_starts_with_intent() {
     let predicate = parse_sql_predicate("STARTS_WITH(name, 'Al')")
         .expect("direct STARTS_WITH predicate should parse");

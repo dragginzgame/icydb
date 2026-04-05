@@ -28,8 +28,12 @@ enum TextPredicateWrapper {
 impl TextPredicateWrapper {
     const fn unsupported_feature(self) -> &'static str {
         match self {
-            Self::Lower => "LOWER(field) predicate forms beyond LIKE 'prefix%'",
-            Self::Upper => "UPPER(field) predicate forms beyond LIKE 'prefix%'",
+            Self::Lower => {
+                "LOWER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
+            }
+            Self::Upper => {
+                "UPPER(field) predicate forms beyond LIKE 'prefix%' or ordered text bounds"
+            }
         }
     }
 }
@@ -46,15 +50,6 @@ enum PredicateFieldOperand {
 }
 
 impl PredicateFieldOperand {
-    fn into_plain_field(self) -> Result<String, SqlParseError> {
-        match self {
-            Self::Plain(field) => Ok(field),
-            Self::Wrapped { wrapper, .. } => Err(SqlParseError::unsupported_feature(
-                wrapper.unsupported_feature(),
-            )),
-        }
-    }
-
     // Map one bounded predicate operand to its canonical field/coercion pair.
     fn into_field_and_coercion(self) -> (String, CoercionId) {
         match self {
@@ -153,8 +148,19 @@ fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlPa
         return parse_like_prefix_predicate(cursor, operand);
     }
 
-    let field = operand.into_plain_field()?;
+    match operand {
+        PredicateFieldOperand::Plain(field) => parse_plain_field_predicate(cursor, field),
+        PredicateFieldOperand::Wrapped { field, wrapper } => {
+            parse_wrapped_field_predicate(cursor, field, wrapper)
+        }
+    }
+}
 
+// Parse one plain-field predicate family, including reduced SQL special forms.
+fn parse_plain_field_predicate(
+    cursor: &mut SqlTokenCursor,
+    field: String,
+) -> Result<Predicate, SqlParseError> {
     if cursor.eat_keyword(Keyword::Is) {
         let is_not = cursor.eat_keyword(Keyword::Not);
         cursor.expect_keyword(Keyword::Null)?;
@@ -186,6 +192,50 @@ fn parse_field_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate, SqlPa
     let value = cursor.parse_literal()?;
 
     Ok(predicate_compare(field, op, value))
+}
+
+// Parse the intentionally narrow wrapped-field predicate family.
+// Reduced SQL only accepts ordered text bounds on LOWER/UPPER(field) wrappers,
+// and it lowers those bounds onto the same TextCasefold compare contract that
+// expression-prefix planning already uses.
+fn parse_wrapped_field_predicate(
+    cursor: &mut SqlTokenCursor,
+    field: String,
+    wrapper: TextPredicateWrapper,
+) -> Result<Predicate, SqlParseError> {
+    if cursor.eat_keyword(Keyword::Is)
+        || cursor.eat_keyword(Keyword::Not)
+        || cursor.eat_keyword(Keyword::In)
+        || cursor.eat_keyword(Keyword::Between)
+    {
+        return Err(SqlParseError::unsupported_feature(
+            wrapper.unsupported_feature(),
+        ));
+    }
+
+    let op = cursor.parse_compare_operator()?;
+    if !matches!(
+        op,
+        CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+    ) {
+        return Err(SqlParseError::unsupported_feature(
+            wrapper.unsupported_feature(),
+        ));
+    }
+
+    let value = cursor.parse_literal()?;
+    if !matches!(value, Value::Text(_)) {
+        return Err(SqlParseError::unsupported_feature(
+            wrapper.unsupported_feature(),
+        ));
+    }
+
+    Ok(predicate_compare_with_coercion(
+        field,
+        op,
+        value,
+        CoercionId::TextCasefold,
+    ))
 }
 
 // Parse one predicate field operand.
@@ -365,5 +415,14 @@ fn predicate_compare(field: String, op: CompareOp, value: Value) -> Predicate {
         _ => CoercionId::Strict,
     };
 
+    predicate_compare_with_coercion(field, op, value, coercion)
+}
+
+fn predicate_compare_with_coercion(
+    field: String,
+    op: CompareOp,
+    value: Value,
+    coercion: CoercionId,
+) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(field, op, value, coercion))
 }
