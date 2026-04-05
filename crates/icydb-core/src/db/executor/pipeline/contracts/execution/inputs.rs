@@ -18,6 +18,7 @@ use crate::{
         executor::{
             AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
+            route::LoadTerminalFastPathContract,
             terminal::{
                 RowDecoder, RowLayout,
                 page::{
@@ -265,6 +266,9 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
 ///
 /// Structural short-path materialization envelope for the cursorless
 /// row-collector lane.
+/// This now carries the route-owned scalar terminal fast-path contract so the
+/// terminal runtime can consume planner-selected covering-read metadata
+/// without rediscovering it ad hoc.
 ///
 
 pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
@@ -273,6 +277,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) stream_order_contract_safe: bool,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
+    pub(in crate::db::executor) load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,

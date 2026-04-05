@@ -3,6 +3,10 @@
 //! Does not own: logical plan semantics or route policy decisions.
 //! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
 
+#[cfg(test)]
+use crate::db::executor::route::{
+    LoadTerminalFastPathContract, derive_load_terminal_fast_path_contract_for_model_plan,
+};
 use crate::{
     db::{
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
@@ -646,6 +650,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
             .continuation_contract()?
             .order_contract()
             .direction();
+        let load_terminal_fast_path =
+            derive_load_terminal_fast_path_contract_for_model_plan(E::MODEL, plan);
 
         // Phase 2: lower index-bound summaries into stable compact text.
         let index_prefix_specs = render_index_prefix_specs(self.core.index_prefix_specs()?);
@@ -659,6 +665,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
             format!("mode={:?}", self.core.mode()),
             format!("is_grouped={}", self.core.is_grouped()),
             format!("execution_strategy={:?}", self.core.execution_strategy()?),
+            format!(
+                "load_terminal_fast_path={}",
+                render_load_terminal_fast_path_label(load_terminal_fast_path.as_ref())
+            ),
             format!("ordering_direction={ordering_direction:?}"),
             format!(
                 "distinct_execution_strategy={:?}",
@@ -733,6 +743,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
             authority: EntityAuthority::for_type::<E>(),
             core: self.core,
         }
+    }
+}
+
+#[cfg(test)]
+const fn render_load_terminal_fast_path_label(
+    contract: Option<&LoadTerminalFastPathContract>,
+) -> &'static str {
+    match contract {
+        Some(LoadTerminalFastPathContract::CoveringRead(_)) => "CoveringRead",
+        None => "Materialized",
     }
 }
 

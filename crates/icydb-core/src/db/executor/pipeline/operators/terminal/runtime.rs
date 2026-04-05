@@ -16,13 +16,16 @@ use crate::{
             ScalarContinuationBindings, exact_output_key_count_hint,
             key_stream_budget_is_redundant,
             pipeline::contracts::RowCollectorMaterializationRequest,
-            route::access_order_satisfied_by_route_contract_for_model,
+            route::{
+                LoadTerminalFastPathContract, access_order_satisfied_by_route_contract_for_model,
+            },
             terminal::page::{KernelRow, KernelRowPayloadMode, ScalarRowRuntimeHandle},
             traversal::row_read_consistency_for_plan,
         },
         predicate::PredicateProgram,
         query::plan::{
-            AccessPlannedQuery, constant_covering_projection_value_from_access,
+            AccessPlannedQuery, CoveringReadFieldSource,
+            constant_covering_projection_value_from_access,
             expr::projection_references_only_fields,
         },
     },
@@ -154,6 +157,7 @@ impl ExecutionKernel {
             stream_order_contract_safe,
             continuation,
             cursor_boundary,
+            load_terminal_fast_path,
             predicate_slots,
             validate_projection,
             retain_slot_rows,
@@ -177,6 +181,7 @@ impl ExecutionKernel {
             && let Some((mut slot_rows, keys_scanned)) = try_materialize_sql_covering_slot_rows(
                 plan,
                 model,
+                load_terminal_fast_path,
                 scan_budget_hint,
                 key_stream,
                 predicate_slots,
@@ -353,6 +358,7 @@ fn apply_cursorless_sql_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec
 fn try_materialize_sql_covering_slot_rows(
     plan: &AccessPlannedQuery,
     model: &'static EntityModel,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
     scan_budget_hint: Option<usize>,
     key_stream: &mut dyn OrderedKeyStream,
     predicate_slots: Option<&PredicateProgram>,
@@ -360,7 +366,12 @@ fn try_materialize_sql_covering_slot_rows(
     // Phase 1: first try the constant-covering path that rebuilds rows from
     // already-resolved keys without re-entering index storage.
     if let Some((slot_template, primary_key_slot)) =
-        sql_constant_covering_slot_row_template(plan, model, predicate_slots)
+        sql_constant_covering_slot_row_template_from_route_contract(
+            model,
+            load_terminal_fast_path,
+            predicate_slots,
+        )
+        .or_else(|| sql_constant_covering_slot_row_template(plan, model, predicate_slots))
     {
         let mut rows = Vec::with_capacity(
             exact_output_key_count_hint(key_stream, scan_budget_hint).unwrap_or(0),
@@ -408,6 +419,50 @@ fn try_materialize_sql_covering_slot_rows(
     }
 
     Ok(None)
+}
+
+#[cfg(feature = "sql")]
+// Build one slot-row template directly from the route-owned scalar
+// covering-read contract when every projected value comes from a bound
+// constant or the primary key.
+fn sql_constant_covering_slot_row_template_from_route_contract(
+    model: &'static EntityModel,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    predicate_slots: Option<&PredicateProgram>,
+) -> Option<(Vec<Option<Value>>, usize)> {
+    let LoadTerminalFastPathContract::CoveringRead(covering) = load_terminal_fast_path?;
+    let primary_key_slot = model
+        .fields
+        .iter()
+        .position(|field| field.name == model.primary_key.name)?;
+    let mut slot_template = vec![None; model.fields.len()];
+    let mut covered_slots = vec![false; model.fields.len()];
+    covered_slots[primary_key_slot] = true;
+
+    // Phase 1: project one canonical slot template directly from the route
+    // contract. Any index-component field still falls back to the existing
+    // local helper because this short path only reconstructs constants plus
+    // primary-key values today.
+    for field in &covering.fields {
+        match &field.source {
+            CoveringReadFieldSource::PrimaryKey => {
+                covered_slots[field.field_slot.index] = true;
+            }
+            CoveringReadFieldSource::Constant(value) => {
+                slot_template[field.field_slot.index] = Some(value.clone());
+                covered_slots[field.field_slot.index] = true;
+            }
+            CoveringReadFieldSource::IndexComponent { .. } => return None,
+        }
+    }
+
+    // Phase 2: keep the existing predicate-slot safety rule before the row
+    // collector stops reading persisted rows.
+    if predicate_slots.is_some_and(|predicate| !predicate.references_only_slots(&covered_slots)) {
+        return None;
+    }
+
+    Some((slot_template, primary_key_slot))
 }
 
 #[cfg(feature = "sql")]

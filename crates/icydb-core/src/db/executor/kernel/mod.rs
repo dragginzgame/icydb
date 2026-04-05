@@ -157,6 +157,7 @@ impl ExecutionKernel {
                 stream_order_contract_safe: route_plan.stream_order_contract_safe(),
                 continuation,
                 cursor_boundary: continuation.post_access_cursor_boundary(),
+                load_terminal_fast_path: route_plan.load_terminal_fast_path(),
                 predicate_slots: inputs.execution_preparation().compiled_predicate(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),

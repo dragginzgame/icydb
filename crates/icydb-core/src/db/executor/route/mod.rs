@@ -57,10 +57,13 @@ pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
     aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,
 };
+#[cfg(test)]
+pub(in crate::db::executor) use terminal::derive_load_terminal_fast_path_contract_for_model;
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
-    derive_count_terminal_fast_path_contract_for_model,
+    LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,
     derive_exists_terminal_fast_path_contract_for_model,
+    derive_load_terminal_fast_path_contract_for_model_plan,
 };
 
 #[cfg(test)]

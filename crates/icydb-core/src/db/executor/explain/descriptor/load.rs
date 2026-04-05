@@ -9,7 +9,7 @@ use crate::{
             ExecutionPreparation,
             preparation::slot_map_for_model_plan,
             route::{
-                ExecutionRouteShape, TopNSeekSpec,
+                ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
                 build_initial_execution_route_plan_for_load_with_model,
             },
         },
@@ -17,9 +17,13 @@ use crate::{
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
-                ExplainExecutionNodeDescriptor, write_access_strategy_label,
+                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+                write_access_strategy_label,
             },
-            plan::{AccessPlannedQuery, project_access_choice_explain_snapshot},
+            plan::{
+                AccessPlannedQuery, CoveringProjectionOrder, CoveringReadFieldSource,
+                project_access_choice_explain_snapshot,
+            },
         },
     },
     error::InternalError,
@@ -33,11 +37,10 @@ use crate::db::executor::explain::descriptor::shared::{
     cursor_resume_execution_node_descriptor, descriptor_route_property_line,
     distinct_execution_node_descriptor, execution_preparation_predicate_index_capability,
     explain_execution_mode, explain_predicate_for_plan, index_range_limit_pushdown_descriptor,
-    load_covering_scan_eligible, load_covering_scan_reason, order_by_execution_node_descriptor,
-    predicate_index_capability_label, predicate_stage_descriptors, projection_field_label,
-    route_diagnostic_line_bool, route_diagnostic_line_debug, route_fetch_diagnostic_line,
-    secondary_order_pushdown_descriptor, secondary_order_pushdown_verbose_line,
-    top_n_seek_descriptor,
+    order_by_execution_node_descriptor, predicate_index_capability_label,
+    predicate_stage_descriptors, projection_field_label, route_diagnostic_line_bool,
+    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
 // Assemble one canonical scalar load execution descriptor tree through one
@@ -57,6 +60,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     let strict_predicate_compatible =
         predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
     let execution_mode = explain_execution_mode(route_shape);
+    let load_terminal_fast_path = route_plan.load_terminal_fast_path();
 
     // Phase 2: derive one canonical access projection and reuse it across
     // descriptor assembly instead of re-projecting the chosen route again.
@@ -69,11 +73,15 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
         );
     annotate_access_root_node_properties(&mut root, &route_plan);
     annotate_access_choice_node_properties(&mut root, access_choice);
-    let covering_scan = load_covering_scan_eligible(plan, strict_predicate_compatible);
+    let covering_scan = load_terminal_fast_path.is_some();
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
         "cov_scan_reason",
-        Value::from(load_covering_scan_reason(plan, strict_predicate_compatible)),
+        Value::from(load_covering_scan_reason_for_model(
+            plan,
+            strict_predicate_compatible,
+            load_terminal_fast_path,
+        )),
     );
     if let Some(capability) = predicate_index_capability {
         root.node_properties.insert(
@@ -82,6 +90,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
         );
     }
     annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
+    annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
     annotate_fast_path_reason_node_properties(&mut root, &route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
@@ -99,6 +108,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
         &route_plan,
         execution_mode,
         route_shape,
+        load_terminal_fast_path,
     ));
 
     Ok(root)
@@ -109,6 +119,7 @@ fn load_modifier_execution_nodes(
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
     route_shape: ExecutionRouteShape,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
     let mut nodes = Vec::new();
 
@@ -135,6 +146,11 @@ fn load_modifier_execution_nodes(
     }
     if let Some(node) =
         distinct_execution_node_descriptor(plan.distinct_execution_strategy(), execution_mode)
+    {
+        nodes.push(node);
+    }
+    if let Some(node) =
+        covering_projection_execution_node_descriptor(load_terminal_fast_path, execution_mode)
     {
         nodes.push(node);
     }
@@ -171,7 +187,8 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         .map(projection_field_label)
         .map(Cow::into_owned)
         .collect::<Vec<_>>();
-    let projection_pushdown = load_covering_scan_eligible(plan, strict_predicate_compatible);
+    let load_terminal_fast_path = route_plan.load_terminal_fast_path();
+    let projection_pushdown = load_terminal_fast_path.is_some();
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
     let mut chosen_label = String::new();
@@ -217,6 +234,14 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         projection_pushdown,
     ));
     lines.push(descriptor_route_property_line(
+        "diag.r.covering_read",
+        load_covering_scan_reason_for_model(
+            plan,
+            strict_predicate_compatible,
+            load_terminal_fast_path,
+        ),
+    ));
+    lines.push(descriptor_route_property_line(
         "diag.r.access_choice_chosen",
         &chosen_label,
     ));
@@ -242,4 +267,111 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     }
 
     Ok(lines)
+}
+
+// Keep scalar covering-read explain labels local to the load descriptor so the
+// route-owned contract and explain payload stay in lockstep.
+fn load_covering_scan_reason_for_model(
+    plan: &AccessPlannedQuery,
+    strict_predicate_compatible: bool,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+) -> &'static str {
+    if load_terminal_fast_path.is_some() {
+        return "cover_read_route";
+    }
+    if plan.scalar_plan().order.is_some() {
+        return "order_mat";
+    }
+    let index_shape_supported =
+        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    if !index_shape_supported {
+        return "access_not_cov";
+    }
+    if plan.scalar_plan().predicate.is_some() && !strict_predicate_compatible {
+        return "pred_not_strict";
+    }
+    if plan.scalar_plan().distinct {
+        return "distinct_mat";
+    }
+
+    "proj_not_cov"
+}
+
+// Annotate the access root with one stable scalar covering-read route label.
+fn annotate_covering_read_route_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+) {
+    let route_label = if load_terminal_fast_path.is_some() {
+        "covering_read"
+    } else {
+        "materialized"
+    };
+    node.node_properties
+        .insert("cov_read_route", Value::from(route_label));
+}
+
+// Emit one explicit projection terminal node when the scalar load route stays
+// on the planner-owned covering-read contract.
+fn covering_projection_execution_node_descriptor(
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+    execution_mode: ExplainExecutionMode,
+) -> Option<ExplainExecutionNodeDescriptor> {
+    let LoadTerminalFastPathContract::CoveringRead(covering) = load_terminal_fast_path?;
+    let mut node =
+        crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
+            ExplainExecutionNodeType::CoveringRead,
+            execution_mode,
+        );
+    node.projection = Some("covering_read".to_string());
+    node.covering_scan = Some(true);
+    node.node_properties.insert(
+        "covering_order",
+        Value::from(covering_read_order_contract_label(covering.order_contract)),
+    );
+    node.node_properties.insert(
+        "covering_fields",
+        Value::List(
+            covering
+                .fields
+                .iter()
+                .map(|field| Value::from(field.field_slot.field().to_string()))
+                .collect(),
+        ),
+    );
+    node.node_properties.insert(
+        "covering_sources",
+        Value::List(
+            covering
+                .fields
+                .iter()
+                .map(|field| Value::from(covering_read_field_source_label(&field.source)))
+                .collect(),
+        ),
+    );
+
+    Some(node)
+}
+
+const fn covering_read_order_contract_label(
+    order_contract: CoveringProjectionOrder,
+) -> &'static str {
+    match order_contract {
+        CoveringProjectionOrder::IndexOrder(crate::db::direction::Direction::Asc) => "index_asc",
+        CoveringProjectionOrder::IndexOrder(crate::db::direction::Direction::Desc) => "index_desc",
+        CoveringProjectionOrder::PrimaryKeyOrder(crate::db::direction::Direction::Asc) => {
+            "primary_key_asc"
+        }
+        CoveringProjectionOrder::PrimaryKeyOrder(crate::db::direction::Direction::Desc) => {
+            "primary_key_desc"
+        }
+    }
+}
+
+const fn covering_read_field_source_label(source: &CoveringReadFieldSource) -> &'static str {
+    match source {
+        CoveringReadFieldSource::IndexComponent { .. } => "index_component",
+        CoveringReadFieldSource::PrimaryKey => "primary_key",
+        CoveringReadFieldSource::Constant(_) => "constant",
+    }
 }

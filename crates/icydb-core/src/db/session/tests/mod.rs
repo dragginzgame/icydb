@@ -4302,12 +4302,12 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 }
 
 #[test]
-fn session_explain_execution_covering_scan_reports_true_for_unordered_strict_index_shape() {
+fn session_explain_execution_covering_scan_requires_coverable_projection_route() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
     seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
 
-    let descriptor = session
+    let entity_descriptor = session
         .load::<IndexedSessionSqlEntity>()
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -4316,12 +4316,79 @@ fn session_explain_execution_covering_scan_reports_true_for_unordered_strict_ind
             CoercionId::Strict,
         )))
         .explain_execution()
-        .expect("unordered strict index-prefix explain_execution should succeed");
+        .expect("unordered strict index-prefix entity explain_execution should succeed");
 
     assert_eq!(
-        descriptor.covering_scan(),
+        entity_descriptor.covering_scan(),
+        Some(false),
+        "all-field entity loads should stay on the materialized route even when access stays index-backed",
+    );
+    assert_eq!(
+        entity_descriptor.node_properties().get("cov_scan_reason"),
+        Some(&Value::Text("proj_not_cov".to_string())),
+        "entity explain roots should report the non-coverable projection reason explicitly",
+    );
+    assert_eq!(
+        entity_descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("materialized".to_string())),
+        "entity explain roots should expose the materialized covering-read route label",
+    );
+
+    let projected_descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'Sam' ORDER BY id ASC LIMIT 1",
+        )
+        .expect("coverable SQL projection query should lower")
+        .explain_execution()
+        .expect("coverable SQL projection explain_execution should succeed");
+
+    assert_eq!(
+        projected_descriptor.covering_scan(),
         Some(true),
-        "unordered strict index-prefix load shapes should report covering eligibility",
+        "coverable projected reads should report the explicit covering-read route",
+    );
+    assert_eq!(
+        projected_descriptor
+            .node_properties()
+            .get("cov_scan_reason"),
+        Some(&Value::Text("cover_read_route".to_string())),
+        "coverable projection roots should report the covering-read route reason",
+    );
+    assert_eq!(
+        projected_descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "coverable projection roots should expose the explicit covering-read route label",
+    );
+    let projection_node = explain_execution_find_first_node(
+        &projected_descriptor,
+        ExplainExecutionNodeType::CoveringRead,
+    )
+    .expect("coverable projection explain trees should emit an explicit covering-read node");
+    assert_eq!(
+        projection_node.projection(),
+        Some("covering_read"),
+        "projection node should label the covering-read terminal route explicitly",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_order"),
+        Some(&Value::Text("primary_key_asc".to_string())),
+        "projection node should report the planner-owned covering order contract",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![
+            Value::Text("id".to_string()),
+            Value::Text("name".to_string()),
+        ])),
+        "projection node should expose the canonical projected field order",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_sources"),
+        Some(&Value::List(vec![
+            Value::Text("primary_key".to_string()),
+            Value::Text("constant".to_string()),
+        ])),
+        "projection node should expose planner-owned field-source metadata",
     );
 }
 

@@ -447,6 +447,7 @@ Code is considered non-trivial if it:
 * Changelog: update `CHANGELOG.md` for user-visible changes (follow `docs/governance/changelog.md`).
 * In `docs/changelog/0.*.md`, every `## 0.x.y` entry MUST be separated from the next entry by a standalone `---` divider.
 * Releases: use `make patch|minor|major`; never hand-edit tags.
+* Before running `make patch|minor|major`, do not manually bump workspace/package version numbers, `Cargo.lock`, or changelog patch entries; those release targets own the version advance and pre-bumping them creates conflicts.
 
 ---
 

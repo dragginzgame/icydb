@@ -5,10 +5,11 @@
 
 use super::{
     AGGREGATE_FAST_PATH_ORDER, ExecutionModeRouteCase, FastPathOrder, GroupedExecutionStrategy,
-    GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER, RouteExecutionMode, TopNSeekSpec,
-    build_execution_route_plan_for_aggregate_spec_with_model,
+    GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER, LoadTerminalFastPathContract,
+    RouteExecutionMode, TopNSeekSpec, build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
+    derive_load_terminal_fast_path_contract_for_model,
     grouped_ordered_runtime_revalidation_flag_count_guard,
     grouped_plan_metrics_strategy_for_execution_strategy, route_capability_flag_count_guard,
     route_execution_mode_case_count_guard, route_shape_kind_count_guard,
@@ -34,10 +35,12 @@ use crate::{
             ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
         },
         query::plan::{
-            AccessPlannedQuery, AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec,
-            GroupDistinctPolicyReason, GroupHavingClause, GroupHavingSpec, GroupHavingSymbol,
-            GroupSpec, GroupedExecutionConfig, GroupedPlanStrategyHint, OrderDirection, OrderSpec,
-            PageSpec, QueryMode, grouped_executor_handoff, grouped_plan_strategy_hint,
+            AccessPlannedQuery, AggregateKind, CoveringReadFieldSource, DeleteSpec, FieldSlot,
+            GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingClause, GroupHavingSpec,
+            GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, GroupedPlanStrategyHint,
+            OrderDirection, OrderSpec, PageSpec, QueryMode,
+            expr::{FieldId, ProjectionSelection},
+            grouped_executor_handoff, grouped_plan_strategy_hint,
         },
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -653,6 +656,87 @@ fn route_plan_shape_descriptor_matches_route_axes() {
     let shape = route_plan.shape();
     assert_eq!(shape.execution_mode(), RouteExecutionMode::Streaming);
     assert!(shape.is_streaming());
+}
+
+#[test]
+fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let contract = derive_load_terminal_fast_path_contract_for_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        true,
+    )
+    .expect("direct projected indexed field should derive one covering-read route contract");
+
+    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "rank");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::Constant(Value::Uint(7)),
+    );
+
+    let materialized = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    assert!(
+        derive_load_terminal_fast_path_contract_for_model(
+            RouteCapabilityEntity::MODEL,
+            &materialized,
+            true,
+        )
+        .is_none(),
+        "all-field entity projection should stay on the materialized load route",
+    );
+}
+
+#[test]
+fn route_plan_execution_route_plan_retains_covering_read_contract() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let route_plan = build_execution_route_plan_for_load_with_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        &ScalarContinuationContext::initial(),
+        None,
+    )
+    .expect("execution route plan should build for coverable projected load");
+    let covering = route_plan
+        .load_terminal_fast_path()
+        .expect("execution route plan should retain the route-owned covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "rank");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::Constant(Value::Uint(7)),
+    );
 }
 
 #[test]

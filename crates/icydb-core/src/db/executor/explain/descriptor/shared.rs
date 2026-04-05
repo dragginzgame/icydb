@@ -109,36 +109,6 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_pr
     );
 }
 
-// Scalar-load covering projection reflects planner-side index-covering
-// existing-row eligibility under current strict predicate contracts.
-pub(in crate::db::executor::explain::descriptor) fn load_covering_scan_eligible(
-    plan: &AccessPlannedQuery,
-    strict_predicate_compatible: bool,
-) -> bool {
-    index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
-}
-
-pub(in crate::db::executor::explain::descriptor) fn load_covering_scan_reason(
-    plan: &AccessPlannedQuery,
-    strict_predicate_compatible: bool,
-) -> &'static str {
-    if plan.scalar_plan().order.is_some() {
-        return "order_mat";
-    }
-
-    let index_shape_supported =
-        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
-    if !index_shape_supported {
-        return "access_not_cov";
-    }
-
-    if plan.scalar_plan().predicate.is_some() && !strict_predicate_compatible {
-        return "pred_not_strict";
-    }
-
-    "idx_cover_rows"
-}
-
 pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     model: &'static crate::model::entity::EntityModel,

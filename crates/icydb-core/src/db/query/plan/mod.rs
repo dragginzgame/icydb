@@ -40,9 +40,10 @@ pub(in crate::db) use continuation::{
     ContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
 pub(in crate::db) use covering::{
-    CoveringProjectionContext, CoveringProjectionOrder,
+    CoveringProjectionContext, CoveringProjectionOrder, CoveringReadFieldSource, CoveringReadPlan,
     constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
-    covering_index_projection_context, index_covering_existing_rows_terminal_eligible,
+    covering_index_projection_context, covering_read_plan,
+    index_covering_existing_rows_terminal_eligible,
 };
 #[cfg(test)]
 pub(in crate::db) use group::GroupedExecutorHandoff;

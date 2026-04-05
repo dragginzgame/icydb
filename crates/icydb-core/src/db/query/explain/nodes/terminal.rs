@@ -9,7 +9,7 @@ pub(in crate::db::query::explain) const fn owns(node_type: ExplainExecutionNodeT
     matches!(
         node_type,
         ExplainExecutionNodeType::ProjectionMaterialized
-            | ExplainExecutionNodeType::ProjectionIndexOnly
+            | ExplainExecutionNodeType::CoveringRead
             | ExplainExecutionNodeType::LimitOffset
     )
 }

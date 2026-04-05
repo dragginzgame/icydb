@@ -11,9 +11,10 @@ use crate::{
             continuation::ScalarContinuationContext,
             preparation::resolved_index_slots_for_access_path,
             route::{
-                ExecutionRoutePlan, RouteIntent,
+                ExecutionRoutePlan, LoadTerminalFastPathContract, RouteIntent,
                 aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
                 derive_execution_capabilities_for_model,
+                derive_load_terminal_fast_path_contract_for_model_plan,
                 pk_order_stream_fast_path_shape_supported_for_model,
             },
         },
@@ -112,12 +113,16 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_wit
 }
 
 fn build_execution_route_plan_for_model(
-    model: &EntityModel,
+    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
     intent: RouteIntent,
 ) -> ExecutionRoutePlan {
+    let load_terminal_fast_path = match &intent {
+        RouteIntent::Load => derive_load_terminal_fast_path_contract_for_model_plan(model, plan),
+        RouteIntent::Aggregate { .. } | RouteIntent::AggregateGrouped { .. } => None,
+    };
     let planner_route_profile = derive_planner_route_profile(model, plan);
     let intent_stage = derive_route_intent_stage(intent);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
@@ -129,7 +134,7 @@ fn build_execution_route_plan_for_model(
         &intent_stage,
     );
 
-    build_execution_route_plan_from_stages(intent_stage, feasibility_stage)
+    build_execution_route_plan_from_stages(intent_stage, feasibility_stage, load_terminal_fast_path)
 }
 
 fn derive_planner_route_profile(
@@ -166,7 +171,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
 // Entry points without inbound cursors all share the same initial continuation
 // contract before route-stage derivation.
 fn build_initial_execution_route_plan_for_model(
-    model: &EntityModel,
+    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     probe_fetch_hint: Option<usize>,
     intent: RouteIntent,
@@ -180,18 +185,25 @@ fn build_initial_execution_route_plan_for_model(
 fn build_execution_route_plan_from_stages(
     intent_stage: RouteIntentStage,
     feasibility_stage: RouteFeasibilityStage,
+    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 ) -> ExecutionRoutePlan {
     // Phase 1: resolve execution mode and fold-mode from feasibility + intent.
     let execution_stage = derive_route_execution_stage(&intent_stage, &feasibility_stage);
 
     // Phase 2: assemble one immutable route contract.
-    assemble_execution_route_plan(intent_stage, feasibility_stage, execution_stage)
+    assemble_execution_route_plan(
+        intent_stage,
+        feasibility_stage,
+        execution_stage,
+        load_terminal_fast_path,
+    )
 }
 
 fn assemble_execution_route_plan(
     intent_stage: RouteIntentStage,
     feasibility_stage: RouteFeasibilityStage,
     execution_stage: RouteExecutionStage,
+    load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 ) -> ExecutionRoutePlan {
     let RouteFeasibilityStage {
         continuation,
@@ -214,5 +226,6 @@ fn assemble_execution_route_plan(
         scan_hints: derivation.scan_hints,
         aggregate_fold_mode: execution_stage.aggregate_fold_mode,
         grouped_execution_strategy: derivation.grouped_execution_strategy,
+        load_terminal_fast_path,
     }
 }

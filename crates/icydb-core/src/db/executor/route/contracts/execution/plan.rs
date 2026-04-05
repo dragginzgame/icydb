@@ -8,15 +8,18 @@ use crate::db::{
     direction::Direction,
     executor::{
         aggregate::AggregateFoldMode,
-        route::contracts::{
-            RouteCapabilities, RouteContinuationPlan,
-            execution::{
-                AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRouteShape,
-                GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
-                GroupedRouteRejectionReason, IndexRangeLimitSpec, RouteExecutionMode, ScanHintPlan,
-                TopNSeekSpec,
+        route::{
+            LoadTerminalFastPathContract,
+            contracts::{
+                RouteCapabilities, RouteContinuationPlan,
+                execution::{
+                    AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRouteShape,
+                    GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
+                    GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
+                    RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+                },
+                shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
             },
-            shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
         },
     },
 };
@@ -46,6 +49,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor) grouped_execution_strategy: Option<GroupedExecutionStrategy>,
+    pub(in crate::db::executor) load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 }
 
 impl ExecutionRoutePlan {
@@ -71,6 +75,7 @@ impl ExecutionRoutePlan {
             },
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
             grouped_execution_strategy: None,
+            load_terminal_fast_path: None,
         }
     }
 
@@ -82,6 +87,13 @@ impl ExecutionRoutePlan {
     #[must_use]
     pub(in crate::db::executor) const fn continuation(&self) -> RouteContinuationPlan {
         self.continuation
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn load_terminal_fast_path(
+        &self,
+    ) -> Option<&LoadTerminalFastPathContract> {
+        self.load_terminal_fast_path.as_ref()
     }
 
     #[must_use]
