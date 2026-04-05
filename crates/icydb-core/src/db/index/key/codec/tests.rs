@@ -366,7 +366,7 @@ fn index_key_ordering_matches_raw_key_semantics() {
     sorted_by_ord.sort();
 
     let mut sorted_by_raw = keys;
-    sorted_by_raw.sort_by(|a, b| a.to_raw().cmp(&b.to_raw()));
+    sorted_by_raw.sort_by_key(IndexKey::to_raw);
 
     assert_eq!(sorted_by_ord, sorted_by_raw);
 }

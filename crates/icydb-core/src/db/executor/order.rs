@@ -66,9 +66,7 @@ impl ResolvedOrderValueSource {
             };
         }
 
-        resolve_field_slot(model, field)
-            .map(Self::DirectField)
-            .unwrap_or(Self::Missing)
+        resolve_field_slot(model, field).map_or(Self::Missing, Self::DirectField)
     }
 }
 

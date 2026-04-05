@@ -207,16 +207,16 @@ fn compare_raw_index_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
     // Phase 1: compare the fixed-width semantic header, or fall back to raw bytes
     // if either side is malformed. Stable storage should only contain canonical
     // keys, but `Ord` still needs a total ordering for diagnostics/tests.
-    let (left_kind, left_index_id, left_component_count, left_offset) =
-        match parse_index_key_header(left) {
-            Ok(header) => header,
-            Err(_) => return left.cmp(right),
-        };
-    let (right_kind, right_index_id, right_component_count, right_offset) =
-        match parse_index_key_header(right) {
-            Ok(header) => header,
-            Err(_) => return left.cmp(right),
-        };
+    let Ok((left_kind, left_index_id, left_component_count, left_offset)) =
+        parse_index_key_header(left)
+    else {
+        return left.cmp(right);
+    };
+    let Ok((right_kind, right_index_id, right_component_count, right_offset)) =
+        parse_index_key_header(right)
+    else {
+        return left.cmp(right);
+    };
 
     left_kind
         .cmp(&right_kind)
@@ -243,23 +243,21 @@ fn compare_raw_index_key_segments(
     // Phase 1: decode and compare the indexed components while ignoring tuple
     // framing bytes. The ordered component payload already encodes semantic order.
     for _ in 0..component_count {
-        let left_segment = match read_segment(
+        let Ok(left_segment) = read_segment(
             left,
             &mut left_offset,
             IndexKey::MAX_COMPONENT_SIZE,
             "component segment",
-        ) {
-            Ok(segment) => segment,
-            Err(_) => return left.cmp(right),
+        ) else {
+            return left.cmp(right);
         };
-        let right_segment = match read_segment(
+        let Ok(right_segment) = read_segment(
             right,
             &mut right_offset,
             IndexKey::MAX_COMPONENT_SIZE,
             "component segment",
-        ) {
-            Ok(segment) => segment,
-            Err(_) => return left.cmp(right),
+        ) else {
+            return left.cmp(right);
         };
 
         let segment_order = compare_segment_bytes(left_segment, right_segment);
@@ -270,19 +268,18 @@ fn compare_raw_index_key_segments(
 
     // Phase 2: compare the trailing primary-key segment and reject malformed
     // trailing payloads by falling back to raw bytes.
-    let left_primary_key =
-        match read_segment(left, &mut left_offset, IndexKey::MAX_PK_SIZE, "primary key") {
-            Ok(segment) => segment,
-            Err(_) => return left.cmp(right),
-        };
-    let right_primary_key = match read_segment(
+    let Ok(left_primary_key) =
+        read_segment(left, &mut left_offset, IndexKey::MAX_PK_SIZE, "primary key")
+    else {
+        return left.cmp(right);
+    };
+    let Ok(right_primary_key) = read_segment(
         right,
         &mut right_offset,
         IndexKey::MAX_PK_SIZE,
         "primary key",
-    ) {
-        Ok(segment) => segment,
-        Err(_) => return left.cmp(right),
+    ) else {
+        return left.cmp(right);
     };
 
     let primary_key_order = compare_segment_bytes(left_primary_key, right_primary_key);
