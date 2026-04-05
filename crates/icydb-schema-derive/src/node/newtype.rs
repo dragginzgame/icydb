@@ -106,12 +106,8 @@ impl HasTraits for Newtype {
             if primitive.supports_hash() {
                 traits.add(TraitKind::Hash);
             }
-            if primitive.supports_num_cast() {
-                traits.extend(vec![
-                    TraitKind::NumCast,
-                    TraitKind::NumFromPrimitive,
-                    TraitKind::NumToPrimitive,
-                ]);
+            if primitive.supports_numeric_value() {
+                traits.add(TraitKind::NumericValue);
             }
             if primitive.supports_ord() {
                 traits.add(TraitKind::Ord);
@@ -129,9 +125,7 @@ impl HasTraits for Newtype {
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Inner => Some(TraitStrategy::from_derive(TraitKind::Inner)),
-            TraitKind::NumCast => NumCastTrait::strategy(self),
-            TraitKind::NumToPrimitive => NumToPrimitiveTrait::strategy(self),
-            TraitKind::NumFromPrimitive => NumFromPrimitiveTrait::strategy(self),
+            TraitKind::NumericValue => NumericValueTrait::strategy(self),
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

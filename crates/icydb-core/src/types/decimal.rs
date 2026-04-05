@@ -5,8 +5,8 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -155,8 +155,44 @@ impl Decimal {
     /// This path is lossy for float inputs and may lose precision for large values.
     /// Prefer exact integer constructors (`from_i64`, `from_u64`) or explicit
     /// float constructors (`from_f32_lossy`, `from_f64_lossy`) when possible.
-    pub fn from_num<N: NumCast>(n: N) -> Option<Self> {
-        <Self as NumCast>::from(n)
+    pub fn from_num<N: NumericValue>(n: N) -> Option<Self> {
+        n.try_to_decimal()
+    }
+
+    /// Exact conversion from `i64`.
+    #[must_use]
+    pub const fn from_i64(n: i64) -> Option<Self> {
+        Some(Self {
+            mantissa: n as i128,
+            scale: 0,
+        })
+    }
+
+    /// Exact conversion from `u64`.
+    #[must_use]
+    pub const fn from_u64(n: u64) -> Option<Self> {
+        Some(Self {
+            mantissa: n as i128,
+            scale: 0,
+        })
+    }
+
+    /// Exact conversion from `i128`.
+    #[must_use]
+    pub const fn from_i128(n: i128) -> Option<Self> {
+        Some(Self {
+            mantissa: n,
+            scale: 0,
+        })
+    }
+
+    /// Exact conversion from `u128`.
+    #[must_use]
+    pub fn from_u128(n: u128) -> Option<Self> {
+        Some(Self {
+            mantissa: i128::try_from(n).ok()?,
+            scale: 0,
+        })
     }
 
     /// Explicit lossy conversion from `f32`.
@@ -217,6 +253,62 @@ impl Decimal {
 
         let factor = checked_pow10(target_scale - self.scale)?;
         self.mantissa.checked_mul(factor)
+    }
+
+    /// Convert to `i32` when the decimal is integral and in range.
+    #[must_use]
+    pub fn to_i32(&self) -> Option<i32> {
+        self.to_i64().and_then(|value| i32::try_from(value).ok())
+    }
+
+    /// Convert to `i64` when the decimal is integral and in range.
+    #[must_use]
+    pub fn to_i64(&self) -> Option<i64> {
+        let integer = decimal_integer_value(self.mantissa, self.scale)?;
+
+        i64::try_from(integer).ok()
+    }
+
+    /// Convert to `i128` when the decimal is integral.
+    #[must_use]
+    pub fn to_i128(&self) -> Option<i128> {
+        decimal_integer_value(self.mantissa, self.scale)
+    }
+
+    /// Convert to `u64` when the decimal is integral and in range.
+    #[must_use]
+    pub fn to_u64(&self) -> Option<u64> {
+        let integer = decimal_integer_value(self.mantissa, self.scale)?;
+
+        u64::try_from(integer).ok()
+    }
+
+    /// Convert to `u128` when the decimal is integral and in range.
+    #[must_use]
+    pub fn to_u128(&self) -> Option<u128> {
+        let integer = decimal_integer_value(self.mantissa, self.scale)?;
+
+        u128::try_from(integer).ok()
+    }
+
+    /// Convert to `f32` when the decimal is finite in `f32`.
+    #[must_use]
+    #[expect(clippy::cast_possible_truncation)]
+    pub fn to_f32(&self) -> Option<f32> {
+        self.to_f64().and_then(|value| {
+            let float = value as f32;
+            if float.is_finite() { Some(float) } else { None }
+        })
+    }
+
+    /// Convert to `f64` when the decimal is finite in `f64`.
+    #[must_use]
+    #[expect(clippy::cast_precision_loss)]
+    pub fn to_f64(&self) -> Option<f64> {
+        let divisor = 10f64.powi(i32::try_from(self.scale).ok()?);
+        let value = (self.mantissa as f64) / divisor;
+
+        if value.is_finite() { Some(value) } else { None }
     }
 
     ///
@@ -632,40 +724,16 @@ impl FieldValue for Decimal {
     }
 }
 
-impl NumFromPrimitive for Decimal {
-    fn from_i64(n: i64) -> Option<Self> {
-        Some(Self {
-            mantissa: <i128 as From<i64>>::from(n),
-            scale: 0,
-        })
-    }
-
-    fn from_u64(n: u64) -> Option<Self> {
-        Some(Self {
-            mantissa: <i128 as From<u64>>::from(n),
-            scale: 0,
-        })
-    }
-
-    fn from_f32(n: f32) -> Option<Self> {
-        Self::from_f32_lossy(n)
-    }
-
-    fn from_f64(n: f64) -> Option<Self> {
-        Self::from_f64_lossy(n)
-    }
-}
-
 // lossy f32 done on purpose as these ORM floats aren't designed for NaN etc.
 impl From<f32> for Decimal {
     fn from(n: f32) -> Self {
-        Self::from_f32(n).unwrap_or(Self::ZERO)
+        Self::from_f32_lossy(n).unwrap_or(Self::ZERO)
     }
 }
 
 impl From<f64> for Decimal {
     fn from(n: f64) -> Self {
-        Self::from_f64(n).unwrap_or(Self::ZERO)
+        Self::from_f64_lossy(n).unwrap_or(Self::ZERO)
     }
 }
 
@@ -675,7 +743,7 @@ macro_rules! impl_decimal_from_signed_int {
             impl From<$type> for Decimal {
                 fn from(n: $type) -> Self {
                     Self {
-                        mantissa: <i128 as From<$type>>::from(n),
+                        mantissa: i128::from(n),
                         scale: 0,
                     }
                 }
@@ -690,7 +758,7 @@ macro_rules! impl_decimal_from_unsigned_int {
             impl From<$type> for Decimal {
                 fn from(n: $type) -> Self {
                     Self {
-                        mantissa: <i128 as From<$type>>::from(n),
+                        mantissa: i128::from(n),
                         scale: 0,
                     }
                 }
@@ -787,47 +855,13 @@ impl Sum for Decimal {
     }
 }
 
-impl NumCast for Decimal {
-    // NumCast is kept for ecosystem compatibility but remains lossy for float-ish inputs.
-    // Prefer exact integer constructors or explicit `from_f64_lossy` at call sites.
-    fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
-        Self::from_f64_lossy(n.to_f64()?)
-    }
-}
-
-impl NumToPrimitive for Decimal {
-    fn to_i32(&self) -> Option<i32> {
-        self.to_i64().and_then(|v| i32::try_from(v).ok())
+impl NumericValue for Decimal {
+    fn try_to_decimal(&self) -> Option<Self> {
+        Some(*self)
     }
 
-    fn to_i64(&self) -> Option<i64> {
-        let integer = decimal_integer_value(self.mantissa, self.scale)?;
-        i64::try_from(integer).ok()
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        let integer = decimal_integer_value(self.mantissa, self.scale)?;
-        u64::try_from(integer).ok()
-    }
-
-    fn to_u128(&self) -> Option<u128> {
-        let integer = decimal_integer_value(self.mantissa, self.scale)?;
-        u128::try_from(integer).ok()
-    }
-
-    #[expect(clippy::cast_possible_truncation)]
-    fn to_f32(&self) -> Option<f32> {
-        self.to_f64().and_then(|v| {
-            let f = v as f32;
-            if f.is_finite() { Some(f) } else { None }
-        })
-    }
-
-    #[expect(clippy::cast_precision_loss)]
-    fn to_f64(&self) -> Option<f64> {
-        let divisor = 10f64.powi(i32::try_from(self.scale).ok()?);
-        let value = (self.mantissa as f64) / divisor;
-        if value.is_finite() { Some(value) } else { None }
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        Some(value)
     }
 }
 
@@ -1011,8 +1045,7 @@ const fn normalize_parts(mantissa: i128, scale: u32) -> (i128, u32) {
 
 // Prepare integer operands for fixed-scale decimal division.
 fn division_operands(lhs: Decimal, rhs: Decimal, target_scale: u32) -> Option<(i128, i128)> {
-    let exponent = <i64 as From<u32>>::from(target_scale) + <i64 as From<u32>>::from(rhs.scale)
-        - <i64 as From<u32>>::from(lhs.scale);
+    let exponent = i64::from(target_scale) + i64::from(rhs.scale) - i64::from(lhs.scale);
 
     if exponent >= 0 {
         let factor = checked_pow10(u32::try_from(exponent).ok()?)?;
@@ -1082,7 +1115,7 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
 
 fn compare_exponent(scale: u32, digit_len: usize) -> Option<i64> {
     let digit_count = i64::try_from(digit_len).ok()?;
-    let scale = <i64 as From<u32>>::from(scale);
+    let scale = i64::from(scale);
     digit_count.checked_sub(1)?.checked_sub(scale)
 }
 

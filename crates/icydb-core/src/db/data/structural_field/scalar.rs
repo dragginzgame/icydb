@@ -10,7 +10,6 @@ use crate::db::data::structural_field::cbor::{
 };
 use crate::{
     model::field::FieldKind,
-    traits::NumFromPrimitive,
     types::{Float32, Float64, Int128, Nat128, Ulid},
     value::Value,
 };
@@ -219,7 +218,7 @@ fn decode_scalar_fast_path_float32(
         ));
     }
 
-    Ok(Value::Float32(Float32::from_f64(value).ok_or_else(
+    Ok(Value::Float32(Float32::try_from_f64(value).ok_or_else(
         || FieldDecodeError::new("non-finite CBOR float payload"),
     )?))
 }

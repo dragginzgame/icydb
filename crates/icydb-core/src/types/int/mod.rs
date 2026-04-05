@@ -8,9 +8,10 @@ mod int128;
 use crate::{
     prelude::*,
     traits::{
-        Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Decimal,
 };
 use candid::{CandidType, Int as WrappedInt};
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
@@ -151,6 +152,16 @@ impl Mul for Int {
 impl MulAssign for Int {
     fn mul_assign(&mut self, other: Self) {
         self.0 *= other.0;
+    }
+}
+
+impl NumericValue for Int {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        self.to_i128().and_then(Decimal::from_i128)
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_i128().map(WrappedInt::from).map(Self)
     }
 }
 

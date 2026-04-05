@@ -1,20 +1,17 @@
 use crate::{
     base::helper::decimal_cast::try_cast_decimal,
     design::prelude::*,
-    traits::{NumCast, Validator},
+    traits::{NumericValue, Validator},
 };
 use std::any::type_name;
 
 /// Convert a numeric value into Decimal during *configuration* time.
-fn cast_decimal_cfg<N: NumCast + Clone>(value: &N) -> Decimal {
+fn cast_decimal_cfg<N: NumericValue>(value: &N) -> Decimal {
     try_cast_decimal(value).unwrap_or_default()
 }
 
 /// Convert a numeric value into Decimal during *validation* time.
-fn cast_decimal_val<N: NumCast + Clone>(
-    value: &N,
-    ctx: &mut dyn VisitorContext,
-) -> Option<Decimal> {
+fn cast_decimal_val<N: NumericValue>(value: &N, ctx: &mut dyn VisitorContext) -> Option<Decimal> {
     try_cast_decimal(value).or_else(|| {
         ctx.issue(format!(
             "value of type {} cannot be represented as Decimal",
@@ -36,14 +33,14 @@ macro_rules! cmp_validator {
         }
 
         impl $name {
-            pub fn new<N: NumCast + Clone>(target: N) -> Self {
+            pub fn new<N: NumericValue>(target: N) -> Self {
                 let target = cast_decimal_cfg(&target);
 
                 Self { target }
             }
         }
 
-        impl<N: NumCast + Clone> Validator<N> for $name {
+        impl<N: NumericValue> Validator<N> for $name {
             fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
                 let Some(v) = cast_decimal_val(value, ctx) else { return };
 
@@ -73,7 +70,7 @@ pub struct Range {
 }
 
 impl Range {
-    pub fn new<N: NumCast + Clone>(min: N, max: N) -> Self {
+    pub fn new<N: NumericValue>(min: N, max: N) -> Self {
         let min = cast_decimal_cfg(&min);
         let max = cast_decimal_cfg(&max);
 
@@ -81,7 +78,7 @@ impl Range {
     }
 }
 
-impl<N: NumCast + Clone> Validator<N> for Range {
+impl<N: NumericValue> Validator<N> for Range {
     fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
         let Some(v) = cast_decimal_val(value, ctx) else {
             return;
@@ -103,14 +100,14 @@ pub struct MultipleOf {
 }
 
 impl MultipleOf {
-    pub fn new<N: NumCast + Clone>(target: N) -> Self {
+    pub fn new<N: NumericValue>(target: N) -> Self {
         let target = cast_decimal_cfg(&target);
 
         Self { target }
     }
 }
 
-impl<N: NumCast + Clone> Validator<N> for MultipleOf {
+impl<N: NumericValue> Validator<N> for MultipleOf {
     fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
         if self.target.is_zero() {
             ctx.issue("multipleOf target must be non-zero".to_string());

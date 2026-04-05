@@ -63,7 +63,6 @@ icydb-testing-ten-simple-fixtures = { path = "schema/ten_simple" }
 icydb-testing-wasm-fixtures = { path = "testing/wasm-fixtures" }
 icydb-utils = { path = "crates/icydb-utils", version = "0.68.4" }
 num-bigint = "0.4"
-num-traits = { version = "0.2", default-features = false }
 pocket-ic = "13.0"
 proc-macro2 = "1.0"
 proptest = "1.9.0"

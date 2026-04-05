@@ -5,7 +5,6 @@
 
 use crate::{
     serialize::{deserialize, serialize},
-    traits::NumFromPrimitive,
     types::{
         Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid,

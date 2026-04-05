@@ -18,7 +18,7 @@ mod tests;
 use crate::{
     model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
-    traits::{EnumValue, FieldTypeMeta, FieldValue, NumFromPrimitive, Repr},
+    traits::{EnumValue, FieldTypeMeta, FieldValue, NumericValue, Repr},
     types::*,
 };
 use candid::CandidType;
@@ -730,17 +730,17 @@ impl Value {
 
     fn to_decimal(&self) -> Option<Decimal> {
         match self {
-            Self::Decimal(d) => Some(*d),
-            Self::Duration(d) => Decimal::from_u64(d.repr()),
-            Self::Float64(f) => Decimal::from_f64(f.get()),
-            Self::Float32(f) => Decimal::from_f32(f.get()),
-            Self::Int(i) => Decimal::from_i64(*i),
-            Self::Int128(i) => Decimal::from_i128(i.get()),
-            Self::IntBig(i) => i.to_i128().and_then(Decimal::from_i128),
-            Self::Timestamp(t) => Decimal::from_i64(t.repr()),
-            Self::Uint(u) => Decimal::from_u64(*u),
-            Self::Uint128(u) => Decimal::from_u128(u.get()),
-            Self::UintBig(u) => u.to_u128().and_then(Decimal::from_u128),
+            Self::Decimal(d) => d.try_to_decimal(),
+            Self::Duration(d) => d.try_to_decimal(),
+            Self::Float64(f) => f.try_to_decimal(),
+            Self::Float32(f) => f.try_to_decimal(),
+            Self::Int(i) => i.try_to_decimal(),
+            Self::Int128(i) => i.try_to_decimal(),
+            Self::IntBig(i) => i.try_to_decimal(),
+            Self::Timestamp(t) => t.try_to_decimal(),
+            Self::Uint(u) => u.try_to_decimal(),
+            Self::Uint128(u) => u.try_to_decimal(),
+            Self::UintBig(u) => u.try_to_decimal(),
 
             _ => None,
         }

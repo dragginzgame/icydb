@@ -5,9 +5,10 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive, Repr,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, Repr, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Decimal,
     value::Value,
 };
 use candid::CandidType;
@@ -53,6 +54,22 @@ impl Duration {
     #[must_use]
     pub const fn from_millis(ms: u64) -> Self {
         Self(ms)
+    }
+
+    /// Fallible conversion from `i64` milliseconds that rejects negatives.
+    #[must_use]
+    pub const fn try_from_i64(millis: i64) -> Option<Self> {
+        if millis < 0 {
+            return None;
+        }
+
+        Some(Self(millis.cast_unsigned()))
+    }
+
+    /// Fallible conversion from `u64` milliseconds.
+    #[must_use]
+    pub const fn try_from_u64(millis: u64) -> Option<Self> {
+        Some(Self(millis))
     }
 
     #[must_use]
@@ -211,7 +228,7 @@ fn parse_duration_ascii_u64(s: &str) -> Option<u64> {
         if digit > 9 {
             return None;
         }
-        value = value.checked_mul(10)?.checked_add(u64::from_u8(digit)?)?;
+        value = value.checked_mul(10)?.checked_add(u64::from(digit))?;
     }
 
     Some(value)
@@ -331,36 +348,19 @@ impl FieldValue for Duration {
 
 impl Atomic for Duration {}
 
-impl NumCast for Duration {
-    fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
-        n.to_u64().map(Self)
-    }
-}
-
-impl NumFromPrimitive for Duration {
-    #[expect(clippy::cast_sign_loss)]
-    fn from_i64(n: i64) -> Option<Self> {
-        if n < 0 { None } else { Some(Self(n as u64)) }
-    }
-
-    fn from_u64(n: u64) -> Option<Self> {
-        Some(Self(n))
-    }
-}
-
 impl From<u64> for Duration {
     fn from(n: u64) -> Self {
         Self(n)
     }
 }
 
-impl NumToPrimitive for Duration {
-    fn to_i64(&self) -> Option<i64> {
-        self.0.to_i64()
+impl NumericValue for Duration {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_u64(self.0)
     }
 
-    fn to_u64(&self) -> Option<u64> {
-        self.0.to_u64()
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_u64().map(Self)
     }
 }
 
@@ -393,8 +393,8 @@ mod tests {
     }
 
     #[test]
-    fn test_from_i64_rejects_negative() {
-        let t = <Duration as NumFromPrimitive>::from_i64(-1);
+    fn test_try_from_i64_rejects_negative() {
+        let t = Duration::try_from_i64(-1);
         assert!(t.is_none());
     }
 

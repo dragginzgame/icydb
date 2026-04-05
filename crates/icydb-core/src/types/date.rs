@@ -5,10 +5,13 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
-    types::parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
+    types::{
+        Decimal,
+        parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
+    },
     value::Value,
 };
 use candid::CandidType;
@@ -111,6 +114,18 @@ impl Date {
         self.0
     }
 
+    /// Fallible conversion from `i64` day-count representation.
+    #[must_use]
+    pub fn try_from_i64(days: i64) -> Option<Self> {
+        i32::try_from(days).ok().map(Self)
+    }
+
+    /// Fallible conversion from `u64` day-count representation.
+    #[must_use]
+    pub fn try_from_u64(days: u64) -> Option<Self> {
+        i32::try_from(days).ok().map(Self)
+    }
+
     /// Returns the year component (e.g. 2025).
     #[must_use]
     pub fn year(self) -> i32 {
@@ -210,35 +225,13 @@ impl FieldValue for Date {
     }
 }
 
-impl NumCast for Date {
-    fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
-        n.to_i32().map(Self)
-    }
-}
-
-impl NumFromPrimitive for Date {
-    #[expect(clippy::cast_possible_truncation)]
-    fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n as i32))
+impl NumericValue for Date {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_i64(i64::from(self.0))
     }
 
-    #[expect(clippy::cast_possible_truncation)]
-    fn from_u64(n: u64) -> Option<Self> {
-        if i32::try_from(n).is_ok() {
-            Some(Self(n as i32))
-        } else {
-            None
-        }
-    }
-}
-
-impl NumToPrimitive for Date {
-    fn to_i64(&self) -> Option<i64> {
-        self.0.to_i64()
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        self.0.to_u64()
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_i32().map(Self)
     }
 }
 
@@ -309,10 +302,10 @@ mod tests {
     }
 
     #[test]
-    fn overflow_protection_in_from_u64() {
+    fn overflow_protection_in_try_from_u64() {
         // i32::MAX + 1 should safely fail
         let too_large = (i32::MAX as u64) + 1;
-        assert!(Date::from_u64(too_large).is_none());
+        assert!(Date::try_from_u64(too_large).is_none());
     }
 
     #[test]

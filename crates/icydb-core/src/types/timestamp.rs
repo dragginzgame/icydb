@@ -5,12 +5,11 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumCast, NumFromPrimitive,
-        NumToPrimitive, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        Visitable,
+        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumericValue, Repr, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{
-        Duration,
+        Decimal, Duration,
         parse::{parse_fixed_ascii_i32, parse_fixed_ascii_u8},
     },
     value::Value,
@@ -83,6 +82,18 @@ impl Timestamp {
     #[must_use]
     pub const fn from_millis(ms: i64) -> Self {
         Self(ms)
+    }
+
+    /// Fallible conversion from `i64` milliseconds.
+    #[must_use]
+    pub const fn try_from_i64(millis: i64) -> Option<Self> {
+        Some(Self(millis))
+    }
+
+    /// Fallible conversion from `u64` milliseconds.
+    #[must_use]
+    pub fn try_from_u64(millis: u64) -> Option<Self> {
+        i64::try_from(millis).ok().map(Self)
     }
 
     /// Construct from microseconds (`i64`), truncating to whole milliseconds.
@@ -275,7 +286,7 @@ fn parse_fractional_nanoseconds(bytes: &[u8]) -> Result<u32, String> {
             .ok_or_else(|| timestamp_parse_error(ERR_INVALID_FRACTIONAL_SECONDS))?;
         value = value
             .checked_mul(10)
-            .and_then(|current| current.checked_add(<u32 as From<u8>>::from(digit)))
+            .and_then(|current| current.checked_add(u32::from(digit)))
             .ok_or_else(|| timestamp_parse_error(ERR_FRACTIONAL_SECONDS_OVERFLOW))?;
     }
     for _ in bytes.len().min(9)..9 {
@@ -353,7 +364,7 @@ impl Sub for Timestamp {
             return Duration::ZERO;
         }
 
-        let delta = <i128 as From<i64>>::from(self.0) - <i128 as From<i64>>::from(rhs.0);
+        let delta = i128::from(self.0) - i128::from(rhs.0);
         let millis = u64::try_from(delta).unwrap_or(u64::MAX);
         Duration::from_millis(millis)
     }
@@ -378,7 +389,7 @@ impl Serialize for Timestamp {
     where
         S: Serializer,
     {
-        let nanos = <i128 as From<i64>>::from(self.0).saturating_mul(1_000_000);
+        let nanos = i128::from(self.0).saturating_mul(1_000_000);
         let dt =
             OffsetDateTime::from_unix_timestamp_nanos(nanos).map_err(serde::ser::Error::custom)?;
         let rendered = dt.format(&Rfc3339).map_err(serde::ser::Error::custom)?;
@@ -459,22 +470,6 @@ impl FieldValue for Timestamp {
     }
 }
 
-impl NumCast for Timestamp {
-    fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
-        n.to_i64().map(Self)
-    }
-}
-
-impl NumFromPrimitive for Timestamp {
-    fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n))
-    }
-
-    fn from_u64(n: u64) -> Option<Self> {
-        i64::try_from(n).ok().map(Self)
-    }
-}
-
 impl From<u64> for Timestamp {
     fn from(n: u64) -> Self {
         match i64::try_from(n) {
@@ -490,13 +485,13 @@ impl From<i64> for Timestamp {
     }
 }
 
-impl NumToPrimitive for Timestamp {
-    fn to_i64(&self) -> Option<i64> {
-        self.0.to_i64()
+impl NumericValue for Timestamp {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_i64(self.0)
     }
 
-    fn to_u64(&self) -> Option<u64> {
-        self.0.to_u64()
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_i64().map(Self)
     }
 }
 
@@ -553,8 +548,8 @@ mod tests {
     }
 
     #[test]
-    fn test_from_i64_accepts_negative() {
-        let t = <Timestamp as NumFromPrimitive>::from_i64(-1);
+    fn test_try_from_i64_accepts_negative() {
+        let t = Timestamp::try_from_i64(-1);
         assert_eq!(t, Some(Timestamp::from_millis(-1)));
     }
 
@@ -685,9 +680,9 @@ mod tests {
     }
 
     #[test]
-    fn test_num_cast_roundtrip() {
+    fn test_numeric_value_roundtrip() {
         let t = Timestamp::from_secs(999);
-        let i = t.to_u64().unwrap();
+        let i = u64::try_from(t.as_millis()).unwrap();
         assert_eq!(i, 999_000);
 
         let t2: Timestamp = i.into();

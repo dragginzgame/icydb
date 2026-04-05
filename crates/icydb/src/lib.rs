@@ -147,7 +147,6 @@ pub mod __reexports {
     pub use ctor;
     pub use derive_more;
     pub use icydb_derive;
-    pub use num_traits;
     pub use remain;
     pub use serde;
 }

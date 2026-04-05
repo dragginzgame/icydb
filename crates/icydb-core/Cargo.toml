@@ -23,7 +23,6 @@ derive_more = { workspace = true }
 icydb-primitives = { workspace = true }
 icydb-utils = { workspace = true }
 num-bigint = { workspace = true }
-num-traits = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 serde_cbor = { workspace = true }

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.68.x] 📚 - 2026-04-04 - First-Class Covering Reads
 
+- `0.68.5` removes the old `num-traits`-style numeric conversion layer, replaces it with one narrower `NumericValue` contract for numeric validation and sanitization, and switches wrapper types plus generated numeric newtypes to explicit conversions, so code using `NumCast`, `NumFromPrimitive`, or `NumToPrimitive` must move to the new explicit APIs.
 - `0.68.4` makes equivalent text-prefix SQL forms such as `LIKE 'A%'`, `STARTS_WITH(name, 'A')`, and explicit `>= / <` bounds stay on the same bounded index-backed read path, teaches guarded filtered-index `ORDER BY ... LIMIT` reads to use that ordered covering route too, and broadens canister and perf coverage around those cases.
 - `0.68.3` keeps the new ordered read paths in place, fixes a text-index ordering bug so `ORDER BY LOWER(name)` and related expression-backed reads return rows in true lexical order, and extends canister perf coverage for those expression-backed routes.
 - `0.68.2` makes more ordered SQL projections stay on the shared index-backed path, including more index-covered projections and composite `ORDER BY ... LIMIT` reads, and moves the PocketIC SQL harness onto a per-test `canic-testkit` lifecycle so those routes are exercised more reliably.

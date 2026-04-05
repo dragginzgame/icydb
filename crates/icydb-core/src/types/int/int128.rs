@@ -6,9 +6,10 @@
 use crate::{
     prelude::*,
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Decimal,
 };
 use candid::CandidType;
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
@@ -122,38 +123,13 @@ impl MulAssign for Int128 {
     }
 }
 
-impl NumCast for Int128 {
-    fn from<T: NumToPrimitive>(i: T) -> Option<Self> {
-        i.to_i128().map(Self)
-    }
-}
-
-#[expect(clippy::cast_lossless)]
-impl NumFromPrimitive for Int128 {
-    fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n as i128))
+impl NumericValue for Int128 {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_i128(self.0)
     }
 
-    fn from_u64(n: u64) -> Option<Self> {
-        Some(Self(n as i128))
-    }
-}
-
-impl NumToPrimitive for Int128 {
-    fn to_i32(&self) -> Option<i32> {
-        self.0.to_i32()
-    }
-
-    fn to_i64(&self) -> Option<i64> {
-        self.0.to_i64()
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        self.0.to_u64()
-    }
-
-    fn to_u128(&self) -> Option<u128> {
-        self.0.to_u128()
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_i128().map(Self)
     }
 }
 

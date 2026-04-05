@@ -147,24 +147,28 @@ impl Primitive {
         !matches!(self, Self::Blob | Self::Unit)
     }
 
-    // Int and Nat are unbounded integers so have no native representation
+    // NumericValue can fallibly route all numeric-like primitives through Decimal.
     #[must_use]
-    pub const fn supports_num_cast(self) -> bool {
+    pub const fn supports_numeric_value(self) -> bool {
         matches!(
             self,
             Self::Date
                 | Self::Decimal
                 | Self::Duration
+                | Self::Int
                 | Self::Int8
                 | Self::Int16
                 | Self::Int32
                 | Self::Int64
+                | Self::Int128
                 | Self::Float32
                 | Self::Float64
+                | Self::Nat
                 | Self::Nat8
                 | Self::Nat16
                 | Self::Nat32
                 | Self::Nat64
+                | Self::Nat128
                 | Self::Timestamp
         )
     }
@@ -222,28 +226,6 @@ impl Primitive {
         let ident = format_ident!("{self}");
 
         quote!(::icydb::types::#ident)
-    }
-
-    ///
-    /// Returns the numeric cast function suffix for supported primitives.
-    /// Emits a structured error for non-numeric primitives.
-    ///
-    pub fn num_cast_fn(self) -> Result<&'static str, darling::Error> {
-        match self {
-            Self::Float32 => Ok("f32"),
-            Self::Float64 | Self::Decimal => Ok("f64"),
-            Self::Int8 => Ok("i8"),
-            Self::Int16 => Ok("i16"),
-            Self::Int32 | Self::Date => Ok("i32"),
-            Self::Int64 => Ok("i64"),
-            Self::Nat8 => Ok("u8"),
-            Self::Nat16 => Ok("u16"),
-            Self::Nat32 => Ok("u32"),
-            Self::Nat64 | Self::Duration | Self::Timestamp => Ok("u64"),
-            _ => Err(darling::Error::custom(format!(
-                "numeric cast is unsupported for primitive {self}"
-            ))),
-        }
     }
 }
 

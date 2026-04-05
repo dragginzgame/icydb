@@ -7,6 +7,7 @@
 #[macro_use]
 mod macros;
 mod atomic;
+mod numeric_value;
 mod visitor;
 
 use crate::{
@@ -19,6 +20,7 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use atomic::*;
+pub use numeric_value::*;
 pub use visitor::*;
 
 // -----------------------------------------------------------------------------
@@ -26,7 +28,6 @@ pub use visitor::*;
 // -----------------------------------------------------------------------------
 
 pub use canic_cdk::structures::storable::Storable;
-pub use num_traits::{FromPrimitive as NumFromPrimitive, NumCast, ToPrimitive as NumToPrimitive};
 pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub use std::{
     cmp::{Eq, Ordering, PartialEq},

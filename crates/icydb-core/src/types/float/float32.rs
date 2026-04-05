@@ -6,9 +6,10 @@
 use crate::{
     prelude::*,
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Decimal,
     visitor::VisitorContext,
 };
 use candid::CandidType;
@@ -75,6 +76,20 @@ impl Float32 {
         let value = f32::from_bits(u32::from_be_bytes(buf));
         Self::try_new(value).ok_or(Float32DecodeError::NonFinite)
     }
+
+    /// Fallible conversion from `f64` that rejects non-finite and out-of-range inputs.
+    #[must_use]
+    #[expect(clippy::cast_possible_truncation)]
+    pub fn try_from_f64(value: f64) -> Option<Self> {
+        if !value.is_finite() {
+            return None;
+        }
+        if value < f64::from(f32::MIN) || value > f64::from(f32::MAX) {
+            return None;
+        }
+
+        Self::try_new(value as f32)
+    }
 }
 
 impl Atomic for Float32 {}
@@ -124,47 +139,13 @@ impl From<Float32> for f32 {
     }
 }
 
-#[expect(clippy::cast_precision_loss)]
-#[expect(clippy::cast_possible_truncation)]
-impl NumFromPrimitive for Float32 {
-    fn from_i64(n: i64) -> Option<Self> {
-        // i64 always finite in f32 (though not exact)
-        Self::try_new(n as f32)
+impl NumericValue for Float32 {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_f32_lossy(self.0)
     }
 
-    fn from_u64(n: u64) -> Option<Self> {
-        Self::try_new(n as f32)
-    }
-
-    fn from_f32(n: f32) -> Option<Self> {
-        Self::try_new(n)
-    }
-
-    fn from_f64(n: f64) -> Option<Self> {
-        // reject out-of-range before casting
-        if !n.is_finite() {
-            return None;
-        }
-        if n < f64::from(f32::MIN) || n > f64::from(f32::MAX) {
-            return None;
-        }
-
-        Self::try_new(n as f32)
-    }
-}
-
-impl NumToPrimitive for Float32 {
-    fn to_i64(&self) -> Option<i64> {
-        self.0.to_i64()
-    }
-    fn to_u64(&self) -> Option<u64> {
-        self.0.to_u64()
-    }
-    fn to_f32(&self) -> Option<f32> {
-        Some(self.0)
-    }
-    fn to_f64(&self) -> Option<f64> {
-        Some(f64::from(self.0))
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_f32().and_then(Self::try_new)
     }
 }
 

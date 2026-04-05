@@ -1,7 +1,7 @@
 use crate::{
     base::helper::decimal_cast::try_cast_decimal,
     design::prelude::*,
-    traits::{NumCast, Sanitizer},
+    traits::{NumericValue, Sanitizer},
 };
 use std::any::type_name;
 
@@ -16,7 +16,7 @@ pub struct Clamp {
 }
 
 impl Clamp {
-    pub fn new<N: NumCast + Clone>(min: N, max: N) -> Self {
+    pub fn new<N: NumericValue>(min: N, max: N) -> Self {
         let min = try_cast_decimal(&min).unwrap_or_default();
         let max = try_cast_decimal(&max).unwrap_or_default();
 
@@ -24,7 +24,7 @@ impl Clamp {
     }
 }
 
-impl<T: NumCast + Clone> Sanitizer<T> for Clamp {
+impl<T: NumericValue> Sanitizer<T> for Clamp {
     fn sanitize(&self, value: &mut T) -> Result<(), String> {
         if self.min > self.max {
             return Err(format!(
@@ -48,7 +48,7 @@ impl<T: NumCast + Clone> Sanitizer<T> for Clamp {
             v
         };
 
-        *value = <T as NumCast>::from(clamped).ok_or_else(|| {
+        *value = T::try_from_decimal(clamped).ok_or_else(|| {
             format!(
                 "clamped value cannot be represented as {}",
                 type_name::<T>()

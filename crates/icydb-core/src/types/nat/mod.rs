@@ -7,9 +7,10 @@ mod nat128;
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Decimal,
     value::Value,
 };
 use candid::{CandidType, Nat as WrappedNat};
@@ -152,6 +153,16 @@ impl Mul for Nat {
 impl MulAssign for Nat {
     fn mul_assign(&mut self, other: Self) {
         self.0 *= other.0;
+    }
+}
+
+impl NumericValue for Nat {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        self.to_u128().and_then(Decimal::from_u128)
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_u128().map(WrappedNat::from).map(Self)
     }
 }
 

@@ -5,9 +5,10 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumCast, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Decimal,
     value::Value,
 };
 use candid::CandidType;
@@ -115,27 +116,13 @@ impl MulAssign for Nat128 {
     }
 }
 
-impl NumCast for Nat128 {
-    fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
-        n.to_u128().map(Self)
-    }
-}
-
-impl NumToPrimitive for Nat128 {
-    fn to_i32(&self) -> Option<i32> {
-        self.0.to_i32()
+impl NumericValue for Nat128 {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        Decimal::from_u128(self.0)
     }
 
-    fn to_i64(&self) -> Option<i64> {
-        self.0.to_i64()
-    }
-
-    fn to_u64(&self) -> Option<u64> {
-        self.0.to_u64()
-    }
-
-    fn to_u128(&self) -> Option<u128> {
-        self.0.to_u128()
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_u128().map(Self)
     }
 }
 
