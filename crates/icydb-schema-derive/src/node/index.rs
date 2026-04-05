@@ -137,7 +137,7 @@ pub(crate) enum IndexKeyItemSpec {
 }
 
 impl IndexKeyItemSpec {
-    pub(crate) fn field_ident(&self) -> &Ident {
+    pub(crate) const fn field_ident(&self) -> &Ident {
         match self {
             Self::Field(field) => field,
             Self::Expression(expression) => expression.field_ident(),
@@ -191,7 +191,7 @@ pub(crate) enum IndexExpressionSpec {
 }
 
 impl IndexExpressionSpec {
-    fn field_ident(&self) -> &Ident {
+    const fn field_ident(&self) -> &Ident {
         match self {
             Self::Lower(field)
             | Self::Upper(field)
@@ -301,7 +301,7 @@ fn split_top_level_key_items(literal: &LitStr) -> Result<Vec<String>, DarlingErr
     }
 
     items.push(raw[segment_start..].trim().to_string());
-    if items.iter().any(|item| item.is_empty()) {
+    if items.iter().any(String::is_empty) {
         return Err(DarlingError::custom(format!(
             "index key_items '{raw}' contains an empty key item"
         ))

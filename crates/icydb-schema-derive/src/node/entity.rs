@@ -80,118 +80,164 @@ impl Entity {
 
     /// Validate index declarations against entity fields and naming constraints.
     fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
-        // Per-index local validation.
+        let canonical_index_terms = self.collect_canonical_index_terms(entity_name, def_ident)?;
+        Self::validate_redundant_prefix_indexes(&self.indexes, &canonical_index_terms, def_ident)?;
+
+        Ok(())
+    }
+
+    // Validate each declared index in isolation and return its canonical key terms.
+    fn collect_canonical_index_terms(
+        &self,
+        entity_name: &str,
+        def_ident: &Ident,
+    ) -> Result<Vec<Vec<String>>, DarlingError> {
         let mut canonical_index_terms = Vec::with_capacity(self.indexes.len());
         for index in &self.indexes {
-            if index.fields.is_empty() {
-                return Err(
-                    DarlingError::custom("index must reference at least one field")
-                        .with_index_or_def_span(index, def_ident),
-                );
-            }
-            if index.fields.len() > MAX_INDEX_FIELDS {
-                return Err(DarlingError::custom(format!(
-                    "index has {} fields; maximum is {}",
-                    index.fields.len(),
-                    MAX_INDEX_FIELDS
-                ))
-                .with_index_or_def_span(index, def_ident));
-            }
-
-            // Field references must be unique, present, and indexable.
-            let mut seen = HashSet::new();
-            for field in &index.fields {
-                let field_name = field.to_string();
-                if !seen.insert(field_name.clone()) {
-                    return Err(DarlingError::custom(format!(
-                        "index contains duplicate field '{field_name}'"
-                    ))
-                    .with_span(field));
-                }
-
-                let Some(entity_field) = self.fields.get(field) else {
-                    return Err(DarlingError::custom(format!(
-                        "index field '{field_name}' not found"
-                    ))
-                    .with_span(field));
-                };
-                if entity_field.value.cardinality() == Cardinality::Many {
-                    return Err(DarlingError::custom(
-                        "cannot add an index field with many cardinality",
-                    )
-                    .with_span(field));
-                }
-            }
-
-            let parsed_key_items = index.parsed_key_items()?;
-            if let Some(key_items) = parsed_key_items.as_ref() {
-                if key_items.len() > MAX_INDEX_FIELDS {
-                    let span = index
-                        .key_items
-                        .as_ref()
-                        .expect("parsed key_items imply source literal");
-                    return Err(DarlingError::custom(format!(
-                        "index has {} key items; maximum is {}",
-                        key_items.len(),
-                        MAX_INDEX_FIELDS
-                    ))
-                    .with_span(span));
-                }
-
-                let declared_fields = index
-                    .fields
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>();
-                let referenced_fields = key_items
-                    .iter()
-                    .map(|item| item.field_ident().to_string())
-                    .fold(Vec::<String>::new(), |mut fields, field| {
-                        if !fields.contains(&field) {
-                            fields.push(field);
-                        }
-
-                        fields
-                    });
-                if referenced_fields != declared_fields {
-                    let span = index
-                        .key_items
-                        .as_ref()
-                        .expect("parsed key_items imply source literal");
-                    return Err(DarlingError::custom(format!(
-                        "index key_items fields {referenced_fields:?} must match declared fields {declared_fields:?} in first-reference order"
-                    ))
-                    .with_span(span));
-                }
-            }
-
+            Self::validate_index_shape(index, def_ident)?;
+            self.validate_index_fields(index)?;
+            Self::validate_index_key_items(index)?;
+            Self::validate_index_name(index, entity_name, def_ident)?;
             canonical_index_terms.push(index.validated_key_item_terms());
+        }
 
-            // Use the same naming path as runtime index model generation.
-            let index_name = index.generated_name(entity_name);
-            let uses_reserved_namespace = index_name.starts_with('~')
-                || index_name
-                    .split('|')
-                    .skip(1)
-                    .any(|segment| segment.starts_with('~'));
-            if uses_reserved_namespace {
+        Ok(canonical_index_terms)
+    }
+
+    // Validate index cardinality limits before deeper field or expression checks.
+    fn validate_index_shape(index: &Index, def_ident: &Ident) -> Result<(), DarlingError> {
+        if index.fields.is_empty() {
+            return Err(
+                DarlingError::custom("index must reference at least one field")
+                    .with_index_or_def_span(index, def_ident),
+            );
+        }
+        if index.fields.len() > MAX_INDEX_FIELDS {
+            return Err(DarlingError::custom(format!(
+                "index has {} fields; maximum is {}",
+                index.fields.len(),
+                MAX_INDEX_FIELDS
+            ))
+            .with_index_or_def_span(index, def_ident));
+        }
+
+        Ok(())
+    }
+
+    // Validate declared field references against entity fields and indexability rules.
+    fn validate_index_fields(&self, index: &Index) -> Result<(), DarlingError> {
+        let mut seen = HashSet::new();
+        for field in &index.fields {
+            let field_name = field.to_string();
+            if !seen.insert(field_name.clone()) {
                 return Err(DarlingError::custom(format!(
-                    "index name '{index_name}' uses reserved '~' namespace"
+                    "index contains duplicate field '{field_name}'"
                 ))
-                .with_index_or_def_span(index, def_ident));
+                .with_span(field));
             }
-            if index_name.len() > MAX_INDEX_NAME_LEN {
-                return Err(DarlingError::custom(format!(
-                    "index name '{index_name}' exceeds max length {MAX_INDEX_NAME_LEN}"
-                ))
-                .with_index_or_def_span(index, def_ident));
+
+            let Some(entity_field) = self.fields.get(field) else {
+                return Err(
+                    DarlingError::custom(format!("index field '{field_name}' not found"))
+                        .with_span(field),
+                );
+            };
+            if entity_field.value.cardinality() == Cardinality::Many {
+                return Err(DarlingError::custom(
+                    "cannot add an index field with many cardinality",
+                )
+                .with_span(field));
             }
         }
 
-        // Cross-index validation: reject redundant same-kind prefix indexes.
-        for (index_idx, left_index) in self.indexes.iter().enumerate() {
+        Ok(())
+    }
+
+    // Validate optional expression key_items and keep them aligned with declared fields.
+    fn validate_index_key_items(index: &Index) -> Result<(), DarlingError> {
+        let Some(key_items) = index.parsed_key_items()? else {
+            return Ok(());
+        };
+
+        if key_items.len() > MAX_INDEX_FIELDS {
+            let span = index
+                .key_items
+                .as_ref()
+                .expect("parsed key_items imply source literal");
+            return Err(DarlingError::custom(format!(
+                "index has {} key items; maximum is {}",
+                key_items.len(),
+                MAX_INDEX_FIELDS
+            ))
+            .with_span(span));
+        }
+
+        let declared_fields = index
+            .fields
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let referenced_fields = key_items
+            .iter()
+            .map(|item| item.field_ident().to_string())
+            .fold(Vec::<String>::new(), |mut fields, field| {
+                if !fields.contains(&field) {
+                    fields.push(field);
+                }
+
+                fields
+            });
+        if referenced_fields != declared_fields {
+            let span = index
+                .key_items
+                .as_ref()
+                .expect("parsed key_items imply source literal");
+            return Err(DarlingError::custom(format!(
+                "index key_items fields {referenced_fields:?} must match declared fields {declared_fields:?} in first-reference order"
+            ))
+            .with_span(span));
+        }
+
+        Ok(())
+    }
+
+    // Validate the generated runtime index name against reserved and length limits.
+    fn validate_index_name(
+        index: &Index,
+        entity_name: &str,
+        def_ident: &Ident,
+    ) -> Result<(), DarlingError> {
+        let index_name = index.generated_name(entity_name);
+        let uses_reserved_namespace = index_name.starts_with('~')
+            || index_name
+                .split('|')
+                .skip(1)
+                .any(|segment| segment.starts_with('~'));
+        if uses_reserved_namespace {
+            return Err(DarlingError::custom(format!(
+                "index name '{index_name}' uses reserved '~' namespace"
+            ))
+            .with_index_or_def_span(index, def_ident));
+        }
+        if index_name.len() > MAX_INDEX_NAME_LEN {
+            return Err(DarlingError::custom(format!(
+                "index name '{index_name}' exceeds max length {MAX_INDEX_NAME_LEN}"
+            ))
+            .with_index_or_def_span(index, def_ident));
+        }
+
+        Ok(())
+    }
+
+    // Reject redundant same-kind prefix indexes after each index has a canonical term list.
+    fn validate_redundant_prefix_indexes(
+        indexes: &[Index],
+        canonical_index_terms: &[Vec<String>],
+        def_ident: &Ident,
+    ) -> Result<(), DarlingError> {
+        for (index_idx, left_index) in indexes.iter().enumerate() {
             let left_terms = &canonical_index_terms[index_idx];
-            for (right_offset, right_index) in self.indexes.iter().skip(index_idx + 1).enumerate() {
+            for (right_offset, right_index) in indexes.iter().skip(index_idx + 1).enumerate() {
                 let right_terms = &canonical_index_terms[index_idx + 1 + right_offset];
                 if left_index.unique != right_index.unique {
                     continue;
