@@ -7,7 +7,10 @@ use crate::{
     db::{
         predicate::CompareOp,
         reduced_sql::{Keyword, SqlParseError, TokenKind},
-        sql::parser::{Parser, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection, SqlOrderTerm},
+        sql::parser::{
+            Parser, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection, SqlOrderTerm,
+            SqlTextFunction,
+        },
     },
     value::Value,
 };
@@ -16,7 +19,7 @@ impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {
         let mut terms = Vec::new();
         loop {
-            let field = self.expect_identifier()?;
+            let field = self.parse_order_term_target()?;
             let direction = if self.eat_keyword(Keyword::Desc) {
                 SqlOrderDirection::Desc
             } else {
@@ -31,6 +34,58 @@ impl Parser {
         }
 
         Ok(terms)
+    }
+
+    fn parse_order_term_target(&mut self) -> Result<String, SqlParseError> {
+        let field = self.expect_identifier()?;
+        if !self.peek_lparen() {
+            return Ok(field);
+        }
+
+        let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
+            return Err(SqlParseError::unsupported_feature(
+                "ORDER BY functions beyond supported LOWER(...) or UPPER(...) forms",
+            ));
+        };
+
+        match function {
+            SqlTextFunction::Lower | SqlTextFunction::Upper => {
+                self.expect_lparen()?;
+                let field = self.expect_identifier()?;
+                self.expect_rparen()?;
+
+                Ok(match function {
+                    SqlTextFunction::Lower => format!("LOWER({field})"),
+                    SqlTextFunction::Upper => format!("UPPER({field})"),
+                    SqlTextFunction::Trim
+                    | SqlTextFunction::Ltrim
+                    | SqlTextFunction::Rtrim
+                    | SqlTextFunction::Length
+                    | SqlTextFunction::Left
+                    | SqlTextFunction::Right
+                    | SqlTextFunction::StartsWith
+                    | SqlTextFunction::EndsWith
+                    | SqlTextFunction::Contains
+                    | SqlTextFunction::Position
+                    | SqlTextFunction::Replace
+                    | SqlTextFunction::Substring => unreachable!(),
+                })
+            }
+            SqlTextFunction::Trim
+            | SqlTextFunction::Ltrim
+            | SqlTextFunction::Rtrim
+            | SqlTextFunction::Length
+            | SqlTextFunction::Left
+            | SqlTextFunction::Right
+            | SqlTextFunction::StartsWith
+            | SqlTextFunction::EndsWith
+            | SqlTextFunction::Contains
+            | SqlTextFunction::Position
+            | SqlTextFunction::Replace
+            | SqlTextFunction::Substring => Err(SqlParseError::unsupported_feature(
+                "ORDER BY functions beyond supported LOWER(...) or UPPER(...) forms",
+            )),
+        }
     }
 
     pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlHavingClause>, SqlParseError> {

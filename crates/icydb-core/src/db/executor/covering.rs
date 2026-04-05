@@ -4,7 +4,19 @@
 //! Boundary: executor lanes import covering component decode from this root instead of duplicating payload logic.
 
 use crate::{
+    db::{
+        access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
+        cursor::IndexScanContinuationInput,
+        data::DataKey,
+        direction::Direction,
+        executor::runtime_context::read_row_with_consistency_from_store,
+        predicate::MissingRowPolicy,
+        query::plan::CoveringProjectionOrder,
+        registry::StoreHandle,
+    },
     error::InternalError,
+    model::index::IndexModel,
+    types::EntityTag,
     types::Ulid,
     value::{Value, ValueTag},
 };
@@ -16,6 +28,145 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
+
+type CoveringComponentValues = Vec<Vec<u8>>;
+
+pub(in crate::db::executor) type CoveringProjectionComponentRows =
+    Vec<(DataKey, CoveringComponentValues)>;
+
+// Resolve one canonical scan direction for covering projections. Any contract
+// that still owes primary-key reordering must consume the underlying index in
+// ascending storage order before post-access reordering.
+pub(in crate::db::executor) const fn covering_projection_scan_direction(
+    order_contract: CoveringProjectionOrder,
+) -> Direction {
+    match order_contract {
+        CoveringProjectionOrder::IndexOrder(direction) => direction,
+        CoveringProjectionOrder::PrimaryKeyOrder(_) => Direction::Asc,
+    }
+}
+
+// Reapply the logical covering projection order after component decoding.
+pub(in crate::db::executor) fn reorder_covering_projection_pairs<T>(
+    order_contract: CoveringProjectionOrder,
+    projected_pairs: &mut [(DataKey, T)],
+) {
+    match order_contract {
+        CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
+            projected_pairs.sort_by(|left, right| left.0.cmp(&right.0));
+        }
+        CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
+            projected_pairs.sort_by(|left, right| right.0.cmp(&left.0));
+        }
+        CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc) => {}
+    }
+}
+
+// Resolve one covering projection component stream from one lowered
+// index-prefix or index-range contract.
+pub(in crate::db::executor) fn resolve_covering_projection_components_from_lowered_specs<F>(
+    entity_tag: EntityTag,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
+    direction: Direction,
+    limit: usize,
+    component_indices: &[usize],
+    mut resolve_store_for_index: F,
+) -> Result<CoveringProjectionComponentRows, InternalError>
+where
+    F: FnMut(&IndexModel) -> Result<StoreHandle, InternalError>,
+{
+    let continuation = IndexScanContinuationInput::new(None, direction);
+
+    if let [spec] = index_prefix_specs {
+        return resolve_covering_projection_components_for_index_bounds(
+            resolve_store_for_index(spec.index())?,
+            entity_tag,
+            spec.index(),
+            (spec.lower(), spec.upper()),
+            continuation,
+            limit,
+            component_indices,
+        );
+    }
+    if !index_prefix_specs.is_empty() {
+        return Err(InternalError::query_executor_invariant(
+            "covering projection index-prefix path requires one lowered prefix spec",
+        ));
+    }
+
+    if let [spec] = index_range_specs {
+        return resolve_covering_projection_components_for_index_bounds(
+            resolve_store_for_index(spec.index())?,
+            entity_tag,
+            spec.index(),
+            (spec.lower(), spec.upper()),
+            continuation,
+            limit,
+            component_indices,
+        );
+    }
+    if !index_range_specs.is_empty() {
+        return Err(InternalError::query_executor_invariant(
+            "covering projection index-range path requires one lowered range spec",
+        ));
+    }
+
+    Err(InternalError::query_executor_invariant(
+        "covering projection component scans require index-backed access paths",
+    ))
+}
+
+// Resolve one single-component covering projection stream from one lowered
+// index-prefix or index-range contract.
+pub(in crate::db::executor) fn resolve_covering_projection_component_from_lowered_specs<F>(
+    entity_tag: EntityTag,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
+    direction: Direction,
+    limit: usize,
+    component_index: usize,
+    resolve_store_for_index: F,
+) -> Result<CoveringProjectionComponentRows, InternalError>
+where
+    F: FnMut(&IndexModel) -> Result<StoreHandle, InternalError>,
+{
+    resolve_covering_projection_components_from_lowered_specs(
+        entity_tag,
+        index_prefix_specs,
+        index_range_specs,
+        direction,
+        limit,
+        &[component_index],
+        resolve_store_for_index,
+    )
+}
+
+// Resolve one bounded component stream from one lowered index-bounds contract.
+fn resolve_covering_projection_components_for_index_bounds(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    index: &IndexModel,
+    bounds: (
+        &std::ops::Bound<crate::db::index::RawIndexKey>,
+        &std::ops::Bound<crate::db::index::RawIndexKey>,
+    ),
+    continuation: IndexScanContinuationInput<'_>,
+    limit: usize,
+    component_indices: &[usize],
+) -> Result<CoveringProjectionComponentRows, InternalError> {
+    store.with_index(|index_store| {
+        index_store.resolve_data_values_with_components_in_raw_range_limited(
+            entity_tag,
+            index,
+            bounds,
+            continuation,
+            limit,
+            component_indices,
+            None,
+        )
+    })
+}
 
 // Decode one canonical covering-index component payload into one runtime
 // `Value`. Returning `Ok(None)` keeps unsupported component kinds fail-closed
@@ -47,6 +198,69 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
     }
 
     Ok(None)
+}
+
+// Decode one ordered component vector into runtime values while keeping
+// unsupported component kinds fail-closed at the caller boundary.
+fn decode_covering_projection_components(
+    components: Vec<Vec<u8>>,
+) -> Result<Option<Vec<Value>>, InternalError> {
+    let mut decoded = Vec::with_capacity(components.len());
+    for component in components {
+        let Some(value) = decode_covering_projection_component(&component)? else {
+            return Ok(None);
+        };
+        decoded.push(value);
+    }
+
+    Ok(Some(decoded))
+}
+
+// Decode one covering projection stream under the existing-row contract and
+// let the caller map the decoded value vector into its terminal payload.
+pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
+    raw_pairs: CoveringProjectionComponentRows,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    mut map_decoded: F,
+) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+where
+    F: FnMut(Vec<Value>) -> Result<T, InternalError>,
+{
+    let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
+    for (data_key, components) in raw_pairs {
+        if read_row_with_consistency_from_store(store, &data_key, consistency)?.is_none() {
+            continue;
+        }
+
+        let Some(decoded) = decode_covering_projection_components(components)? else {
+            return Ok(None);
+        };
+        projected_pairs.push((data_key, map_decoded(decoded)?));
+    }
+
+    Ok(Some(projected_pairs))
+}
+
+// Decode one single-component covering projection stream under the existing-row
+// contract and let the caller map the decoded runtime value.
+pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
+    raw_pairs: CoveringProjectionComponentRows,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    invariant_message: &'static str,
+    mut map_decoded: F,
+) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+where
+    F: FnMut(&Value) -> Result<T, InternalError>,
+{
+    decode_covering_projection_pairs(raw_pairs, store, consistency, |decoded| {
+        let [value] = decoded.as_slice() else {
+            return Err(InternalError::query_executor_invariant(invariant_message));
+        };
+
+        map_decoded(value)
+    })
 }
 
 fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> {

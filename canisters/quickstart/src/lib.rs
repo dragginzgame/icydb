@@ -80,8 +80,9 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
-    use super::{SqlQueryResult, User, db, fixtures_load_default, sql_dispatch};
+    use super::{Character, SqlQueryResult, User, db, fixtures_load_default, sql_dispatch};
     use candid::encode_one;
+    use icydb::{db::PersistedRow, traits::EntityValue};
     use icydb_testing_quickstart_fixtures::schema::QuickstartCanister;
 
     const QUICKSTART_MEMORY_MIN: u8 = 104;
@@ -115,14 +116,33 @@ mod tests {
         db()
     }
 
-    fn typed_result_for_sql(sql: &str) -> SqlQueryResult {
+    fn reload_default_fixtures() {
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload should succeed");
+    }
+
+    fn typed_result_for_sql_as<E>(sql: &str) -> SqlQueryResult
+    where
+        E: PersistedRow<Canister = QuickstartCanister> + EntityValue,
+    {
         test_db()
-            .execute_sql_dispatch::<User>(sql)
+            .execute_sql_dispatch::<E>(sql)
             .expect("typed execute_sql_dispatch should succeed")
     }
 
+    fn typed_result_for_sql(sql: &str) -> SqlQueryResult {
+        typed_result_for_sql_as::<User>(sql)
+    }
+
+    fn typed_result_for_sql_unchecked_as<E>(sql: &str) -> Result<SqlQueryResult, icydb::Error>
+    where
+        E: PersistedRow<Canister = QuickstartCanister> + EntityValue,
+    {
+        test_db().execute_sql_dispatch::<E>(sql)
+    }
+
     fn typed_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
-        test_db().execute_sql_dispatch::<User>(sql)
+        typed_result_for_sql_unchecked_as::<User>(sql)
     }
 
     // Compare one sql_dispatch lane payload against the typed `execute_sql_dispatch` path.
@@ -133,10 +153,31 @@ mod tests {
         assert_eq!(dispatch, typed, "{context}");
     }
 
+    // Compare one sql_dispatch lane payload against one typed dispatch entity
+    // surface without re-hardcoding the entity type at each callsite.
+    fn assert_dispatch_matches_typed_as<E>(sql: &str, context: &str)
+    where
+        E: PersistedRow<Canister = QuickstartCanister> + EntityValue,
+    {
+        let dispatch = dispatch_result_for_sql(sql);
+        let typed = typed_result_for_sql_as::<E>(sql);
+
+        assert_eq!(dispatch, typed, "{context}");
+    }
+
     // Compare one fallible projection SQL path across dispatch and typed execution.
     fn assert_dispatch_result_matches_typed(sql: &str, context: &str) {
+        assert_dispatch_result_matches_typed_as::<User>(sql, context);
+    }
+
+    // Compare one fallible projection SQL path across dispatch and one typed
+    // entity-specific execution surface.
+    fn assert_dispatch_result_matches_typed_as<E>(sql: &str, context: &str)
+    where
+        E: PersistedRow<Canister = QuickstartCanister> + EntityValue,
+    {
         let dispatch = dispatch_result_for_sql_unchecked(sql);
-        let typed = typed_result_for_sql_unchecked(sql);
+        let typed = typed_result_for_sql_unchecked_as::<E>(sql);
 
         match (dispatch, typed) {
             (Ok(dispatch), Ok(typed)) => {
@@ -334,6 +375,176 @@ mod tests {
         assert_dispatch_result_matches_typed(
             "SELECT LOWER(name) FROM User ORDER BY id LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep computed projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep User expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep User expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending User expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending User expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_projection_matches_expected_rows() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "User");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "alice");
+                assert_eq!(rows.rows[1][1], "bob");
+            }
+            other => {
+                panic!("expression-order projection should return a projection payload: {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_projection_matches_expected_rows() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "User");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "charlie");
+                assert_eq!(rows.rows[1][1], "bob");
+            }
+            other => panic!(
+                "descending expression-order projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_explain_reports_materialized_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("User|LOWER(name)")
+                && explain.contains("OrderByAccessSatisfied"),
+            "expression-order explain should preserve the shared index-range access contract: {explain}",
+        );
+        assert!(
+            explain.contains("cov_read_route=Text(\"materialized\")")
+                && explain.contains("cov_scan_reason=Text(\"order_mat\")"),
+            "expression-order explain should report the non-covering materialized projection route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_explain_reports_materialized_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("User|LOWER(name)")
+                && explain.contains("OrderByAccessSatisfied"),
+            "descending expression-order explain should preserve the shared index-range access contract: {explain}",
+        );
+        assert!(
+            explain.contains("cov_read_route=Text(\"materialized\")")
+                && explain.contains("cov_scan_reason=Text(\"order_mat\")")
+                && explain.contains("scan_dir=Text(\"desc\")"),
+            "descending expression-order explain should report the non-covering materialized projection route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_covering_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE name = 'Alex Ander' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_covering_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name = 'Alex Ander' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character order-only composite covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character order-only composite covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_desc_projection_matches_typed_surface()
+    {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character order-only composite covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character order-only composite covering EXPLAIN parity",
         );
     }
 

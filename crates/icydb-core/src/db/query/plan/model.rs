@@ -159,6 +159,34 @@ impl OrderSpec {
         Some(*expected_direction)
     }
 
+    /// Return true when ORDER BY non-primary-key terms match one expected
+    /// deterministic sequence, followed by the primary key tie-break.
+    #[must_use]
+    pub(in crate::db) fn matches_expected_term_sequence_plus_primary_key<'a, I>(
+        &self,
+        expected_non_pk_terms: I,
+        primary_key_name: &str,
+    ) -> bool
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let expected_non_pk_terms = expected_non_pk_terms.into_iter().collect::<Vec<_>>();
+
+        if !self.has_exact_primary_key_tie_break(primary_key_name) {
+            return false;
+        }
+        if self.fields.len() != expected_non_pk_terms.len().saturating_add(1) {
+            return false;
+        }
+
+        self.fields
+            .iter()
+            .take(expected_non_pk_terms.len())
+            .map(|(field, _)| field.as_str())
+            .zip(expected_non_pk_terms.iter().copied())
+            .all(|(actual, expected)| actual == expected)
+    }
+
     /// Return true when ORDER BY non-PK fields match the index suffix
     /// beginning at `prefix_len`, followed by primary key.
     #[must_use]
@@ -172,8 +200,8 @@ impl OrderSpec {
             return false;
         }
 
-        self.matches_index_field_sequence_plus_primary_key(
-            &index_fields[prefix_len..],
+        self.matches_expected_term_sequence_plus_primary_key(
+            index_fields[prefix_len..].iter().copied(),
             primary_key_name,
         )
     }
@@ -186,29 +214,10 @@ impl OrderSpec {
         index_fields: &[&str],
         primary_key_name: &str,
     ) -> bool {
-        self.matches_index_field_sequence_plus_primary_key(index_fields, primary_key_name)
-    }
-
-    fn matches_index_field_sequence_plus_primary_key(
-        &self,
-        expected_non_pk_fields: &[&str],
-        primary_key_name: &str,
-    ) -> bool {
-        // Keep the PK tie-break requirement explicit so sequence-only checks
-        // never silently accept malformed ORDER BY shapes.
-        if !self.has_exact_primary_key_tie_break(primary_key_name) {
-            return false;
-        }
-        if self.fields.len() != expected_non_pk_fields.len().saturating_add(1) {
-            return false;
-        }
-
-        self.fields
-            .iter()
-            .take(expected_non_pk_fields.len())
-            .map(|(field, _)| field.as_str())
-            .zip(expected_non_pk_fields.iter().copied())
-            .all(|(actual, expected)| actual == expected)
+        self.matches_expected_term_sequence_plus_primary_key(
+            index_fields.iter().copied(),
+            primary_key_name,
+        )
     }
 }
 

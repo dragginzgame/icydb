@@ -6,7 +6,10 @@
 #[cfg(test)]
 use crate::db::data::SlotReader;
 use crate::{
-    db::data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
+    db::{
+        data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
+        query::plan::ExpressionOrderTerm,
+    },
     error::InternalError,
     model::{
         entity::{EntityModel, resolve_field_slot},
@@ -205,6 +208,34 @@ pub(in crate::db) fn compile_scalar_literal_expr_value(
         | Value::Map(_)
         | Value::Uint128(_)
         | Value::UintBig(_) => None,
+    }
+}
+
+/// Derive one canonical scalar `ORDER BY` expression value from one runtime
+/// `Value` payload.
+///
+/// This keeps the supported `LOWER(field)` / `UPPER(field)` ordering semantics
+/// aligned across planner validation, in-memory ordering, and cursor-boundary
+/// materialization.
+#[must_use]
+pub(in crate::db) fn derive_expression_order_value(
+    term: ExpressionOrderTerm<'_>,
+    value: &Value,
+) -> Option<Value> {
+    let scalar = compile_scalar_literal_expr_value(value)?;
+
+    match scalar {
+        ScalarExprValue::Null => Some(Value::Null),
+        scalar => {
+            let op = match term {
+                ExpressionOrderTerm::Lower(_) => ScalarIndexExpressionOp::Lower,
+                ExpressionOrderTerm::Upper(_) => ScalarIndexExpressionOp::Upper,
+            };
+
+            derive_non_null_scalar_expression_value(op, scalar)
+                .ok()
+                .map(scalar_expr_value_into_value)
+        }
     }
 }
 

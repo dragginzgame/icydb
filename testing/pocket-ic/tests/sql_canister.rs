@@ -7,6 +7,11 @@ use std::{fs, path::PathBuf, sync::OnceLock};
 
 const INIT_CYCLES: u128 = 2_000_000_000_000;
 const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
+const SQL_PERF_PROBE_SQL_ENV: &str = "ICYDB_SQL_PERF_PROBE_SQL";
+const SQL_PERF_PROBE_SURFACE_ENV: &str = "ICYDB_SQL_PERF_PROBE_SURFACE";
+const SQL_PERF_PROBE_CURSOR_ENV: &str = "ICYDB_SQL_PERF_PROBE_CURSOR";
+const SQL_PERF_PROBE_REPEAT_ENV: &str = "ICYDB_SQL_PERF_PROBE_REPEAT_COUNT";
+const DEFAULT_SQL_PERF_PROBE_SQL: &str = "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2";
 static QUICKSTART_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 
 // Resolve the PocketIC server binary lazily so tests can skip cleanly when
@@ -307,6 +312,131 @@ fn sql_perf_attribution_sample(
         .expect("sql_perf_attribution query call should return encoded Result");
 
     response.expect("sql_perf_attribution should succeed for integration scenario")
+}
+
+fn optional_non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalized_perf_probe_surface_key() -> Option<String> {
+    optional_non_empty_env(SQL_PERF_PROBE_SURFACE_ENV).map(|value| value.to_ascii_lowercase())
+}
+
+fn sql_perf_probe_sql() -> String {
+    optional_non_empty_env(SQL_PERF_PROBE_SQL_ENV)
+        .unwrap_or_else(|| DEFAULT_SQL_PERF_PROBE_SQL.to_string())
+}
+
+fn sql_perf_probe_cursor_token() -> Option<String> {
+    optional_non_empty_env(SQL_PERF_PROBE_CURSOR_ENV)
+}
+
+fn sql_perf_probe_repeat_count() -> u32 {
+    let Some(raw_repeat_count) = optional_non_empty_env(SQL_PERF_PROBE_REPEAT_ENV) else {
+        return 5;
+    };
+
+    raw_repeat_count.parse::<u32>().unwrap_or_else(|err| {
+        panic!(
+            "{SQL_PERF_PROBE_REPEAT_ENV} must parse as a positive u32 repeat count, got '{raw_repeat_count}': {err}"
+        )
+    })
+}
+
+fn sql_perf_probe_sample_surface() -> SqlPerfSurface {
+    let Some(surface_key) = normalized_perf_probe_surface_key() else {
+        return SqlPerfSurface::GeneratedDispatch;
+    };
+
+    match surface_key.as_str() {
+        "generated" | "generateddispatch" | "generated_dispatch" => {
+            SqlPerfSurface::GeneratedDispatch
+        }
+        "typeddispatchuser" | "typed_dispatch_user" => SqlPerfSurface::TypedDispatchUser,
+        "typedqueryfromsqluserexecute" | "typed_query_from_sql_user_execute" => {
+            SqlPerfSurface::TypedQueryFromSqlUserExecute
+        }
+        "typedexecutesqluser" | "typed_execute_sql_user" => SqlPerfSurface::TypedExecuteSqlUser,
+        "typedinsertuser" | "typed_insert_user" => SqlPerfSurface::TypedInsertUser,
+        "typedinsertmanyatomicuser10" | "typed_insert_many_atomic_user_10" => {
+            SqlPerfSurface::TypedInsertManyAtomicUser10
+        }
+        "typedinsertmanyatomicuser100" | "typed_insert_many_atomic_user_100" => {
+            SqlPerfSurface::TypedInsertManyAtomicUser100
+        }
+        "typedinsertmanyatomicuser1000" | "typed_insert_many_atomic_user_1000" => {
+            SqlPerfSurface::TypedInsertManyAtomicUser1000
+        }
+        "typedinsertmanynonatomicuser10" | "typed_insert_many_non_atomic_user_10" => {
+            SqlPerfSurface::TypedInsertManyNonAtomicUser10
+        }
+        "typedinsertmanynonatomicuser100" | "typed_insert_many_non_atomic_user_100" => {
+            SqlPerfSurface::TypedInsertManyNonAtomicUser100
+        }
+        "typedinsertmanynonatomicuser1000" | "typed_insert_many_non_atomic_user_1000" => {
+            SqlPerfSurface::TypedInsertManyNonAtomicUser1000
+        }
+        "typedupdateuser" | "typed_update_user" => SqlPerfSurface::TypedUpdateUser,
+        "fluentdeleteuserorderidlimit1count" | "fluent_delete_user_order_id_limit_1_count" => {
+            SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count
+        }
+        "fluentdeleteperfusercount" | "fluent_delete_perf_user_count" => {
+            SqlPerfSurface::FluentDeletePerfUserCount
+        }
+        "typedexecutesqlgroupeduser" | "typed_execute_sql_grouped_user" => {
+            SqlPerfSurface::TypedExecuteSqlGroupedUser
+        }
+        "typedexecutesqlgroupedusersecondpage" | "typed_execute_sql_grouped_user_second_page" => {
+            SqlPerfSurface::TypedExecuteSqlGroupedUserSecondPage
+        }
+        "typedexecutesqlaggregateuser" | "typed_execute_sql_aggregate_user" => {
+            SqlPerfSurface::TypedExecuteSqlAggregateUser
+        }
+        "fluentloaduserorderidlimit2" | "fluent_load_user_order_id_limit_2" => {
+            SqlPerfSurface::FluentLoadUserOrderIdLimit2
+        }
+        "fluentloadusernameeqlimit1" | "fluent_load_user_name_eq_limit_1" => {
+            SqlPerfSurface::FluentLoadUserNameEqLimit1
+        }
+        "fluentpageduserorderidlimit2firstpage"
+        | "fluent_paged_user_order_id_limit_2_first_page" => {
+            SqlPerfSurface::FluentPagedUserOrderIdLimit2FirstPage
+        }
+        "fluentpageduserorderidlimit2secondpage"
+        | "fluent_paged_user_order_id_limit_2_second_page" => {
+            SqlPerfSurface::FluentPagedUserOrderIdLimit2SecondPage
+        }
+        "fluentpageduserorderidlimit2invalidcursor"
+        | "fluent_paged_user_order_id_limit_2_invalid_cursor" => {
+            SqlPerfSurface::FluentPagedUserOrderIdLimit2InvalidCursor
+        }
+        _ => panic!(
+            "unsupported {SQL_PERF_PROBE_SURFACE_ENV} value '{surface_key}' for sql perf sample probe"
+        ),
+    }
+}
+
+fn sql_perf_probe_attribution_surface() -> SqlPerfAttributionSurface {
+    let Some(surface_key) = normalized_perf_probe_surface_key() else {
+        return SqlPerfAttributionSurface::GeneratedDispatch;
+    };
+
+    match surface_key.as_str() {
+        "generated" | "generateddispatch" | "generated_dispatch" => {
+            SqlPerfAttributionSurface::GeneratedDispatch
+        }
+        "typeddispatchuser" | "typed_dispatch_user" => SqlPerfAttributionSurface::TypedDispatchUser,
+        "typedgroupeduser" | "typed_grouped_user" => SqlPerfAttributionSurface::TypedGroupedUser,
+        "typedgroupedusersecondpage" | "typed_grouped_user_second_page" => {
+            SqlPerfAttributionSurface::TypedGroupedUserSecondPage
+        }
+        _ => panic!(
+            "unsupported {SQL_PERF_PROBE_SURFACE_ENV} value '{surface_key}' for sql perf attribution probe"
+        ),
+    }
 }
 
 fn run_sql_perf_scenarios(pic: &Pic, scenarios: Vec<SqlPerfScenario>) -> Vec<SqlPerfScenarioRow> {
@@ -844,6 +974,424 @@ fn sql_canister_query_lane_supports_computed_projection() {
             vec![vec!["alice".to_string()], vec!["bob".to_string()],],
         );
         assert_eq!(rows.row_count, 2);
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_user_expression_order_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one expression-order User projection so the
+        // generated SQL lane proves the new LOWER(name) secondary order path.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "query User expression-order covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the expected
+        // projected User window and column order.
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(
+            rows.rows[0][1],
+            "alice".to_string(),
+            "expression-order User query should start from the lowercased first row",
+        );
+        assert_eq!(
+            rows.rows[1][1],
+            "bob".to_string(),
+            "expression-order User query should keep stable lowercased ordering",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_covering_route() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the new expression
+        // order-only User projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query User expression-order covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "User expression-order EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // index-range and non-covering materialized route labels from the
+        // shared descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "User");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("materialized")
+                        && explain.contains("LOWER(name)"),
+                    "User expression-order EXPLAIN EXECUTION should expose the index-range materialized route: {explain}",
+                );
+                assert!(
+                    explain.contains("proj_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "User expression-order EXPLAIN EXECUTION should expose the projected fields: {explain}",
+                );
+            }
+            other => panic!(
+                "User expression-order EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_user_expression_order_desc_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one descending expression-order User projection so
+        // reverse traversal stays locked in the generated SQL harness.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "query User descending expression-order covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the expected
+        // descending projected User window.
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(
+            rows.rows[0][1],
+            "charlie".to_string(),
+            "descending expression-order User query should start from the last lowercased row",
+        );
+        assert_eq!(
+            rows.rows[1][1],
+            "bob".to_string(),
+            "descending expression-order User query should keep stable reverse lowercased ordering",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_desc_covering_route() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the descending
+        // expression order-only User projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query User descending expression-order covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "descending User expression-order EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // reverse index-range and non-covering materialized labels from the shared
+        // execution descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "User");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("materialized")
+                        && explain.contains("LOWER(name)"),
+                    "descending User expression-order EXPLAIN EXECUTION should expose the index-range materialized route: {explain}",
+                );
+                assert!(
+                    explain.contains("proj_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "descending User expression-order EXPLAIN EXECUTION should expose the projected fields: {explain}",
+                );
+            }
+            other => panic!(
+                "descending User expression-order EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_character_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one direct indexed Character projection on the
+        // generated query surface so dynamic entity routing still reaches the
+        // shared covering-read lane.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name = 'Alex Ander' ORDER BY id ASC LIMIT 1",
+            "query Character covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the expected
+        // Character row through the index-backed covering projection lane.
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][1], "Alex Ander".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_covering_read_route() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the same indexed
+        // Character covering projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name = 'Alex Ander' ORDER BY id ASC LIMIT 1",
+        )
+        .expect("query Character covering EXPLAIN EXECUTION should return an Ok payload");
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "Character covering EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // covering-read route labels from the shared execution descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    explain.contains("cov_read_route") && explain.contains("covering_read"),
+                    "Character covering EXPLAIN EXECUTION should expose the explicit covering-read route: {explain}",
+                );
+                assert!(
+                    explain.contains("covering_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "Character covering EXPLAIN EXECUTION should expose the projected covering fields: {explain}",
+                );
+            }
+            other => panic!(
+                "Character covering EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_character_order_only_composite_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one order-only composite Character projection so
+        // dynamic entity routing reaches the shared planner fallback instead of
+        // materializing a full scan by accident.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
+            "query Character order-only composite covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns one projected
+        // Character result window with the expected composite covering shape.
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(
+            rows.columns,
+            vec![
+                "id".to_string(),
+                "level".to_string(),
+                "class_name".to_string()
+            ]
+        );
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_composite_covering_route()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the order-only
+        // Character composite covering projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query Character order-only composite covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "Character composite covering EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // index-range and covering-read labels from the shared descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("covering_read"),
+                    "Character order-only composite EXPLAIN EXECUTION should expose the index-range covering route: {explain}",
+                );
+                assert!(
+                    explain.contains("covering_fields")
+                        && explain.contains("id")
+                        && explain.contains("level")
+                        && explain.contains("class_name"),
+                    "Character order-only composite EXPLAIN EXECUTION should expose the projected covering fields: {explain}",
+                );
+            }
+            other => panic!(
+                "Character order-only composite EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_character_order_only_composite_desc_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one descending order-only composite Character
+        // projection so the generated SQL lane proves reverse index traversal
+        // instead of a materialized full-row reverse sort.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
+            "query Character descending order-only composite covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the expected
+        // descending composite window, not merely the correct row count.
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(
+            rows.columns,
+            vec![
+                "id".to_string(),
+                "level".to_string(),
+                "class_name".to_string()
+            ]
+        );
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(
+            rows.rows[0][1..],
+            ["20".to_string(), "Cleric".to_string()],
+            "descending composite Character query should start from the highest level/class tuple",
+        );
+        assert_eq!(
+            rows.rows[1][1..],
+            ["20".to_string(), "Bard".to_string()],
+            "descending composite Character query should keep the second highest level/class tuple",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_composite_desc_covering_route()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the descending
+        // order-only Character composite covering projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query Character descending order-only composite covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "descending Character composite covering EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // reverse index-range and covering-read labels from the shared
+        // execution descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("covering_read"),
+                    "descending Character order-only composite EXPLAIN EXECUTION should expose the index-range covering route: {explain}",
+                );
+                assert!(
+                    explain.contains("covering_fields")
+                        && explain.contains("id")
+                        && explain.contains("level")
+                        && explain.contains("class_name"),
+                    "descending Character order-only composite EXPLAIN EXECUTION should expose the projected covering fields: {explain}",
+                );
+            }
+            other => panic!(
+                "descending Character order-only composite EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
     });
 }
 
@@ -1491,6 +2039,68 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "generated.dispatch.user_expression_order.lower_name_id_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.user_expression_order.lower_name_id_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.user_expression_order.lower_name_id_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.user_expression_order.lower_name_id_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.character_order_only_composite.level_class_id_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.character_order_only_composite.level_class_id_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "fluent.load.user_order_id_limit2",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::FluentLoadUserOrderIdLimit2,
@@ -1574,6 +2184,292 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
 }
 
 #[test]
+fn sql_canister_perf_generated_dispatch_user_expression_order_reports_positive_instruction_samples()
+{
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the new
+        // expression-order User covering shape so perf regression checks track
+        // the exact canister lane this slice changed.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch sample stays structurally
+        // sane and returns the expected User projection window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "User expression-order first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "User expression-order min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "User expression-order max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "User expression-order total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "User expression-order repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "User expression-order generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("User"),
+            "User expression-order perf sample should stay on the User route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "User expression-order perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_user_expression_order_desc_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the descending
+        // expression-order User covering shape so reverse traversal stays
+        // pinned in the checked-in perf suite.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch sample stays
+        // structurally sane and returns the expected User projection window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "descending User expression-order first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "descending User expression-order min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "descending User expression-order max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "descending User expression-order total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "descending User expression-order repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "descending User expression-order generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("User"),
+            "descending User expression-order perf sample should stay on the User route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending User expression-order perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_order_only_composite_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the new order-only
+        // composite Character covering shape so perf regression checks track
+        // the exact canister lane this slice changed.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch sample stays structurally
+        // sane and returns the expected Character projection window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "Character order-only composite first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "Character order-only composite min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "Character order-only composite max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "Character order-only composite total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "Character order-only composite repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "Character order-only composite generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character order-only composite perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character order-only composite perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the descending
+        // order-only composite Character covering shape so reverse traversal
+        // stays pinned in the checked-in perf suite.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch sample stays
+        // structurally sane and returns the expected Character projection
+        // window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "descending Character order-only composite first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "descending Character order-only composite min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "descending Character order-only composite max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "descending Character order-only composite total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "descending Character order-only composite repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "descending Character order-only composite generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character order-only composite perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character order-only composite perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual perf probe for before/after measurement runs"]
+fn sql_canister_perf_probe_reports_sample_as_json() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: resolve one repo-owned sample probe request from env so
+        // before/after perf runs can reuse this checked-in harness instead of
+        // ad hoc temp crates.
+        let request = SqlPerfRequest {
+            surface: sql_perf_probe_sample_surface(),
+            sql: sql_perf_probe_sql(),
+            cursor_token: sql_perf_probe_cursor_token(),
+            repeat_count: sql_perf_probe_repeat_count(),
+        };
+        let sample = sql_perf_sample(pic, canister_id, &request);
+
+        // Phase 2: fail loudly if the probe stopped producing a usable
+        // successful sample, then print the JSON payload for external diffing.
+        assert!(
+            sample.first_local_instructions > 0,
+            "manual perf probe first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "manual perf probe should stay on a successful SQL surface: {sample:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "sample",
+                "request": request,
+                "sample": sample,
+            }))
+            .expect("manual perf probe sample should serialize to JSON")
+        );
+    });
+}
+
+#[test]
 fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
     run_with_pocket_ic(|pic| {
         let rows = run_sql_perf_scenarios(pic, sql_operation_repeat_scenarios());
@@ -1582,6 +2478,206 @@ fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
             "{}",
             serde_json::to_string_pretty(&rows)
                 .expect("operation repeat scenario rows should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual perf probe for before/after measurement runs"]
+fn sql_canister_perf_probe_reports_attribution_as_json() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: resolve one repo-owned attribution probe request from env
+        // so stage-by-stage before/after comparisons stay on the checked-in
+        // PocketIC harness.
+        let request = SqlPerfAttributionRequest {
+            surface: sql_perf_probe_attribution_surface(),
+            sql: sql_perf_probe_sql(),
+            cursor_token: sql_perf_probe_cursor_token(),
+        };
+        let sample = sql_perf_attribution_sample(pic, canister_id, &request);
+
+        // Phase 2: keep the manual attribution probe useful as a perf-report
+        // building block by requiring the emitted sample to stay successful.
+        assert!(
+            sample.parse_local_instructions > 0,
+            "manual attribution probe parse phase must stay positive: {sample:?}",
+        );
+        assert!(
+            sample.execute_local_instructions > 0,
+            "manual attribution probe execute phase must stay positive: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "manual attribution probe should stay on a successful SQL surface: {sample:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "attribution",
+                "request": request,
+                "sample": sample,
+            }))
+            .expect("manual attribution probe sample should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_user_expression_order_attribution_reports_positive_stages()
+{
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the exact User
+        // expression-order covering shape added in this slice.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM User ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch attribution keeps positive
+        // stage accounting on the new expression-backed index route.
+        assert_positive_scalar_attribution_sample("generated.user_expression_order", &sample, true);
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("User"),
+            "User expression-order attribution should stay on the User route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "User expression-order attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_user_expression_order_desc_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the descending
+        // User expression-order covering shape added to the harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM User ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch attribution keeps
+        // positive stage accounting on the reverse expression-backed route.
+        assert_positive_scalar_attribution_sample(
+            "generated.user_expression_order_desc",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("User"),
+            "descending User expression-order attribution should stay on the User route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending User expression-order attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_order_only_composite_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the exact
+        // Character order-only composite covering shape added in this slice.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch attribution keeps positive
+        // stage accounting on the new dynamic-entity index-backed route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_order_only_composite",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character order-only composite attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character order-only composite attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the descending
+        // Character order-only composite covering shape added to the harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch attribution keeps
+        // positive stage accounting on the reverse index-backed route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_order_only_composite_desc",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character order-only composite attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character order-only composite attribution should return the requested window size",
         );
     });
 }

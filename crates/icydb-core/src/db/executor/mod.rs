@@ -51,7 +51,12 @@ pub(in crate::db::executor) use continuation::{
     ResolvedScalarContinuationContext, RouteContinuationPlan, ScalarContinuationBindings,
     ScalarRouteContinuationInvariantProjection,
 };
-pub(in crate::db::executor) use covering::decode_covering_projection_component;
+pub(in crate::db::executor) use covering::{
+    CoveringProjectionComponentRows, covering_projection_scan_direction,
+    decode_covering_projection_pairs, decode_single_covering_projection_pairs,
+    reorder_covering_projection_pairs, resolve_covering_projection_component_from_lowered_specs,
+    resolve_covering_projection_components_from_lowered_specs,
+};
 pub(super) use delete::DeleteExecutor;
 #[cfg(feature = "sql")]
 pub(in crate::db) use delete::execute_sql_delete_projection_for_canister;

@@ -81,6 +81,7 @@ impl Entity {
     /// Validate index declarations against entity fields and naming constraints.
     fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
         // Per-index local validation.
+        let mut canonical_index_terms = Vec::with_capacity(self.indexes.len());
         for index in &self.indexes {
             if index.fields.is_empty() {
                 return Err(
@@ -122,6 +123,50 @@ impl Entity {
                 }
             }
 
+            let parsed_key_items = index.parsed_key_items()?;
+            if let Some(key_items) = parsed_key_items.as_ref() {
+                if key_items.len() > MAX_INDEX_FIELDS {
+                    let span = index
+                        .key_items
+                        .as_ref()
+                        .expect("parsed key_items imply source literal");
+                    return Err(DarlingError::custom(format!(
+                        "index has {} key items; maximum is {}",
+                        key_items.len(),
+                        MAX_INDEX_FIELDS
+                    ))
+                    .with_span(span));
+                }
+
+                let declared_fields = index
+                    .fields
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                let referenced_fields = key_items
+                    .iter()
+                    .map(|item| item.field_ident().to_string())
+                    .fold(Vec::<String>::new(), |mut fields, field| {
+                        if !fields.contains(&field) {
+                            fields.push(field);
+                        }
+
+                        fields
+                    });
+                if referenced_fields != declared_fields {
+                    let span = index
+                        .key_items
+                        .as_ref()
+                        .expect("parsed key_items imply source literal");
+                    return Err(DarlingError::custom(format!(
+                        "index key_items fields {referenced_fields:?} must match declared fields {declared_fields:?} in first-reference order"
+                    ))
+                    .with_span(span));
+                }
+            }
+
+            canonical_index_terms.push(index.validated_key_item_terms());
+
             // Use the same naming path as runtime index model generation.
             let index_name = index.generated_name(entity_name);
             let uses_reserved_namespace = index_name.starts_with('~')
@@ -145,41 +190,23 @@ impl Entity {
 
         // Cross-index validation: reject redundant same-kind prefix indexes.
         for (index_idx, left_index) in self.indexes.iter().enumerate() {
-            for right_index in self.indexes.iter().skip(index_idx + 1) {
+            let left_terms = &canonical_index_terms[index_idx];
+            for (right_offset, right_index) in self.indexes.iter().skip(index_idx + 1).enumerate() {
+                let right_terms = &canonical_index_terms[index_idx + 1 + right_offset];
                 if left_index.unique != right_index.unique {
                     continue;
                 }
 
-                if is_prefix_of(&left_index.fields, &right_index.fields) {
-                    let left_fields = left_index
-                        .fields
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>();
-                    let right_fields = right_index
-                        .fields
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>();
+                if is_prefix_of(left_terms, right_terms) {
                     return Err(DarlingError::custom(format!(
-                        "index {left_fields:?} is redundant (prefix of {right_fields:?})"
+                        "index {left_terms:?} is redundant (prefix of {right_terms:?})"
                     ))
                     .with_index_or_def_span(left_index, def_ident));
                 }
 
-                if is_prefix_of(&right_index.fields, &left_index.fields) {
-                    let left_fields = left_index
-                        .fields
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>();
-                    let right_fields = right_index
-                        .fields
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>();
+                if is_prefix_of(right_terms, left_terms) {
                     return Err(DarlingError::custom(format!(
-                        "index {right_fields:?} is redundant (prefix of {left_fields:?})"
+                        "index {right_terms:?} is redundant (prefix of {left_terms:?})"
                     ))
                     .with_index_or_def_span(right_index, def_ident));
                 }
@@ -204,7 +231,7 @@ impl DarlingErrorExt for DarlingError {
     }
 }
 
-fn is_prefix_of(left: &[Ident], right: &[Ident]) -> bool {
+fn is_prefix_of(left: &[String], right: &[String]) -> bool {
     left.len() < right.len()
         && right
             .iter()
@@ -445,7 +472,9 @@ mod tests {
         Def, Field, FieldList, Index, Item, PrimaryKey, PrimaryKeySource, Type, ValidateNode, Value,
     };
     use icydb_schema::types::Primitive;
+    use proc_macro2::Span;
     use quote::format_ident;
+    use syn::LitStr;
 
     fn scalar_field(ident: &str) -> Field {
         Field {
@@ -501,6 +530,7 @@ mod tests {
             vec![scalar_field("id")],
             vec![Index {
                 fields: vec![format_ident!("missing_field")],
+                key_items: None,
                 unique: false,
                 predicate: None,
             }],
@@ -521,6 +551,7 @@ mod tests {
             vec![scalar_field("id"), many_scalar_field("tags")],
             vec![Index {
                 fields: vec![format_ident!("tags")],
+                key_items: None,
                 unique: false,
                 predicate: None,
             }],
@@ -531,6 +562,28 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("cannot add an index field with many cardinality"),
+            "unexpected validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn validate_rejects_key_items_field_mismatch() {
+        let entity = entity_with_fields_and_indexes(
+            vec![scalar_field("id"), scalar_field("email")],
+            vec![Index {
+                fields: vec![format_ident!("email")],
+                key_items: Some(LitStr::new("LOWER(name)", Span::call_site())),
+                unique: false,
+                predicate: None,
+            }],
+        );
+        let err = entity
+            .validate()
+            .expect_err("mismatched key_items field set should fail entity validation");
+        assert!(
+            err.to_string().contains(
+                "index key_items fields [\"name\"] must match declared fields [\"email\"]"
+            ),
             "unexpected validation error: {err}",
         );
     }

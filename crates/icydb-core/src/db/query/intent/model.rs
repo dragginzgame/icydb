@@ -291,6 +291,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
                 self.model,
                 &schema_info,
                 normalized_predicate.as_ref(),
+                access_inputs.order(),
                 access_inputs.into_key_access_override(),
             )?
         };

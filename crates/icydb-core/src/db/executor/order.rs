@@ -7,7 +7,8 @@ use crate::{
     db::{
         contracts::canonical_value_compare,
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
-        query::plan::{OrderDirection, OrderSpec},
+        query::plan::{ExpressionOrderTerm, OrderDirection, OrderSpec},
+        scalar_expr::derive_expression_order_value,
     },
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
@@ -44,8 +45,36 @@ pub(in crate::db::executor) trait OrderReadableRow {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResolvedOrderValueSource {
+    Missing,
+    DirectField(usize),
+    ExpressionLower(usize),
+    ExpressionUpper(usize),
+}
+
+impl ResolvedOrderValueSource {
+    // Resolve one canonical ORDER BY field reference into its structural row source.
+    fn from_field_name(model: &EntityModel, field: &str) -> Self {
+        if let Some(expression) = ExpressionOrderTerm::parse(field) {
+            let Some(slot) = resolve_field_slot(model, expression.field()) else {
+                return Self::Missing;
+            };
+
+            return match expression {
+                ExpressionOrderTerm::Lower(_) => Self::ExpressionLower(slot),
+                ExpressionOrderTerm::Upper(_) => Self::ExpressionUpper(slot),
+            };
+        }
+
+        resolve_field_slot(model, field)
+            .map(Self::DirectField)
+            .unwrap_or(Self::Missing)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ResolvedOrderField {
-    field_index: Option<usize>,
+    source: ResolvedOrderValueSource,
     direction: OrderDirection,
 }
 
@@ -78,7 +107,7 @@ pub(in crate::db::executor) fn resolve_structural_order(
         .fields
         .iter()
         .map(|(field, direction)| ResolvedOrderField {
-            field_index: resolve_field_slot(model, field),
+            source: ResolvedOrderValueSource::from_field_name(model, field),
             direction: *direction,
         })
         .collect();
@@ -162,10 +191,10 @@ fn compare_structural_order_slots<F>(
     mut compare_slot: F,
 ) -> Ordering
 where
-    F: FnMut(usize, Option<usize>, OrderDirection) -> Ordering,
+    F: FnMut(usize, ResolvedOrderValueSource, OrderDirection) -> Ordering,
 {
     for (slot_index, slot) in resolved_order.iter().enumerate() {
-        let ordering = compare_slot(slot_index, slot.field_index, slot.direction);
+        let ordering = compare_slot(slot_index, slot.source, slot.direction);
         if ordering != Ordering::Equal {
             return ordering;
         }
@@ -177,9 +206,31 @@ where
 // Borrow one slot-reader value through the shared ordering seam.
 fn order_value_from_row(
     row: &dyn OrderReadableRow,
-    field_index: Option<usize>,
+    source: ResolvedOrderValueSource,
 ) -> Option<Cow<'_, Value>> {
-    field_index.and_then(|slot| row.read_order_slot_cow(slot))
+    match source {
+        ResolvedOrderValueSource::Missing => None,
+        ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(slot),
+        ResolvedOrderValueSource::ExpressionLower(slot) => {
+            derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
+                .map(Cow::Owned)
+        }
+        ResolvedOrderValueSource::ExpressionUpper(slot) => {
+            derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Upper(""))
+                .map(Cow::Owned)
+        }
+    }
+}
+
+// Derive one owned expression-order value from one structural row slot.
+fn derive_expression_order_row_value(
+    row: &dyn OrderReadableRow,
+    slot: usize,
+    term: ExpressionOrderTerm<'_>,
+) -> Option<Value> {
+    let value = row.read_order_slot_cow(slot)?;
+
+    derive_expression_order_value(term, value.as_ref())
 }
 
 // Compare two optional structural ordering values under cursor boundary
@@ -241,7 +292,9 @@ mod tests {
             fields: fields
                 .iter()
                 .map(|(field_index, direction)| ResolvedOrderField {
-                    field_index: *field_index,
+                    source: field_index
+                        .map(ResolvedOrderValueSource::DirectField)
+                        .unwrap_or(ResolvedOrderValueSource::Missing),
                     direction: *direction,
                 })
                 .collect(),

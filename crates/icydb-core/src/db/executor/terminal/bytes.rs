@@ -6,20 +6,21 @@
 use crate::{
     db::{
         access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
-        cursor::IndexScanContinuationInput,
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
-            ExecutableAccess, ExecutablePlan, PreparedLoadPlan, TraversalRuntime,
+            CoveringProjectionComponentRows, ExecutableAccess, ExecutablePlan, PreparedLoadPlan,
+            TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_orderable_field_value_with_slot_reader,
                 resolve_any_aggregate_target_slot_from_planner_slot_with_model,
             },
-            decode_covering_projection_component,
+            covering_projection_scan_direction, decode_single_covering_projection_pairs,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
-            read_row_with_consistency_from_store,
+            reorder_covering_projection_pairs,
+            resolve_covering_projection_component_from_lowered_specs,
             route::BytesTerminalFastPathContract,
             sum_row_payload_bytes_from_ordered_key_stream_with_store,
             sum_row_payload_bytes_full_scan_window_with_store,
@@ -28,8 +29,8 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
-            constant_covering_projection_value_from_access, covering_index_projection_context,
+            FieldSlot as PlannedFieldSlot, constant_covering_projection_value_from_access,
+            covering_index_projection_context,
         },
     },
     error::InternalError,
@@ -260,10 +261,7 @@ where
         };
 
         // Phase 1: read component bytes in covering-order scan direction.
-        let scan_direction = match context.order_contract {
-            CoveringProjectionOrder::IndexOrder(direction) => direction,
-            CoveringProjectionOrder::PrimaryKeyOrder(_) => Direction::Asc,
-        };
+        let scan_direction = covering_projection_scan_direction(context.order_contract);
         let raw_pairs = Self::read_bytes_covering_projection_component_pairs(
             prepared,
             context.component_index,
@@ -271,34 +269,19 @@ where
         )?;
 
         // Phase 2: enforce existing-row policy and decode component payloads.
-        let mut projected_rows = Vec::with_capacity(raw_pairs.len());
-        for (data_key, component_bytes) in raw_pairs {
-            if read_row_with_consistency_from_store(
-                prepared.store,
-                &data_key,
-                prepared.consistency(),
-            )?
-            .is_none()
-            {
-                continue;
-            }
-
-            let Some(value) = decode_covering_projection_component(&component_bytes)? else {
-                return Ok(None);
-            };
-            projected_rows.push((data_key, serialized_value_len(&value)?));
-        }
+        let Some(mut projected_rows) = decode_single_covering_projection_pairs(
+            raw_pairs,
+            prepared.store,
+            prepared.consistency(),
+            "bytes covering projection expected one decoded component",
+            serialized_value_len,
+        )?
+        else {
+            return Ok(None);
+        };
 
         // Phase 3: reapply the effective output order before page-window folding.
-        match context.order_contract {
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
-                projected_rows.sort_by(|left, right| left.0.cmp(&right.0));
-            }
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
-                projected_rows.sort_by(|left, right| right.0.cmp(&left.0));
-            }
-            CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc) => {}
-        }
+        reorder_covering_projection_pairs(context.order_contract, projected_rows.as_mut_slice());
 
         let (offset, limit) = bytes_page_window_state(prepared.page_spec());
         let total = match limit {
@@ -325,74 +308,17 @@ where
     fn read_bytes_covering_projection_component_pairs(
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         component_index: usize,
-        direction: Direction,
-    ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
-        let continuation = IndexScanContinuationInput::new(None, direction);
-        let prefix_specs = prepared.index_prefix_specs.as_slice();
-
-        if let [spec] = prefix_specs {
-            return Self::read_bytes_covering_projection_component_pairs_for_index_bounds(
-                prepared.store_resolver,
-                prepared.authority.entity_tag(),
-                spec.index(),
-                (spec.lower(), spec.upper()),
-                continuation,
-                component_index,
-            );
-        }
-        if !prefix_specs.is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "covering projection index-prefix path requires one lowered prefix spec",
-            ));
-        }
-
-        let range_specs = prepared.index_range_specs.as_slice();
-        if let [spec] = range_specs {
-            return Self::read_bytes_covering_projection_component_pairs_for_index_bounds(
-                prepared.store_resolver,
-                prepared.authority.entity_tag(),
-                spec.index(),
-                (spec.lower(), spec.upper()),
-                continuation,
-                component_index,
-            );
-        }
-        if !range_specs.is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "covering projection index-range path requires one lowered range spec",
-            ));
-        }
-
-        Err(InternalError::query_executor_invariant(
-            "covering projection component scans require index-backed access paths",
-        ))
-    }
-
-    // Resolve one bounded covering projection component stream from one
-    // lowered index-bound contract.
-    fn read_bytes_covering_projection_component_pairs_for_index_bounds(
-        store_resolver: crate::db::executor::StoreResolver<'_>,
-        entity_tag: crate::types::EntityTag,
-        index: &crate::model::index::IndexModel,
-        bounds: (
-            &std::ops::Bound<crate::db::index::RawIndexKey>,
-            &std::ops::Bound<crate::db::index::RawIndexKey>,
-        ),
-        continuation: IndexScanContinuationInput<'_>,
-        component_index: usize,
-    ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
-        let store = store_resolver.try_get_store(index.store())?;
-        store.with_index(|index_store| {
-            index_store.resolve_data_values_with_component_in_raw_range_limited(
-                entity_tag,
-                index,
-                bounds,
-                continuation,
-                usize::MAX,
-                component_index,
-                None,
-            )
-        })
+        direction: crate::db::direction::Direction,
+    ) -> Result<CoveringProjectionComponentRows, InternalError> {
+        resolve_covering_projection_component_from_lowered_specs(
+            prepared.authority.entity_tag(),
+            prepared.index_prefix_specs.as_slice(),
+            prepared.index_range_specs.as_slice(),
+            direction,
+            usize::MAX,
+            component_index,
+            |index| prepared.store_resolver.try_get_store(index.store()),
+        )
     }
 
     /// Execute one `bytes()` terminal over the canonical load response.

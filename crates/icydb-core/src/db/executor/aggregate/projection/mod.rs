@@ -8,18 +8,16 @@
 //! execution context boundaries.
 
 mod covering;
-mod decode;
 
 use crate::{
     db::{
-        cursor::IndexScanContinuationInput,
         cursor::{ContinuationRuntime, LoopAction},
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, PreparedAggregatePlan,
-            TraversalRuntime,
+            AccessScanContinuationInput, AccessStreamBindings, CoveringProjectionComponentRows,
+            ExecutableAccess, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            KeyStreamLoopControl, PreparedAggregatePlan, TraversalRuntime,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
@@ -31,27 +29,26 @@ use crate::{
                     resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
-                projection::{
-                    covering::{
-                        CoveringProjectionValues, covering_index_adjacent_distinct_eligible,
-                        covering_index_projection_context, dedup_adjacent_values,
-                        dedup_values_preserving_first, scalar_window_for_covering_projection,
-                    },
-                    decode::decode_covering_projection_component,
+                projection::covering::{
+                    CoveringProjectionValues, covering_index_adjacent_distinct_eligible,
+                    covering_index_projection_context, dedup_adjacent_values,
+                    dedup_values_preserving_first, scalar_window_for_covering_projection,
                 },
             },
+            covering_projection_scan_direction, decode_single_covering_projection_pairs,
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
             preparation::resolved_index_slots_for_access_path,
-            read_row_with_consistency_from_store,
+            reorder_covering_projection_pairs,
+            resolve_covering_projection_component_from_lowered_specs,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
         query::{
             builder::AggregateExpr,
             plan::{
-                CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
+                CoveringProjectionContext, FieldSlot as PlannedFieldSlot,
                 constant_covering_projection_value_from_access,
             },
         },
@@ -66,7 +63,6 @@ use std::cell::RefCell;
 type ValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
-type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
 
 // Typed boundary request for one scalar field-projection terminal family call.
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
@@ -841,10 +837,7 @@ where
         window: ScalarProjectionWindow,
     ) -> CoveringProjectionPairsResolution {
         // Phase 1: read component pairs in the order implied by the covering contract.
-        let scan_direction = match context.order_contract {
-            CoveringProjectionOrder::IndexOrder(direction) => direction,
-            CoveringProjectionOrder::PrimaryKeyOrder(_) => Direction::Asc,
-        };
+        let scan_direction = covering_projection_scan_direction(context.order_contract);
         let raw_pairs = Self::read_covering_projection_component_pairs(
             prepared,
             context.component_index,
@@ -852,34 +845,19 @@ where
         )?;
 
         // Phase 2: enforce missing-row policy and decode projection components.
-        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        for (data_key, component_bytes) in raw_pairs {
-            if read_row_with_consistency_from_store(
-                prepared.store,
-                &data_key,
-                prepared.consistency(),
-            )?
-            .is_none()
-            {
-                continue;
-            }
-
-            let Some(value) = decode_covering_projection_component(&component_bytes)? else {
-                return Ok(None);
-            };
-            projected_pairs.push((data_key, value));
-        }
+        let Some(mut projected_pairs) = decode_single_covering_projection_pairs(
+            raw_pairs,
+            prepared.store,
+            prepared.consistency(),
+            "aggregate covering projection expected one decoded component",
+            |value| Ok(value.clone()),
+        )?
+        else {
+            return Ok(None);
+        };
 
         // Phase 3: realign to post-access order and apply prepared effective window.
-        match context.order_contract {
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
-                projected_pairs.sort_by(|left, right| left.0.cmp(&right.0));
-            }
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
-                projected_pairs.sort_by(|left, right| right.0.cmp(&left.0));
-            }
-            CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc) => {}
-        }
+        reorder_covering_projection_pairs(context.order_contract, projected_pairs.as_mut_slice());
 
         let windowed_pairs = match window.limit {
             Some(limit) => projected_pairs
@@ -898,47 +876,17 @@ where
     fn read_covering_projection_component_pairs(
         prepared: &PreparedAggregateStreamingInputs<'_>,
         component_index: usize,
-        direction: Direction,
+        direction: crate::db::direction::Direction,
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        let continuation = IndexScanContinuationInput::new(None, direction);
-
-        let prefix_specs = prepared.index_prefix_specs.as_slice();
-        if let [spec] = prefix_specs {
-            return Self::read_covering_projection_component_pairs_for_index_bounds(
-                prepared.store_resolver,
-                prepared.authority.entity_tag(),
-                spec.index(),
-                (spec.lower(), spec.upper()),
-                continuation,
-                component_index,
-            );
-        }
-        if !prefix_specs.is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "covering projection index-prefix path requires one lowered prefix spec",
-            ));
-        }
-
-        let range_specs = prepared.index_range_specs.as_slice();
-        if let [spec] = range_specs {
-            return Self::read_covering_projection_component_pairs_for_index_bounds(
-                prepared.store_resolver,
-                prepared.authority.entity_tag(),
-                spec.index(),
-                (spec.lower(), spec.upper()),
-                continuation,
-                component_index,
-            );
-        }
-        if !range_specs.is_empty() {
-            return Err(InternalError::query_executor_invariant(
-                "covering projection index-range path requires one lowered range spec",
-            ));
-        }
-
-        Err(InternalError::query_executor_invariant(
-            "covering projection component scans require index-backed access paths",
-        ))
+        resolve_covering_projection_component_from_lowered_specs(
+            prepared.authority.entity_tag(),
+            prepared.index_prefix_specs.as_slice(),
+            prepared.index_range_specs.as_slice(),
+            direction,
+            usize::MAX,
+            component_index,
+            |index| prepared.store_resolver.try_get_store(index.store()),
+        )
     }
 
     // Execute COUNT from one prepared aggregate stage so constant projection
@@ -967,33 +915,6 @@ where
         );
         ExecutionKernel::execute_prepared_aggregate_state(self, state)?
             .into_exists("projection EXISTS helper result kind mismatch")
-    }
-
-    // Resolve one covering projection component stream for one lowered
-    // index-prefix/index-range bounds contract.
-    fn read_covering_projection_component_pairs_for_index_bounds(
-        store_resolver: crate::db::executor::StoreResolver<'_>,
-        entity_tag: crate::types::EntityTag,
-        index: &crate::model::index::IndexModel,
-        bounds: (
-            &std::ops::Bound<crate::db::index::RawIndexKey>,
-            &std::ops::Bound<crate::db::index::RawIndexKey>,
-        ),
-        continuation: IndexScanContinuationInput,
-        component_index: usize,
-    ) -> Result<CoveringProjectionComponentRows, InternalError> {
-        let store = store_resolver.try_get_store(index.store())?;
-        store.with_index(|index_store| {
-            index_store.resolve_data_values_with_component_in_raw_range_limited(
-                entity_tag,
-                index,
-                bounds,
-                continuation,
-                usize::MAX,
-                component_index,
-                None,
-            )
-        })
     }
 
     // Preserve the same continuation-to-loop-control mapping used by the

@@ -14,7 +14,7 @@ use crate::{
                 SecondaryOrderPushdownRejection,
             },
         },
-        query::plan::OrderSpec,
+        query::plan::{OrderSpec, index_order_terms},
     },
     model::{entity::EntityModel, index::IndexModel},
 };
@@ -144,12 +144,13 @@ impl AccessRouteClass {
                     ),
                 );
             }
+            let index_terms = index_order_terms(&index);
 
             return PushdownApplicability::Applicable(match_secondary_order_pushdown_core(
                 model,
                 order,
                 index.name(),
-                index.fields(),
+                &index_terms,
                 prefix_len,
             ));
         }
@@ -172,12 +173,13 @@ impl AccessRouteClass {
                     ),
                 );
             }
+            let index_terms = index_order_terms(&index);
 
             let eligibility = match_secondary_order_pushdown_core(
                 model,
                 order,
                 index.name(),
-                index.fields(),
+                &index_terms,
                 prefix_len,
             );
             return match eligibility {
@@ -215,7 +217,7 @@ impl AccessRouteClass {
         let Some((index, prefix_len)) = self.single_path_index_range_details() else {
             return false;
         };
-        let index_fields = index.fields();
+        let index_terms = index_order_terms(&index);
 
         let Some(order_fields) = order_fields else {
             return true;
@@ -233,8 +235,8 @@ impl AccessRouteClass {
             return false;
         }
 
-        let mut expected = Vec::with_capacity(index_fields.len().saturating_sub(prefix_len) + 1);
-        expected.extend(index_fields.iter().skip(prefix_len).copied());
+        let mut expected = Vec::with_capacity(index_terms.len().saturating_sub(prefix_len) + 1);
+        expected.extend(index_terms.iter().skip(prefix_len).map(String::as_str));
         expected.push(primary_key_name);
         if order_fields.len() != expected.len() {
             return false;

@@ -87,6 +87,24 @@ impl ScalarRowRuntimeState {
     }
 }
 
+///
+/// CoveringComponentScanState
+///
+/// Adapter-owned lowered index scan state for SQL covering-read component
+/// materialization.
+/// This keeps the entity tag plus lowered prefix/range bounds available to the
+/// SQL immediate-materialization lane without reopening typed plan ownership.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct CoveringComponentScanState<'a> {
+    pub(in crate::db::executor) entity_tag: crate::types::EntityTag,
+    pub(in crate::db::executor) index_prefix_specs:
+        &'a [crate::db::executor::LoweredIndexPrefixSpec],
+    pub(in crate::db::executor) index_range_specs:
+        &'a [crate::db::executor::LoweredIndexRangeSpec],
+}
+
 // Read one scalar kernel row through the typed store boundary, then decode the
 // persisted row structurally before any predicate or page logic runs.
 unsafe fn structural_scalar_read_kernel_row(
@@ -363,6 +381,7 @@ struct ExecutionRuntimeAdapterCore<'a> {
     access: &'a crate::db::access::AccessPlan<crate::value::Value>,
     model: &'static EntityModel,
     scalar_row_runtime: Option<ScalarRowRuntimeState>,
+    covering_component_scan: Option<CoveringComponentScanState<'a>>,
 }
 
 impl ExecutionRuntimeAdapterCore<'_> {
@@ -371,12 +390,14 @@ impl ExecutionRuntimeAdapterCore<'_> {
         runtime: ErasedRuntimeBindings,
         model: &'static EntityModel,
         scalar_row_runtime: Option<ScalarRowRuntimeState>,
+        covering_component_scan: Option<CoveringComponentScanState<'a>>,
     ) -> ExecutionRuntimeAdapterCore<'a> {
         ExecutionRuntimeAdapterCore {
             runtime,
             access,
             model,
             scalar_row_runtime,
+            covering_component_scan,
         }
     }
 
@@ -467,6 +488,28 @@ impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
                 ErasedRuntimeBindings::from_runtime(runtime),
                 model,
                 Some(ScalarRowRuntimeState::new(store, model)),
+                None,
+            ),
+            marker: PhantomData,
+        }
+    }
+
+    /// Build one structural runtime adapter for scalar execution paths that
+    /// may consume route-owned covering-read component scans.
+    pub(in crate::db::executor) const fn from_scalar_runtime_parts(
+        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
+        runtime: crate::db::executor::stream::access::TraversalRuntime,
+        store: StoreHandle,
+        model: &'static EntityModel,
+        covering_component_scan: CoveringComponentScanState<'a>,
+    ) -> Self {
+        Self {
+            core: ExecutionRuntimeAdapterCore::new(
+                access,
+                ErasedRuntimeBindings::from_runtime(runtime),
+                model,
+                Some(ScalarRowRuntimeState::new(store, model)),
+                Some(covering_component_scan),
             ),
             marker: PhantomData,
         }
@@ -484,6 +527,7 @@ impl<'a> ExecutionRuntimeAdapter<'_, 'a> {
                 access,
                 ErasedRuntimeBindings::from_runtime(runtime),
                 model,
+                None,
                 None,
             ),
             marker: PhantomData,
@@ -566,6 +610,8 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
             request,
             self.core.model,
             &mut row_runtime,
+            scalar_row_runtime.store,
+            self.core.covering_component_scan,
         )
     }
 

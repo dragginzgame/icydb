@@ -156,11 +156,15 @@ pub(in crate::db::query) fn build_logical_plan(
     }
 }
 
-// Normalize ORDER BY into a canonical, deterministic shape:
-// - preserve user field order
-// - remove explicit primary-key references from the user segment
-// - append exactly one primary-key field as the terminal tie-break
-fn canonicalize_order_spec(model: &EntityModel, order: Option<OrderSpec>) -> Option<OrderSpec> {
+/// Normalize one ORDER BY shape into the planner's canonical deterministic form.
+///
+/// This helper is shared across access planning and logical-plan assembly so
+/// both boundaries agree on the exact `..., primary_key` ordering contract.
+#[must_use]
+pub(in crate::db::query) fn canonicalize_order_spec(
+    model: &EntityModel,
+    order: Option<OrderSpec>,
+) -> Option<OrderSpec> {
     let mut order = order?;
     let pk = model.primary_key.name;
 

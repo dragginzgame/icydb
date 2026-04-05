@@ -366,6 +366,46 @@ fn covering_read_plan_accepts_direct_index_component_projection() {
 }
 
 #[test]
+fn covering_read_plan_accepts_multi_component_projection() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: COVERING_READ_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection =
+        ProjectionSelection::Fields(vec![FieldId::new("group"), FieldId::new("rank")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("group".to_string(), OrderDirection::Asc),
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+        .expect("multi-component projection should derive one covering-read plan");
+
+    assert_eq!(covering.prefix_len, 0);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(covering.fields.len(), 2);
+    assert_eq!(covering.fields[0].field_slot.field(), "group");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::IndexComponent { component_index: 0 }
+    );
+    assert_eq!(covering.fields[1].field_slot.field(), "rank");
+    assert_eq!(
+        covering.fields[1].source,
+        super::CoveringReadFieldSource::IndexComponent { component_index: 1 }
+    );
+}
+
+#[test]
 fn covering_read_plan_accepts_primary_key_projection() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);

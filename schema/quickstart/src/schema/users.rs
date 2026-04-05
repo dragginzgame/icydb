@@ -11,6 +11,7 @@ use icydb::design::prelude::*;
     store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "name"),
+    index(fields = "name", key_items = "LOWER(name)"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "name", value(item(prim = "Text"))),

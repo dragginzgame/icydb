@@ -7,7 +7,8 @@ use crate::{
     db::{
         cursor::CursorPlanError,
         direction::Direction,
-        query::plan::{OrderDirection, OrderSpec},
+        query::plan::{ExpressionOrderTerm, OrderDirection, OrderSpec},
+        scalar_expr::derive_expression_order_value,
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     model::entity::{EntityModel, resolve_field_slot},
@@ -70,7 +71,7 @@ where
         .fields
         .iter()
         .map(|(field, _)| {
-            let value = resolve_field_slot(model, field).and_then(&mut *read_slot);
+            let value = boundary_slot_value_from_reader(model, field, read_slot);
 
             match value {
                 Some(value) => CursorBoundarySlot::Present(value),
@@ -78,6 +79,25 @@ where
             }
         })
         .collect()
+}
+
+// Resolve one canonical boundary slot value from the underlying structural row.
+fn boundary_slot_value_from_reader<F>(
+    model: &EntityModel,
+    field: &str,
+    read_slot: &mut F,
+) -> Option<Value>
+where
+    F: FnMut(usize) -> Option<Value>,
+{
+    if let Some(expression) = ExpressionOrderTerm::parse(field) {
+        let slot = resolve_field_slot(model, expression.field())?;
+        let value = read_slot(slot)?;
+
+        return derive_expression_order_value(expression, &value);
+    }
+
+    resolve_field_slot(model, field).and_then(read_slot)
 }
 
 /// Apply one order direction to one base slot ordering.
@@ -159,6 +179,12 @@ fn boundary_order_field_type<'a>(
     schema: &'a SchemaInfo,
     field: &str,
 ) -> Result<&'a FieldType, CursorPlanError> {
+    if let Some(expression) = ExpressionOrderTerm::parse(field) {
+        return schema
+            .field(expression.field())
+            .ok_or_else(|| CursorPlanError::continuation_cursor_unknown_order_field(field));
+    }
+
     schema
         .field(field)
         .ok_or_else(|| CursorPlanError::continuation_cursor_unknown_order_field(field))

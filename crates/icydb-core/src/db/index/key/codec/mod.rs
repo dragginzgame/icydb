@@ -23,9 +23,7 @@ use error::{
     ERR_INVALID_INDEX_ID_BYTES, ERR_INVALID_INDEX_LENGTH, ERR_INVALID_SIZE, ERR_TRAILING_BYTES,
 };
 use std::cmp::Ordering;
-use tuple::{
-    compare_component_segments, compare_length_prefixed_segment, push_segment, read_segment,
-};
+use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
 
 pub(crate) use scalar::IndexKeyKind;
 
@@ -33,8 +31,8 @@ pub(crate) use scalar::IndexKeyKind;
 /// IndexKey
 ///
 /// Fully-qualified index lookup key.
-/// Variable-length, manually encoded structure designed for stable-memory ordering.
-/// Ordering of this type must exactly match byte-level ordering.
+/// Variable-length, manually encoded structure designed for stable-memory storage.
+/// Ordering of this type follows decoded component semantics rather than tuple-frame bytes.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -52,7 +50,7 @@ impl Ord for IndexKey {
             .then_with(|| self.index_id.cmp(&other.index_id))
             .then_with(|| self.components.len().cmp(&other.components.len()))
             .then_with(|| compare_component_segments(&self.components, &other.components))
-            .then_with(|| compare_length_prefixed_segment(&self.primary_key, &other.primary_key))
+            .then_with(|| compare_segment_bytes(&self.primary_key, &other.primary_key))
     }
 }
 
@@ -205,15 +203,122 @@ fn parse_index_key_header(
     Ok((key_kind, index_id, component_count_usize, offset))
 }
 
+fn compare_raw_index_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
+    // Phase 1: compare the fixed-width semantic header, or fall back to raw bytes
+    // if either side is malformed. Stable storage should only contain canonical
+    // keys, but `Ord` still needs a total ordering for diagnostics/tests.
+    let (left_kind, left_index_id, left_component_count, left_offset) =
+        match parse_index_key_header(left) {
+            Ok(header) => header,
+            Err(_) => return left.cmp(right),
+        };
+    let (right_kind, right_index_id, right_component_count, right_offset) =
+        match parse_index_key_header(right) {
+            Ok(header) => header,
+            Err(_) => return left.cmp(right),
+        };
+
+    left_kind
+        .cmp(&right_kind)
+        .then_with(|| left_index_id.cmp(&right_index_id))
+        .then_with(|| left_component_count.cmp(&right_component_count))
+        .then_with(|| {
+            compare_raw_index_key_segments(
+                left,
+                right,
+                left_component_count,
+                left_offset,
+                right_offset,
+            )
+        })
+}
+
+fn compare_raw_index_key_segments(
+    left: &[u8],
+    right: &[u8],
+    component_count: usize,
+    mut left_offset: usize,
+    mut right_offset: usize,
+) -> Ordering {
+    // Phase 1: decode and compare the indexed components while ignoring tuple
+    // framing bytes. The ordered component payload already encodes semantic order.
+    for _ in 0..component_count {
+        let left_segment = match read_segment(
+            left,
+            &mut left_offset,
+            IndexKey::MAX_COMPONENT_SIZE,
+            "component segment",
+        ) {
+            Ok(segment) => segment,
+            Err(_) => return left.cmp(right),
+        };
+        let right_segment = match read_segment(
+            right,
+            &mut right_offset,
+            IndexKey::MAX_COMPONENT_SIZE,
+            "component segment",
+        ) {
+            Ok(segment) => segment,
+            Err(_) => return left.cmp(right),
+        };
+
+        let segment_order = compare_segment_bytes(left_segment, right_segment);
+        if segment_order != Ordering::Equal {
+            return segment_order;
+        }
+    }
+
+    // Phase 2: compare the trailing primary-key segment and reject malformed
+    // trailing payloads by falling back to raw bytes.
+    let left_primary_key =
+        match read_segment(left, &mut left_offset, IndexKey::MAX_PK_SIZE, "primary key") {
+            Ok(segment) => segment,
+            Err(_) => return left.cmp(right),
+        };
+    let right_primary_key = match read_segment(
+        right,
+        &mut right_offset,
+        IndexKey::MAX_PK_SIZE,
+        "primary key",
+    ) {
+        Ok(segment) => segment,
+        Err(_) => return left.cmp(right),
+    };
+
+    let primary_key_order = compare_segment_bytes(left_primary_key, right_primary_key);
+    if primary_key_order != Ordering::Equal {
+        return primary_key_order;
+    }
+
+    if left_offset != left.len() || right_offset != right.len() {
+        return left.cmp(right);
+    }
+
+    Ordering::Equal
+}
+
 ///
 /// RawIndexKey
 ///
 /// Variable-length, stable-memory representation of IndexKey.
 /// This is the form stored in BTreeMap keys.
+/// Ordering follows decoded key semantics rather than serialized tuple framing bytes.
 ///
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct RawIndexKey(Vec<u8>);
+
+impl Ord for RawIndexKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare_raw_index_key_bytes(&self.0, &other.0)
+    }
+}
+
+impl PartialOrd for RawIndexKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 ///
 /// TESTS

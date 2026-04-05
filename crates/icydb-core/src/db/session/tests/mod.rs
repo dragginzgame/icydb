@@ -12,9 +12,11 @@ use super::*;
 use crate::{
     db::{
         Db, PlanError,
+        access::lower_index_range_specs,
         commit::{ensure_recovered, init_commit_store_for_tests},
-        cursor::CursorPlanError,
+        cursor::{CursorPlanError, IndexScanContinuationInput},
         data::{DataKey, DataStore},
+        direction::Direction,
         executor::ExecutorPlanError,
         index::IndexStore,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -28,12 +30,15 @@ use crate::{
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
-    model::{field::FieldKind, index::IndexModel},
+    model::{
+        field::FieldKind,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
+    },
     serialize::serialized_len,
     testing::test_memory,
     traits::Path,
     types::{Date, Duration, EntityTag, Id, Timestamp, Ulid},
-    value::Value,
+    value::{StorageKey, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
@@ -121,6 +126,39 @@ struct IndexedSessionSqlEntity {
 }
 
 ///
+/// CompositeIndexedSessionSqlEntity
+///
+/// Composite indexed SQL session fixture used to lock multi-component
+/// covering-read execution on a real secondary `(code, serial)` index.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct CompositeIndexedSessionSqlEntity {
+    id: Ulid,
+    code: String,
+    serial: u64,
+    note: String,
+}
+
+///
+/// ExpressionIndexedSessionSqlEntity
+///
+/// Expression-indexed SQL session fixture used to lock `ORDER BY LOWER(field)`
+/// planning and execution against one real expression-key secondary index.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct ExpressionIndexedSessionSqlEntity {
+    id: Ulid,
+    name: String,
+    age: u64,
+}
+
+///
 /// SessionAggregateEntity
 ///
 /// Session-facing aggregate fixture used to revive the old session projection
@@ -179,6 +217,24 @@ static INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &INDEXED_SESSION_SQL_INDEX_FIELDS,
     false,
 )];
+static COMPOSITE_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 2] = ["code", "serial"];
+static COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "code_serial",
+    IndexedSessionSqlStore::PATH,
+    &COMPOSITE_INDEXED_SESSION_SQL_INDEX_FIELDS,
+    false,
+)];
+static EXPRESSION_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
+static EXPRESSION_INDEXED_SESSION_SQL_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
+static EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_key_items(
+        "name_lower",
+        IndexedSessionSqlStore::PATH,
+        &EXPRESSION_INDEXED_SESSION_SQL_INDEX_FIELDS,
+        &EXPRESSION_INDEXED_SESSION_SQL_INDEX_KEY_ITEMS,
+        false,
+    )];
 static SESSION_EXPLAIN_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
 static SESSION_EXPLAIN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "group_rank",
@@ -217,6 +273,41 @@ crate::test_entity_schema! {
         ("age", FieldKind::Uint),
     ],
     indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = CompositeIndexedSessionSqlEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "CompositeIndexedSessionSqlEntity",
+    entity_tag = EntityTag::new(0x1037),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("code", FieldKind::Text),
+        ("serial", FieldKind::Uint),
+        ("note", FieldKind::Text),
+    ],
+    indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = ExpressionIndexedSessionSqlEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "ExpressionIndexedSessionSqlEntity",
+    entity_tag = EntityTag::new(0x1038),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+        ("age", FieldKind::Uint),
+    ],
+    indexes = [&EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,
 }
@@ -296,6 +387,42 @@ fn reset_indexed_session_sql_store() {
 
 fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(INDEXED_SESSION_SQL_DB)
+}
+
+// Remove one indexed SQL fixture row from the primary store while preserving
+// the secondary `name` index entry so covering-read parity can exercise stale
+// secondary-key behavior.
+fn remove_indexed_session_sql_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<IndexedSessionSqlEntity>(Ulid::from_u128(id))
+        .expect("indexed SQL fixture data key should build")
+        .to_raw()
+        .expect("indexed SQL fixture data key should encode");
+
+    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected indexed SQL fixture row to exist before data-only removal",
+        );
+    });
+}
+
+// Remove one composite indexed SQL fixture row from the primary store while
+// preserving the secondary `(code, serial)` index entry so multi-component
+// covering projections can validate stale-key parity.
+fn remove_composite_indexed_session_sql_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<CompositeIndexedSessionSqlEntity>(Ulid::from_u128(id))
+        .expect("composite indexed SQL fixture data key should build")
+        .to_raw()
+        .expect("composite indexed SQL fixture data key should encode");
+
+    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected composite indexed SQL fixture row to exist before data-only removal",
+        );
+    });
 }
 
 #[test]
@@ -677,6 +804,37 @@ fn seed_session_explain_entities(
                 label: format!("g{group}-r{rank}"),
             })
             .expect("session explain fixture insert should succeed");
+    }
+}
+
+fn seed_composite_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, &str, u64)],
+) {
+    for (id, code, serial) in rows.iter().copied() {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect("composite indexed SQL fixture insert should succeed");
+    }
+}
+
+fn seed_expression_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, &str, u64)],
+) {
+    for (id, name, age) in rows.iter().copied() {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("expression indexed SQL fixture insert should succeed");
     }
 }
 
@@ -2005,6 +2163,605 @@ fn execute_sql_projection_index_coverable_secondary_order_field_with_offset_matc
         .collect::<Vec<_>>();
 
     assert_eq!(entity_projected_rows, projected_rows);
+}
+
+#[test]
+fn session_explain_execution_order_only_covering_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic secondary-order dataset so the SQL lane
+    // can prove planner-selected order-only index access instead of a
+    // materialized full scan that merely returns the same first row.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("carol", 10), ("alice", 20), ("bob", 30), ("dora", 40)],
+    );
+
+    // Phase 2: require EXPLAIN EXECUTION to surface the shared planner/runtime
+    // order-only index-range path for one coverable `ORDER BY name, id` query.
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 1",
+        )
+        .expect("order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "order-only single-field secondary queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "order-only coverable projections should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "order-only covering explain roots should expose the covering-read route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "order-only index-range roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "order-only index-range roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_composite_covering_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset so the SQL lane
+    // can prove planner-selected order-only access on the live `(code, serial)` index.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221_u128, "alpha", 2),
+            (9_222, "alpha", 1),
+            (9_223, "beta", 1),
+        ],
+    );
+
+    // Phase 2: require EXPLAIN EXECUTION to surface the shared order-only
+    // composite index-range root and covering-read route.
+    let descriptor = session
+        .query_from_sql::<CompositeIndexedSessionSqlEntity>(
+            "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2",
+        )
+        .expect("composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("composite order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "order-only composite secondary queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "order-only composite coverable projections should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "order-only composite explain roots should expose the covering-read route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "order-only composite index-range roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "order-only composite index-range roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_composite_desc_covering_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset so the SQL lane
+    // can prove planner-selected descending order-only access on the live
+    // `(code, serial)` index instead of materializing a reverse sort.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_231_u128, "alpha", 2),
+            (9_232, "alpha", 1),
+            (9_233, "beta", 1),
+        ],
+    );
+
+    // Phase 2: require EXPLAIN EXECUTION to surface the shared descending
+    // order-only composite index-range root and covering-read route.
+    let descriptor = session
+        .query_from_sql::<CompositeIndexedSessionSqlEntity>(
+            "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code DESC, serial DESC, id DESC LIMIT 2",
+        )
+        .expect("descending composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("descending composite order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending order-only composite secondary queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "descending order-only composite coverable projections should keep the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "descending order-only composite explain roots should expose the covering-read route label",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending order-only composite index-range roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending order-only composite index-range roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn execute_sql_projection_expression_order_query_matches_entity_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so expression order
+    // semantics disagree with primary-key order instead of accidentally
+    // matching one tie-break-only fallback.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_243_u128, "sam", 10),
+            (9_244, "Alex", 20),
+            (9_241, "bob", 30),
+            (9_242, "zoe", 40),
+        ],
+    );
+
+    // Phase 2: verify the projection lane keeps the same `LOWER(name), id`
+    // ordering contract as the entity lane and the explicit expected window on
+    // the matching expression index.
+    let sql = "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2";
+    let projected_rows =
+        dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+            .expect("expression-order projection query should execute");
+    let entity_rows = session
+        .execute_sql::<ExpressionIndexedSessionSqlEntity>(sql)
+        .expect("expression-order entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().name.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        vec![
+            Value::Ulid(Ulid::from_u128(9_244)),
+            Value::Text("Alex".to_string()),
+        ],
+        vec![
+            Value::Ulid(Ulid::from_u128(9_241)),
+            Value::Text("bob".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        entity_projected_rows, expected_rows,
+        "entity execution must honor the LOWER(name), id ordering contract",
+    );
+    assert_eq!(
+        projected_rows, expected_rows,
+        "projection execution must honor the LOWER(name), id ordering contract",
+    );
+}
+
+#[test]
+fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset whose primary-key
+    // order disagrees with canonical `LOWER(name), id` traversal.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_243_u128, "sam", 10),
+            (9_244, "Alex", 20),
+            (9_241, "bob", 30),
+            (9_242, "zoe", 40),
+        ],
+    );
+
+    // Phase 2: lower the expression-order SQL shape to its shared index-range
+    // access contract and inspect the raw index scan order directly.
+    let plan = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect("expression-order SQL query should lower")
+        .plan()
+        .expect("expression-order SQL query should plan")
+        .into_inner();
+    let lowered_specs =
+        lower_index_range_specs(ExpressionIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
+            .expect("expression-order access plan should lower to one raw index range");
+    let [spec] = lowered_specs.as_slice() else {
+        panic!("expression-order access plan should use exactly one index-range spec");
+    };
+    let store = INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("expression-order indexed store should recover");
+    let keys = store
+        .with_index(|index_store| {
+            index_store.resolve_data_values_in_raw_range_limited(
+                ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
+                spec.index(),
+                (spec.lower(), spec.upper()),
+                IndexScanContinuationInput::new(None, Direction::Asc),
+                3,
+                None,
+            )
+        })
+        .expect("expression-order index range scan should succeed");
+    let scanned_ids = keys
+        .into_iter()
+        .map(|key: DataKey| match key.storage_key() {
+            StorageKey::Ulid(id) => id,
+            other => {
+                panic!("expression-order fixture keys should stay on ULID primary keys: {other:?}")
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        scanned_ids,
+        vec![
+            Ulid::from_u128(9_244),
+            Ulid::from_u128(9_241),
+            Ulid::from_u128(9_243),
+        ],
+        "raw expression-index range scans must preserve the canonical LOWER(name), id order before later pagination/windowing",
+    );
+}
+
+#[test]
+fn execute_sql_projection_expression_order_desc_query_matches_entity_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: reuse one deterministic mixed-case dataset whose primary-key
+    // order disagrees with reverse expression order.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_243_u128, "sam", 10),
+            (9_244, "Alex", 20),
+            (9_241, "bob", 30),
+            (9_242, "zoe", 40),
+        ],
+    );
+
+    // Phase 2: verify descending expression order stays explicit on both the
+    // projection and entity lanes.
+    let sql = "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2";
+    let projected_rows =
+        dispatch_projection_rows::<ExpressionIndexedSessionSqlEntity>(&session, sql)
+            .expect("descending expression-order projection query should execute");
+    let entity_rows = session
+        .execute_sql::<ExpressionIndexedSessionSqlEntity>(sql)
+        .expect("descending expression-order entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.id().key()),
+                Value::Text(row.entity_ref().name.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        vec![
+            Value::Ulid(Ulid::from_u128(9_242)),
+            Value::Text("zoe".to_string()),
+        ],
+        vec![
+            Value::Ulid(Ulid::from_u128(9_243)),
+            Value::Text("sam".to_string()),
+        ],
+    ];
+
+    assert_eq!(
+        entity_projected_rows, expected_rows,
+        "descending entity execution must honor the LOWER(name), id ordering contract",
+    );
+    assert_eq!(
+        projected_rows, expected_rows,
+        "descending projection execution must honor the LOWER(name), id ordering contract",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_expression_query_uses_index_range_access() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so EXPLAIN EXECUTION
+    // can prove the expression-index route instead of a materialized fallback.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_251_u128, "sam", 10),
+            (9_252, "Alex", 20),
+            (9_253, "bob", 30),
+        ],
+    );
+
+    // Phase 2: require EXPLAIN EXECUTION to surface the shared order-only
+    // expression index-range root and access-satisfied ordering markers.
+    let descriptor = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id, name FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect("expression order-only SQL query should lower")
+        .explain_execution()
+        .expect("expression order-only SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "expression order-only queries should stay on the shared index-range root",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "expression order-only index-range roots should report secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "expression order-only index-range roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_sql_expression_order_without_matching_index_stays_fail_closed() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql::<SessionSqlEntity>(
+            "SELECT id, name FROM SessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect_err("expression order without one matching index should fail closed");
+
+    assert!(
+        err.to_string()
+            .contains("expression ORDER BY requires a matching index-backed access order"),
+        "expression-order failures should preserve the explicit fail-closed policy message",
+    );
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_multi_component_matches_entity_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset so the SQL
+    // projection lane must decode both indexed components from one secondary
+    // `(code, serial)` access path.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_201_u128, "alpha", 2),
+            (9_202, "alpha", 1),
+            (9_203, "beta", 1),
+        ],
+    );
+
+    // Phase 2: verify the projection lane returns the same `(id, code,
+    // serial)` rows as the entity lane for a direct composite covering query.
+    let sql = "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2";
+    let projected_rows =
+        dispatch_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+            .expect("multi-component covering projection query should execute");
+    let entity_rows = session
+        .execute_sql::<CompositeIndexedSessionSqlEntity>(sql)
+        .expect("multi-component covering entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.entity_ref().id),
+                Value::Text(row.entity_ref().code.clone()),
+                Value::Uint(row.entity_ref().serial),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(entity_projected_rows, projected_rows);
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_multi_component_skips_stale_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset with stable IDs
+    // so the SQL projection lane can validate stale-key parity on a
+    // multi-component covering read.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_211_u128, "alpha", 2),
+            (9_212, "alpha", 1),
+            (9_213, "beta", 1),
+        ],
+    );
+    remove_composite_indexed_session_sql_row_data(9_212);
+
+    // Phase 2: require the projection lane to skip the stale leading
+    // `(code, serial)` key exactly like the entity lane.
+    let sql = "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2";
+    let projected_rows =
+        dispatch_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+            .expect("stale multi-component covering projection query should execute");
+    let entity_rows = session
+        .execute_sql::<CompositeIndexedSessionSqlEntity>(sql)
+        .expect("stale multi-component covering entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.entity_ref().id),
+                Value::Text(row.entity_ref().code.clone()),
+                Value::Uint(row.entity_ref().serial),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        entity_projected_rows, projected_rows,
+        "multi-component covering SQL projection should preserve stale-key parity",
+    );
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_primary_key_and_prefix_field_skips_stale_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic equality-prefix dataset with stable IDs
+    // so the covering SQL projection lane can validate stale-row parity
+    // against the matching entity lane.
+    for (id, name, age) in [
+        (9_001_u128, "alice", 10_u64),
+        (9_002, "alice", 20),
+        (9_003, "bob", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_001);
+
+    // Phase 2: keep the hot `(id, name)` equality-prefix covering shape and
+    // require the projection lane to skip the stale leading key exactly like
+    // the row-materialized entity lane.
+    let sql =
+        "SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id LIMIT 1";
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("stale equality-prefix covering projection query should execute");
+    let entity_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(sql)
+        .expect("stale equality-prefix covering entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.entity_ref().id),
+                Value::Text(row.entity_ref().name.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        entity_projected_rows, projected_rows,
+        "covering `(id, indexed_field)` SQL projection should preserve stale-key parity",
+    );
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_secondary_order_field_skips_stale_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic secondary-order dataset with stable IDs
+    // so direct index-component covering reads can validate stale-key parity.
+    for (id, name, age) in [
+        (9_101_u128, "alice", 10_u64),
+        (9_102, "bob", 20),
+        (9_103, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_101);
+
+    // Phase 2: keep the direct ordered covering shape on the indexed `name`
+    // field and require the projection lane to skip the stale leading key.
+    let sql = "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2";
+    let projected_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("stale secondary-order covering projection query should execute");
+    let entity_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(sql)
+        .expect("stale secondary-order covering entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        entity_projected_rows, projected_rows,
+        "covering secondary-order SQL projection should preserve stale-key parity",
+    );
 }
 
 #[test]

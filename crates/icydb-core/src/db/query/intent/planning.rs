@@ -40,6 +40,10 @@ impl<K: FieldValue> QueryIntent<K> {
             .as_ref()
             .map(|state| build_access_plan_from_keys(&state.access));
 
-        AccessPlanningInputs::new(scalar.predicate.as_ref(), key_access_override)
+        AccessPlanningInputs::new(
+            scalar.predicate.as_ref(),
+            scalar.order.as_ref(),
+            key_access_override,
+        )
     }
 }

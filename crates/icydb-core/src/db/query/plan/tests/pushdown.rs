@@ -16,7 +16,11 @@ use crate::{
             OrderSpec, QueryMode, derive_logical_pushdown_eligibility,
         },
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        field::FieldKind,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
+    },
     traits::EntitySchema,
     types::Ulid,
     value::Value,
@@ -26,6 +30,16 @@ use std::ops::Bound;
 const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
     IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
+const EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
+const EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
+const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+    "test::idx_name_lower",
+    "test::ExpressionIndexStore",
+    &EXPRESSION_INDEX_FIELDS,
+    &EXPRESSION_INDEX_KEY_ITEMS,
+    false,
+);
 
 crate::test_entity! {
     ident = PlanValidatePushdownEntity,
@@ -40,8 +54,25 @@ crate::test_entity! {
     indexes = [&INDEX_MODEL],
 }
 
+crate::test_entity! {
+    ident = PlanValidateExpressionPushdownEntity,
+    id = Ulid,
+    entity_name = "ExpressionIndexedEntity",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+        ("rank", FieldKind::Int),
+    ],
+    indexes = [&EXPRESSION_INDEX_MODEL],
+}
+
 fn model_with_index() -> &'static EntityModel {
     <PlanValidatePushdownEntity as EntitySchema>::MODEL
+}
+
+fn model_with_expression_index() -> &'static EntityModel {
+    <PlanValidateExpressionPushdownEntity as EntitySchema>::MODEL
 }
 
 fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery {
@@ -101,6 +132,23 @@ fn load_index_range_plan(
 ) -> AccessPlannedQuery {
     load_plan(
         AccessPlan::path(AccessPath::index_range(INDEX_MODEL, prefix, lower, upper)),
+        order,
+    )
+}
+
+fn load_expression_index_range_plan(
+    prefix: Vec<Value>,
+    lower: Bound<Value>,
+    upper: Bound<Value>,
+    order: Option<OrderSpec>,
+) -> AccessPlannedQuery {
+    load_plan(
+        AccessPlan::path(AccessPath::index_range(
+            EXPRESSION_INDEX_MODEL,
+            prefix,
+            lower,
+            upper,
+        )),
         order,
     )
 }
@@ -622,5 +670,30 @@ fn secondary_order_pushdown_contract_rejects_mixed_direction_shape() {
         ),
         PushdownApplicability::NotApplicable,
         "route pushdown must not activate when ORDER BY direction contract is mixed",
+    );
+}
+
+#[test]
+fn secondary_order_pushdown_contract_accepts_expression_index_order_terms() {
+    let model = model_with_expression_index();
+
+    assert_eq!(
+        contract_pushdown_applicability(
+            model,
+            &load_expression_index_range_plan(
+                vec![],
+                Bound::Unbounded,
+                Bound::Unbounded,
+                Some(order_spec(&[
+                    ("LOWER(name)", OrderDirection::Asc),
+                    ("id", OrderDirection::Asc),
+                ])),
+            ),
+        ),
+        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
+            index: EXPRESSION_INDEX_MODEL.name(),
+            prefix_len: 0,
+        }),
+        "expression ORDER BY should activate the same pushdown contract when one matching expression index path is selected",
     );
 }

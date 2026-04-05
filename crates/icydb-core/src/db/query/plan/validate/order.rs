@@ -6,7 +6,7 @@
 use crate::{
     db::{
         query::plan::{
-            OrderSpec,
+            ExpressionOrderTerm, OrderSpec,
             validate::{OrderPlanError, PlanError},
         },
         schema::SchemaInfo,
@@ -17,16 +17,30 @@ use crate::{
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
     for (field, _) in &order.fields {
-        let field_type = schema
-            .field(field)
-            .ok_or_else(|| OrderPlanError::unknown_field(field))
-            .map_err(PlanError::from)?;
+        if let Some(field_type) = schema.field(field) {
+            field_type
+                .is_orderable()
+                .then_some(())
+                .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)))?;
+            continue;
+        }
 
-        // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
-        field_type
-            .is_orderable()
-            .then_some(())
-            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)))?;
+        validate_expression_order_term(schema, field)?;
+    }
+
+    Ok(())
+}
+
+fn validate_expression_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError> {
+    let Some(expression) = ExpressionOrderTerm::parse(field) else {
+        return Err(PlanError::from(OrderPlanError::unknown_field(field)));
+    };
+    let field_type = schema
+        .field(expression.field())
+        .ok_or_else(|| PlanError::from(OrderPlanError::unknown_field(field)))?;
+
+    if !field_type.is_text() {
+        return Err(PlanError::from(OrderPlanError::unorderable_field(field)));
     }
 
     Ok(())

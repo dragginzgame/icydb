@@ -25,7 +25,11 @@ use crate::{
         },
         schema::{SchemaInfo, ValidateError},
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        field::FieldKind,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
+    },
     traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
@@ -34,6 +38,16 @@ use crate::{
 const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
     IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
+const EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
+const EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
+const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+    "test::idx_name_lower",
+    "test::ExpressionIndexStore",
+    &EXPRESSION_INDEX_FIELDS,
+    &EXPRESSION_INDEX_KEY_ITEMS,
+    false,
+);
 
 crate::test_entity! {
     ident = PlanValidateIndexedEntity,
@@ -75,8 +89,25 @@ crate::test_entity! {
     indexes = [],
 }
 
+crate::test_entity! {
+    ident = PlanValidateExpressionIndexedEntity,
+    id = Ulid,
+    entity_name = "ExpressionIndexedEntity",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+        ("rank", FieldKind::Int),
+    ],
+    indexes = [&EXPRESSION_INDEX_MODEL],
+}
+
 fn model_with_index() -> &'static EntityModel {
     <PlanValidateIndexedEntity as EntitySchema>::MODEL
+}
+
+fn model_with_expression_index() -> &'static EntityModel {
+    <PlanValidateExpressionIndexedEntity as EntitySchema>::MODEL
 }
 
 #[test]
@@ -513,6 +544,80 @@ fn plan_accepts_ordered_pagination() {
     };
 
     validate_query_semantics(&schema, model, &plan).expect("ordered pagination is valid");
+}
+
+#[test]
+fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
+    let model = model_with_expression_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("valid expression-indexed model");
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("LOWER(name)".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::index_range(
+            EXPRESSION_INDEX_MODEL,
+            Vec::new(),
+            std::ops::Bound::Unbounded,
+            std::ops::Bound::Unbounded,
+        )),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+    };
+
+    validate_query_semantics(&schema, model, &plan).expect(
+        "expression order should validate when a matching index path already satisfies order",
+    );
+}
+
+#[test]
+fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("LOWER(tag)".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+    };
+
+    let err = validate_query_semantics(&schema, model, &plan)
+        .expect_err("expression order must fail closed when access does not satisfy ordering");
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PlanPolicyError::Policy(inner)
+            if matches!(
+                inner.as_ref(),
+                PolicyPlanError::ExpressionOrderRequiresIndexSatisfiedAccess
+            )
+    )));
 }
 
 #[test]

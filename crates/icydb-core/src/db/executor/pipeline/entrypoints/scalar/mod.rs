@@ -19,8 +19,8 @@ use crate::{
             PreparedLoadPlan, ResolvedScalarContinuationContext,
             ScalarRouteContinuationInvariantProjection, StoreResolver, TraversalRuntime,
             pipeline::contracts::{
-                ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime,
-                ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
+                CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
+                ExecutionRuntime, ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
             },
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -76,8 +76,8 @@ struct ScalarExecutionStage<'a> {
     plan: &'a AccessPlannedQuery,
     execution_preparation: ExecutionPreparation,
     route_plan: ExecutionPlan,
-    index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
-    index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
+    index_prefix_specs: &'a [crate::db::executor::LoweredIndexPrefixSpec],
+    index_range_specs: &'a [crate::db::executor::LoweredIndexRangeSpec],
     resolved_continuation: ResolvedScalarContinuationContext,
     unpaged_rows_mode: bool,
     projection_runtime_mode: ScalarProjectionRuntimeMode,
@@ -249,8 +249,8 @@ fn execute_scalar_execution_stage(
         runtime,
         plan,
         AccessStreamBindings {
-            index_prefix_specs: index_prefix_specs.as_slice(),
-            index_range_specs: index_range_specs.as_slice(),
+            index_prefix_specs,
+            index_range_specs,
             continuation: resolved_continuation.access_scan_input(direction),
         },
         &execution_preparation,
@@ -296,11 +296,16 @@ fn execute_prepared_scalar_path_execution(
     let slot_map = slot_map_for_model_plan(authority.model(), &plan);
     let execution_preparation =
         ExecutionPreparation::from_runtime_plan(authority.model(), &plan, slot_map);
-    let runtime = ExecutionRuntimeAdapter::from_runtime_parts(
+    let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
         &plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority.model(),
+        CoveringComponentScanState {
+            entity_tag: authority.entity_tag(),
+            index_prefix_specs: index_prefix_specs.as_slice(),
+            index_range_specs: index_range_specs.as_slice(),
+        },
     );
 
     execute_scalar_execution_stage(ScalarExecutionStage {
@@ -308,8 +313,8 @@ fn execute_prepared_scalar_path_execution(
         plan: &plan,
         execution_preparation,
         route_plan,
-        index_prefix_specs,
-        index_range_specs,
+        index_prefix_specs: index_prefix_specs.as_slice(),
+        index_range_specs: index_range_specs.as_slice(),
         resolved_continuation,
         unpaged_rows_mode,
         projection_runtime_mode,
@@ -569,8 +574,8 @@ where
         plan: &logical_plan,
         execution_preparation,
         route_plan,
-        index_prefix_specs,
-        index_range_specs,
+        index_prefix_specs: index_prefix_specs.as_slice(),
+        index_range_specs: index_range_specs.as_slice(),
         resolved_continuation,
         unpaged_rows_mode: false,
         projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,

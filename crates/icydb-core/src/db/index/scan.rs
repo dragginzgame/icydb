@@ -26,6 +26,9 @@ use crate::{
 };
 use std::ops::Bound;
 
+type IndexComponentValues = Vec<Vec<u8>>;
+type DataKeyComponentRows = Vec<(DataKey, IndexComponentValues)>;
+
 impl IndexStore {
     // Keep bounded scan preallocation modest so common page-limited reads
     // avoid the first growth step without reserving pathologically large
@@ -56,25 +59,25 @@ impl IndexStore {
     }
 
     #[expect(clippy::too_many_arguments)]
-    pub(in crate::db) fn resolve_data_values_with_component_in_raw_range_limited(
+    pub(in crate::db) fn resolve_data_values_with_components_in_raw_range_limited(
         &self,
         entity: EntityTag,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         continuation: IndexScanContinuationInput<'_>,
         limit: usize,
-        component_index: usize,
+        component_indices: &[usize],
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
+    ) -> Result<DataKeyComponentRows, InternalError> {
         self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
-            Self::decode_index_entry_and_push_with_component(
+            Self::decode_index_entry_and_push_with_components(
                 entity,
                 index,
                 raw_key,
                 value,
                 out,
                 Some(limit),
-                component_index,
+                component_indices,
                 "range resolve",
                 index_predicate_execution,
             )
@@ -256,28 +259,32 @@ impl IndexStore {
     }
 
     #[expect(clippy::too_many_arguments)]
-    fn decode_index_entry_and_push_with_component(
+    fn decode_index_entry_and_push_with_components(
         entity: EntityTag,
         index: &IndexModel,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
-        out: &mut Vec<(DataKey, Vec<u8>)>,
+        out: &mut Vec<(DataKey, Vec<Vec<u8>>)>,
         limit: Option<usize>,
-        component_index: usize,
+        component_indices: &[usize],
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
-        // Phase 1: decode key, extract requested component, and evaluate optional
-        // index-only predicate.
+        // Phase 1: decode the raw key once, extract every requested component,
+        // and evaluate any optional index-only predicate against that one
+        // decoded key view.
         let decoded_key = IndexKey::try_from_raw(raw_key)
             .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
-        let Some(component) = decoded_key.component(component_index) else {
-            return Err(InternalError::index_projection_component_required(
-                index.name(),
-                component_index,
-            ));
-        };
-        let component = component.to_vec();
+        let mut components = Vec::with_capacity(component_indices.len());
+        for component_index in component_indices {
+            let Some(component) = decoded_key.component(*component_index) else {
+                return Err(InternalError::index_projection_component_required(
+                    index.name(),
+                    *component_index,
+                ));
+            };
+            components.push(component.to_vec());
+        }
 
         if let Some(execution) = index_predicate_execution
             && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
@@ -291,7 +298,7 @@ impl IndexStore {
             .decode_single_key()
             .map_err(InternalError::index_entry_decode_failed)?
         {
-            out.push((DataKey::new(entity, storage_key), component));
+            out.push((DataKey::new(entity, storage_key), components));
 
             if let Some(limit) = limit
                 && out.len() == limit
@@ -303,7 +310,7 @@ impl IndexStore {
         }
 
         // Phase 3: decode multi-key entry payload and push bounded
-        // `(data_key, component)`.
+        // `(data_key, components)`.
         let storage_keys = value
             .decode_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
@@ -313,7 +320,7 @@ impl IndexStore {
         }
 
         for storage_key in storage_keys {
-            out.push((DataKey::new(entity, storage_key), component.clone()));
+            out.push((DataKey::new(entity, storage_key), components.clone()));
 
             if let Some(limit) = limit
                 && out.len() == limit

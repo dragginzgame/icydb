@@ -19,6 +19,7 @@ mod logical_builder;
 mod model;
 mod model_builder;
 mod order_contract;
+mod order_term;
 mod planner;
 mod projection;
 mod semantics;
@@ -53,7 +54,8 @@ pub(in crate::db) use group::{
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query) use limit_zero::is_limit_zero_load_window;
 pub(in crate::db::query) use logical_builder::{
-    LogicalPlanningInputs, build_logical_plan, logical_query_from_logical_inputs,
+    LogicalPlanningInputs, build_logical_plan, canonicalize_order_spec,
+    logical_query_from_logical_inputs,
 };
 pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
@@ -65,7 +67,10 @@ pub(crate) use model::{
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{ExecutionOrderContract, ExecutionOrdering};
-pub(crate) use planner::{PlannerError, plan_access};
+pub(in crate::db) use order_term::{ExpressionOrderTerm, index_order_terms};
+#[cfg(test)]
+pub(crate) use planner::plan_access;
+pub(crate) use planner::{PlannerError, plan_access_with_order};
 pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{

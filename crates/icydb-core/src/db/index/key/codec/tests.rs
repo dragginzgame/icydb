@@ -321,7 +321,7 @@ fn index_key_roundtrip_supports_max_cardinality() {
 }
 
 #[test]
-fn index_key_ordering_matches_bytes() {
+fn index_key_ordering_matches_raw_key_semantics() {
     fn make_key(
         kind: IndexKeyKind,
         index_id: &IndexId,
@@ -365,10 +365,30 @@ fn index_key_ordering_matches_bytes() {
     let mut sorted_by_ord = keys.clone();
     sorted_by_ord.sort();
 
-    let mut sorted_by_bytes = keys;
-    sorted_by_bytes.sort_by(|a, b| a.to_raw().as_bytes().cmp(b.to_raw().as_bytes()));
+    let mut sorted_by_raw = keys;
+    sorted_by_raw.sort_by(|a, b| a.to_raw().cmp(&b.to_raw()));
 
-    assert_eq!(sorted_by_ord, sorted_by_bytes);
+    assert_eq!(sorted_by_ord, sorted_by_raw);
+}
+
+#[test]
+fn raw_index_key_ordering_ignores_tuple_length_prefix_bytes() {
+    let alex = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Text("alex".to_string()))],
+        vec![0x01],
+    );
+    let bob = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Text("bob".to_string()))],
+        vec![0x02],
+    );
+
+    assert!(alex < bob);
+    assert!(alex.to_raw() < bob.to_raw());
+    assert!(alex.to_raw().as_bytes() > bob.to_raw().as_bytes());
 }
 
 #[test]
@@ -558,7 +578,7 @@ fn index_key_component_boundary_corruption_is_rejected() {
 }
 
 #[test]
-fn index_key_ordering_cartesian_semantic_vs_bytes() {
+fn index_key_ordering_cartesian_semantic_vs_raw_key_order() {
     #[derive(Clone)]
     struct Fixture {
         key: IndexKey,
@@ -618,13 +638,8 @@ fn index_key_ordering_cartesian_semantic_vs_bytes() {
     let mut sorted_by_ord = fixtures.clone();
     sorted_by_ord.sort_by(|left, right| left.key.cmp(&right.key));
 
-    let mut sorted_by_bytes = fixtures;
-    sorted_by_bytes.sort_by(|left, right| {
-        left.key
-            .to_raw()
-            .as_bytes()
-            .cmp(right.key.to_raw().as_bytes())
-    });
+    let mut sorted_by_raw = fixtures;
+    sorted_by_raw.sort_by(|left, right| left.key.to_raw().cmp(&right.key.to_raw()));
 
     let semantic_bytes = semantic_sorted
         .iter()
@@ -634,17 +649,17 @@ fn index_key_ordering_cartesian_semantic_vs_bytes() {
         .iter()
         .map(|fixture| fixture.key.to_raw().as_bytes().to_vec())
         .collect::<Vec<_>>();
-    let raw_bytes = sorted_by_bytes
+    let raw_ord_bytes = sorted_by_raw
         .iter()
         .map(|fixture| fixture.key.to_raw().as_bytes().to_vec())
         .collect::<Vec<_>>();
 
-    assert_eq!(ord_bytes, raw_bytes);
-    assert_eq!(semantic_bytes, raw_bytes);
+    assert_eq!(ord_bytes, raw_ord_bytes);
+    assert_eq!(semantic_bytes, raw_ord_bytes);
 }
 
 #[test]
-fn index_key_ordering_randomized_mixed_composite_semantic_vs_bytes() {
+fn index_key_ordering_randomized_mixed_composite_semantic_vs_raw_key_order() {
     #[derive(Clone)]
     struct Fixture {
         key: IndexKey,
@@ -692,24 +707,19 @@ fn index_key_ordering_randomized_mixed_composite_semantic_vs_bytes() {
         left.pk.cmp(&right.pk)
     });
 
-    let mut byte_sorted = fixtures;
-    byte_sorted.sort_by(|left, right| {
-        left.key
-            .to_raw()
-            .as_bytes()
-            .cmp(right.key.to_raw().as_bytes())
-    });
+    let mut raw_sorted = fixtures;
+    raw_sorted.sort_by(|left, right| left.key.to_raw().cmp(&right.key.to_raw()));
 
     let semantic_bytes = semantic_sorted
         .iter()
         .map(|fixture| fixture.key.to_raw().as_bytes().to_vec())
         .collect::<Vec<_>>();
-    let raw_bytes = byte_sorted
+    let raw_ord_bytes = raw_sorted
         .iter()
         .map(|fixture| fixture.key.to_raw().as_bytes().to_vec())
         .collect::<Vec<_>>();
 
-    assert_eq!(semantic_bytes, raw_bytes);
+    assert_eq!(semantic_bytes, raw_ord_bytes);
 }
 
 #[test]

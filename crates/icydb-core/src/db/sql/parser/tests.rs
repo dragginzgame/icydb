@@ -6,9 +6,9 @@
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
     SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
-    SqlTextFunctionCall, parse_sql,
+    SqlOrderTerm, SqlParseError, SqlProjection, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlTextFunction, SqlTextFunctionCall, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -130,6 +130,50 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
             limit: None,
             offset: None,
         }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_expression_order_terms() {
+    let statement =
+        parse_sql("SELECT * FROM users ORDER BY LOWER(name) DESC, UPPER(email) ASC LIMIT 2")
+            .expect("expression order select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![
+                SqlOrderTerm {
+                    field: "LOWER(name)".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                },
+                SqlOrderTerm {
+                    field: "UPPER(email)".to_string(),
+                    direction: SqlOrderDirection::Asc,
+                },
+            ],
+            limit: Some(2),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_rejects_unsupported_expression_order_terms() {
+    let err = parse_sql("SELECT * FROM users ORDER BY TRIM(name)")
+        .expect_err("unsupported ORDER BY function must fail closed");
+
+    assert_eq!(
+        err,
+        SqlParseError::UnsupportedFeature {
+            feature: "ORDER BY functions beyond supported LOWER(...) or UPPER(...) forms",
+        },
     );
 }
 

@@ -16,7 +16,7 @@ pub(in crate::db::access::execution_contract) fn match_secondary_order_pushdown_
     model: &EntityModel,
     order: &OrderSpec,
     index_name: &'static str,
-    index_fields: &[&'static str],
+    index_order_terms: &[String],
     prefix_len: usize,
 ) -> SecondaryOrderPushdownEligibility {
     if order.fields.is_empty() {
@@ -55,13 +55,17 @@ pub(in crate::db::access::execution_contract) fn match_secondary_order_pushdown_
         );
     }
 
-    let matches_expected_suffix = order.matches_index_suffix_plus_primary_key(
-        index_fields,
-        prefix_len,
+    let matches_expected_suffix = order.matches_expected_term_sequence_plus_primary_key(
+        index_order_terms
+            .iter()
+            .skip(prefix_len)
+            .map(String::as_str),
         model.primary_key.name,
     );
-    let matches_expected_full =
-        order.matches_index_full_plus_primary_key(index_fields, model.primary_key.name);
+    let matches_expected_full = order.matches_expected_term_sequence_plus_primary_key(
+        index_order_terms.iter().map(String::as_str),
+        model.primary_key.name,
+    );
     if matches_expected_suffix || matches_expected_full {
         return SecondaryOrderPushdownEligibility::Eligible {
             index: index_name,
@@ -73,15 +77,8 @@ pub(in crate::db::access::execution_contract) fn match_secondary_order_pushdown_
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
             index: index_name,
             prefix_len,
-            expected_suffix: index_fields
-                .iter()
-                .skip(prefix_len)
-                .map(|field| (*field).to_string())
-                .collect(),
-            expected_full: index_fields
-                .iter()
-                .map(|field| (*field).to_string())
-                .collect(),
+            expected_suffix: index_order_terms.iter().skip(prefix_len).cloned().collect(),
+            expected_full: index_order_terms.to_vec(),
             actual: order
                 .fields
                 .iter()

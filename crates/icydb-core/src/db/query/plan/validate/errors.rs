@@ -178,6 +178,10 @@ pub enum PolicyPlanError {
         "Unordered pagination is not allowed.\nLIMIT or OFFSET without ORDER BY is non-deterministic.\nAdd order_by(...) to make the query stable."
     )]
     UnorderedPagination,
+
+    /// Expression ORDER BY currently requires access-satisfied ordering.
+    #[error("expression ORDER BY requires a matching index-backed access order in this release")]
+    ExpressionOrderRequiresIndexSatisfiedAccess,
 }
 
 impl PolicyPlanError {
@@ -214,6 +218,11 @@ impl PolicyPlanError {
     /// Construct one unordered-pagination policy error.
     pub(crate) const fn unordered_pagination() -> Self {
         Self::UnorderedPagination
+    }
+
+    /// Construct one expression-order-requires-index-access policy error.
+    pub(crate) const fn expression_order_requires_index_satisfied_access() -> Self {
+        Self::ExpressionOrderRequiresIndexSatisfiedAccess
     }
 }
 

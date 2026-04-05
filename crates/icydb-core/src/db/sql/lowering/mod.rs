@@ -16,6 +16,7 @@ use crate::{
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
             intent::{Query, QueryError, StructuralQuery},
+            plan::ExpressionOrderTerm,
         },
         sql::identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
@@ -1340,10 +1341,19 @@ fn normalize_order_terms(
     terms
         .into_iter()
         .map(|term| crate::db::sql::parser::SqlOrderTerm {
-            field: normalize_identifier(term.field, entity_scope),
+            field: normalize_order_term_identifier(term.field, entity_scope),
             direction: term.direction,
         })
         .collect()
+}
+
+fn normalize_order_term_identifier(identifier: String, entity_scope: &[String]) -> String {
+    let Some(expression) = ExpressionOrderTerm::parse(identifier.as_str()) else {
+        return normalize_identifier(identifier, entity_scope);
+    };
+    let normalized_field = normalize_identifier(expression.field().to_string(), entity_scope);
+
+    expression.canonical_text_with_field(normalized_field.as_str())
 }
 
 fn normalize_identifier_list(fields: Vec<String>, entity_scope: &[String]) -> Vec<String> {

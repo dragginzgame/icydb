@@ -50,6 +50,9 @@ fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
         PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
         PolicyPlanError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
         PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
+        PolicyPlanError::ExpressionOrderRequiresIndexSatisfiedAccess => {
+            "expression ORDER BY requires matching index-backed access ordering"
+        }
     };
 
     InternalError::planner_invariant(InternalError::executor_invariant_message(reason))

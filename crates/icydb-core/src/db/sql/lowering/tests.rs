@@ -21,13 +21,23 @@ use crate::{
         },
     },
     model::field::FieldKind,
+    model::index::{IndexExpression, IndexKeyItem, IndexModel},
+    traits::Path,
     types::Ulid,
     value::Value,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::Bound;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct SqlLowerEntity {
+    id: Ulid,
+    name: String,
+    age: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+struct SqlLowerExpressionEntity {
     id: Ulid,
     name: String,
     age: u64,
@@ -43,6 +53,17 @@ crate::test_store! {
     canister = SqlLowerCanister,
 }
 
+static SQL_LOWER_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
+static SQL_LOWER_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
+static SQL_LOWER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
+    "name_lower",
+    SqlLowerDataStore::PATH,
+    &SQL_LOWER_EXPRESSION_INDEX_FIELDS,
+    &SQL_LOWER_EXPRESSION_INDEX_KEY_ITEMS,
+    false,
+)];
+
 crate::test_entity_schema! {
     ident = SqlLowerEntity,
     id = Ulid,
@@ -55,6 +76,22 @@ entity_tag = crate::testing::SQL_LOWER_ENTITY_TAG,
         ("age", FieldKind::Uint),
     ],
     indexes = [],
+    store = SqlLowerDataStore,
+    canister = SqlLowerCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SqlLowerExpressionEntity,
+    id = Ulid,
+    entity_name = "SqlLowerExpressionEntity",
+    entity_tag = crate::types::EntityTag::new(0x1038),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+        ("age", FieldKind::Uint),
+    ],
+    indexes = [&SQL_LOWER_EXPRESSION_INDEX_MODELS[0]],
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
 }
@@ -195,6 +232,64 @@ fn compile_sql_command_delete_direct_starts_with_family_matches_like_delete_inte
             "bounded direct STARTS_WITH delete lowering should match the established LIKE delete intent: {context}",
         );
     }
+}
+
+#[test]
+fn compile_sql_command_select_expression_order_lowers_to_expression_index_range() {
+    let command = compile_sql_command::<SqlLowerExpressionEntity>(
+        "SELECT id FROM SqlLowerExpressionEntity ORDER BY LOWER(name) ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("expression-order SELECT should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let plan = query
+        .plan()
+        .expect("expression-order query should plan")
+        .into_inner();
+    let Some((index, prefix_values, lower, upper)) = plan.access.as_index_range_path() else {
+        panic!("expression-order query should use one index-range access path");
+    };
+
+    assert_eq!(index.name(), SQL_LOWER_EXPRESSION_INDEX_MODELS[0].name());
+    assert!(
+        prefix_values.is_empty(),
+        "order-only expression fallback should not invent equality prefix values",
+    );
+    assert_eq!(lower, &Bound::Unbounded);
+    assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
+fn compile_sql_command_normalizes_qualified_expression_order_identifier() {
+    let command = compile_sql_command::<SqlLowerExpressionEntity>(
+        "SELECT id FROM public.SqlLowerExpressionEntity ORDER BY LOWER(public.SqlLowerExpressionEntity.name) ASC LIMIT 2",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("qualified expression-order SELECT should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+    let explain = query
+        .plan()
+        .expect("qualified expression order should plan")
+        .explain();
+    let crate::db::query::explain::ExplainOrderBy::Fields(fields) = explain.order_by() else {
+        panic!("qualified expression order should survive into explain order fields");
+    };
+
+    assert_eq!(
+        fields
+            .iter()
+            .map(crate::db::query::explain::ExplainOrder::field)
+            .collect::<Vec<_>>(),
+        vec!["LOWER(name)", "id"],
+        "qualified expression order identifiers should normalize to model-local canonical form",
+    );
 }
 
 #[test]

@@ -192,7 +192,7 @@ pub(crate) enum SqlOrderDirection {
 ///
 /// SqlOrderTerm
 ///
-/// Parsed `ORDER BY` field/direction pair.
+/// Parsed `ORDER BY` field-or-supported-expression and direction pair.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

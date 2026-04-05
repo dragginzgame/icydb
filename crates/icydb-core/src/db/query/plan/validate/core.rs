@@ -5,11 +5,13 @@
 
 use crate::{
     db::{
-        access::validate_access_structure_model as validate_access_structure_model_shared,
+        access::{
+            AccessPath, validate_access_structure_model as validate_access_structure_model_shared,
+        },
         query::plan::{
-            AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
+            AccessPlannedQuery, ExpressionOrderTerm, LogicalPlan, OrderSpec, ScalarPlan,
             validate::{
-                GroupPlanError, PlanError,
+                GroupPlanError, PlanError, PolicyPlanError,
                 grouped::{
                     validate_group_cursor_constraints, validate_group_policy,
                     validate_group_structure, validate_projection_expr_types,
@@ -118,10 +120,67 @@ where
         validate_order_fn(schema, order)?;
         validate_no_duplicate_non_pk_order_fields(model, order)?;
         validate_primary_key_tie_break(model, order)?;
+        validate_expression_order_support(model, plan, order)?;
     }
 
     validate_access_fn(schema, model, plan)?;
     validate_plan_shape(&plan.logical)?;
 
     Ok(())
+}
+
+fn validate_expression_order_support(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    order: &OrderSpec,
+) -> Result<(), PlanError> {
+    if !order
+        .fields
+        .iter()
+        .any(|(field, _)| ExpressionOrderTerm::parse(field).is_some())
+    {
+        return Ok(());
+    }
+
+    let singleton_or_empty_primary_key_access = match plan.access.as_path() {
+        Some(AccessPath::ByKey(_)) => true,
+        Some(AccessPath::ByKeys(keys)) => keys.len() <= 1,
+        Some(
+            AccessPath::KeyRange { .. }
+            | AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexMultiLookup { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::FullScan,
+        )
+        | None => false,
+    };
+    if singleton_or_empty_primary_key_access || plan.access.is_explicit_empty() {
+        return Ok(());
+    }
+
+    let access_class = plan.access_strategy().class();
+    let logical_pushdown_eligibility = plan
+        .planner_route_profile(model)
+        .logical_pushdown_eligibility();
+    let index_prefix_details = access_class.single_path_index_prefix_details();
+    let index_range_details = access_class.single_path_index_range_details();
+    let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()
+        && !logical_pushdown_eligibility.requires_full_materialization();
+    let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
+    let unique_prefix_ok = index_prefix_details.is_none_or(|(index, _)| index.is_unique());
+    let secondary_pushdown_eligible = access_class
+        .secondary_order_pushdown_applicability(model, order)
+        .is_eligible();
+
+    if secondary_contract_active
+        && has_index_path
+        && unique_prefix_ok
+        && secondary_pushdown_eligible
+    {
+        return Ok(());
+    }
+
+    Err(PlanError::from(
+        PolicyPlanError::expression_order_requires_index_satisfied_access(),
+    ))
 }
