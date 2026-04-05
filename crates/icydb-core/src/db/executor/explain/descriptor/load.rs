@@ -57,8 +57,9 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
-    let strict_predicate_compatible =
-        predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
+    let has_residual_predicate = plan.has_residual_predicate();
+    let strict_predicate_compatible = !has_residual_predicate
+        || predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable);
     let execution_mode = explain_execution_mode(route_shape);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
 
@@ -94,7 +95,11 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     annotate_fast_path_reason_node_properties(&mut root, &route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
-    let explain_predicate = explain_predicate_for_plan(plan);
+    let explain_predicate = if has_residual_predicate {
+        explain_predicate_for_plan(plan)
+    } else {
+        None
+    };
     for predicate_stage in predicate_stage_descriptors(
         explain_predicate,
         root.access_strategy.as_ref(),
@@ -178,8 +183,9 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
-    let strict_predicate_compatible =
-        execution_preparation_predicate_index_capability(&execution_preparation)
+    let has_residual_predicate = plan.has_residual_predicate();
+    let strict_predicate_compatible = !has_residual_predicate
+        || execution_preparation_predicate_index_capability(&execution_preparation)
             == Some(IndexPredicateCapability::FullyIndexable);
     let projected_fields = plan
         .projection_spec(model)
@@ -214,7 +220,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-    let predicate_stage = if plan.scalar_plan().predicate.is_none() {
+    let predicate_stage = if !has_residual_predicate {
         "none"
     } else if strict_predicate_compatible {
         "index_prefilter(strict_all_or_none)"
@@ -287,7 +293,7 @@ fn load_covering_scan_reason_for_model(
     if !index_shape_supported {
         return "access_not_cov";
     }
-    if plan.scalar_plan().predicate.is_some() && !strict_predicate_compatible {
+    if plan.has_residual_predicate() && !strict_predicate_compatible {
         return "pred_not_strict";
     }
     if plan.scalar_plan().distinct {

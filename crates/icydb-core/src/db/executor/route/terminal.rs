@@ -67,12 +67,12 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 }
 
 // Return whether the structural plan still carries a residual predicate.
-const fn plan_has_predicate(plan: &AccessPlannedQuery) -> bool {
-    plan.scalar_plan().predicate.is_some()
+fn plan_has_predicate(plan: &AccessPlannedQuery) -> bool {
+    plan.has_residual_predicate()
 }
 
 // Return whether the structural plan clears both residual-predicate and DISTINCT gates.
-const fn plan_has_no_predicate_or_distinct(plan: &AccessPlannedQuery) -> bool {
+fn plan_has_no_predicate_or_distinct(plan: &AccessPlannedQuery) -> bool {
     !plan_has_predicate(plan) && !plan.scalar_plan().distinct
 }
 
@@ -158,9 +158,10 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_model
 
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let strict_predicate_compatible = execution_preparation
-        .predicate_capability_profile()
-        .is_some_and(|profile| profile.index() == IndexPredicateCapability::FullyIndexable);
+    let strict_predicate_compatible = !plan.has_residual_predicate()
+        || execution_preparation
+            .predicate_capability_profile()
+            .is_some_and(|profile| profile.index() == IndexPredicateCapability::FullyIndexable);
 
     derive_load_terminal_fast_path_contract_for_model(model, plan, strict_predicate_compatible)
 }

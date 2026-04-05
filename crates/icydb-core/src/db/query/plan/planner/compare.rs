@@ -90,7 +90,7 @@ pub(super) fn plan_compare(
             let Some(field_type) = schema.field(&cmp.field) else {
                 return AccessPlan::full_scan();
             };
-            if strict_field_range_requires_full_scan(field_type, cmp.coercion.id) {
+            if !field_type.is_orderable() {
                 return AccessPlan::full_scan();
             }
 
@@ -129,11 +129,12 @@ pub(super) fn plan_compare(
             }
 
             // Keep the starts-with split explicit:
-            // - strict scalar text fields still fail closed because raw field-key
-            //   range ordering is not prefix-safe today
-            // - expression-key lookups that can derive a canonical prefix value
-            //   (for example text-casefold expression indexes) may still lower
-            //   onto the index-range path below
+            // - raw field-key text prefixes now lower onto the same bounded
+            //   semantic range contract as equivalent `>=`/`< next_prefix`
+            //   forms
+            // - expression-key lookups still keep their lower-bounded shape
+            //   because the derived expression ordering does not yet expose one
+            //   tighter planner-owned upper-bound contract
             if let Some(path) = plan_starts_with_compare(model, schema, cmp, query_predicate) {
                 return path;
             }
@@ -191,24 +192,17 @@ fn plan_starts_with_compare(
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
-    // This helper is intentionally narrower than the top-level StartsWith arm.
-    // It exists to preserve the expression-key/text-casefold lowering lane,
-    // not to make strict scalar text-prefix planning look range-safe when the
-    // underlying field-key encoding still is not.
+    // This helper owns the shared starts-with range lowering contract for both
+    // raw field keys and the expression-key casefold path.
     let field_type = schema.field(&cmp.field)?;
+    if !field_type.is_text() {
+        return None;
+    }
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
     for index in sorted_indexes(model, query_predicate) {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };
-        if matches!(
-            leading_key_item,
-            crate::model::index::IndexKeyItem::Field(key_field)
-                if key_field == cmp.field.as_str()
-                    && strict_field_range_requires_full_scan(field_type, cmp.coercion.id)
-        ) {
-            continue;
-        }
         let Some(prefix) = starts_with_lookup_value_for_key_item(
             leading_key_item,
             cmp.field.as_str(),
@@ -245,12 +239,4 @@ fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {
     next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
         Bound::Excluded(Value::Text(next_prefix))
     })
-}
-
-fn strict_field_range_requires_full_scan(field_type: &FieldType, coercion: CoercionId) -> bool {
-    // Raw secondary-index key ordering includes per-component length framing, so
-    // strict field-key text ranges are not lexicographically preserved at the
-    // raw-byte scan boundary. Fail closed until text range scans use an order-
-    // preserving index representation.
-    coercion == CoercionId::Strict && field_type.is_text()
 }

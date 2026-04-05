@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.68.x] 📚 - 2026-04-04 - First-Class Covering Reads
 
+- `0.68.4` makes equivalent text-prefix SQL forms such as `LIKE 'A%'`, `STARTS_WITH(name, 'A')`, and explicit `>= / <` bounds stay on the same bounded index-backed read path, teaches guarded filtered-index `ORDER BY ... LIMIT` reads to use that ordered covering route too, and broadens canister and perf coverage around those cases.
 - `0.68.3` keeps the new ordered read paths in place, fixes a text-index ordering bug so `ORDER BY LOWER(name)` and related expression-backed reads return rows in true lexical order, and extends canister perf coverage for those expression-backed routes.
 - `0.68.2` makes more ordered SQL projections stay on the shared index-backed path, including more index-covered projections and composite `ORDER BY ... LIMIT` reads, and moves the PocketIC SQL harness onto a per-test `canic-testkit` lifecycle so those routes are exercised more reliably.
 - `0.68.1` keeps the `0.68.0` planner groundwork in place and makes common cursorless SQL projection reads cheaper by teaching that lane to skip cursor output, skip some extra page bookkeeping, and avoid carrying full row payloads when retained slot rows are already enough.

@@ -164,8 +164,8 @@ impl PreparedScalarMaterializedBoundary<'_> {
 
     /// Return whether the boundary still has a residual predicate.
     #[must_use]
-    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
-        self.logical_plan.scalar_plan().predicate.is_some()
+    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
+        self.logical_plan.has_residual_predicate()
     }
 
     /// Return whether the boundary still enables scalar DISTINCT semantics.
@@ -176,7 +176,7 @@ impl PreparedScalarMaterializedBoundary<'_> {
 
     /// Return whether predicate and DISTINCT gates are both clear.
     #[must_use]
-    pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
+    pub(in crate::db::executor) fn has_no_predicate_or_distinct(&self) -> bool {
         !self.has_predicate() && !self.is_distinct()
     }
 

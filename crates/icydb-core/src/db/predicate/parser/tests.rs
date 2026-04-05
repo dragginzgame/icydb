@@ -80,6 +80,30 @@ fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
 }
 
 #[test]
+fn parse_sql_predicate_ordered_text_compares_stay_strict() {
+    let predicate =
+        parse_sql_predicate("name >= 'Al' AND name < 'Am'").expect("text range should parse");
+
+    assert_eq!(
+        predicate,
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Gte,
+                Value::Text("Al".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Lt,
+                Value::Text("Am".to_string()),
+                CoercionId::Strict,
+            )),
+        ]),
+    );
+}
+
+#[test]
 fn parse_sql_predicate_direct_starts_with_lowers_to_strict_starts_with_intent() {
     let predicate = parse_sql_predicate("STARTS_WITH(name, 'Al')")
         .expect("direct STARTS_WITH predicate should parse");

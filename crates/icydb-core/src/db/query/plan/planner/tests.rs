@@ -6,7 +6,7 @@
 use super::*;
 use crate::{
     db::{
-        access::{SemanticIndexRangeSpec, normalize_access_plan_value},
+        access::{AccessPath, SemanticIndexRangeSpec, normalize_access_plan_value},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
         query::{
             intent::{KeyAccess, build_access_plan_from_keys},
@@ -370,7 +370,40 @@ fn planner_order_only_filtered_index_fails_closed_without_guard_predicate() {
 }
 
 #[test]
-fn planner_order_only_single_field_index_fails_closed_for_strict_text_prefix_predicate() {
+fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_FILTERED_MODEL)
+        .expect("planner filtered order-only test model should produce schema info");
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "active",
+        CompareOp::Eq,
+        Value::Bool(true),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_FILTERED_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("guarded filtered order-only access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            PLANNER_ORDER_FILTERED_INDEXES[0],
+            vec![0usize],
+            Vec::new(),
+            Bound::Unbounded,
+            Bound::Unbounded,
+        )),
+        "filtered indexes should satisfy order-only access once the query implies their guard",
+    );
+}
+
+#[test]
+fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
     let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_MODEL)
         .expect("planner strict text-prefix order-only test model should produce schema info");
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
@@ -389,10 +422,22 @@ fn planner_order_only_single_field_index_fails_closed_for_strict_text_prefix_pre
     )
     .expect("strict text-prefix order-only access planning should succeed");
 
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("strict raw-field text-prefix predicate should lower to one index path");
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!("strict raw-field text-prefix predicate should lower to one index range");
+    };
+
+    assert_eq!(spec.index().name(), "name_idx");
+    assert!(spec.prefix_values().is_empty());
     assert_eq!(
-        planner_shape,
-        AccessPlan::full_scan(),
-        "strict raw-field text-prefix predicates must keep the fail-closed full-scan route even when ORDER BY matches the secondary index",
+        spec.lower(),
+        &Bound::Included(Value::Text("sam".to_string()))
+    );
+    assert_eq!(
+        spec.upper(),
+        &Bound::Excluded(Value::Text("san".to_string()))
     );
 }
 

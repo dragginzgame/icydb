@@ -72,17 +72,59 @@ fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predic
     if index.predicate().is_none() {
         return true;
     }
+
+    filtered_index_predicate_query_relation(
+        index,
+        query_predicate,
+        PredicateImplicationDirection::QueryImpliesIndex,
+    )
+}
+
+pub(in crate::db) fn filtered_index_predicate_satisfies_query(
+    index: &IndexModel,
+    query_predicate: &Predicate,
+) -> bool {
+    if index.predicate().is_none() {
+        return false;
+    }
+
+    filtered_index_predicate_query_relation(
+        index,
+        query_predicate,
+        PredicateImplicationDirection::IndexImpliesQuery,
+    )
+}
+
+fn filtered_index_predicate_query_relation(
+    index: &IndexModel,
+    query_predicate: &Predicate,
+    direction: PredicateImplicationDirection,
+) -> bool {
+    if index.predicate().is_none() {
+        return false;
+    }
     let Ok(index_predicate) = canonical_index_predicate(index) else {
         return false;
     };
     let Some(index_predicate) = index_predicate else {
-        return true;
-    };
-
-    let Some(required) = required_compare_clauses(index_predicate) else {
         return false;
     };
-    let query = query_compare_clauses(query_predicate);
+
+    match direction {
+        PredicateImplicationDirection::QueryImpliesIndex => {
+            predicate_implies_predicate(query_predicate, index_predicate)
+        }
+        PredicateImplicationDirection::IndexImpliesQuery => {
+            predicate_implies_predicate(index_predicate, query_predicate)
+        }
+    }
+}
+
+fn predicate_implies_predicate(implying: &Predicate, required: &Predicate) -> bool {
+    let Some(required) = required_compare_clauses(required) else {
+        return false;
+    };
+    let query = query_compare_clauses(implying);
 
     match query {
         QueryCompareClauses::Unsatisfiable => true,
@@ -98,6 +140,11 @@ fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predic
             }
         },
     }
+}
+
+enum PredicateImplicationDirection {
+    QueryImpliesIndex,
+    IndexImpliesQuery,
 }
 
 ///

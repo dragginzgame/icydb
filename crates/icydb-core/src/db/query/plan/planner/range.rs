@@ -9,7 +9,7 @@ use crate::{
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
         query::plan::planner::{index_literal_matches_schema, sorted_indexes},
-        schema::{FieldType, SchemaInfo},
+        schema::SchemaInfo,
     },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
@@ -184,7 +184,7 @@ fn field_constraint_for_index_field(
         if cmp.field.as_str() != *field_name {
             continue;
         }
-        if strict_field_range_requires_full_scan(field_type, cmp.coercion.id, cmp.op) {
+        if cmp.coercion.id == CoercionId::Strict && !field_type.is_orderable() {
             return None;
         }
         if !cached.literal_compatible || !index.is_field_indexable(field_name, cmp.op) {
@@ -324,23 +324,6 @@ fn compare_range_bound_values(left: &Value, right: &Value) -> Option<Ordering> {
 
     None
 }
-
-fn strict_field_range_requires_full_scan(
-    field_type: &FieldType,
-    coercion: CoercionId,
-    op: CompareOp,
-) -> bool {
-    // Raw secondary-index key ordering includes per-component length framing, so
-    // strict field-key text ranges are not lexicographically preserved at the
-    // raw-byte scan boundary. Fail closed for ordered text range extraction.
-    coercion == CoercionId::Strict
-        && field_type.is_text()
-        && matches!(
-            op,
-            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
-        )
-}
-
 ///
 /// TESTS
 ///

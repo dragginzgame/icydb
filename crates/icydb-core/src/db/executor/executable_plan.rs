@@ -141,8 +141,8 @@ impl ExecutablePlanCore {
     }
 
     #[must_use]
-    const fn has_predicate(&self) -> bool {
-        self.plan.scalar_plan().predicate.is_some()
+    fn has_predicate(&self) -> bool {
+        self.plan.has_residual_predicate()
     }
 
     fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
@@ -611,7 +611,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     /// Return whether this executable plan has a residual predicate.
     #[must_use]
-    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
+    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
         self.core.has_predicate()
     }
 

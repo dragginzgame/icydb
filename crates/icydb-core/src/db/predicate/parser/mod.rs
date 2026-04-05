@@ -355,7 +355,13 @@ fn like_prefix_from_pattern(pattern: &str) -> Option<&str> {
 
 fn predicate_compare(field: String, op: CompareOp, value: Value) -> Predicate {
     let coercion = match op {
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => CoercionId::NumericWiden,
+        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
+            if matches!(value, Value::Text(_)) {
+                CoercionId::Strict
+            } else {
+                CoercionId::NumericWiden
+            }
+        }
         _ => CoercionId::Strict,
     };
 

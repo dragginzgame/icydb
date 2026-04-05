@@ -31,7 +31,7 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     plan: &AccessPlannedQuery,
 ) -> (bool, bool, bool) {
     let logical = plan.scalar_plan();
-    let has_residual_filter = logical.predicate.is_some();
+    let has_residual_filter = plan.has_residual_predicate();
     let access_order_satisfied_by_path =
         crate::db::executor::route::access_order_satisfied_by_route_contract_for_model(model, plan);
     let has_order = logical

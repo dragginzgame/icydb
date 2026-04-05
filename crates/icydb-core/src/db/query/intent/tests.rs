@@ -2101,7 +2101,7 @@ fn explain_execution_verbose_reports_equivalent_prefix_like_route_stage_parity()
 }
 
 #[test]
-fn explain_execution_verbose_reports_strict_text_prefix_like_full_scan_fallback_stage() {
+fn explain_execution_verbose_reports_strict_text_prefix_like_index_range_pushdown_stage() {
     let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
@@ -2117,23 +2117,23 @@ fn explain_execution_verbose_reports_strict_text_prefix_like_full_scan_fallback_
     let diagnostics = verbose_diagnostics_map(&starts_with_verbose);
     assert_eq!(
         diagnostics.get("diag.p.predicate_pushdown"),
-        Some(&"fallback(full_scan)".to_string()),
-        "strict field-key text starts-with must fail closed instead of using raw index-range pushdown",
+        Some(&"applied(index_range)".to_string()),
+        "strict field-key text starts-with should surface the bounded index-range pushdown reason",
     );
     assert_eq!(
         diagnostics.get("diag.r.predicate_stage"),
-        Some(&"residual_post_access".to_string()),
-        "strict field-key text starts-with must preserve residual filtering on the full-scan path",
+        Some(&"index_prefilter(strict_all_or_none)".to_string()),
+        "strict field-key text starts-with should compile to one strict index prefilter stage",
     );
     assert_eq!(
         diagnostics.get("diag.d.has_index_predicate_prefilter"),
-        Some(&"false".to_string()),
-        "strict field-key text starts-with must not emit a strict index prefilter when range pushdown is disabled",
+        Some(&"true".to_string()),
+        "strict field-key text starts-with should emit the strict index prefilter flag",
     );
     assert_eq!(
         diagnostics.get("diag.d.has_residual_predicate_filter"),
-        Some(&"true".to_string()),
-        "strict field-key text starts-with must retain residual predicate filtering on the fallback path",
+        Some(&"false".to_string()),
+        "strict field-key text starts-with should not keep residual filtering once the bounded range is exact",
     );
 }
 

@@ -1,5 +1,5 @@
 use icydb::design::prelude::Ulid;
-use icydb_testing_quickstart_fixtures::schema::{Order, User};
+use icydb_testing_quickstart_fixtures::schema::{ActiveUser, Order, User};
 
 /// Build one deterministic baseline user fixture batch.
 #[must_use]
@@ -43,6 +43,33 @@ pub fn orders() -> Vec<Order> {
             user_id: Ulid::generate(),
             status: "failed".to_string(),
             total_cents: 520,
+            ..Default::default()
+        },
+    ]
+}
+
+/// Build one deterministic filtered-index fixture batch.
+#[must_use]
+pub fn active_users() -> Vec<ActiveUser> {
+    vec![
+        ActiveUser {
+            name: "amber".to_string(),
+            active: false,
+            ..Default::default()
+        },
+        ActiveUser {
+            name: "bravo".to_string(),
+            active: true,
+            ..Default::default()
+        },
+        ActiveUser {
+            name: "charlie".to_string(),
+            active: true,
+            ..Default::default()
+        },
+        ActiveUser {
+            name: "delta".to_string(),
+            active: false,
             ..Default::default()
         },
     ]

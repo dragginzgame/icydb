@@ -49,8 +49,8 @@ impl<'a, K> PostAccessContract<'a, K> {
 
     /// Project residual predicate-presence bit for filter-phase gating.
     #[must_use]
-    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
-        self.plan.scalar_plan().predicate.is_some()
+    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
+        self.plan.has_residual_predicate()
     }
 
     /// Borrow the planned access query for post-access runtime helpers.

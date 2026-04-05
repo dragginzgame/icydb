@@ -39,14 +39,15 @@ struct SqlCoveringMaterializationContext<'a> {
 ///
 /// SqlRouteCoveringSlotLayout
 ///
-/// Planner-derived slot template and component-slot grouping for the
+/// Planner-derived slot layout and component-slot grouping for the
 /// route-owned SQL covering-read materializer.
 ///
 
 #[cfg(feature = "sql")]
 struct SqlRouteCoveringSlotLayout {
     primary_key_slot: usize,
-    slot_template: Vec<Option<Value>>,
+    slot_count: usize,
+    constant_slots: Vec<(usize, Value)>,
     component_slots: Vec<CoveringComponentSlotGroup>,
 }
 
@@ -131,7 +132,7 @@ impl ExecutionKernel {
         let mut rows = Vec::with_capacity(staged_capacity);
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
-        let predicate_preapplied = plan.scalar_plan().predicate.is_some();
+        let predicate_preapplied = plan.has_residual_predicate();
         let _ = continuation;
         let _ = stream_order_contract_safe;
 
@@ -540,7 +541,7 @@ fn try_materialize_sql_route_covering_slot_rows(
 }
 
 #[cfg(feature = "sql")]
-// Derive one route-owned slot template plus component-slot grouping for the
+// Derive one route-owned slot layout plus component-slot grouping for the
 // SQL covering-read fast path and reject any residual predicate that reaches
 // beyond the fail-closed covered slot set.
 fn sql_route_covering_slot_layout(
@@ -557,11 +558,11 @@ fn sql_route_covering_slot_layout(
                 "covering-read SQL short path requires a primary-key slot",
             )
         })?;
-    let mut slot_template = vec![None; model.fields.len()];
+    let mut constant_slots = Vec::new();
     let mut covered_slots = vec![false; model.fields.len()];
     let mut component_slots = Vec::<CoveringComponentSlotGroup>::new();
 
-    // Phase 1: project one slot template from the planner-owned contract and
+    // Phase 1: project one sparse slot layout from the planner-owned contract and
     // group decoded component fields by their index component position.
     covered_slots[primary_key_slot] = true;
     for field in &covering.fields {
@@ -570,7 +571,7 @@ fn sql_route_covering_slot_layout(
                 covered_slots[field.field_slot.index] = true;
             }
             CoveringReadFieldSource::Constant(value) => {
-                slot_template[field.field_slot.index] = Some(value.clone());
+                constant_slots.push((field.field_slot.index, value.clone()));
                 covered_slots[field.field_slot.index] = true;
             }
             CoveringReadFieldSource::IndexComponent { component_index } => {
@@ -598,7 +599,8 @@ fn sql_route_covering_slot_layout(
 
     Ok(Some(SqlRouteCoveringSlotLayout {
         primary_key_slot,
-        slot_template,
+        slot_count: model.fields.len(),
+        constant_slots,
         component_slots,
     }))
 }
@@ -654,7 +656,7 @@ fn sql_route_covering_component_rows(
 
 #[cfg(feature = "sql")]
 // Materialize final slot rows from one decoded covering component stream while
-// preserving residual predicate evaluation over the projected slot template.
+// preserving residual predicate evaluation over the projected slot layout.
 fn sql_route_covering_slot_rows_from_decoded(
     layout: &SqlRouteCoveringSlotLayout,
     predicate_slots: Option<&PredicateProgram>,
@@ -663,18 +665,33 @@ fn sql_route_covering_slot_rows_from_decoded(
     let mut rows = Vec::with_capacity(decoded_rows.len());
 
     for (data_key, component_values) in decoded_rows {
-        let mut row = layout.slot_template.clone();
+        // Phase 1: build one fresh sparse slot row from the immutable covering
+        // layout instead of cloning a full slot template per decoded key.
+        let mut row = vec![None; layout.slot_count];
         row[layout.primary_key_slot] = Some(data_key.storage_key().as_primary_key_value());
+        for (slot, value) in &layout.constant_slots {
+            row[*slot] = Some(value.clone());
+        }
+
+        // Phase 2: fill decoded component values, cloning only when one
+        // component fans out to more than one projected slot.
         for ((_, slots), component_value) in layout
             .component_slots
             .iter()
             .zip(component_values.into_iter())
         {
-            for slot in slots {
+            let Some((last_slot, prefix_slots)) = slots.split_last() else {
+                continue;
+            };
+
+            for slot in prefix_slots {
                 row[*slot] = Some(component_value.clone());
             }
+            row[*last_slot] = Some(component_value);
         }
 
+        // Phase 3: preserve the residual predicate contract before staging the
+        // row into the SQL projection output.
         if let Some(predicate_program) = predicate_slots
             && !predicate_program
                 .eval_with_slot_value_ref_reader(&mut |slot| row.get(slot).and_then(Option::as_ref))
@@ -785,7 +802,7 @@ fn sql_constant_covering_slot_row_template(
     if !projection_references_only_fields(&projection, covered_fields.as_slice()) {
         return None;
     }
-    if plan.scalar_plan().predicate.is_some()
+    if plan.has_residual_predicate()
         && !predicate_slots.is_some_and(|predicate| predicate.references_only_slots(&covered_slots))
     {
         return None;

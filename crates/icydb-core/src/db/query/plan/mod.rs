@@ -68,6 +68,7 @@ pub(crate) use model::{
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{ExecutionOrderContract, ExecutionOrdering};
 pub(in crate::db) use order_term::{ExpressionOrderTerm, index_order_terms};
+pub(in crate::db) use planner::filtered_index_predicate_satisfies_query;
 #[cfg(test)]
 pub(crate) use planner::plan_access;
 pub(crate) use planner::{PlannerError, plan_access_with_order};

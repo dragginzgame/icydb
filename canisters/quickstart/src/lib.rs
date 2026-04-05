@@ -17,7 +17,7 @@ use canic_cdk::query;
 use canic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
-use icydb_testing_quickstart_fixtures::schema::{Character, Order, User};
+use icydb_testing_quickstart_fixtures::schema::{ActiveUser, Character, Order, User};
 
 icydb::start!();
 
@@ -57,6 +57,7 @@ fn sql_perf_attribution(
 fn fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<Order>().execute()?;
     db().delete::<Character>().execute()?;
+    db().delete::<ActiveUser>().execute()?;
     db().delete::<User>().execute()?;
 
     Ok(())
@@ -69,6 +70,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
     db().insert_many_atomic(seed::base::users())?;
     db().insert_many_atomic(seed::base::orders())?;
+    db().insert_many_atomic(seed::base::active_users())?;
     db().insert_many_atomic(seed::rpg::characters())?;
 
     Ok(())
@@ -80,7 +82,9 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
-    use super::{Character, SqlQueryResult, User, db, fixtures_load_default, sql_dispatch};
+    use super::{
+        ActiveUser, Character, SqlQueryResult, User, db, fixtures_load_default, sql_dispatch,
+    };
     use candid::encode_one;
     use icydb::{db::PersistedRow, traits::EntityValue};
     use icydb_testing_quickstart_fixtures::schema::QuickstartCanister;
@@ -347,6 +351,10 @@ mod tests {
                     "SHOW ENTITIES should include User fixture entity",
                 );
                 assert!(
+                    entities.contains(&"ActiveUser".to_string()),
+                    "SHOW ENTITIES should include ActiveUser fixture entity",
+                );
+                assert!(
                     entities.contains(&"Order".to_string()),
                     "SHOW ENTITIES should include Order fixture entity",
                 );
@@ -516,6 +524,151 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character direct STARTS_WITH covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character direct STARTS_WITH covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character direct STARTS_WITH covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character direct STARTS_WITH covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character strict text-range covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character strict text-range covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character strict text-range covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character strict text-range covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_equivalent_strict_prefix_forms_match_projection_rows() {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated Character STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated Character text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending Character STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending Character text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_character_order_only_composite_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<Character>(
             "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
@@ -546,6 +699,86 @@ mod tests {
             "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending Character order-only composite covering EXPLAIN parity",
         );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_expected_rows() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bravo");
+                assert_eq!(rows.rows[1][1], "charlie");
+            }
+            other => panic!(
+                "filtered order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "ActiveUser");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "charlie");
+                assert_eq!(rows.rows[1][1], "bravo");
+            }
+            other => panic!(
+                "descending filtered order-only ActiveUser projection should return a projection payload: {other:?}"
+            ),
+        }
     }
 
     #[test]

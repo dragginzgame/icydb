@@ -135,7 +135,7 @@ pub(in crate::db) fn covering_read_plan(
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
         return None;
     }
-    if plan.scalar_plan().predicate.is_some() && !strict_predicate_compatible {
+    if plan.has_residual_predicate() && !strict_predicate_compatible {
         return None;
     }
 

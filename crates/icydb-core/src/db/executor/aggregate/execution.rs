@@ -150,8 +150,8 @@ impl PreparedAggregateStreamingInputs<'_> {
 
     /// Return whether prepared aggregate execution still has a residual predicate.
     #[must_use]
-    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
-        self.logical_plan.scalar_plan().predicate.is_some()
+    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
+        self.logical_plan.has_residual_predicate()
     }
 
     /// Return whether prepared aggregate execution still has scalar DISTINCT enabled.
@@ -162,7 +162,7 @@ impl PreparedAggregateStreamingInputs<'_> {
 
     /// Return whether the prepared aggregate shape clears predicate and DISTINCT gates.
     #[must_use]
-    pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
+    pub(in crate::db::executor) fn has_no_predicate_or_distinct(&self) -> bool {
         !self.has_predicate() && !self.is_distinct()
     }
 

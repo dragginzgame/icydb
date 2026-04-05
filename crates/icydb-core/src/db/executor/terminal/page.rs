@@ -249,7 +249,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         KernelRowPayloadMode::FullRow
     };
 
-    let predicate_preapplied = plan.scalar_plan().predicate.is_some();
+    let predicate_preapplied = plan.has_residual_predicate();
     if predicate_preapplied && predicate_slots.is_none() {
         return Err(InternalError::scalar_page_predicate_slots_required());
     }

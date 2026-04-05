@@ -49,6 +49,20 @@ fn build_quickstart_canister_wasm() -> Vec<u8> {
         .clone()
 }
 
+// Create the resolved temp root up front so canic-testkit can place its
+// PocketIC process lock under caller-provided TMPDIR paths without requiring
+// every test command to pre-create that directory manually.
+fn ensure_pocket_ic_temp_root_exists() {
+    let temp_root = std::env::temp_dir();
+
+    fs::create_dir_all(&temp_root).unwrap_or_else(|err| {
+        panic!(
+            "failed to create PocketIC temp root at {}: {err}",
+            temp_root.display()
+        )
+    });
+}
+
 // Install the quickstart fixture canister into one fresh Pocket-IC canister id.
 fn install_quickstart_canister(pic: &Pic) -> Principal {
     let canister_id = pic.create_canister();
@@ -93,6 +107,7 @@ fn run_with_pocket_ic(test_body: impl FnOnce(&Pic)) {
         return;
     };
 
+    ensure_pocket_ic_temp_root_exists();
     let _serial_guard = acquire_pic_serial_guard();
     let pic = new_pic();
     let test_result = catch_unwind(AssertUnwindSafe(|| test_body(&pic)));
@@ -122,6 +137,15 @@ fn query_projection_rows(
     match payload {
         SqlQueryResult::Projection(rows) => rows,
         other => panic!("{context}: expected Projection payload, got {other:?}"),
+    }
+}
+
+fn query_explain_text(pic: &Pic, canister_id: Principal, sql: &str, context: &str) -> String {
+    let payload = query_result(pic, canister_id, sql).expect(context);
+
+    match payload {
+        SqlQueryResult::Explain { explain, .. } => explain,
+        other => panic!("{context}: expected Explain payload, got {other:?}"),
     }
 }
 
@@ -737,6 +761,7 @@ fn sql_canister_smoke_flow() {
             .query_call(canister_id, "sql_entities", ())
             .expect("sql_entities query call should succeed");
         assert!(entities.iter().any(|name| name == "User"));
+        assert!(entities.iter().any(|name| name == "ActiveUser"));
         assert!(entities.iter().any(|name| name == "Order"));
         assert!(entities.iter().any(|name| name == "Character"));
 
@@ -755,6 +780,10 @@ fn sql_canister_smoke_flow() {
                 assert!(
                     show_entities.iter().any(|entity| entity == "User"),
                     "SHOW ENTITIES payload should include User",
+                );
+                assert!(
+                    show_entities.iter().any(|entity| entity == "ActiveUser"),
+                    "SHOW ENTITIES payload should include ActiveUser",
                 );
                 assert!(
                     show_entities.iter().any(|entity| entity == "Order"),
@@ -1396,6 +1425,158 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_compo
 }
 
 #[test]
+fn sql_canister_query_lane_supports_active_user_filtered_order_only_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one filtered-index guarded order-only projection so
+        // the generated SQL lane reaches the guarded secondary-index route.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+            "query ActiveUser filtered order-only covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the guarded
+        // filtered-index window instead of falling back to materialized rows.
+        assert_eq!(rows.entity, "ActiveUser");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0][1], "bravo".to_string());
+        assert_eq!(rows.rows[1][1], "charlie".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order_only_covering_route()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the guarded filtered
+        // order-only ActiveUser projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query ActiveUser filtered order-only covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "ActiveUser filtered order-only EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // index-range and covering-read labels from the shared descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "ActiveUser");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("covering_read"),
+                    "ActiveUser filtered order-only EXPLAIN EXECUTION should expose the index-range covering route: {explain}",
+                );
+                assert!(
+                    explain.contains("covering_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "ActiveUser filtered order-only EXPLAIN EXECUTION should expose the projected covering fields: {explain}",
+                );
+            }
+            other => panic!(
+                "ActiveUser filtered order-only EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_active_user_filtered_order_only_desc_covering_projection() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute one descending filtered-index guarded order-only
+        // projection so reverse traversal stays locked in the generated lane.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+            "query descending ActiveUser filtered order-only covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the expected
+        // descending filtered-index window.
+        assert_eq!(rows.entity, "ActiveUser");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0][1], "charlie".to_string());
+        assert_eq!(rows.rows[1][1], "bravo".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order_only_desc_covering_route()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: request one execution descriptor for the descending guarded
+        // filtered order-only ActiveUser projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending ActiveUser filtered order-only covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "descending ActiveUser filtered order-only EXPLAIN output should be tagged as explain surface",
+        );
+
+        // Phase 2: assert the generated query lane preserves the stable
+        // reverse index-range and covering-read labels from the shared descriptor.
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "ActiveUser");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("covering_read"),
+                    "descending ActiveUser filtered order-only EXPLAIN EXECUTION should expose the index-range covering route: {explain}",
+                );
+                assert!(
+                    explain.contains("covering_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "descending ActiveUser filtered order-only EXPLAIN EXECUTION should expose the projected covering fields: {explain}",
+                );
+            }
+            other => panic!(
+                "descending ActiveUser filtered order-only EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_rejects_grouped_sql_execution() {
     run_with_pocket_ic(|pic| {
         let canister_id = install_quickstart_canister(pic);
@@ -1574,6 +1755,174 @@ fn sql_canister_query_lane_explain_json_delete_rejects_non_casefold_wrapped_dire
 }
 
 #[test]
+fn sql_canister_query_lane_supports_strict_like_prefix_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+            "query strict LIKE prefix predicate should return projected Character rows",
+        );
+
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0][1], "Alex Ander".to_string());
+        assert_eq!(rows.rows[1][1], "Astroth Slaemworth".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_strict_like_prefix_desc_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+            "query descending strict LIKE prefix predicate should return projected Character rows",
+        );
+
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0][1], "Azizi Johari".to_string());
+        assert_eq!(rows.rows[1][1], "Astroth Slaemworth".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_strict_text_range_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+            "query strict text-range predicate should return projected Character rows",
+        );
+
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0][1], "Alex Ander".to_string());
+        assert_eq!(rows.rows[1][1], "Astroth Slaemworth".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_strict_text_range_desc_predicate() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+            "query descending strict text-range predicate should return projected Character rows",
+        );
+
+        assert_eq!(rows.entity, "Character");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
+        assert_eq!(rows.rows[0][1], "Azizi Johari".to_string());
+        assert_eq!(rows.rows[1][1], "Astroth Slaemworth".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_equivalent_strict_prefix_forms_match_character_projection_rows() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute the three accepted strict text-prefix spellings
+        // against the same ordered Character projection window.
+        let like_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+            "Character strict LIKE prefix predicate should return projected rows",
+        );
+        let starts_with_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+            "Character direct STARTS_WITH predicate should return projected rows",
+        );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+            "Character strict text-range predicate should return projected rows",
+        );
+
+        // Phase 2: keep the canister query lane pinned to one shared result set
+        // across the equivalent strict prefix spellings.
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "Character direct STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "Character strict text-range and LIKE prefix query rows should stay in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_equivalent_desc_strict_prefix_forms_match_character_projection_rows() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute the three accepted descending strict text-prefix
+        // spellings against the same reverse Character projection window.
+        let like_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+            "descending Character strict LIKE prefix predicate should return projected rows",
+        );
+        let starts_with_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+            "descending Character direct STARTS_WITH predicate should return projected rows",
+        );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+            "descending Character strict text-range predicate should return projected rows",
+        );
+
+        // Phase 2: keep the reverse canister query lane pinned to one shared
+        // result set across the equivalent strict prefix spellings.
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "descending Character direct STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "descending Character strict text-range and LIKE prefix query rows should stay in parity",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_direct_starts_with_predicate() {
     run_with_pocket_ic(|pic| {
         let canister_id = install_quickstart_canister(pic);
@@ -1633,6 +1982,260 @@ fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
         assert_eq!(rows.row_count, 1);
         assert_eq!(rows.rows.len(), 1);
         assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_strict_like_prefix_covering_route() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("query Character strict LIKE prefix EXPLAIN EXECUTION should return an Ok payload");
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "Character strict LIKE prefix EXPLAIN output should be tagged as explain surface",
+        );
+
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("covering_read")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("OrderByAccessSatisfied"),
+                    "Character strict LIKE prefix EXPLAIN EXECUTION should expose the bounded covering index-range route: {explain}",
+                );
+                assert!(
+                    explain.contains("proj_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "Character strict LIKE prefix EXPLAIN EXECUTION should expose the projected fields: {explain}",
+                );
+            }
+            other => panic!(
+                "Character strict LIKE prefix EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_covering_route() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("query Character strict text-range EXPLAIN EXECUTION should return an Ok payload");
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "Character strict text-range EXPLAIN output should be tagged as explain surface",
+        );
+
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("covering_read")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("OrderByAccessSatisfied"),
+                    "Character strict text-range EXPLAIN EXECUTION should expose the bounded covering index-range route: {explain}",
+                );
+                assert!(
+                    explain.contains("proj_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "Character strict text-range EXPLAIN EXECUTION should expose the projected fields: {explain}",
+                );
+            }
+            other => panic!(
+                "Character strict text-range EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_strict_text_range_desc_covering_route() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending Character strict text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+        let explain_lines = payload.render_lines();
+
+        assert_eq!(
+            explain_lines.first().map(String::as_str),
+            Some("surface=explain"),
+            "descending Character strict text-range EXPLAIN output should be tagged as explain surface",
+        );
+
+        match payload {
+            SqlQueryResult::Explain { entity, explain } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    explain.contains("IndexRangeScan")
+                        && explain.contains("covering_read")
+                        && explain.contains("cov_read_route")
+                        && explain.contains("OrderByAccessSatisfied")
+                        && explain.contains("scan_dir=Text(\"desc\")"),
+                    "descending Character strict text-range EXPLAIN EXECUTION should expose the bounded reverse covering index-range route: {explain}",
+                );
+                assert!(
+                    explain.contains("proj_fields")
+                        && explain.contains("id")
+                        && explain.contains("name"),
+                    "descending Character strict text-range EXPLAIN EXECUTION should expose the projected fields: {explain}",
+                );
+            }
+            other => panic!(
+                "descending Character strict text-range EXPLAIN EXECUTION should return Explain payload, got {other:?}"
+            ),
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_equivalent_strict_prefix_forms_preserve_character_covering_route()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute the three accepted strict text-prefix spellings on
+        // the same ordered Character explain window.
+        let explains = [
+            (
+                "strict LIKE prefix",
+                query_explain_text(
+                    pic,
+                    canister_id,
+                    "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+                    "Character strict LIKE prefix EXPLAIN EXECUTION should return Explain payload",
+                ),
+            ),
+            (
+                "direct STARTS_WITH",
+                query_explain_text(
+                    pic,
+                    canister_id,
+                    "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+                    "Character direct STARTS_WITH EXPLAIN EXECUTION should return Explain payload",
+                ),
+            ),
+            (
+                "strict text range",
+                query_explain_text(
+                    pic,
+                    canister_id,
+                    "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+                    "Character strict text-range EXPLAIN EXECUTION should return Explain payload",
+                ),
+            ),
+        ];
+
+        // Phase 2: keep the canister explain lane pinned to one shared
+        // covering route across the equivalent strict prefix spellings.
+        for (context, explain) in explains {
+            assert!(
+                explain.contains("IndexRangeScan")
+                    && explain.contains("covering_read")
+                    && explain.contains("cov_read_route")
+                    && explain.contains("OrderByAccessSatisfied"),
+                "{context} EXPLAIN EXECUTION should expose the bounded covering index-range route: {explain}",
+            );
+            assert!(
+                explain.contains("proj_fields")
+                    && explain.contains("id")
+                    && explain.contains("name"),
+                "{context} EXPLAIN EXECUTION should expose the projected fields: {explain}",
+            );
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_equivalent_desc_strict_prefix_forms_preserve_character_covering_route()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: execute the three accepted descending strict text-prefix
+        // spellings on the same reverse Character explain window.
+        let explains = [
+            (
+                "descending strict LIKE prefix",
+                query_explain_text(
+                    pic,
+                    canister_id,
+                    "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+                    "descending Character strict LIKE prefix EXPLAIN EXECUTION should return Explain payload",
+                ),
+            ),
+            (
+                "descending direct STARTS_WITH",
+                query_explain_text(
+                    pic,
+                    canister_id,
+                    "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+                    "descending Character direct STARTS_WITH EXPLAIN EXECUTION should return Explain payload",
+                ),
+            ),
+            (
+                "descending strict text range",
+                query_explain_text(
+                    pic,
+                    canister_id,
+                    "EXPLAIN EXECUTION SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+                    "descending Character strict text-range EXPLAIN EXECUTION should return Explain payload",
+                ),
+            ),
+        ];
+
+        // Phase 2: keep the reverse canister explain lane pinned to one shared
+        // covering route across the equivalent strict prefix spellings.
+        for (context, explain) in explains {
+            assert!(
+                explain.contains("IndexRangeScan")
+                    && explain.contains("covering_read")
+                    && explain.contains("cov_read_route")
+                    && explain.contains("OrderByAccessSatisfied")
+                    && explain.contains("scan_dir=Text(\"desc\")"),
+                "{context} EXPLAIN EXECUTION should expose the bounded reverse covering index-range route: {explain}",
+            );
+            assert!(
+                explain.contains("proj_fields")
+                    && explain.contains("id")
+                    && explain.contains("name"),
+                "{context} EXPLAIN EXECUTION should expose the projected fields: {explain}",
+            );
+        }
     });
 }
 
@@ -2039,6 +2642,86 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "generated.dispatch.active_user_filtered_order_only_name_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.active_user_filtered_order_only_name_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.character_strict_like_name_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.character_strict_like_name_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM Character WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.character_direct_starts_with_name_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.character_direct_starts_with_name_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM Character WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.character_strict_range_name_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.character_strict_range_name_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "generated.dispatch.user_expression_order.lower_name_id_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
@@ -2429,6 +3112,249 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_repo
 }
 
 #[test]
+fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the guarded
+        // filtered-index order-only ActiveUser covering shape.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch sample stays structurally
+        // sane and returns the expected ActiveUser projection window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "ActiveUser filtered order-only first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "ActiveUser filtered order-only min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "ActiveUser filtered order-only max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "ActiveUser filtered order-only total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "ActiveUser filtered order-only repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "ActiveUser filtered order-only generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("ActiveUser"),
+            "ActiveUser filtered order-only perf sample should stay on the ActiveUser route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "ActiveUser filtered order-only perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the descending
+        // guarded filtered-index order-only ActiveUser covering shape.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch sample stays
+        // structurally sane and returns the expected ActiveUser window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "descending ActiveUser filtered order-only first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "descending ActiveUser filtered order-only min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "descending ActiveUser filtered order-only max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "descending ActiveUser filtered order-only total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "descending ActiveUser filtered order-only repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "descending ActiveUser filtered order-only generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("ActiveUser"),
+            "descending ActiveUser filtered order-only perf sample should stay on the ActiveUser route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending ActiveUser filtered order-only perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_strict_text_range_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the explicit
+        // Character strict text-range covering shape so perf regression checks
+        // stay on the checked-in bounded-range SQL form.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch sample stays structurally
+        // sane and returns the expected Character projection window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "Character strict text-range first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "Character strict text-range min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "Character strict text-range max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "Character strict text-range total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "Character strict text-range repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "Character strict text-range generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character strict text-range perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character strict text-range perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_strict_text_range_desc_reports_positive_instruction_samples()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: sample the generated query surface for the descending
+        // explicit Character strict text-range covering shape so reverse
+        // bounded traversal stays pinned in the checked-in perf suite.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch sample stays
+        // structurally sane and returns the expected Character projection
+        // window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "descending Character strict text-range first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "descending Character strict text-range min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "descending Character strict text-range max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "descending Character strict text-range total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "descending Character strict text-range repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "descending Character strict text-range generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character strict text-range perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character strict text-range perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
 #[ignore = "manual perf probe for before/after measurement runs"]
 fn sql_canister_perf_probe_reports_sample_as_json() {
     run_with_pocket_ic(|pic| {
@@ -2678,6 +3604,167 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_attr
             sample.outcome.row_count,
             Some(2),
             "descending Character order-only composite attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the guarded
+        // filtered-index order-only ActiveUser covering shape.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch attribution keeps positive
+        // stage accounting on the guarded filtered-index route.
+        assert_positive_scalar_attribution_sample(
+            "generated.active_user_filtered_order_only",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("ActiveUser"),
+            "ActiveUser filtered order-only attribution should stay on the ActiveUser route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "ActiveUser filtered order-only attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the descending
+        // guarded filtered-index order-only ActiveUser covering shape.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch attribution keeps
+        // positive stage accounting on the reverse guarded filtered-index route.
+        assert_positive_scalar_attribution_sample(
+            "generated.active_user_filtered_order_only_desc",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("ActiveUser"),
+            "descending ActiveUser filtered order-only attribution should stay on the ActiveUser route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending ActiveUser filtered order-only attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_strict_text_range_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the explicit
+        // Character strict text-range covering shape added to the harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch attribution keeps positive
+        // stage accounting on the bounded Character text-range route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_strict_text_range",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character strict text-range attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character strict text-range attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_strict_text_range_desc_attribution_reports_positive_stages()
+ {
+    run_with_pocket_ic(|pic| {
+        let canister_id = install_quickstart_canister(pic);
+        load_default_fixtures(pic, canister_id);
+
+        // Phase 1: attribute the generated query surface for the descending
+        // explicit Character strict text-range covering shape added to the
+        // harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, name FROM Character WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch attribution keeps
+        // positive stage accounting on the reverse bounded Character route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_strict_text_range_desc",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character strict text-range attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character strict text-range attribution should return the requested window size",
         );
     });
 }

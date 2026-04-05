@@ -587,6 +587,47 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
 }
 
 #[test]
+fn parse_select_statement_with_strict_text_range_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE name >= 'Al' AND name < 'Am' \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("strict text-range select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "name",
+                    CompareOp::Gte,
+                    Value::Text("Al".to_string()),
+                    CoercionId::Strict,
+                )),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "name",
+                    CompareOp::Lt,
+                    Value::Text("Am".to_string()),
+                    CoercionId::Strict,
+                )),
+            ])),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_direct_starts_with_predicate() {
     let statement = parse_sql(
         "SELECT * FROM users \

@@ -6,14 +6,10 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        predicate::Predicate,
         query::plan::{OrderSpec, index_order_terms, planner::sorted_indexes},
-        schema::SchemaInfo,
     },
-    model::{
-        entity::EntityModel,
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
-    },
+    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
@@ -23,7 +19,6 @@ use std::ops::Bound;
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order(
     model: &EntityModel,
-    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     query_predicate: Option<&Predicate>,
 ) -> Option<AccessPlan<Value>> {
@@ -47,9 +42,6 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
         ) {
             continue;
         }
-        if predicate_blocks_order_index_range_fallback(schema, query_predicate, index) {
-            continue;
-        }
 
         // Encode one whole-index ordered scan as an unbounded index-range with
         // zero equality prefix. The first index slot becomes the range anchor
@@ -66,65 +58,4 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     }
 
     None
-}
-
-// Keep order-only fallback conservative when the query predicate contains one
-// strict text range-like compare against a raw field key of the candidate
-// index. Those predicates intentionally fail closed on the compare/range lanes,
-// so the order-only fallback must not silently reintroduce the same raw-field
-// index-range shape under a different route label.
-fn predicate_blocks_order_index_range_fallback(
-    schema: &SchemaInfo,
-    predicate: &Predicate,
-    index: &IndexModel,
-) -> bool {
-    match predicate {
-        Predicate::And(children) | Predicate::Or(children) => children
-            .iter()
-            .any(|child| predicate_blocks_order_index_range_fallback(schema, child, index)),
-        Predicate::Not(inner) => predicate_blocks_order_index_range_fallback(schema, inner, index),
-        Predicate::Compare(cmp) => compare_blocks_order_index_range_fallback(schema, cmp, index),
-        Predicate::True
-        | Predicate::False
-        | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => false,
-    }
-}
-
-fn compare_blocks_order_index_range_fallback(
-    schema: &SchemaInfo,
-    cmp: &ComparePredicate,
-    index: &IndexModel,
-) -> bool {
-    if cmp.coercion.id != CoercionId::Strict
-        || !matches!(
-            cmp.op,
-            CompareOp::StartsWith | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
-        )
-    {
-        return false;
-    }
-
-    let Some(field_type) = schema.field(cmp.field.as_str()) else {
-        return false;
-    };
-    if !field_type.is_text() {
-        return false;
-    }
-
-    index_contains_raw_field_key(index, cmp.field.as_str())
-}
-
-fn index_contains_raw_field_key(index: &IndexModel, field: &str) -> bool {
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => fields.contains(&field),
-        IndexKeyItemsRef::Items(items) => items
-            .iter()
-            .any(|item| matches!(item, IndexKeyItem::Field(index_field) if *index_field == field)),
-    }
 }

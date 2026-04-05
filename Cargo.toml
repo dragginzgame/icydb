@@ -39,9 +39,9 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.24.1"
-canic-memory = "0.24.1"
-canic-testkit = "0.24.1"
+canic-cdk = "0.24.3"
+canic-memory = "0.24.3"
+canic-testkit = "0.24.3"
 convert_case = "0.11"
 ctor = "0.8"
 darling = "0.23"
@@ -77,7 +77,7 @@ serde_json = "1.0"
 sha2 = "0.11"
 syn = "2.0"
 thiserror = "2.0"
-time = { version = "0.3", default-features = false, features = ["parsing"] }
+time = { version = "0.3", default-features = false, features = ["formatting", "parsing"] }
 trybuild = "1.0"
 # removed std because it imports rand; serde feature doesn't compile with std
 ulid = { version = "1.2", default-features = false }

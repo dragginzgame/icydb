@@ -5,12 +5,13 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPath, AccessPlan},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
             ScalarPlan, derive_logical_pushdown_eligibility, expr::ProjectionSpec,
-            grouped_cursor_policy_violation, lower_projection_identity, lower_projection_intent,
+            filtered_index_predicate_satisfies_query, grouped_cursor_policy_violation,
+            lower_projection_identity, lower_projection_intent,
         },
     },
     model::entity::EntityModel,
@@ -152,6 +153,39 @@ impl AccessPlannedQuery {
         entity_path: &'static str,
     ) -> ExecutionShapeSignature {
         ExecutionShapeSignature::new(self.continuation_signature(entity_path))
+    }
+
+    /// Return whether one filtered index predicate fully satisfies the current
+    /// scalar query predicate without any additional post-access filtering.
+    #[must_use]
+    pub(in crate::db) fn predicate_fully_satisfied_by_filtered_access(&self) -> bool {
+        let Some(query_predicate) = self.scalar_plan().predicate.as_ref() else {
+            return false;
+        };
+        let Some(path) = self.access.as_path() else {
+            return false;
+        };
+
+        let index = match path {
+            AccessPath::IndexPrefix { index, .. } | AccessPath::IndexMultiLookup { index, .. } => {
+                index
+            }
+            AccessPath::IndexRange { spec } => spec.index(),
+            AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::FullScan => return false,
+        };
+
+        filtered_index_predicate_satisfies_query(index, query_predicate)
+    }
+
+    /// Return whether the scalar logical predicate still requires post-access
+    /// filtering after accounting for filtered-index guard predicates.
+    #[must_use]
+    pub(in crate::db) fn has_residual_predicate(&self) -> bool {
+        self.scalar_plan().predicate.is_some()
+            && !self.predicate_fully_satisfied_by_filtered_access()
     }
 }
 
