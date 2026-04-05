@@ -211,6 +211,20 @@ impl<K> AccessPath<K> {
         }
     }
 
+    /// Borrow the primary-key set when this path is `ByKeys`.
+    #[must_use]
+    pub(crate) const fn as_by_keys(&self) -> Option<&[K]> {
+        match self {
+            Self::ByKeys(keys) => Some(keys.as_slice()),
+            Self::ByKey(_)
+            | Self::KeyRange { .. }
+            | Self::IndexPrefix { .. }
+            | Self::IndexMultiLookup { .. }
+            | Self::IndexRange { .. }
+            | Self::FullScan => None,
+        }
+    }
+
     /// Borrow index-prefix details when this path is `IndexPrefix`.
     #[must_use]
     pub(crate) const fn as_index_prefix(&self) -> Option<(&IndexModel, &[Value])> {

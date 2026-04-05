@@ -81,8 +81,10 @@ pub(crate) fn plan_access_with_order(
     order: Option<&OrderSpec>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let Some(predicate) = predicate else {
-        return Ok(order_select::index_range_from_order(model, order, None)
-            .unwrap_or_else(AccessPlan::full_scan));
+        return Ok(
+            order_select::index_range_from_order(model, schema, order, None)
+                .unwrap_or_else(AccessPlan::full_scan),
+        );
     };
 
     // Planner determinism guarantee:
@@ -101,7 +103,9 @@ pub(crate) fn plan_access_with_order(
         return Ok(plan);
     }
 
-    if let Some(order_plan) = order_select::index_range_from_order(model, order, Some(predicate)) {
+    if let Some(order_plan) =
+        order_select::index_range_from_order(model, schema, order, Some(predicate))
+    {
         return Ok(order_plan);
     }
 

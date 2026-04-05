@@ -370,6 +370,33 @@ fn planner_order_only_filtered_index_fails_closed_without_guard_predicate() {
 }
 
 #[test]
+fn planner_order_only_single_field_index_fails_closed_for_strict_text_prefix_predicate() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_MODEL)
+        .expect("planner strict text-prefix order-only test model should produce schema info");
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("sam".to_string()),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[("name", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("strict text-prefix order-only access planning should succeed");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::full_scan(),
+        "strict raw-field text-prefix predicates must keep the fail-closed full-scan route even when ORDER BY matches the secondary index",
+    );
+}
+
+#[test]
 fn planner_order_only_expression_index_falls_back_to_index_range() {
     let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_EXPRESSION_MODEL)
         .expect("planner expression order-only test model should produce schema info");

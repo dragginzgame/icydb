@@ -5,9 +5,7 @@
 
 use crate::{
     db::{
-        access::{
-            AccessPath, validate_access_structure_model as validate_access_structure_model_shared,
-        },
+        access::validate_access_structure_model as validate_access_structure_model_shared,
         query::plan::{
             AccessPlannedQuery, ExpressionOrderTerm, LogicalPlan, OrderSpec, ScalarPlan,
             validate::{
@@ -142,19 +140,7 @@ fn validate_expression_order_support(
         return Ok(());
     }
 
-    let singleton_or_empty_primary_key_access = match plan.access.as_path() {
-        Some(AccessPath::ByKey(_)) => true,
-        Some(AccessPath::ByKeys(keys)) => keys.len() <= 1,
-        Some(
-            AccessPath::KeyRange { .. }
-            | AccessPath::IndexPrefix { .. }
-            | AccessPath::IndexMultiLookup { .. }
-            | AccessPath::IndexRange { .. }
-            | AccessPath::FullScan,
-        )
-        | None => false,
-    };
-    if singleton_or_empty_primary_key_access || plan.access.is_explicit_empty() {
+    if plan.access.is_singleton_or_empty_primary_key_access() || plan.access.is_explicit_empty() {
         return Ok(());
     }
 
