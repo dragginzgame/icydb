@@ -508,6 +508,62 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id FROM User ORDER BY id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PK-only User covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id FROM User ORDER BY id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PK-only User covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_projection_matches_expected_shape() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql("SELECT id FROM User ORDER BY id ASC LIMIT 1");
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "User");
+                assert_eq!(rows.columns, vec!["id".to_string()]);
+                assert_eq!(rows.row_count, 1);
+                assert_eq!(rows.rows.len(), 1);
+                assert_eq!(rows.rows[0].len(), 1);
+            }
+            other => {
+                panic!("PK-only covering projection should return a projection payload: {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_explain_reports_planner_proven_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id FROM User ORDER BY id ASC LIMIT 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\")])")
+                && explain.contains("covering_sources=List([Text(\"primary_key\")])"),
+            "PK-only covering explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "PK-only covering explain should report the planner-proven row mode: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_character_covering_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<Character>(
             "SELECT id, name FROM Character WHERE name = 'Alex Ander' ORDER BY id LIMIT 1",
@@ -1824,6 +1880,186 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_direct_lower_starts_with_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) STARTS_WITH EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_execution_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_equivalent_prefix_forms_match_explain_execution_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("IndexRangeScan")
+                    && explain.contains("ResidualPredicateFilter")
+                    && explain.contains("proj_fields=List([Text(\"id\"), Text(\"name\")])"),
+                "direct LOWER(field) equivalent prefix-form explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("FullScan"),
+                "direct LOWER(field) equivalent prefix-form explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_equivalent_prefix_forms_match_explain_json_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Load\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct LOWER(field) equivalent prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct LOWER(field) equivalent prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_equivalent_prefix_forms_match_projection_rows() {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated direct LOWER(field) STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated direct LOWER(field) ordered text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_delete_matches_typed_surface() {
+        assert_delete_dispatch_result_matches_typed(
+            "DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_delete_matches_typed_surface()
+    {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_json_delete_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN JSON DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_delete_equivalent_prefix_forms_match_explain_json_route()
+    {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Delete\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct LOWER(field) equivalent delete prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct LOWER(field) equivalent delete prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
     fn generated_sql_dispatch_direct_upper_starts_with_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
@@ -1837,6 +2073,186 @@ mod tests {
             "EXPLAIN SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH EXPLAIN parity",
         );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_starts_with_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_execution_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_equivalent_prefix_forms_match_explain_execution_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("IndexRangeScan")
+                    && explain.contains("ResidualPredicateFilter")
+                    && explain.contains("proj_fields=List([Text(\"id\"), Text(\"name\")])"),
+                "direct UPPER(field) equivalent prefix-form explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("FullScan"),
+                "direct UPPER(field) equivalent prefix-form explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_equivalent_prefix_forms_match_explain_json_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Load\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct UPPER(field) equivalent prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct UPPER(field) equivalent prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_equivalent_prefix_forms_match_projection_rows() {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated direct UPPER(field) STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated direct UPPER(field) ordered text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_delete_matches_typed_surface() {
+        assert_delete_dispatch_result_matches_typed(
+            "DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_delete_matches_typed_surface()
+    {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_json_delete_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN JSON DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_delete_equivalent_prefix_forms_match_explain_json_route()
+    {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Delete\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct UPPER(field) equivalent delete prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct UPPER(field) equivalent delete prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
     }
 
     #[test]

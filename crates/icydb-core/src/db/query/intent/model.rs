@@ -295,7 +295,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
                 access_inputs.into_key_access_override(),
             )?
         };
-        let normalized_predicate = strip_redundant_primary_key_equality_predicate_for_by_key_access(
+        let normalized_predicate = strip_redundant_primary_key_predicate_for_exact_access(
             self.model,
             &access_plan_value,
             normalized_predicate,
@@ -326,29 +326,77 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 }
 
-// Drop one normalized `pk = literal` predicate when access planning already
-// resolved the exact same `ByKey(literal)` path. This prevents duplicate
-// predicate evaluation and unlocks downstream `ByKey` fast paths.
-fn strip_redundant_primary_key_equality_predicate_for_by_key_access(
+// Drop one normalized primary-key predicate when access planning already
+// resolved the exact same authoritative PK access path. This prevents duplicate
+// predicate evaluation and unlocks downstream PK fast paths.
+fn strip_redundant_primary_key_predicate_for_exact_access(
     model: &EntityModel,
     access: &AccessPlan<Value>,
     normalized_predicate: Option<Predicate>,
 ) -> Option<Predicate> {
     let predicate = normalized_predicate?;
-    let Some(access_key) = access.as_path().and_then(|path| path.as_by_key()) else {
-        return Some(predicate);
-    };
-    let Predicate::Compare(cmp) = &predicate else {
-        return Some(predicate);
-    };
-    if cmp.field != model.primary_key.name || cmp.op != CompareOp::Eq {
-        return Some(predicate);
-    }
-    if cmp.value != *access_key {
-        return Some(predicate);
+
+    if let Some(access_key) = access.as_path().and_then(|path| path.as_by_key()) {
+        let Predicate::Compare(cmp) = &predicate else {
+            return Some(predicate);
+        };
+        if cmp.field != model.primary_key.name || cmp.op != CompareOp::Eq {
+            return Some(predicate);
+        }
+        if cmp.value != *access_key {
+            return Some(predicate);
+        }
+
+        return None;
     }
 
-    None
+    if let Some(crate::db::access::AccessPath::KeyRange { start, end }) = access.as_path()
+        && predicate_matches_primary_key_half_open_range(
+            &predicate,
+            model.primary_key.name,
+            start,
+            end,
+        )
+    {
+        return None;
+    }
+
+    Some(predicate)
+}
+
+// Return whether one normalized predicate is exactly the same half-open
+// primary-key range already guaranteed by one `KeyRange` access path.
+fn predicate_matches_primary_key_half_open_range(
+    predicate: &Predicate,
+    primary_key_name: &str,
+    start: &Value,
+    end: &Value,
+) -> bool {
+    let Predicate::And(children) = predicate else {
+        return false;
+    };
+    if children.len() != 2 {
+        return false;
+    }
+
+    let mut lower_matches = false;
+    let mut upper_matches = false;
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            return false;
+        };
+        if cmp.field != primary_key_name {
+            return false;
+        }
+
+        match cmp.op {
+            CompareOp::Gte if cmp.value == *start => lower_matches = true,
+            CompareOp::Lt if cmp.value == *end => upper_matches = true,
+            _ => return false,
+        }
+    }
+
+    lower_matches && upper_matches
 }
 
 // Collapse `LIMIT 1` pagination overhead when access is already one exact

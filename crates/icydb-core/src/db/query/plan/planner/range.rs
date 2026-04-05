@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::SemanticIndexRangeSpec,
+        access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         index::next_text_prefix,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
@@ -13,7 +13,7 @@ use crate::{
             key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
             planner::{index_literal_matches_schema, sorted_indexes},
         },
-        schema::SchemaInfo,
+        schema::{SchemaInfo, literal_matches_type},
     },
     model::{
         entity::EntityModel,
@@ -22,6 +22,57 @@ use crate::{
     value::Value,
 };
 use std::{cmp::Ordering, ops::Bound};
+
+// Build one deterministic primary-key half-open range candidate from one
+// canonical AND-group.
+//
+// Phase 1 intentionally admits only the exact safe shape:
+// - every child is a Compare predicate
+// - every child targets the primary key
+// - coercion is Strict
+// - one lower bound is `>=`
+// - one upper bound is `<`
+// - literals already match the primary-key type
+pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    children: &[Predicate],
+) -> Option<AccessPlan<Value>> {
+    let field_type = schema.field(model.primary_key.name)?;
+    if !field_type.is_keyable() {
+        return None;
+    }
+
+    let mut lower = None::<Value>;
+    let mut upper = None::<Value>;
+
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            return None;
+        };
+        if cmp.field != model.primary_key.name || cmp.coercion.id != CoercionId::Strict {
+            return None;
+        }
+        if !literal_matches_type(&cmp.value, field_type) {
+            return None;
+        }
+
+        match cmp.op {
+            CompareOp::Gte if lower.is_none() => lower = Some(cmp.value.clone()),
+            CompareOp::Lt if upper.is_none() => upper = Some(cmp.value.clone()),
+            _ => return None,
+        }
+    }
+
+    let (Some(start), Some(end)) = (lower, upper) else {
+        return None;
+    };
+    if canonical_cmp(&start, &end) != Ordering::Less {
+        return None;
+    }
+
+    Some(AccessPlan::path(AccessPath::KeyRange { start, end }))
+}
 
 ///
 /// RangeConstraint

@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.69.x] 🧭 - 2026-04-06 - True Covering Read Execution
+
+- `0.69.0` starts the next read-path line by turning covering reads into a real execution route instead of planner-only metadata, proving when simple primary-key reads can skip row checks entirely, and widening the same route to exact primary-key lookups that still keep explicit row-presence checks when the planner cannot yet prove they are unnecessary.
+
+See detailed breakdown:
+[docs/changelog/0.69.md](docs/changelog/0.69.md)
+
+---
+
 ## [0.68.x] 📚 - 2026-04-04 - First-Class Covering Reads
 
 - `0.68.7` extends the same bounded read path to canonical case-insensitive expression ranges such as `LOWER(field) >= 'a' AND LOWER(field) < 'b'`, keeps unsupported wrapped range shapes fail-closed, and cleans up the PocketIC SQL harness so it uses the newer fallible `canic-testkit` setup APIs instead of carrying its own local startup glue.

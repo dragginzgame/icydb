@@ -21,8 +21,8 @@ use crate::{
                 write_access_strategy_label,
             },
             plan::{
-                AccessPlannedQuery, CoveringProjectionOrder, CoveringReadFieldSource,
-                project_access_choice_explain_snapshot,
+                AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+                CoveringReadFieldSource, project_access_choice_explain_snapshot,
             },
         },
     },
@@ -357,6 +357,10 @@ fn covering_projection_execution_node_descriptor(
                 .collect(),
         ),
     );
+    node.node_properties.insert(
+        "existing_row_mode",
+        Value::from(covering_existing_row_mode_label(covering.existing_row_mode)),
+    );
 
     Some(node)
 }
@@ -381,5 +385,14 @@ const fn covering_read_field_source_label(source: &CoveringReadFieldSource) -> &
         CoveringReadFieldSource::IndexComponent { .. } => "index_component",
         CoveringReadFieldSource::PrimaryKey => "primary_key",
         CoveringReadFieldSource::Constant(_) => "constant",
+    }
+}
+
+const fn covering_existing_row_mode_label(
+    existing_row_mode: CoveringExistingRowMode,
+) -> &'static str {
+    match existing_row_mode {
+        CoveringExistingRowMode::ProvenByPlanner => "planner_proven",
+        CoveringExistingRowMode::RequiresRowPresenceCheck => "row_check_required",
     }
 }

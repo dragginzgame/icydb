@@ -2207,6 +2207,88 @@ fn query_from_sql_upper_like_prefix_lowers_to_casefold_starts_with_intent() {
 }
 
 #[test]
+fn query_from_sql_upper_text_range_lowers_to_casefold_ordered_bounds_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE UPPER(name) >= 'AL' AND UPPER(name) < 'AM'",
+        )
+        .expect("UPPER(field) ordered text-range SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Gte,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Lt,
+            Value::Text("AM".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    ]));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("UPPER(field) ordered text-range SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold ordered bounds plan should build")
+            .into_inner(),
+        "UPPER(field) ordered text bounds must lower onto the same normalized casefold range intent as the fluent query",
+    );
+}
+
+#[test]
+fn query_from_sql_lower_text_range_lowers_to_casefold_ordered_bounds_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE LOWER(name) >= 'al' AND LOWER(name) < 'am'",
+        )
+        .expect("LOWER(field) ordered text-range SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Gte,
+            Value::Text("al".to_string()),
+            CoercionId::TextCasefold,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Lt,
+            Value::Text("am".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    ]));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("LOWER(field) ordered text-range SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold ordered bounds plan should build")
+            .into_inner(),
+        "LOWER(field) ordered text bounds must lower onto the same normalized casefold range intent as the fluent query",
+    );
+}
+
+#[test]
 fn execute_sql_projection_strict_like_prefix_matches_indexed_covering_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -5596,6 +5678,144 @@ fn execute_sql_projection_direct_lower_starts_with_matches_indexed_lower_like_ro
 }
 
 #[test]
+fn execute_sql_projection_direct_lower_text_range_matches_indexed_lower_like_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let like_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
+    )
+    .expect("LOWER(field) LIKE projection should execute");
+
+    let range_rows = dispatch_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+    )
+    .expect("LOWER(field) ordered text-range projection should execute");
+
+    assert_eq!(
+        range_rows, like_rows,
+        "LOWER(field) ordered text-range projection should match the established casefold LIKE prefix result set",
+    );
+}
+
+#[test]
+fn session_explain_execution_direct_lower_text_range_keeps_expression_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+        )
+        .expect("LOWER(field) ordered text-range SQL query should lower")
+        .explain_execution()
+        .expect("LOWER(field) ordered text-range SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "LOWER(field) ordered text-range queries should stay on the shared expression index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "LOWER(field) ordered text-range projections should still materialize raw field rows from the expression index route",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::ResidualPredicateFilter
+        )
+        .is_some(),
+        "LOWER(field) ordered text-range explain roots should keep the residual filter stage",
+    );
+}
+
+#[test]
+fn session_explain_execution_direct_lower_equivalent_prefix_forms_preserve_expression_index_route()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let cases = [
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
+            "LOWER(field) LIKE explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC",
+            "direct LOWER(field) STARTS_WITH explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+            "LOWER(field) ordered text-range explain route",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let descriptor = session
+            .query_from_sql::<IndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
+            .explain_execution()
+            .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} should keep the shared expression index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(false),
+            "{context} should keep the non-covering materialized route",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::ResidualPredicateFilter
+            )
+            .is_some(),
+            "{context} should keep the residual filter stage",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -5634,6 +5854,148 @@ fn execute_sql_entity_direct_upper_starts_with_matches_indexed_upper_like_rows()
 }
 
 #[test]
+fn execute_sql_entity_direct_upper_text_range_matches_indexed_upper_like_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let like_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
+        )
+        .expect("UPPER(field) LIKE entity query should execute");
+
+    let range_rows = session
+        .execute_sql::<IndexedSessionSqlEntity>(
+            "SELECT * FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+        )
+        .expect("UPPER(field) ordered text-range entity query should execute");
+
+    assert_eq!(range_rows.len(), like_rows.len());
+    for (range_row, like_row) in range_rows.iter().zip(like_rows.iter()) {
+        assert_eq!(
+            range_row.entity_ref(),
+            like_row.entity_ref(),
+            "UPPER(field) ordered text-range entity rows should match the established casefold LIKE prefix entity rows",
+        );
+    }
+}
+
+#[test]
+fn session_explain_execution_direct_upper_text_range_keeps_expression_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+        )
+        .expect("UPPER(field) ordered text-range SQL query should lower")
+        .explain_execution()
+        .expect("UPPER(field) ordered text-range SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "UPPER(field) ordered text-range queries should stay on the shared expression index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "UPPER(field) ordered text-range projections should still materialize raw field rows from the expression index route",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::ResidualPredicateFilter
+        )
+        .is_some(),
+        "UPPER(field) ordered text-range explain roots should keep the residual filter stage",
+    );
+}
+
+#[test]
+fn session_explain_execution_direct_upper_equivalent_prefix_forms_preserve_expression_index_route()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("Sonja She-Devil", 10),
+            ("Stamm Bladecaster", 20),
+            ("Syra Child of Nature", 30),
+            ("Sir Edward Lion", 40),
+            ("Sethra Bhoaghail", 50),
+            ("Aldren", 60),
+        ],
+    );
+
+    let cases = [
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
+            "UPPER(field) LIKE explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC",
+            "direct UPPER(field) STARTS_WITH explain route",
+        ),
+        (
+            "SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+            "UPPER(field) ordered text-range explain route",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let descriptor = session
+            .query_from_sql::<IndexedSessionSqlEntity>(sql)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err}"))
+            .explain_execution()
+            .unwrap_or_else(|err| panic!("{context} should explain_execution: {err}"));
+
+        assert_eq!(
+            descriptor.node_type(),
+            ExplainExecutionNodeType::IndexRangeScan,
+            "{context} should keep the shared expression index-range root",
+        );
+        assert_eq!(
+            descriptor.covering_scan(),
+            Some(false),
+            "{context} should keep the non-covering materialized route",
+        );
+        assert!(
+            explain_execution_find_first_node(
+                &descriptor,
+                ExplainExecutionNodeType::ResidualPredicateFilter
+            )
+            .is_some(),
+            "{context} should keep the residual filter stage",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows() {
     // Phase 1: define the accepted direct predicate family and the established
     // equivalent bounded LIKE spellings they should continue to match.
@@ -5649,9 +6011,19 @@ fn execute_sql_delete_direct_starts_with_family_matches_indexed_like_delete_rows
             "direct LOWER(field) STARTS_WITH delete",
         ),
         (
+            "DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+            "DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) ordered text-range delete",
+        ),
+        (
             "DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
             "DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
             "direct UPPER(field) STARTS_WITH delete",
+        ),
+        (
+            "DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
+            "DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) ordered text-range delete",
         ),
     ];
 
@@ -7863,6 +8235,272 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
             Value::Text("constant".to_string()),
         ])),
         "projection node should expose planner-owned field-source metadata",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "projection node should expose the planner-owned existing-row mode explicitly",
+    );
+}
+
+#[test]
+fn execute_sql_projection_primary_key_covering_full_scan_returns_ordered_ids() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed deterministic primary-key order.
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(9_801),
+            name: "alpha".to_string(),
+            age: 21,
+        })
+        .expect("PK-covering session seed should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(9_802),
+            name: "beta".to_string(),
+            age: 22,
+        })
+        .expect("PK-covering session seed should succeed");
+
+    // Phase 2: execute the PK-only projection through the SQL dispatch lane.
+    let rows = dispatch_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+    )
+    .expect("PK-only covering projection query should execute");
+
+    // Phase 3: preserve the canonical ordered window on the projection output.
+    assert_eq!(rows, vec![vec![Value::Ulid(Ulid::from_u128(9_801))]]);
+}
+
+#[test]
+fn session_explain_execution_primary_key_covering_full_scan_is_planner_proven() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(9_811),
+            name: "alpha".to_string(),
+            age: 21,
+        })
+        .expect("PK-covering session seed should succeed");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(9_812),
+            name: "beta".to_string(),
+            age: 22,
+        })
+        .expect("PK-covering session seed should succeed");
+
+    let descriptor = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+        )
+        .expect("PK-only covering query should lower")
+        .explain_execution()
+        .expect("PK-only covering explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "PK-only primary-store projection should expose the explicit covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "PK-only primary-store projection should surface the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("PK-only covering explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "PK-only covering explain should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_sources"),
+        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
+        "PK-only covering explain should expose the primary-key field source",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("planner_proven".to_string())),
+        "PK-only primary-store covering should surface the planner-proven row mode",
+    );
+}
+
+#[test]
+fn session_explain_execution_primary_key_covering_by_key_is_row_check_required() {
+    let query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .select_fields(["id"])
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::Eq,
+        Value::Ulid(Ulid::from_u128(9_811)),
+        CoercionId::Strict,
+    )))
+    .order_by("id");
+
+    let descriptor = query
+        .explain_execution()
+        .expect("PK-only covering by-key explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::ByKeyLookup,
+        "PK-only exact-key projection should explain through the by-key root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "PK-only by-key projection should expose the explicit covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "PK-only by-key projection should surface the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("PK-only by-key explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "PK-only by-key explain should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_sources"),
+        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
+        "PK-only by-key explain should expose the primary-key field source",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "PK-only by-key covering should surface the explicit row-check mode",
+    );
+}
+
+#[test]
+fn session_explain_execution_primary_key_covering_by_keys_is_row_check_required() {
+    let query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .select_fields(["id"])
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Ulid(Ulid::from_u128(9_811)),
+            Value::Ulid(Ulid::from_u128(9_813)),
+        ]),
+        CoercionId::Strict,
+    )))
+    .order_by("id");
+
+    let descriptor = query
+        .explain_execution()
+        .expect("PK-only covering by-keys explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::ByKeysLookup,
+        "PK-only exact-key-set projection should explain through the by-keys root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "PK-only by-keys projection should expose the explicit covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "PK-only by-keys projection should surface the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("PK-only by-keys explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "PK-only by-keys explain should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_sources"),
+        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
+        "PK-only by-keys explain should expose the primary-key field source",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "PK-only by-keys covering should surface the explicit row-check mode",
+    );
+}
+
+#[test]
+fn session_explain_execution_primary_key_covering_key_range_is_planner_proven() {
+    let query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .select_fields(["id"])
+    .filter(Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Gte,
+            Value::Ulid(Ulid::from_u128(9_811)),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Lt,
+            Value::Ulid(Ulid::from_u128(9_813)),
+            CoercionId::Strict,
+        )),
+    ]))
+    .order_by("id")
+    .limit(1);
+
+    let descriptor = query
+        .explain_execution()
+        .expect("PK-only covering key-range explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::PrimaryKeyRangeScan,
+        "PK-only bounded primary-key projection should explain through the primary-key range scan node",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "PK-only primary-key range should expose the explicit covering route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "PK-only primary-key range should surface the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("PK-only covering key-range explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "PK-only key-range covering explain should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_sources"),
+        Some(&Value::List(vec![Value::Text("primary_key".to_string())])),
+        "PK-only key-range covering explain should expose the primary-key field source",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("planner_proven".to_string())),
+        "PK-only key-range covering should surface the planner-proven row mode",
     );
 }
 

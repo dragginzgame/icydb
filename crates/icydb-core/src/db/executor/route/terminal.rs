@@ -10,7 +10,7 @@ use crate::{
         executor::{ExecutionPreparation, preparation::slot_map_for_model_plan},
         predicate::IndexPredicateCapability,
         query::plan::{
-            AccessPlannedQuery, CoveringReadPlan, covering_read_plan,
+            AccessPlannedQuery, CoveringReadExecutionPlan, covering_read_execution_plan,
             index_covering_existing_rows_terminal_eligible,
         },
     },
@@ -63,7 +63,7 @@ pub(in crate::db::executor) enum ExistsTerminalFastPathContract {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum LoadTerminalFastPathContract {
-    CoveringRead(CoveringReadPlan),
+    CoveringRead(CoveringReadExecutionPlan),
 }
 
 // Return whether the structural plan still carries a residual predicate.
@@ -137,7 +137,7 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_model
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
 ) -> Option<LoadTerminalFastPathContract> {
-    covering_read_plan(
+    covering_read_execution_plan(
         model,
         plan,
         model.primary_key.name,

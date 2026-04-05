@@ -71,7 +71,8 @@ use crate::{
         },
         predicate::PredicateProgram,
         query::plan::{
-            AccessPlannedQuery, CoveringProjectionOrder, CoveringReadFieldSource, CoveringReadPlan,
+            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+            CoveringReadExecutionPlan, CoveringReadFieldSource,
             constant_covering_projection_value_from_access,
             expr::projection_references_only_fields,
         },
@@ -436,6 +437,8 @@ fn try_materialize_sql_covering_slot_rows(
         })
     {
         let consistency = row_read_consistency_for_plan(context.plan);
+        let row_check_required =
+            sql_route_covering_row_check_required(context.load_terminal_fast_path);
         let mut rows = Vec::with_capacity(
             exact_output_key_count_hint(key_stream, context.scan_budget_hint).unwrap_or(0),
         );
@@ -447,7 +450,9 @@ fn try_materialize_sql_covering_slot_rows(
             let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
             while let Some(key) = budgeted.next_key()? {
                 keys_scanned = keys_scanned.saturating_add(1);
-                if read_row_with_consistency_from_store(context.store, &key, consistency)?.is_none()
+                if row_check_required
+                    && read_row_with_consistency_from_store(context.store, &key, consistency)?
+                        .is_none()
                 {
                     continue;
                 }
@@ -468,7 +473,9 @@ fn try_materialize_sql_covering_slot_rows(
         } else {
             while let Some(key) = key_stream.next_key()? {
                 keys_scanned = keys_scanned.saturating_add(1);
-                if read_row_with_consistency_from_store(context.store, &key, consistency)?.is_none()
+                if row_check_required
+                    && read_row_with_consistency_from_store(context.store, &key, consistency)?
+                        .is_none()
                 {
                     continue;
                 }
@@ -492,6 +499,23 @@ fn try_materialize_sql_covering_slot_rows(
     }
 
     Ok(None)
+}
+
+#[cfg(feature = "sql")]
+// Return whether one route-owned covering contract still requires an explicit
+// row-presence check before SQL slot-row emission.
+const fn sql_route_covering_row_check_required(
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+) -> bool {
+    matches!(
+        load_terminal_fast_path,
+        Some(LoadTerminalFastPathContract::CoveringRead(
+            CoveringReadExecutionPlan {
+                existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
+                ..
+            }
+        ))
+    )
 }
 
 #[cfg(feature = "sql")]
@@ -546,7 +570,7 @@ fn try_materialize_sql_route_covering_slot_rows(
 // beyond the fail-closed covered slot set.
 fn sql_route_covering_slot_layout(
     model: &'static EntityModel,
-    covering: &CoveringReadPlan,
+    covering: &CoveringReadExecutionPlan,
     predicate_slots: Option<&PredicateProgram>,
 ) -> Result<Option<SqlRouteCoveringSlotLayout>, InternalError> {
     let primary_key_slot = model
@@ -612,7 +636,7 @@ fn sql_route_covering_component_rows(
     plan: &AccessPlannedQuery,
     store: StoreHandle,
     scan_state: CoveringComponentScanState<'_>,
-    covering: &CoveringReadPlan,
+    covering: &CoveringReadExecutionPlan,
     scan_budget_hint: Option<usize>,
     component_slots: &[CoveringComponentSlotGroup],
 ) -> Result<Option<(DecodedCoveringComponentRows, usize)>, InternalError> {

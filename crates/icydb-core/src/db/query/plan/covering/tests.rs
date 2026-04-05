@@ -490,3 +490,179 @@ fn covering_read_plan_requires_strict_predicate_compatibility() {
         "phase-1 covering reads should admit residual predicate shapes when strict compatibility is present",
     );
 }
+
+#[test]
+fn covering_read_execution_plan_marks_current_load_shapes_as_row_check_required() {
+    let mut plan = covering_read_plan_with_group_prefix();
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+        .expect("coverable projected load should derive one execution-grade covering plan");
+
+    assert_eq!(covering.prefix_len, 1);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        super::CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "rank");
+}
+
+#[test]
+fn covering_read_execution_plan_marks_primary_store_pk_projection_as_planner_proven() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+        .expect("primary-store PK-only projections should derive one planner-proven covering plan");
+
+    assert_eq!(covering.prefix_len, 0);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        super::CoveringExistingRowMode::ProvenByPlanner,
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey,
+    );
+}
+
+#[test]
+fn covering_read_execution_plan_marks_primary_store_pk_range_projection_as_planner_proven() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::KeyRange {
+            start: Value::Ulid(Ulid::from_u128(9_511)),
+            end: Value::Ulid(Ulid::from_u128(9_512)),
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+        .expect(
+            "primary-store PK-range projections should derive one planner-proven covering plan",
+        );
+
+    assert_eq!(covering.prefix_len, 0);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        super::CoveringExistingRowMode::ProvenByPlanner,
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey,
+    );
+}
+
+#[test]
+fn covering_read_execution_plan_marks_by_key_primary_projection_as_row_check_required() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::ByKey(Value::Ulid(Ulid::from_u128(9_501))),
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+        .expect("by-key PK-only projections should derive one row-check covering plan");
+
+    assert_eq!(covering.prefix_len, 0);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        super::CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey,
+    );
+}
+
+#[test]
+fn covering_read_execution_plan_marks_by_keys_primary_projection_as_row_check_required() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::ByKeys(vec![
+            Value::Ulid(Ulid::from_u128(9_501)),
+            Value::Ulid(Ulid::from_u128(9_503)),
+        ]),
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let covering = super::covering_read_execution_plan(covering_read_model(), &plan, "id", true)
+        .expect("by-keys PK-only projections should derive one row-check covering plan");
+
+    assert_eq!(covering.prefix_len, 0);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        super::CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey,
+    );
+}
+
+#[test]
+fn covering_read_execution_plan_rejects_by_keys_desc_primary_projection_for_now() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::ByKeys(vec![
+            Value::Ulid(Ulid::from_u128(9_501)),
+            Value::Ulid(Ulid::from_u128(9_503)),
+        ]),
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Desc)],
+    });
+
+    assert!(
+        super::covering_read_execution_plan(covering_read_model(), &plan, "id", true).is_none(),
+        "phase-1 multi-key PK covering should stay fail-closed on descending order until exact-key reorder is explicit",
+    );
+}

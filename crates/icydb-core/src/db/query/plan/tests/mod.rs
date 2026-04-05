@@ -460,6 +460,39 @@ fn plan_access_uses_primary_key_lookup() {
 }
 
 #[test]
+fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let lower = Ulid::from_u128(9_811);
+    let upper = Ulid::from_u128(9_813);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Gte,
+            Value::Ulid(lower),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Lt,
+            Value::Ulid(upper),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::KeyRange {
+            start: Value::Ulid(lower),
+            end: Value::Ulid(upper),
+        }),
+        "strict primary-key half-open bounds should lower to one explicit key-range access path",
+    );
+}
+
+#[test]
 fn plan_access_uses_index_prefix_for_exact_match() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");

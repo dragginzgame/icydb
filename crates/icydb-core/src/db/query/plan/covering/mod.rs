@@ -11,7 +11,7 @@
 mod tests;
 
 use crate::db::{
-    access::AccessPlan,
+    access::{AccessPath, AccessPlan},
     direction::Direction,
     query::plan::{
         AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec,
@@ -96,6 +96,38 @@ pub(in crate::db) struct CoveringReadPlan {
     pub(in crate::db) order_contract: CoveringProjectionOrder,
 }
 
+///
+/// CoveringExistingRowMode
+///
+/// Planner-owned row-presence contract for one covering-read execution shape.
+/// `RequiresRowPresenceCheck` keeps the current fail-closed semantics explicit:
+/// the route is covering-backed, but execution must still confirm that the row
+/// exists in row storage before it can emit output.
+///
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum CoveringExistingRowMode {
+    ProvenByPlanner,
+    RequiresRowPresenceCheck,
+}
+
+///
+/// CoveringReadExecutionPlan
+///
+/// Execution-grade planner-owned covering-read contract.
+/// This promotes the older projection-only covering plan into a route payload
+/// that also carries explicit existing-row semantics for execution/runtime.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CoveringReadExecutionPlan {
+    pub(in crate::db) fields: Vec<CoveringReadField>,
+    pub(in crate::db) prefix_len: usize,
+    pub(in crate::db) order_contract: CoveringProjectionOrder,
+    pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
+}
+
 /// Return whether one scalar aggregate terminal can remain index-only using
 /// existing-row semantics under the current planner + predicate-compile
 /// contracts.
@@ -170,6 +202,34 @@ pub(in crate::db) fn covering_read_plan(
         prefix_len: metadata.prefix_len,
         order_contract,
     })
+}
+
+/// Derive one execution-grade scalar covering-read plan from the existing
+/// planner-owned projection contract plus explicit row-presence semantics.
+#[must_use]
+pub(in crate::db) fn covering_read_execution_plan(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    strict_predicate_compatible: bool,
+) -> Option<CoveringReadExecutionPlan> {
+    // Phase 1: keep current secondary/index-backed shapes explicit but
+    // conservative until `0.69` ships a truly row-free runtime for them.
+    if let Some(covering) =
+        covering_read_plan(model, plan, primary_key_name, strict_predicate_compatible)
+    {
+        return Some(CoveringReadExecutionPlan {
+            fields: covering.fields,
+            prefix_len: covering.prefix_len,
+            order_contract: covering.order_contract,
+            existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
+        });
+    }
+
+    // Phase 2: admit only authoritative primary-store traversal shapes as the
+    // first planner-proven existing-row cohort. These keys come from the row
+    // store itself, so they do not inherit secondary-index stale-entry risk.
+    primary_store_covering_execution_plan(model, plan, primary_key_name)
 }
 
 /// Derive one covering projection context from one access shape + scalar order
@@ -269,6 +329,67 @@ fn covering_projection_order_contract(
         .then_some(CoveringProjectionOrder::IndexOrder(direction))
 }
 
+// Resolve one planner-owned covering execution plan for primary-key-only
+// projection over primary-store access shapes.
+//
+// This helper now admits two explicit cohorts:
+// - authoritative primary-store traversal (`FullScan` / `KeyRange`), which is
+//   planner-proven because emitted keys come from the row store itself
+// - exact primary-key lookup (`ByKey` / `ByKeys`), which still requires row
+//   presence checks because the access payload names keys rather than proving
+//   their existence
+fn primary_store_covering_execution_plan(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+) -> Option<CoveringReadExecutionPlan> {
+    // Phase 1: keep primary-store covering admission narrow and explicit.
+    if plan.grouped_plan().is_some()
+        || !plan.scalar_plan().mode.is_load()
+        || plan.scalar_plan().distinct
+        || plan.has_residual_predicate()
+    {
+        return None;
+    }
+    let existing_row_mode = primary_store_covering_existing_row_mode(&plan.access)?;
+
+    // Phase 2: require a direct-field projection that can be satisfied by the
+    // authoritative primary key alone under one PK-order contract.
+    let order_contract = covering_projection_order_contract(
+        plan.scalar_plan().order.as_ref(),
+        &[],
+        0,
+        primary_key_name,
+        false,
+    )?;
+    let fields = covering_read_fields_from_projection(
+        model,
+        &plan.projection_spec(model),
+        &[],
+        primary_key_name,
+        &plan.access,
+    )?;
+    if fields.is_empty() {
+        return None;
+    }
+    if fields
+        .iter()
+        .any(|field| !matches!(field.source, CoveringReadFieldSource::PrimaryKey))
+    {
+        return None;
+    }
+    if !primary_store_covering_order_supported(&plan.access, order_contract) {
+        return None;
+    }
+
+    Some(CoveringReadExecutionPlan {
+        fields,
+        prefix_len: 0,
+        order_contract,
+        existing_row_mode,
+    })
+}
+
 // Resolve one constant projection value from index-prefix component bindings.
 fn constant_covering_projection_value_from_prefix(
     index_fields: &[&'static str],
@@ -316,6 +437,57 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
     }
 
     None
+}
+
+// Classify the planner-owned existing-row mode for one primary-store covering
+// access shape.
+fn primary_store_covering_existing_row_mode<K>(
+    access: &AccessPlan<K>,
+) -> Option<CoveringExistingRowMode> {
+    match access.as_path() {
+        Some(AccessPath::KeyRange { .. } | AccessPath::FullScan) => {
+            Some(CoveringExistingRowMode::ProvenByPlanner)
+        }
+        Some(AccessPath::ByKey(_) | AccessPath::ByKeys(_)) => {
+            Some(CoveringExistingRowMode::RequiresRowPresenceCheck)
+        }
+        Some(
+            AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::IndexMultiLookup { .. },
+        )
+        | None => None,
+    }
+}
+
+// Return whether the current runtime can preserve one primary-key-only output
+// order contract for this primary-store covering access shape.
+fn primary_store_covering_order_supported<K>(
+    access: &AccessPlan<K>,
+    order_contract: CoveringProjectionOrder,
+) -> bool {
+    match access.as_path() {
+        // Authoritative scans already preserve the planner-owned PK order
+        // contract through their route direction + runtime reorder behavior.
+        Some(AccessPath::KeyRange { .. } | AccessPath::FullScan) => true,
+        // Exact key lookups are singleton-safe regardless of requested PK
+        // direction because there can be at most one emitted row.
+        Some(AccessPath::ByKey(_)) => {
+            matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_))
+        }
+        // Multi-key lookup currently resolves keys in canonical ascending PK
+        // order, so phase 1 stays fail-closed on descending PK order here.
+        Some(AccessPath::ByKeys(_)) => matches!(
+            order_contract,
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc)
+        ),
+        Some(
+            AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::IndexMultiLookup { .. },
+        )
+        | None => false,
+    }
 }
 
 // Derive one canonical covering-read field list from one direct-field

@@ -41,9 +41,10 @@ pub(in crate::db) use continuation::{
     ContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
 pub(in crate::db) use covering::{
-    CoveringProjectionContext, CoveringProjectionOrder, CoveringReadFieldSource, CoveringReadPlan,
+    CoveringExistingRowMode, CoveringProjectionContext, CoveringProjectionOrder,
+    CoveringReadExecutionPlan, CoveringReadFieldSource,
     constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
-    covering_index_projection_context, covering_read_plan,
+    covering_index_projection_context, covering_read_execution_plan,
     index_covering_existing_rows_terminal_eligible,
 };
 #[cfg(test)]

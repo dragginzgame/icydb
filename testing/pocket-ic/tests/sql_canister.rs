@@ -683,7 +683,7 @@ const fn scalar_select_attribution_cases() -> [(
     SqlPerfAttributionSurface,
     &'static str,
     u32,
-); 8] {
+); 9] {
     [
         (
             "user_name_eq_limit1",
@@ -709,6 +709,13 @@ const fn scalar_select_attribution_cases() -> [(
         (
             "user_age_order_id_limit1",
             "SELECT age FROM User ORDER BY id ASC LIMIT 1",
+            SqlPerfAttributionSurface::TypedDispatchUser,
+            "User",
+            1,
+        ),
+        (
+            "user_primary_key_covering_id_limit1",
+            "SELECT id FROM User ORDER BY id ASC LIMIT 1",
             SqlPerfAttributionSurface::TypedDispatchUser,
             "User",
             1,
@@ -1193,9 +1200,19 @@ fn sql_canister_query_lane_delete_direct_starts_with_family_matches_like_rows() 
                 "generated direct LOWER(field) STARTS_WITH delete",
             ),
             (
+                "DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+                "DELETE FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+                "generated direct LOWER(field) ordered text-range delete",
+            ),
+            (
                 "DELETE FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
                 "DELETE FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
                 "generated direct UPPER(field) STARTS_WITH delete",
+            ),
+            (
+                "DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+                "DELETE FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+                "generated direct UPPER(field) ordered text-range delete",
             ),
         ];
 
@@ -1424,6 +1441,51 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_order_desc
 }
 
 #[test]
+fn sql_canister_query_lane_supports_user_primary_key_covering_projection() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id FROM User ORDER BY id ASC LIMIT 1",
+            "query User PK-only covering projection should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0].len(), 1);
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_primary_key_covering_route() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id FROM User ORDER BY id ASC LIMIT 1",
+        )
+        .expect("query User PK-only covering EXPLAIN EXECUTION should return an Ok payload");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "primary_key",
+                "existing_row_mode",
+                "planner_proven",
+                "id",
+            ],
+            &["row_check_required"],
+            "User PK-only covering EXPLAIN EXECUTION should expose the planner-proven covering route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_character_covering_projection() {
     run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one direct indexed Character projection on the
@@ -1464,6 +1526,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_covering_read_ro
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
+                "existing_row_mode",
+                "row_check_required",
                 "id",
                 "name",
             ],
@@ -1524,6 +1588,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_compo
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
+                "existing_row_mode",
+                "row_check_required",
                 "id",
                 "level",
                 "class_name",
@@ -2020,6 +2086,152 @@ fn sql_canister_query_lane_explain_delete_direct_starts_with_family_matches_like
                     "generated delete EXPLAIN parity case should return Explain payloads, got direct={direct_other:?} like={like_other:?}"
                 ),
             }
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_delete_direct_upper_text_range_preserves_index_range_route() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+        )
+        .expect("generated direct UPPER(field) ordered text-range delete EXPLAIN should succeed");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "mode=Delete",
+                "access=IndexRange",
+                "User|LOWER(name)",
+                "lower: Included(Text(\"a\"))",
+                "upper: Excluded(Text(\"b\"))",
+            ],
+            &["access=FullScan"],
+            "generated direct UPPER(field) ordered text-range delete explain should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_direct_upper_text_range_preserves_index_range_route() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+        )
+        .expect("generated direct UPPER(field) ordered text-range JSON EXPLAIN should succeed");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ],
+            &["\"type\":\"FullScan\""],
+            "generated direct UPPER(field) ordered text-range JSON explain should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_equivalent_direct_upper_prefix_forms_preserve_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let cases = [
+            (
+                "EXPLAIN JSON SELECT id, name FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+                "direct UPPER(field) LIKE JSON explain route",
+            ),
+            (
+                "EXPLAIN JSON SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+                "direct UPPER(field) STARTS_WITH JSON explain route",
+            ),
+            (
+                "EXPLAIN JSON SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+                "direct UPPER(field) ordered text-range JSON explain route",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            let payload = query_result(pic, canister_id, sql)
+                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
+            assert_explain_route(
+                payload,
+                "User",
+                &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                ],
+                &["\"type\":\"FullScan\""],
+                context,
+            );
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_delete_direct_upper_text_range_preserves_index_range_route()
+{
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+        )
+        .expect("generated direct UPPER(field) ordered text-range JSON delete EXPLAIN should succeed");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "\"mode\":{\"type\":\"Delete\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ],
+            &["\"type\":\"FullScan\""],
+            "generated direct UPPER(field) ordered text-range JSON delete explain should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_delete_direct_upper_equivalent_prefix_forms_preserve_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let cases = [
+            (
+                "EXPLAIN JSON DELETE FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+                "direct UPPER(field) LIKE JSON delete explain route",
+            ),
+            (
+                "EXPLAIN JSON DELETE FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+                "direct UPPER(field) STARTS_WITH JSON delete explain route",
+            ),
+            (
+                "EXPLAIN JSON DELETE FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+                "direct UPPER(field) ordered text-range JSON delete explain route",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            let payload = query_result(pic, canister_id, sql)
+                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
+            assert_explain_route(
+                payload,
+                "User",
+                &[
+                    "\"mode\":{\"type\":\"Delete\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                ],
+                &["\"type\":\"FullScan\""],
+                context,
+            );
         }
     });
 }
@@ -3468,6 +3680,270 @@ fn sql_canister_query_lane_supports_direct_lower_starts_with_predicate() {
 }
 
 #[test]
+fn sql_canister_query_lane_supports_direct_lower_strict_text_range_predicate() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "query direct LOWER(field) ordered text-range predicate should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_equivalent_direct_lower_prefix_forms_match_projection_rows() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let like_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+            "query direct LOWER(field) LIKE prefix predicate should return projected rows",
+        );
+        let starts_with_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "query direct LOWER(field) STARTS_WITH predicate should return projected rows",
+        );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "query direct LOWER(field) ordered text-range predicate should return projected rows",
+        );
+
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "direct LOWER(field) STARTS_WITH and LIKE prefix canister query rows should stay identical",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "direct LOWER(field) ordered text-range and LIKE prefix canister query rows should stay identical",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_direct_lower_strict_text_range_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+        )
+        .expect(
+            "query direct LOWER(field) ordered text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "IndexRangeScan",
+                "ResidualPredicateFilter",
+                "proj_fields",
+                "id",
+                "name",
+            ],
+            &["FullScan"],
+            "direct LOWER(field) ordered text-range EXPLAIN EXECUTION should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_equivalent_direct_lower_prefix_forms_preserve_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+                "direct LOWER(field) LIKE prefix EXPLAIN EXECUTION route",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+                "direct LOWER(field) STARTS_WITH EXPLAIN EXECUTION route",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+                "direct LOWER(field) ordered text-range EXPLAIN EXECUTION route",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            let payload = query_result(pic, canister_id, sql)
+                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
+            assert_explain_route(
+                payload,
+                "User",
+                &[
+                    "IndexRangeScan",
+                    "ResidualPredicateFilter",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                &["FullScan"],
+                context,
+            );
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_delete_direct_lower_text_range_preserves_index_range_route() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+        )
+        .expect("generated direct LOWER(field) ordered text-range delete EXPLAIN should succeed");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "mode=Delete",
+                "access=IndexRange",
+                "User|LOWER(name)",
+                "lower: Included(Text(\"a\"))",
+                "upper: Excluded(Text(\"b\"))",
+            ],
+            &["access=FullScan"],
+            "generated direct LOWER(field) ordered text-range delete explain should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_direct_lower_text_range_preserves_index_range_route() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+        )
+        .expect("generated direct LOWER(field) ordered text-range JSON EXPLAIN should succeed");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ],
+            &["\"type\":\"FullScan\""],
+            "generated direct LOWER(field) ordered text-range JSON explain should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_equivalent_direct_lower_prefix_forms_preserve_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let cases = [
+            (
+                "EXPLAIN JSON SELECT id, name FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+                "direct LOWER(field) LIKE JSON explain route",
+            ),
+            (
+                "EXPLAIN JSON SELECT id, name FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+                "direct LOWER(field) STARTS_WITH JSON explain route",
+            ),
+            (
+                "EXPLAIN JSON SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+                "direct LOWER(field) ordered text-range JSON explain route",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            let payload = query_result(pic, canister_id, sql)
+                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
+            assert_explain_route(
+                payload,
+                "User",
+                &[
+                    "\"mode\":{\"type\":\"Load\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                ],
+                &["\"type\":\"FullScan\""],
+                context,
+            );
+        }
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_delete_direct_lower_text_range_preserves_index_range_route()
+{
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+        )
+        .expect("generated direct LOWER(field) ordered text-range JSON delete EXPLAIN should succeed");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "\"mode\":{\"type\":\"Delete\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"predicate\":\"And([Compare",
+                "id: TextCasefold",
+            ],
+            &["\"type\":\"FullScan\""],
+            "generated direct LOWER(field) ordered text-range JSON delete explain should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_delete_direct_lower_equivalent_prefix_forms_preserve_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let cases = [
+            (
+                "EXPLAIN JSON DELETE FROM User WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+                "direct LOWER(field) LIKE JSON delete explain route",
+            ),
+            (
+                "EXPLAIN JSON DELETE FROM User WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+                "direct LOWER(field) STARTS_WITH JSON delete explain route",
+            ),
+            (
+                "EXPLAIN JSON DELETE FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+                "direct LOWER(field) ordered text-range JSON delete explain route",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            let payload = query_result(pic, canister_id, sql)
+                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
+            assert_explain_route(
+                payload,
+                "User",
+                &[
+                    "\"mode\":{\"type\":\"Delete\"",
+                    "\"access\":{\"type\":\"IndexRange\"",
+                ],
+                &["\"type\":\"FullScan\""],
+                context,
+            );
+        }
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
     run_with_loaded_quickstart_canister(|pic, canister_id| {
         let rows = query_projection_rows(
@@ -3482,6 +3958,124 @@ fn sql_canister_query_lane_supports_direct_upper_starts_with_predicate() {
         assert_eq!(rows.row_count, 1);
         assert_eq!(rows.rows.len(), 1);
         assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_direct_upper_strict_text_range_predicate() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "query direct UPPER(field) ordered text-range predicate should return projected rows",
+        );
+
+        assert_eq!(rows.entity, "User");
+        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(rows.row_count, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][1], "alice".to_string());
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_equivalent_direct_upper_prefix_forms_match_projection_rows() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let like_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+            "query direct UPPER(field) LIKE prefix predicate should return projected rows",
+        );
+        let starts_with_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "query direct UPPER(field) STARTS_WITH predicate should return projected rows",
+        );
+        let range_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "query direct UPPER(field) ordered text-range predicate should return projected rows",
+        );
+
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "direct UPPER(field) STARTS_WITH and LIKE prefix canister query rows should stay identical",
+        );
+        assert_eq!(
+            range_rows, like_rows,
+            "direct UPPER(field) ordered text-range and LIKE prefix canister query rows should stay identical",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_direct_upper_strict_text_range_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+        )
+        .expect(
+            "query direct UPPER(field) ordered text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "IndexRangeScan",
+                "ResidualPredicateFilter",
+                "proj_fields",
+                "id",
+                "name",
+            ],
+            &["FullScan"],
+            "direct UPPER(field) ordered text-range EXPLAIN EXECUTION should preserve the shared expression index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_equivalent_direct_upper_prefix_forms_preserve_index_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let cases = [
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+                "direct UPPER(field) LIKE prefix EXPLAIN EXECUTION route",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+                "direct UPPER(field) STARTS_WITH EXPLAIN EXECUTION route",
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+                "direct UPPER(field) ordered text-range EXPLAIN EXECUTION route",
+            ),
+        ];
+
+        for (sql, context) in cases {
+            let payload = query_result(pic, canister_id, sql)
+                .unwrap_or_else(|err| panic!("{context} should return an Ok payload: {err}"));
+            assert_explain_route(
+                payload,
+                "User",
+                &[
+                    "IndexRangeScan",
+                    "ResidualPredicateFilter",
+                    "proj_fields",
+                    "id",
+                    "name",
+                ],
+                &["FullScan"],
+                context,
+            );
+        }
     });
 }
 
@@ -3729,6 +4323,24 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                     surface: SqlPerfSurface::TypedDispatchUser,
                     sql: "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1"
                         .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.primary_key_covering.user_id_limit1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id FROM User ORDER BY id ASC LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.primary_key_covering.user_id_limit1",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id FROM User ORDER BY id ASC LIMIT 1".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
                 },
@@ -4043,6 +4655,26 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "generated.dispatch.predicate.upper_strict_range_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.predicate.lower_strict_range_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.computed_projection.lower_name_limit2",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
@@ -4076,6 +4708,26 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
                     sql: "SELECT id, name FROM User WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.predicate.upper_strict_range_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.predicate.lower_strict_range_name_limit2",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -4275,6 +4927,28 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
                     "generated.dispatch.active_user_filtered_composite_expression_order_only_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
@@ -4290,6 +4964,28 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -4350,10 +5046,54 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
                     "typed.dispatch.active_user_filtered_composite_expression_order_only_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchActiveUser,
                     sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,

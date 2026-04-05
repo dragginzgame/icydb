@@ -36,10 +36,11 @@ use crate::{
             ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
         },
         query::plan::{
-            AccessPlannedQuery, AggregateKind, CoveringReadFieldSource, DeleteSpec, FieldSlot,
-            GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingClause, GroupHavingSpec,
-            GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, GroupedPlanStrategyHint,
-            OrderDirection, OrderSpec, PageSpec, QueryMode,
+            AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
+            DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason,
+            GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
+            GroupedExecutionConfig, GroupedPlanStrategyHint, OrderDirection, OrderSpec, PageSpec,
+            QueryMode,
             expr::{FieldId, ProjectionSelection},
             grouped_executor_handoff, grouped_plan_strategy_hint,
         },
@@ -724,6 +725,10 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
         covering.fields[0].source,
         CoveringReadFieldSource::Constant(Value::Uint(7)),
     );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
 
     let materialized = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
@@ -774,6 +779,234 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
     assert_eq!(
         covering.fields[0].source,
         CoveringReadFieldSource::Constant(Value::Uint(7)),
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+}
+
+#[test]
+fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_planner_proven() {
+    let mut projected =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let contract = derive_load_terminal_fast_path_contract_for_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        true,
+    )
+    .expect("PK-only full scan should derive one planner-proven covering-read route contract");
+
+    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::ProvenByPlanner,
+    );
+}
+
+#[test]
+fn route_plan_load_terminal_covering_read_contract_marks_pk_only_key_range_as_planner_proven() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::<Value>::KeyRange {
+            start: Value::Ulid(Ulid::from_u128(9_511)),
+            end: Value::Ulid(Ulid::from_u128(9_512)),
+        },
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let contract = derive_load_terminal_fast_path_contract_for_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        true,
+    )
+    .expect("PK-only key range should derive one planner-proven covering-read route contract");
+
+    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::ProvenByPlanner,
+    );
+}
+
+#[test]
+fn route_plan_execution_route_plan_retains_pk_only_planner_proven_covering_contract() {
+    let mut projected =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let route_plan = build_execution_route_plan_for_load_with_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        &ScalarContinuationContext::initial(),
+        None,
+    )
+    .expect("execution route plan should build for PK-only planner-proven covering load");
+    let covering = route_plan
+        .load_terminal_fast_path()
+        .expect("execution route plan should retain the planner-proven covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::ProvenByPlanner,
+    );
+}
+
+#[test]
+fn route_plan_execution_route_plan_retains_pk_only_key_range_covering_contract() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::<Value>::KeyRange {
+            start: Value::Ulid(Ulid::from_u128(9_511)),
+            end: Value::Ulid(Ulid::from_u128(9_512)),
+        },
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let route_plan = build_execution_route_plan_for_load_with_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        &ScalarContinuationContext::initial(),
+        None,
+    )
+    .expect("execution route plan should build for PK-only planner-proven covering key range");
+    let covering = route_plan
+        .load_terminal_fast_path()
+        .expect("execution route plan should retain the planner-proven covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::ProvenByPlanner,
+    );
+}
+
+#[test]
+fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_key_as_row_check_required() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::<Value>::ByKey(Value::Ulid(Ulid::from_u128(9_511))),
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let contract = derive_load_terminal_fast_path_contract_for_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        true,
+    )
+    .expect("PK-only by-key lookup should derive one row-check covering-read route contract");
+
+    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+}
+
+#[test]
+fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_keys_as_row_check_required() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::<Value>::ByKeys(vec![
+            Value::Ulid(Ulid::from_u128(9_511)),
+            Value::Ulid(Ulid::from_u128(9_513)),
+        ]),
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let contract = derive_load_terminal_fast_path_contract_for_model(
+        RouteCapabilityEntity::MODEL,
+        &projected,
+        true,
+    )
+    .expect("PK-only by-keys lookup should derive one row-check covering-read route contract");
+
+    let LoadTerminalFastPathContract::CoveringRead(covering) = contract;
+    assert_eq!(covering.fields.len(), 1);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+}
+
+#[test]
+fn route_plan_load_terminal_covering_read_contract_rejects_pk_only_by_keys_desc_for_now() {
+    let mut projected = AccessPlannedQuery::new(
+        AccessPath::<Value>::ByKeys(vec![
+            Value::Ulid(Ulid::from_u128(9_511)),
+            Value::Ulid(Ulid::from_u128(9_513)),
+        ]),
+        MissingRowPolicy::Ignore,
+    );
+    projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
+    projected.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Desc)],
+    });
+
+    assert!(
+        derive_load_terminal_fast_path_contract_for_model(
+            RouteCapabilityEntity::MODEL,
+            &projected,
+            true,
+        )
+        .is_none(),
+        "phase-1 multi-key PK covering should stay fail-closed on descending order until exact-key reorder is explicit",
     );
 }
 

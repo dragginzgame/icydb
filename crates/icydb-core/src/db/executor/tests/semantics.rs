@@ -340,3 +340,60 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_coverable_pro
         "execution descriptor should surface the same covering-read route label",
     );
 }
+
+#[test]
+fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_key_projection() {
+    let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(Ulid::from_u128(9_511)),
+            CoercionId::Strict,
+        )))
+        .select_fields(["id"])
+        .order_by("id");
+    let actual = query_execution_pipeline_projection_snapshot(&query);
+
+    assert!(
+        actual.contains("load_terminal_fast_path=CoveringRead"),
+        "PK by-key projection snapshot should surface the explicit covering-read route",
+    );
+    assert!(
+        actual.contains("\"node_type\":\"ByKeyLookup\""),
+        "PK by-key projection snapshot should keep the by-key access root",
+    );
+    assert!(
+        actual.contains("\"existing_row_mode\":\"Text(\\\"row_check_required\\\")\""),
+        "PK by-key projection snapshot should expose the explicit row-check mode",
+    );
+}
+
+#[test]
+fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_keys_projection() {
+    let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(9_511)),
+                Value::Ulid(Ulid::from_u128(9_513)),
+            ]),
+            CoercionId::Strict,
+        )))
+        .select_fields(["id"])
+        .order_by("id");
+    let actual = query_execution_pipeline_projection_snapshot(&query);
+
+    assert!(
+        actual.contains("load_terminal_fast_path=CoveringRead"),
+        "PK by-keys projection snapshot should surface the explicit covering-read route",
+    );
+    assert!(
+        actual.contains("\"node_type\":\"ByKeysLookup\""),
+        "PK by-keys projection snapshot should keep the by-keys access root",
+    );
+    assert!(
+        actual.contains("\"existing_row_mode\":\"Text(\\\"row_check_required\\\")\""),
+        "PK by-keys projection snapshot should expose the explicit row-check mode",
+    );
+}

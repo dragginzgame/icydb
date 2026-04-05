@@ -49,6 +49,8 @@ pub(super) fn plan_predicate(
             }
         }
         Predicate::And(children) => {
+            let primary_key_range_access =
+                range::primary_key_range_from_and(model, schema, children);
             if let Some(range_spec) =
                 range::index_range_from_and(model, schema, children, query_predicate)
             {
@@ -70,6 +72,9 @@ pub(super) fn plan_predicate(
             // - If no range candidate exists, retain equality-prefix planning.
             if let Some(prefix) = prefix_access {
                 plans.push(prefix);
+            }
+            if let Some(primary_key_range) = primary_key_range_access {
+                plans.push(primary_key_range);
             }
 
             AccessPlan::intersection(plans)

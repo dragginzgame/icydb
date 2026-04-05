@@ -251,6 +251,360 @@ fn explain_sql_delete_direct_starts_with_family_matches_like_output() {
 }
 
 #[test]
+fn explain_sql_delete_direct_upper_text_range_preserves_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
+    )
+    .expect("direct UPPER(field) ordered text-range delete EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "mode=Delete",
+            "access=IndexRange",
+            "predicate=And([Compare",
+            "op: Lt, value: Text(\"T\")",
+            "op: Gte, value: Text(\"S\")",
+            "id: TextCasefold",
+        ],
+        "direct UPPER(field) ordered text-range delete EXPLAIN should preserve the shared expression index-range route",
+    );
+    assert!(
+        !explain.contains("access=FullScan"),
+        "direct UPPER(field) ordered text-range delete EXPLAIN must not fall back to full scan: {explain}",
+    );
+}
+
+#[test]
+fn explain_sql_delete_direct_lower_text_range_preserves_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+    )
+    .expect("direct LOWER(field) ordered text-range delete EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "mode=Delete",
+            "access=IndexRange",
+            "predicate=And([Compare",
+            "op: Lt, value: Text(\"t\")",
+            "op: Gte, value: Text(\"s\")",
+            "id: TextCasefold",
+        ],
+        "direct LOWER(field) ordered text-range delete EXPLAIN should preserve the shared expression index-range route",
+    );
+    assert!(
+        !explain.contains("access=FullScan"),
+        "direct LOWER(field) ordered text-range delete EXPLAIN must not fall back to full scan: {explain}",
+    );
+}
+
+#[test]
+fn explain_json_sql_direct_upper_text_range_preserves_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+    )
+    .expect("direct UPPER(field) ordered text-range JSON EXPLAIN should succeed");
+
+    assert!(
+        explain.starts_with('{') && explain.ends_with('}'),
+        "direct UPPER(field) ordered text-range JSON EXPLAIN should be one JSON object payload",
+    );
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "\"mode\":{\"type\":\"Load\"",
+            "\"access\":{\"type\":\"IndexRange\"",
+            "\"predicate\":\"And([Compare",
+            "id: TextCasefold",
+        ],
+        "direct UPPER(field) ordered text-range JSON EXPLAIN should preserve the shared expression index-range route",
+    );
+    assert!(
+        !explain.contains("\"type\":\"FullScan\""),
+        "direct UPPER(field) ordered text-range JSON EXPLAIN must not fall back to full scan: {explain}",
+    );
+}
+
+#[test]
+fn explain_json_sql_direct_lower_text_range_preserves_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+    )
+    .expect("direct LOWER(field) ordered text-range JSON EXPLAIN should succeed");
+
+    assert!(
+        explain.starts_with('{') && explain.ends_with('}'),
+        "direct LOWER(field) ordered text-range JSON EXPLAIN should be one JSON object payload",
+    );
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "\"mode\":{\"type\":\"Load\"",
+            "\"access\":{\"type\":\"IndexRange\"",
+            "\"predicate\":\"And([Compare",
+            "id: TextCasefold",
+        ],
+        "direct LOWER(field) ordered text-range JSON EXPLAIN should preserve the shared expression index-range route",
+    );
+    assert!(
+        !explain.contains("\"type\":\"FullScan\""),
+        "direct LOWER(field) ordered text-range JSON EXPLAIN must not fall back to full scan: {explain}",
+    );
+}
+
+#[test]
+fn explain_json_sql_direct_upper_equivalent_prefix_forms_preserve_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC",
+            "direct UPPER(field) LIKE JSON explain route",
+        ),
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC",
+            "direct UPPER(field) STARTS_WITH JSON explain route",
+        ),
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC",
+            "direct UPPER(field) ordered text-range JSON explain route",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+            ],
+            context,
+        );
+        assert!(
+            !explain.contains("\"type\":\"FullScan\""),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
+}
+
+#[test]
+fn explain_json_sql_direct_lower_equivalent_prefix_forms_preserve_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC",
+            "direct LOWER(field) LIKE JSON explain route",
+        ),
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC",
+            "direct LOWER(field) STARTS_WITH JSON explain route",
+        ),
+        (
+            "EXPLAIN JSON SELECT name FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC",
+            "direct LOWER(field) ordered text-range JSON explain route",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+            ],
+            context,
+        );
+        assert!(
+            !explain.contains("\"type\":\"FullScan\""),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
+}
+
+#[test]
+fn explain_json_sql_delete_direct_upper_text_range_preserves_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
+    )
+    .expect("direct UPPER(field) ordered text-range JSON delete EXPLAIN should succeed");
+
+    assert!(
+        explain.starts_with('{') && explain.ends_with('}'),
+        "direct UPPER(field) ordered text-range JSON delete EXPLAIN should be one JSON object payload",
+    );
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "\"mode\":{\"type\":\"Delete\"",
+            "\"access\":{\"type\":\"IndexRange\"",
+            "\"predicate\":\"And([Compare",
+            "id: TextCasefold",
+        ],
+        "direct UPPER(field) ordered text-range JSON delete EXPLAIN should preserve the shared expression index-range route",
+    );
+    assert!(
+        !explain.contains("\"type\":\"FullScan\""),
+        "direct UPPER(field) ordered text-range JSON delete EXPLAIN must not fall back to full scan: {explain}",
+    );
+}
+
+#[test]
+fn explain_json_sql_delete_direct_lower_text_range_preserves_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+    )
+    .expect("direct LOWER(field) ordered text-range JSON delete EXPLAIN should succeed");
+
+    assert!(
+        explain.starts_with('{') && explain.ends_with('}'),
+        "direct LOWER(field) ordered text-range JSON delete EXPLAIN should be one JSON object payload",
+    );
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "\"mode\":{\"type\":\"Delete\"",
+            "\"access\":{\"type\":\"IndexRange\"",
+            "\"predicate\":\"And([Compare",
+            "id: TextCasefold",
+        ],
+        "direct LOWER(field) ordered text-range JSON delete EXPLAIN should preserve the shared expression index-range route",
+    );
+    assert!(
+        !explain.contains("\"type\":\"FullScan\""),
+        "direct LOWER(field) ordered text-range JSON delete EXPLAIN must not fall back to full scan: {explain}",
+    );
+}
+
+#[test]
+fn explain_json_sql_delete_direct_upper_equivalent_prefix_forms_preserve_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) LIKE 'S%' ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) LIKE JSON delete explain route",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(UPPER(name), 'S') ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) STARTS_WITH JSON delete explain route",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE UPPER(name) >= 'S' AND UPPER(name) < 'T' ORDER BY name ASC LIMIT 2",
+            "direct UPPER(field) ordered text-range JSON delete explain route",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "\"mode\":{\"type\":\"Delete\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+            ],
+            context,
+        );
+        assert!(
+            !explain.contains("\"type\":\"FullScan\""),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
+}
+
+#[test]
+fn explain_json_sql_delete_direct_lower_equivalent_prefix_forms_preserve_index_range_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let cases = [
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) LIKE 's%' ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) LIKE JSON delete explain route",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE STARTS_WITH(LOWER(name), 's') ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) STARTS_WITH JSON delete explain route",
+        ),
+        (
+            "EXPLAIN JSON DELETE FROM IndexedSessionSqlEntity WHERE LOWER(name) >= 's' AND LOWER(name) < 't' ORDER BY name ASC LIMIT 2",
+            "direct LOWER(field) ordered text-range JSON delete explain route",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "{context} should be one JSON object payload",
+        );
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "\"mode\":{\"type\":\"Delete\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+            ],
+            context,
+        );
+        assert!(
+            !explain.contains("\"type\":\"FullScan\""),
+            "{context} must not fall back to full scan: {explain}",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_plan_qualified_identifiers_match_unqualified_output() {
     reset_session_sql_store();
     let session = sql_session();

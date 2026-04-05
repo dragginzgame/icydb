@@ -2652,6 +2652,52 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
 }
 
 #[test]
+fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
+    let lower = Ulid::from_u128(9_811);
+    let upper = Ulid::from_u128(9_813);
+    let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "id",
+                CompareOp::Gte,
+                Value::Ulid(lower),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "id",
+                CompareOp::Lt,
+                Value::Ulid(upper),
+                CoercionId::Strict,
+            )),
+        ]))
+        .build_plan_model()
+        .expect("model id half-open range plan should build");
+    let AccessPlannedQuery {
+        logical,
+        access,
+        projection_selection: _projection_selection,
+    } = model_plan;
+    let typed_plan = AccessPlannedQuery::from_parts(logical, access);
+
+    assert!(
+        typed_plan.scalar_plan().predicate.is_none(),
+        "exact primary-key half-open ranges should strip redundant scalar predicates",
+    );
+    assert!(
+        matches!(
+            typed_plan.access,
+            AccessPlan::Path(path)
+                if matches!(
+                    path.as_ref(),
+                    AccessPath::KeyRange { start, end }
+                        if *start == Value::Ulid(lower) && *end == Value::Ulid(upper)
+                )
+        ),
+        "redundant predicate stripping must keep the exact KeyRange path",
+    );
+}
+
+#[test]
 fn singleton_only_uses_default_key() {
     let plan = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
         .only()
