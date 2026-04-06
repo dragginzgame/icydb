@@ -4624,7 +4624,7 @@ fn sql_canister_query_lane_explain_execution_equivalent_direct_lower_prefix_form
                 "User",
                 &[
                     "IndexRangeScan",
-                    "ResidualPredicateFilter",
+                    "OrderByMaterializedSort",
                     "proj_fields",
                     "id",
                     "name",
@@ -4906,7 +4906,7 @@ fn sql_canister_query_lane_explain_execution_equivalent_direct_upper_prefix_form
                 "User",
                 &[
                     "IndexRangeScan",
-                    "ResidualPredicateFilter",
+                    "OrderByMaterializedSort",
                     "proj_fields",
                     "id",
                     "name",

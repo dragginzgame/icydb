@@ -2497,9 +2497,9 @@ mod tests {
         for explain in explains {
             assert!(
                 explain.contains("IndexRangeScan")
-                    && explain.contains("ResidualPredicateFilter")
+                    && explain.contains("OrderByMaterializedSort")
                     && explain.contains("proj_fields=List([Text(\"id\"), Text(\"name\")])"),
-                "direct LOWER(field) equivalent prefix-form explains should preserve the shared expression index-range route: {explain}",
+                "direct LOWER(field) equivalent prefix-form explains should preserve the shared expression index-range materialized route: {explain}",
             );
             assert!(
                 !explain.contains("FullScan"),
@@ -2693,9 +2693,9 @@ mod tests {
         for explain in explains {
             assert!(
                 explain.contains("IndexRangeScan")
-                    && explain.contains("ResidualPredicateFilter")
+                    && explain.contains("OrderByMaterializedSort")
                     && explain.contains("proj_fields=List([Text(\"id\"), Text(\"name\")])"),
-                "direct UPPER(field) equivalent prefix-form explains should preserve the shared expression index-range route: {explain}",
+                "direct UPPER(field) equivalent prefix-form explains should preserve the shared expression index-range materialized route: {explain}",
             );
             assert!(
                 !explain.contains("FullScan"),
