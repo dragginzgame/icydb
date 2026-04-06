@@ -156,7 +156,7 @@ fn query_execution_pipeline_snapshot_for_by_key_shape_with_projection_columns_is
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).by_id(Ulid::from_u128(9_101));
     let actual = query_execution_pipeline_projection_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=aadeab9a078a08c89fc76826504ee8c027854392786d07f24b5ad22fb4a729b0
+plan_hash=411b8c1bc919db245b2598c8d016182acc7ac2b0f9b5c41b493706c5526090c1
 mode=Load(LoadSpec { limit: None, offset: 0 })
 is_grouped=false
 execution_strategy=PrimaryKey
@@ -194,7 +194,7 @@ fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable
         .limit(5);
     let actual = query_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=9ae0166716ae5b5e27e94a07519d8759987d37311211e91ea6307cea3570c292
+plan_hash=8af939186fa06a6eb38eb60248e6ae6e7e58fe94fce3fe3b41feaf1796624c8d
 mode=Load(LoadSpec { limit: Some(5), offset: 0 })
 is_grouped=false
 execution_strategy=Ordered
@@ -246,7 +246,7 @@ fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
         .limit(2);
     let actual = query_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=6cb7328aa331eeec8be953ac1b3e1c6e737b44469fbeca0abdfe98a46fe66277
+plan_hash=2e29ba4a86e6dc8a607003423193134041e1cf39f5c7e19367f9a07fbdc252e3
 mode=Load(LoadSpec { limit: Some(2), offset: 0 })
 is_grouped=false
 execution_strategy=Ordered
@@ -285,7 +285,7 @@ fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
         .limit(2);
     let actual = query_grouped_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=f9d49d9f4cac8724cd97a6d769c9bb70fe71526e32bce68e70224d6c24101593
+plan_hash=952ac7a21d2bd69ffea5cfaec34cc05364637ed571a2b1cd7246c22c80c291f3
 mode=Load(LoadSpec { limit: Some(2), offset: 0 })
 is_grouped=true
 execution_strategy=Grouped

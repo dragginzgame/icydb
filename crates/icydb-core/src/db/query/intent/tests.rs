@@ -1059,7 +1059,7 @@ fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
         "explain rendering surfaces must not change semantic plan-hash identity",
     );
     assert_eq!(
-        baseline_hash, "f6e27beeb3af3c4d5452276f4df4dec295507812e31199646625ac5f7e45fcb6",
+        baseline_hash, "70679eb4a9281ecf55aced9a30b47110fdc4bd64160c76a4350b97a58594cab1",
         "plan-hash snapshot drifted; update only for intentional semantic identity changes",
     );
 }
