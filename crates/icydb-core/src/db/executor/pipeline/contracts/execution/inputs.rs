@@ -7,7 +7,11 @@
 use crate::value::Value;
 
 #[cfg(feature = "sql")]
-type StructuralSqlProjectionRows = (Option<Vec<Vec<Option<Value>>>>, Vec<DataRow>);
+type StructuralSqlProjectionRows = (
+    Option<Vec<Vec<Option<Value>>>>,
+    Option<Vec<Vec<Value>>>,
+    Vec<DataRow>,
+);
 
 use crate::{
     db::{
@@ -169,6 +173,8 @@ pub(in crate::db::executor) struct StructuralCursorPage {
     row_count: usize,
     #[cfg(feature = "sql")]
     slot_rows: Option<Vec<Vec<Option<Value>>>>,
+    #[cfg(feature = "sql")]
+    projected_rows: Option<Vec<Vec<Value>>>,
     next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
 }
 
@@ -184,6 +190,8 @@ impl StructuralCursorPage {
             data_rows,
             #[cfg(feature = "sql")]
             slot_rows: None,
+            #[cfg(feature = "sql")]
+            projected_rows: None,
             next_cursor,
         }
     }
@@ -201,6 +209,24 @@ impl StructuralCursorPage {
             data_rows: Vec::new(),
             row_count,
             slot_rows: Some(slot_rows),
+            projected_rows: None,
+            next_cursor,
+        }
+    }
+
+    /// Build one structural scalar page from already-projected SQL value rows.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::executor) const fn new_with_projected_rows(
+        projected_rows: Vec<Vec<Value>>,
+        row_count: usize,
+        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
+    ) -> Self {
+        Self {
+            data_rows: Vec::new(),
+            row_count,
+            slot_rows: None,
+            projected_rows: Some(projected_rows),
             next_cursor,
         }
     }
@@ -221,7 +247,7 @@ impl StructuralCursorPage {
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::executor) fn into_sql_parts(self) -> StructuralSqlProjectionRows {
-        (self.slot_rows, self.data_rows)
+        (self.slot_rows, self.projected_rows, self.data_rows)
     }
 
     /// Consume one structural scalar page into rows plus cursor state.

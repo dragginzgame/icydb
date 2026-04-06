@@ -41,6 +41,12 @@ impl<K> AccessPlan<K> {
         Self::path(AccessPath::ByKeys(keys))
     }
 
+    /// Construct a primary-key range access plan.
+    #[must_use]
+    pub(crate) fn key_range(start: K, end: K) -> Self {
+        Self::path(AccessPath::KeyRange { start, end })
+    }
+
     /// Construct an index-prefix access plan.
     #[must_use]
     pub(crate) fn index_prefix(index: IndexModel, values: Vec<Value>) -> Self {
@@ -153,6 +159,13 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(crate) fn as_index_range_path(&self) -> Option<IndexRangePathRef<'_>> {
         self.as_path().and_then(|path| path.as_index_range())
+    }
+
+    /// Borrow the primary-key range endpoints when this is a single `KeyRange`
+    /// path.
+    #[must_use]
+    pub(crate) fn as_primary_key_range_path(&self) -> Option<(&K, &K)> {
+        self.as_path().and_then(|path| path.as_key_range())
     }
 
     /// Borrow the selected secondary index model when this is a single

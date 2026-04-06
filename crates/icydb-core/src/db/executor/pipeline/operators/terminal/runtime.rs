@@ -6,16 +6,20 @@
 #[cfg(feature = "sql")]
 use crate::db::data::DataKey;
 #[cfg(feature = "sql")]
-use crate::value::Value;
+use crate::value::{StorageKey, Value};
 
 #[cfg(feature = "sql")]
 type CoveringSlotRows = (Vec<Vec<Option<Value>>>, usize);
+#[cfg(feature = "sql")]
+type CoveringProjectedRows = (Vec<Vec<Value>>, usize);
 #[cfg(feature = "sql")]
 type CoveringComponentSlotGroup = (usize, Vec<usize>);
 #[cfg(feature = "sql")]
 type DecodedCoveringComponentRows = Vec<(DataKey, Vec<Value>)>;
 #[cfg(feature = "sql")]
 type CoveringSlotRowPairs = Vec<(DataKey, Vec<Option<Value>>)>;
+#[cfg(feature = "sql")]
+type CoveringProjectedRowPairs = Vec<(DataKey, Vec<Value>)>;
 
 ///
 /// SqlCoveringMaterializationContext
@@ -34,6 +38,21 @@ struct SqlCoveringMaterializationContext<'a> {
     load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
     scan_budget_hint: Option<usize>,
     predicate_slots: Option<&'a PredicateProgram>,
+}
+
+///
+/// SqlDirectProjectedFieldSource
+///
+/// SQL-only direct projected value source derived from the existing
+/// planner-owned covering contract. This keeps the projected-row short path
+/// explicit without broadening the covering route semantics themselves.
+///
+
+#[cfg(feature = "sql")]
+enum SqlDirectProjectedFieldSource {
+    PrimaryKey,
+    Constant(Value),
+    IndexComponent { decoded_component_index: usize },
 }
 
 ///
@@ -56,11 +75,14 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             BudgetedOrderedKeyStream, CoveringProjectionComponentRows, ExecutionKernel,
-            OrderedKeyStream, ScalarContinuationBindings, covering_projection_scan_direction,
-            decode_covering_projection_pairs, exact_output_key_count_hint,
-            key_stream_budget_is_redundant,
+            OrderedKeyStream, ScalarContinuationBindings, SingleComponentCoveringProjectionOutcome,
+            SingleComponentCoveringScanRequest,
+            collect_single_component_covering_projection_values_from_lowered_specs,
+            covering_projection_scan_direction, decode_covering_projection_pairs,
+            exact_output_key_count_hint, key_stream_budget_is_redundant,
             pipeline::contracts::{CoveringComponentScanState, RowCollectorMaterializationRequest},
-            read_row_with_consistency_from_store, reorder_covering_projection_pairs,
+            projection::direct_projection_field_slots,
+            read_row_presence_with_consistency_from_store, reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
             route::{
                 LoadOrderRouteContract, LoadTerminalFastPathContract,
@@ -239,29 +261,13 @@ impl ExecutionKernel {
 
         #[cfg(feature = "sql")]
         if retain_slot_rows
-            && let Some((mut slot_rows, keys_scanned)) =
-                try_materialize_sql_covering_slot_rows(sql_covering_context, key_stream)?
+            && let Some(sql_page) = try_materialize_cursorless_sql_short_path(
+                sql_covering_context,
+                key_stream,
+                validate_projection,
+            )?
         {
-            if !cursorless_sql_page_window_is_redundant(plan, slot_rows.len()) {
-                apply_cursorless_sql_page_window(plan, &mut slot_rows);
-            }
-            if validate_projection {
-                crate::db::executor::projection::validate_projection_over_slot_rows(
-                    model,
-                    &plan.projection_spec(model),
-                    slot_rows.len(),
-                    &mut |row_index, slot| slot_rows[row_index].get(slot).cloned().flatten(),
-                )?;
-            }
-            let post_access_rows = slot_rows.len();
-            let page =
-                crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
-                    slot_rows,
-                    post_access_rows,
-                    None,
-                );
-
-            return Ok(Some((page, keys_scanned, post_access_rows)));
+            return Ok(Some(sql_page));
         }
 
         let payload_mode = if retain_slot_rows && cursor_boundary.is_none() {
@@ -298,6 +304,66 @@ impl ExecutionKernel {
 
         Ok(Some((page, keys_scanned, post_access_rows)))
     }
+}
+
+#[cfg(feature = "sql")]
+// Attempt the SQL-only cursorless short path before falling back to the shared
+// row-collector kernel. This keeps the already-projected and retained-slot-row
+// lanes under one explicit terminal-owned contract.
+fn try_materialize_cursorless_sql_short_path(
+    context: SqlCoveringMaterializationContext<'_>,
+    key_stream: &mut dyn OrderedKeyStream,
+    validate_projection: bool,
+) -> Result<
+    Option<(
+        crate::db::executor::pipeline::contracts::StructuralCursorPage,
+        usize,
+        usize,
+    )>,
+    InternalError,
+> {
+    if let Some((mut projected_rows, keys_scanned)) = try_materialize_sql_projected_rows(&context)?
+    {
+        if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
+            apply_cursorless_sql_page_window(context.plan, &mut projected_rows);
+        }
+        let post_access_rows = projected_rows.len();
+        let page =
+            crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_projected_rows(
+                projected_rows,
+                post_access_rows,
+                None,
+            );
+
+        return Ok(Some((page, keys_scanned, post_access_rows)));
+    }
+
+    if let Some((mut slot_rows, keys_scanned)) =
+        try_materialize_sql_covering_slot_rows(&context, key_stream)?
+    {
+        if !cursorless_sql_page_window_is_redundant(context.plan, slot_rows.len()) {
+            apply_cursorless_sql_page_window(context.plan, &mut slot_rows);
+        }
+        if validate_projection {
+            crate::db::executor::projection::validate_projection_over_slot_rows(
+                context.model,
+                &context.plan.projection_spec(context.model),
+                slot_rows.len(),
+                &mut |row_index, slot| slot_rows[row_index].get(slot).cloned().flatten(),
+            )?;
+        }
+        let post_access_rows = slot_rows.len();
+        let page =
+            crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_slot_rows(
+                slot_rows,
+                post_access_rows,
+                None,
+            );
+
+        return Ok(Some((page, keys_scanned, post_access_rows)));
+    }
+
+    Ok(None)
 }
 
 ///
@@ -407,16 +473,30 @@ fn apply_cursorless_sql_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec
 }
 
 #[cfg(feature = "sql")]
+// Attempt one SQL-only direct projected-row materialization path when the
+// route-owned covering contract already determines every output value and the
+// query owes no residual predicate evaluation.
+fn try_materialize_sql_projected_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+) -> Result<Option<CoveringProjectedRows>, InternalError> {
+    if context.predicate_slots.is_some() {
+        return Ok(None);
+    }
+
+    try_materialize_sql_route_covering_projected_rows(context)
+}
+
+#[cfg(feature = "sql")]
 // Attempt one SQL-only index-covered slot-row materialization path that can
 // derive every referenced value from one decoded covering component, bound
 // index-prefix constants, and the authoritative primary key on each data key.
 fn try_materialize_sql_covering_slot_rows(
-    context: SqlCoveringMaterializationContext<'_>,
+    context: &SqlCoveringMaterializationContext<'_>,
     key_stream: &mut dyn OrderedKeyStream,
 ) -> Result<Option<CoveringSlotRows>, InternalError> {
     // Phase 1: first try the explicit route-owned covering-read contract when
     // it can be satisfied by one index component plus any PK/constant fields.
-    if let Some(rows) = try_materialize_sql_route_covering_slot_rows(&context)? {
+    if let Some(rows) = try_materialize_sql_route_covering_slot_rows(context)? {
         return Ok(Some(rows));
     }
 
@@ -451,8 +531,11 @@ fn try_materialize_sql_covering_slot_rows(
             while let Some(key) = budgeted.next_key()? {
                 keys_scanned = keys_scanned.saturating_add(1);
                 if row_check_required
-                    && read_row_with_consistency_from_store(context.store, &key, consistency)?
-                        .is_none()
+                    && !read_row_presence_with_consistency_from_store(
+                        context.store,
+                        &key,
+                        consistency,
+                    )?
                 {
                     continue;
                 }
@@ -474,8 +557,11 @@ fn try_materialize_sql_covering_slot_rows(
             while let Some(key) = key_stream.next_key()? {
                 keys_scanned = keys_scanned.saturating_add(1);
                 if row_check_required
-                    && read_row_with_consistency_from_store(context.store, &key, consistency)?
-                        .is_none()
+                    && !read_row_presence_with_consistency_from_store(
+                        context.store,
+                        &key,
+                        consistency,
+                    )?
                 {
                     continue;
                 }
@@ -499,6 +585,122 @@ fn try_materialize_sql_covering_slot_rows(
     }
 
     Ok(None)
+}
+
+#[cfg(feature = "sql")]
+// Attempt one route-owned covering-read projected-row materialization path
+// when the SQL projection is a direct unique field list and the route already
+// proves every referenced source.
+fn try_materialize_sql_route_covering_projected_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+) -> Result<Option<CoveringProjectedRows>, InternalError> {
+    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+        context.load_terminal_fast_path
+    else {
+        return Ok(None);
+    };
+    let Some(scan_state) = context.covering_component_scan else {
+        return Ok(None);
+    };
+    let projection = context.plan.projection_spec(context.model);
+    let Some(projection_field_slots) = direct_projection_field_slots(context.model, &projection)
+    else {
+        return Ok(None);
+    };
+
+    if let Some(projected_rows) = try_materialize_sql_route_single_component_projected_rows(
+        context,
+        covering,
+        projection_field_slots.as_slice(),
+    )? {
+        return Ok(Some(projected_rows));
+    }
+
+    let Some(layout) = sql_route_covering_slot_layout(context.model, covering, None)? else {
+        return Ok(None);
+    };
+    let Some(projected_field_sources) = sql_route_direct_projected_field_sources(
+        covering,
+        projection_field_slots.as_slice(),
+        layout.component_slots.as_slice(),
+    )?
+    else {
+        return Ok(None);
+    };
+    let Some((decoded_rows, keys_scanned)) = sql_route_covering_component_rows(
+        context.plan,
+        context.store,
+        scan_state,
+        covering,
+        context.scan_budget_hint,
+        layout.component_slots.as_slice(),
+    )?
+    else {
+        return Ok(None);
+    };
+
+    // Phase 1: materialize already-projected SQL rows directly from the
+    // planner-owned covering contract instead of staging full slot rows.
+    let mut rows =
+        sql_route_covering_projected_rows_from_decoded(&projected_field_sources, decoded_rows)?;
+
+    // Phase 2: preserve the existing covering order contract exactly as the
+    // slot-row path does.
+    reorder_covering_projection_pairs(covering.order_contract, rows.as_mut_slice());
+
+    Ok(Some((
+        rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
+        keys_scanned,
+    )))
+}
+
+#[cfg(feature = "sql")]
+// Attempt one traversal-order direct projected-row path for single-component
+// secondary covering reads.
+fn try_materialize_sql_route_single_component_projected_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+    covering: &CoveringReadExecutionPlan,
+    projection_field_slots: &[(String, usize)],
+) -> Result<Option<CoveringProjectedRows>, InternalError> {
+    let Some(scan_state) = context.covering_component_scan else {
+        return Ok(None);
+    };
+    let Some((component_index, projected_field_sources)) =
+        sql_route_single_component_projected_field_sources(covering, projection_field_slots)
+    else {
+        return Ok(None);
+    };
+
+    let consistency = row_read_consistency_for_plan(context.plan);
+    let projected_rows = collect_single_component_covering_projection_values_from_lowered_specs(
+        SingleComponentCoveringScanRequest {
+            store: context.store,
+            entity_tag: scan_state.entity_tag,
+            index_prefix_specs: scan_state.index_prefix_specs,
+            index_range_specs: scan_state.index_range_specs,
+            direction: covering_projection_scan_direction(covering.order_contract),
+            limit: covering_component_scan_budget_hint(
+                covering.order_contract,
+                context.scan_budget_hint,
+            )
+            .unwrap_or(usize::MAX),
+            component_index,
+            consistency,
+        },
+        |storage_key, decoded_component| {
+            sql_project_row_from_single_covering_component(
+                projected_field_sources.as_slice(),
+                storage_key,
+                decoded_component,
+            )
+        },
+    )?;
+    let SingleComponentCoveringProjectionOutcome::Supported(projected_rows) = projected_rows else {
+        return Ok(None);
+    };
+    let keys_scanned = projected_rows.len();
+
+    Ok(Some((projected_rows, keys_scanned)))
 }
 
 #[cfg(feature = "sql")]
@@ -630,6 +832,98 @@ fn sql_route_covering_slot_layout(
 }
 
 #[cfg(feature = "sql")]
+// Resolve one direct projected-row source layout from the planner-owned
+// covering contract plus the canonical direct field projection order.
+fn sql_route_direct_projected_field_sources(
+    covering: &CoveringReadExecutionPlan,
+    projection_field_slots: &[(String, usize)],
+    component_slots: &[CoveringComponentSlotGroup],
+) -> Result<Option<Vec<SqlDirectProjectedFieldSource>>, InternalError> {
+    let mut projected_field_sources = Vec::with_capacity(projection_field_slots.len());
+
+    for (_, field_slot) in projection_field_slots {
+        let Some(covering_field) = covering
+            .fields
+            .iter()
+            .find(|field| field.field_slot.index == *field_slot)
+        else {
+            return Ok(None);
+        };
+
+        let projected_source = match &covering_field.source {
+            CoveringReadFieldSource::PrimaryKey => SqlDirectProjectedFieldSource::PrimaryKey,
+            CoveringReadFieldSource::Constant(value) => {
+                SqlDirectProjectedFieldSource::Constant(value.clone())
+            }
+            CoveringReadFieldSource::IndexComponent { component_index } => {
+                let Some(decoded_component_index) = component_slots
+                    .iter()
+                    .position(|(group_index, _)| group_index == component_index)
+                else {
+                    return Err(InternalError::query_executor_invariant(
+                        "covering-read SQL projected-row path requires one decoded component source per projected field",
+                    ));
+                };
+
+                SqlDirectProjectedFieldSource::IndexComponent {
+                    decoded_component_index,
+                }
+            }
+        };
+
+        projected_field_sources.push(projected_source);
+    }
+
+    Ok(Some(projected_field_sources))
+}
+
+#[cfg(feature = "sql")]
+// Resolve one traversal-order single-component projected-row source layout.
+fn sql_route_single_component_projected_field_sources(
+    covering: &CoveringReadExecutionPlan,
+    projection_field_slots: &[(String, usize)],
+) -> Option<(usize, Vec<SqlDirectProjectedFieldSource>)> {
+    if !matches!(
+        covering.order_contract,
+        CoveringProjectionOrder::IndexOrder(_)
+    ) {
+        return None;
+    }
+
+    let mut shared_component_index = None;
+    let mut projected_field_sources = Vec::with_capacity(projection_field_slots.len());
+
+    for (_, field_slot) in projection_field_slots {
+        let covering_field = covering
+            .fields
+            .iter()
+            .find(|field| field.field_slot.index == *field_slot)?;
+
+        let projected_source = match &covering_field.source {
+            CoveringReadFieldSource::PrimaryKey => SqlDirectProjectedFieldSource::PrimaryKey,
+            CoveringReadFieldSource::Constant(value) => {
+                SqlDirectProjectedFieldSource::Constant(value.clone())
+            }
+            CoveringReadFieldSource::IndexComponent { component_index } => {
+                match shared_component_index {
+                    Some(existing) if existing != *component_index => return None,
+                    Some(_) => {}
+                    None => shared_component_index = Some(*component_index),
+                }
+
+                SqlDirectProjectedFieldSource::IndexComponent {
+                    decoded_component_index: 0,
+                }
+            }
+        };
+
+        projected_field_sources.push(projected_source);
+    }
+
+    Some((shared_component_index?, projected_field_sources))
+}
+
+#[cfg(feature = "sql")]
 // Scan and decode one route-owned covering component stream under the
 // existing-row contract while preserving the planner-owned traversal order.
 fn sql_route_covering_component_rows(
@@ -727,6 +1021,76 @@ fn sql_route_covering_slot_rows_from_decoded(
     }
 
     rows
+}
+
+#[cfg(feature = "sql")]
+// Materialize final projected SQL rows from one decoded covering component
+// stream when the SQL projection is already a direct unique field list.
+fn sql_route_covering_projected_rows_from_decoded(
+    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    decoded_rows: DecodedCoveringComponentRows,
+) -> Result<CoveringProjectedRowPairs, InternalError> {
+    let mut rows = Vec::with_capacity(decoded_rows.len());
+
+    for (data_key, component_values) in decoded_rows {
+        let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+
+        for projected_source in projected_field_sources {
+            let value = match projected_source {
+                SqlDirectProjectedFieldSource::PrimaryKey => {
+                    data_key.storage_key().as_primary_key_value()
+                }
+                SqlDirectProjectedFieldSource::Constant(value) => value.clone(),
+                SqlDirectProjectedFieldSource::IndexComponent {
+                    decoded_component_index,
+                } => component_values
+                    .get(*decoded_component_index)
+                    .cloned()
+                    .ok_or_else(|| {
+                        InternalError::query_executor_invariant(
+                            "covering-read SQL projected-row path decoded fewer components than the direct projection contract requires",
+                        )
+                    })?,
+            };
+            projected_row.push(value);
+        }
+
+        rows.push((data_key, projected_row));
+    }
+
+    Ok(rows)
+}
+
+#[cfg(feature = "sql")]
+// Project one SQL row directly from a single decoded covering component plus
+// the authoritative primary key.
+fn sql_project_row_from_single_covering_component(
+    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    storage_key: StorageKey,
+    decoded_component: &Value,
+) -> Result<Vec<Value>, InternalError> {
+    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+
+    for projected_source in projected_field_sources {
+        let value = match projected_source {
+            SqlDirectProjectedFieldSource::PrimaryKey => storage_key.as_primary_key_value(),
+            SqlDirectProjectedFieldSource::Constant(value) => value.clone(),
+            SqlDirectProjectedFieldSource::IndexComponent {
+                decoded_component_index,
+            } => {
+                if *decoded_component_index != 0 {
+                    return Err(InternalError::query_executor_invariant(
+                        "single-component projected-row path must only reference decoded component zero",
+                    ));
+                }
+
+                decoded_component.clone()
+            }
+        };
+        projected_row.push(value);
+    }
+
+    Ok(projected_row)
 }
 
 #[cfg(feature = "sql")]

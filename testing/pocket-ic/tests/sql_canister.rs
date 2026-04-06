@@ -683,7 +683,7 @@ const fn scalar_select_attribution_cases() -> [(
     SqlPerfAttributionSurface,
     &'static str,
     u32,
-); 9] {
+); 11] {
     [
         (
             "user_name_eq_limit1",
@@ -719,6 +719,20 @@ const fn scalar_select_attribution_cases() -> [(
             SqlPerfAttributionSurface::TypedDispatchUser,
             "User",
             1,
+        ),
+        (
+            "user_secondary_covering_name_limit2_asc",
+            "SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
+            SqlPerfAttributionSurface::TypedDispatchUser,
+            "User",
+            2,
+        ),
+        (
+            "user_secondary_covering_name_limit2_desc",
+            "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2",
+            SqlPerfAttributionSurface::TypedDispatchUser,
+            "User",
+            2,
         ),
         (
             "character_order_only_composite_limit2_asc",
@@ -1160,6 +1174,45 @@ fn sql_canister_smoke_flow() {
         );
 
         reset_fixtures(pic, canister_id);
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_user_secondary_covering_order_only_projection_windows() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let asc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
+            "ascending User secondary covering projection should return projected rows",
+        );
+        assert_projection_window(
+            &asc_rows,
+            "User",
+            &["id", "name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "alice"],
+                &[ANY_PROJECTION_VALUE, "bob"],
+            ],
+            "ascending User secondary covering projection should preserve ordered rows",
+        );
+
+        let desc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2",
+            "descending User secondary covering projection should return projected rows",
+        );
+        assert_projection_window(
+            &desc_rows,
+            "User",
+            &["id", "name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "charlie"],
+                &[ANY_PROJECTION_VALUE, "bob"],
+            ],
+            "descending User secondary covering projection should preserve ordered rows",
+        );
     });
 }
 
@@ -4341,6 +4394,46 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
                     sql: "SELECT id FROM User ORDER BY id ASC LIMIT 1".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.secondary_covering.user_name_order_only_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "generated.dispatch.secondary_covering.user_name_order_only_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.secondary_covering.user_name_order_only_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.secondary_covering.user_name_order_only_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
                 },

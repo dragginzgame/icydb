@@ -12,6 +12,8 @@ mod tests;
 pub(in crate::db::executor) use eval::*;
 pub(in crate::db::executor) use grouped::*;
 #[cfg(feature = "sql")]
+pub(in crate::db::executor) use materialize::direct_projection_field_slots;
+#[cfg(feature = "sql")]
 pub(in crate::db) use materialize::execute_sql_projection_rows_for_canister;
 #[cfg(all(feature = "sql", test))]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;

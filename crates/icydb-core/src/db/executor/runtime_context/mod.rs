@@ -152,6 +152,43 @@ pub(in crate::db::executor) fn read_row_with_consistency_from_store(
     }
 }
 
+// Read only row presence under one consistency contract from structural store
+// authority. Covering-read paths use this when they still need stale-row
+// filtering but do not need to clone the raw row payload itself.
+pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
+    store: StoreHandle,
+    key: &DataKey,
+    consistency: MissingRowPolicy,
+) -> Result<bool, InternalError> {
+    store.with_data(|data| {
+        read_row_presence_with_consistency_from_data_store(data, key, consistency)
+    })
+}
+
+// Read only row presence under one consistency contract from one already
+// borrowed data-store boundary. Covering-read decode paths use this helper to
+// batch stale-row filtering under one store borrow instead of re-entering the
+// registry per decoded secondary key.
+pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_store(
+    data: &DataStore,
+    key: &DataKey,
+    consistency: MissingRowPolicy,
+) -> Result<bool, InternalError> {
+    let raw = key.to_raw()?;
+    let row_exists = data.contains(&raw);
+
+    match consistency {
+        MissingRowPolicy::Error => {
+            if row_exists {
+                Ok(true)
+            } else {
+                Err(ExecutorError::missing_row(key).into())
+            }
+        }
+        MissingRowPolicy::Ignore => Ok(row_exists),
+    }
+}
+
 // Read one persisted row under one consistency contract and preserve the source data key.
 pub(in crate::db::executor) fn read_data_row_with_consistency_from_store(
     store: StoreHandle,

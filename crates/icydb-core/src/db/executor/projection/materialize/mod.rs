@@ -7,7 +7,9 @@
 mod structural;
 
 use crate::{
-    db::query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
+    db::query::plan::expr::{
+        Expr, ProjectionField, ProjectionSpec, projection_field_direct_field_name,
+    },
     error::InternalError,
     model::entity::EntityModel,
     value::Value,
@@ -88,6 +90,47 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
     }
 
     Ok(projected_values)
+}
+
+/// Resolve one direct field-slot projection layout when every output stays on
+/// one unique canonical field reference.
+///
+/// SQL structural fast paths use this to detect projection shapes that can
+/// copy values directly from retained slots without reopening generic scalar
+/// expression evaluation.
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) fn direct_projection_field_slots(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+) -> Option<Vec<(String, usize)>> {
+    let mut field_slots = Vec::with_capacity(projection.len());
+
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { .. } => {
+                let field_name = projection_field_direct_field_name(field)?;
+                let slot = crate::model::entity::resolve_field_slot(model, field_name)?;
+
+                // The direct slot-copy path moves values out of retained slot
+                // rows with `Option::take()`, so it is valid only when each
+                // projected output reads a unique source slot exactly once.
+                // Repeated source fields such as computed-projection base
+                // rewrites (`TRIM(name), LOWER(name), ...`) must fall back to
+                // the generic reader, which can read the same slot multiple
+                // times without consuming it.
+                if field_slots
+                    .iter()
+                    .any(|(_, existing_slot)| *existing_slot == slot)
+                {
+                    return None;
+                }
+
+                field_slots.push((field_name.to_string(), slot));
+            }
+        }
+    }
+
+    Some(field_slots)
 }
 
 #[cfg(all(feature = "sql", test))]

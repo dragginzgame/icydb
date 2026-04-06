@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
+        access::{AccessPlan, SemanticIndexRangeSpec},
         index::next_text_prefix,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
@@ -71,7 +71,7 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
         return None;
     }
 
-    Some(AccessPlan::path(AccessPath::KeyRange { start, end }))
+    Some(AccessPlan::key_range(start, end))
 }
 
 ///

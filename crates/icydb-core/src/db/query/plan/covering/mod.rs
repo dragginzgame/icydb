@@ -11,7 +11,7 @@
 mod tests;
 
 use crate::db::{
-    access::{AccessPath, AccessPlan},
+    access::AccessPlan,
     direction::Direction,
     query::plan::{
         AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec,
@@ -444,20 +444,13 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
 fn primary_store_covering_existing_row_mode<K>(
     access: &AccessPlan<K>,
 ) -> Option<CoveringExistingRowMode> {
-    match access.as_path() {
-        Some(AccessPath::KeyRange { .. } | AccessPath::FullScan) => {
-            Some(CoveringExistingRowMode::ProvenByPlanner)
-        }
-        Some(AccessPath::ByKey(_) | AccessPath::ByKeys(_)) => {
-            Some(CoveringExistingRowMode::RequiresRowPresenceCheck)
-        }
-        Some(
-            AccessPath::IndexPrefix { .. }
-            | AccessPath::IndexRange { .. }
-            | AccessPath::IndexMultiLookup { .. },
-        )
-        | None => None,
+    let path = access.as_path()?;
+    if path.is_primary_store_authoritative_scan() {
+        return Some(CoveringExistingRowMode::ProvenByPlanner);
     }
+
+    path.is_primary_key_lookup()
+        .then_some(CoveringExistingRowMode::RequiresRowPresenceCheck)
 }
 
 // Return whether the current runtime can preserve one primary-key-only output
@@ -466,28 +459,30 @@ fn primary_store_covering_order_supported<K>(
     access: &AccessPlan<K>,
     order_contract: CoveringProjectionOrder,
 ) -> bool {
-    match access.as_path() {
-        // Authoritative scans already preserve the planner-owned PK order
-        // contract through their route direction + runtime reorder behavior.
-        Some(AccessPath::KeyRange { .. } | AccessPath::FullScan) => true,
-        // Exact key lookups are singleton-safe regardless of requested PK
-        // direction because there can be at most one emitted row.
-        Some(AccessPath::ByKey(_)) => {
-            matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_))
-        }
-        // Multi-key lookup currently resolves keys in canonical ascending PK
-        // order, so phase 1 stays fail-closed on descending PK order here.
-        Some(AccessPath::ByKeys(_)) => matches!(
+    let Some(path) = access.as_path() else {
+        return false;
+    };
+
+    // Authoritative scans already preserve the planner-owned PK order
+    // contract through their route direction + runtime reorder behavior.
+    if path.is_primary_store_authoritative_scan() {
+        return true;
+    }
+
+    // Exact key lookups are singleton-safe regardless of requested PK
+    // direction because there can be at most one emitted row.
+    if path.is_by_key() {
+        return matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_));
+    }
+
+    // Multi-key lookup currently resolves keys in canonical ascending PK
+    // order, so phase 1 stays fail-closed on descending PK order here.
+    path.as_by_keys().is_some_and(|_| {
+        matches!(
             order_contract,
             CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc)
-        ),
-        Some(
-            AccessPath::IndexPrefix { .. }
-            | AccessPath::IndexRange { .. }
-            | AccessPath::IndexMultiLookup { .. },
         )
-        | None => false,
-    }
+    })
 }
 
 // Derive one canonical covering-read field list from one direct-field

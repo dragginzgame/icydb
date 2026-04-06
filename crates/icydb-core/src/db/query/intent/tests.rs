@@ -1762,13 +1762,12 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
     for descriptor in [&by_key, &pushdown_rejected, &index_range] {
         for deferred in [
             ExplainExecutionNodeType::ProjectionMaterialized,
-            ExplainExecutionNodeType::CoveringRead,
             ExplainExecutionNodeType::GroupedAggregateHashMaterialized,
             ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized,
         ] {
             assert!(
                 !explain_execution_contains_node_type(descriptor, deferred),
-                "scalar execution descriptors intentionally defer node family {} in this owner-local surface",
+                "scalar execution descriptors intentionally defer materialized projection/grouped node family {} in this owner-local surface",
                 deferred.as_str(),
             );
         }
@@ -2648,6 +2647,48 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
                 if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == Value::Ulid(key))
         ),
         "redundant predicate stripping must keep the exact ByKey path"
+    );
+}
+
+#[test]
+fn by_keys_access_strips_redundant_primary_key_in_predicate() {
+    let key1 = Ulid::from_u128(9_811);
+    let key2 = Ulid::from_u128(9_813);
+    let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(key2),
+                Value::Ulid(key1),
+                Value::Ulid(key2),
+            ]),
+            CoercionId::Strict,
+        )))
+        .build_plan_model()
+        .expect("model id IN literal-set plan should build");
+    let AccessPlannedQuery {
+        logical,
+        access,
+        projection_selection: _projection_selection,
+    } = model_plan;
+    let typed_plan = AccessPlannedQuery::from_parts(logical, access);
+
+    assert!(
+        typed_plan.scalar_plan().predicate.is_none(),
+        "exact primary-key IN sets should strip redundant scalar predicates",
+    );
+    assert!(
+        matches!(
+            typed_plan.access,
+            AccessPlan::Path(path)
+                if matches!(
+                    path.as_ref(),
+                    AccessPath::ByKeys(keys)
+                        if keys == &vec![Value::Ulid(key1), Value::Ulid(key2)]
+                )
+        ),
+        "redundant predicate stripping must keep the canonical ByKeys path",
     );
 }
 

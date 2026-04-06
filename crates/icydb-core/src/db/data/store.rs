@@ -47,6 +47,12 @@ impl DataStore {
         self.0.get(key)
     }
 
+    /// Return whether one raw key exists without cloning the row payload.
+    #[must_use]
+    pub fn contains(&self, key: &RawDataKey) -> bool {
+        self.0.contains_key(key)
+    }
+
     /// Clear all stored rows from the data store.
     pub fn clear(&mut self) {
         self.0.clear();

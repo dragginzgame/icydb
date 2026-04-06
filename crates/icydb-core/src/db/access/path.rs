@@ -258,6 +258,33 @@ impl<K> AccessPath<K> {
         }
     }
 
+    /// Borrow the primary-key range endpoints when this path is `KeyRange`.
+    #[must_use]
+    pub(crate) const fn as_key_range(&self) -> Option<(&K, &K)> {
+        match self {
+            Self::KeyRange { start, end } => Some((start, end)),
+            Self::ByKey(_)
+            | Self::ByKeys(_)
+            | Self::IndexPrefix { .. }
+            | Self::IndexMultiLookup { .. }
+            | Self::IndexRange { .. }
+            | Self::FullScan => None,
+        }
+    }
+
+    /// Return whether this path reads authoritative primary-store traversal
+    /// keys directly from row storage.
+    #[must_use]
+    pub(crate) const fn is_primary_store_authoritative_scan(&self) -> bool {
+        matches!(self, Self::KeyRange { .. } | Self::FullScan)
+    }
+
+    /// Return whether this path is one exact primary-key lookup shape.
+    #[must_use]
+    pub(crate) const fn is_primary_key_lookup(&self) -> bool {
+        matches!(self, Self::ByKey(_) | Self::ByKeys(_))
+    }
+
     /// Map the key payload of this access path while preserving structural shape.
     pub(crate) fn map_keys<T, E, F>(self, mut map_key: F) -> Result<AccessPath<T>, E>
     where

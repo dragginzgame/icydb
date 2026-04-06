@@ -11,7 +11,7 @@ use crate::{
             EntityAuthority,
             pipeline::entrypoints::execute_initial_scalar_rows_for_canister,
             projection::{
-                ProjectionEvalError,
+                ProjectionEvalError, direct_projection_field_slots,
                 eval::eval_canonical_scalar_projection_expr,
                 materialize::{
                     prepare_projection_plan, visit_prepared_projection_values_with_value_reader,
@@ -19,13 +19,10 @@ use crate::{
                 },
             },
         },
-        query::plan::{
-            AccessPlannedQuery,
-            expr::{ProjectionField, ProjectionSpec, projection_field_direct_field_name},
-        },
+        query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
     },
     error::InternalError,
-    model::entity::{EntityModel, resolve_field_slot},
+    model::entity::EntityModel,
     traits::CanisterKind,
     value::Value,
 };
@@ -76,12 +73,14 @@ where
     // Phase 1: execute the scalar rows path once for the whole canister while
     // reusing the already-derived projection contract from the caller.
     let page = execute_initial_scalar_rows_for_canister(db, debug, authority, plan)?;
-    let (slot_rows, data_rows) = page.into_sql_parts();
+    let (slot_rows, projected_rows, data_rows) = page.into_sql_parts();
 
     // Phase 2: prefer already-decoded slot rows when the scalar kernel kept
     // them for immediate SQL projection materialization. Fall back to the
     // canonical structural-row reader on all other paths.
-    let projected = if let Some(slot_rows) = slot_rows {
+    let projected = if let Some(projected_rows) = projected_rows {
+        projected_rows
+    } else if let Some(slot_rows) = slot_rows {
         project_slot_rows_from_projection_structural(model, &projection, slot_rows)?
     } else {
         project_data_rows_from_projection_structural(model, &projection, data_rows.as_slice())?
@@ -122,44 +121,6 @@ fn project_slot_rows_from_projection_structural(
     }
 
     Ok(projected_rows)
-}
-
-#[cfg(feature = "sql")]
-// Resolve one direct slot-copy projection shape when every output stays on one
-// canonical field reference and therefore does not need compiled scalar
-// expression evaluation.
-fn direct_projection_field_slots(
-    model: &'static EntityModel,
-    projection: &ProjectionSpec,
-) -> Option<Vec<(String, usize)>> {
-    let mut field_slots = Vec::with_capacity(projection.len());
-
-    for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { .. } => {
-                let field_name = projection_field_direct_field_name(field)?;
-                let slot = resolve_field_slot(model, field_name)?;
-
-                // The direct slot-copy path moves values out of retained slot
-                // rows with `Option::take()`, so it is valid only when each
-                // projected output reads a unique source slot exactly once.
-                // Repeated source fields such as computed-projection base
-                // rewrites (`TRIM(name), LOWER(name), ...`) must fall back to
-                // the generic reader, which can read the same slot multiple
-                // times without consuming it.
-                if field_slots
-                    .iter()
-                    .any(|(_, existing_slot)| *existing_slot == slot)
-                {
-                    return None;
-                }
-
-                field_slots.push((field_name.to_string(), slot));
-            }
-        }
-    }
-
-    Some(field_slots)
 }
 
 #[cfg(feature = "sql")]

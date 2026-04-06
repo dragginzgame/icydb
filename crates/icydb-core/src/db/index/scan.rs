@@ -23,11 +23,29 @@ use crate::{
     error::InternalError,
     model::index::IndexModel,
     types::EntityTag,
+    value::StorageKey,
 };
 use std::ops::Bound;
 
 type IndexComponentValues = Vec<Vec<u8>>;
 type DataKeyComponentRows = Vec<(DataKey, IndexComponentValues)>;
+
+///
+/// SingleComponentCoveringCollector
+///
+/// Narrow collector contract for the single-component covering fast path.
+/// The index layer streams decoded membership entries through this boundary
+/// without owning projection semantics beyond "emit storage key + component".
+///
+
+pub(in crate::db) trait SingleComponentCoveringCollector<T> {
+    fn push(
+        &mut self,
+        storage_key: StorageKey,
+        component: &[u8],
+        out: &mut Vec<T>,
+    ) -> Result<(), InternalError>;
+}
 
 impl IndexStore {
     // Keep bounded scan preallocation modest so common page-limited reads
@@ -82,6 +100,64 @@ impl IndexStore {
                 index_predicate_execution,
             )
         })
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    pub(in crate::db) fn scan_single_component_covering_values_in_raw_range_limited<T, C>(
+        &self,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        continuation: IndexScanContinuationInput<'_>,
+        limit: usize,
+        component_index: usize,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        collector: &mut C,
+    ) -> Result<Vec<T>, InternalError>
+    where
+        C: SingleComponentCoveringCollector<T>,
+    {
+        // Keep scan-budget semantics aligned with the older tuple-materialized
+        // path: the bounded fetch limit counts scanned membership keys, not
+        // only live output rows. Stale rows must therefore consume budget
+        // exactly as they did before this fused fast path existed.
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut out = Vec::with_capacity(limit.min(Self::LIMITED_SCAN_PREALLOC_CAP));
+        let mut scanned = 0usize;
+
+        if !continuation.has_anchor() {
+            return self.scan_single_component_covering_initial_window(
+                index,
+                bounds,
+                continuation.direction(),
+                limit,
+                component_index,
+                index_predicate_execution,
+                &mut out,
+                &mut scanned,
+                collector,
+            );
+        }
+
+        let continuation =
+            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let (start_raw, end_raw) = continuation.scan_bounds(bounds)?;
+
+        self.scan_single_component_covering_resumed_window(
+            index,
+            continuation,
+            (start_raw, end_raw),
+            limit,
+            component_index,
+            index_predicate_execution,
+            &mut out,
+            &mut scanned,
+            collector,
+        )?;
+
+        Ok(out)
     }
 
     // Resolve one bounded directional raw-range scan with shared continuation guards.
@@ -195,6 +271,148 @@ impl IndexStore {
         }
 
         decode_and_push(raw_key, value, out)
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn scan_single_component_covering_initial_window<T, C>(
+        &self,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        direction: Direction,
+        limit: usize,
+        component_index: usize,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        out: &mut Vec<T>,
+        scanned: &mut usize,
+        collector: &mut C,
+    ) -> Result<Vec<T>, InternalError>
+    where
+        C: SingleComponentCoveringCollector<T>,
+    {
+        if envelope_is_empty(bounds.0, bounds.1) {
+            return Ok(Vec::new());
+        }
+
+        match direction {
+            Direction::Asc => {
+                for entry in self.map.range((bounds.0.clone(), bounds.1.clone())) {
+                    if Self::decode_index_entry_and_collect_with_component(
+                        index,
+                        entry.key(),
+                        &entry.value(),
+                        out,
+                        scanned,
+                        limit,
+                        component_index,
+                        "range resolve",
+                        index_predicate_execution,
+                        collector,
+                    )? {
+                        break;
+                    }
+                }
+            }
+            Direction::Desc => {
+                for entry in self.map.range((bounds.0.clone(), bounds.1.clone())).rev() {
+                    if Self::decode_index_entry_and_collect_with_component(
+                        index,
+                        entry.key(),
+                        &entry.value(),
+                        out,
+                        scanned,
+                        limit,
+                        component_index,
+                        "range resolve",
+                        index_predicate_execution,
+                        collector,
+                    )? {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(std::mem::take(out))
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn scan_single_component_covering_resumed_window<T, C>(
+        &self,
+        index: &IndexModel,
+        continuation: ContinuationRuntime<'_>,
+        bounds: (Bound<RawIndexKey>, Bound<RawIndexKey>),
+        limit: usize,
+        component_index: usize,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        out: &mut Vec<T>,
+        scanned: &mut usize,
+        collector: &mut C,
+    ) -> Result<(), InternalError>
+    where
+        C: SingleComponentCoveringCollector<T>,
+    {
+        if envelope_is_empty(&bounds.0, &bounds.1) {
+            return Ok(());
+        }
+
+        match continuation.direction() {
+            Direction::Asc => {
+                for entry in self.map.range(bounds) {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+
+                    match continuation.accept_key(ContinuationKeyRef::scan(raw_key))? {
+                        LoopAction::Skip => continue,
+                        LoopAction::Emit => {}
+                        LoopAction::Stop => return Ok(()),
+                    }
+
+                    if Self::decode_index_entry_and_collect_with_component(
+                        index,
+                        raw_key,
+                        &value,
+                        out,
+                        scanned,
+                        limit,
+                        component_index,
+                        "range resolve",
+                        index_predicate_execution,
+                        collector,
+                    )? {
+                        return Ok(());
+                    }
+                }
+            }
+            Direction::Desc => {
+                for entry in self.map.range(bounds).rev() {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+
+                    match continuation.accept_key(ContinuationKeyRef::scan(raw_key))? {
+                        LoopAction::Skip => continue,
+                        LoopAction::Emit => {}
+                        LoopAction::Stop => return Ok(()),
+                    }
+
+                    if Self::decode_index_entry_and_collect_with_component(
+                        index,
+                        raw_key,
+                        &value,
+                        out,
+                        scanned,
+                        limit,
+                        component_index,
+                        "range resolve",
+                        index_predicate_execution,
+                        collector,
+                    )? {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -325,6 +543,76 @@ impl IndexStore {
             if let Some(limit) = limit
                 && out.len() == limit
             {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn decode_index_entry_and_collect_with_component<T, C>(
+        index: &IndexModel,
+        raw_key: &RawIndexKey,
+        value: &RawIndexEntry,
+        out: &mut Vec<T>,
+        scanned: &mut usize,
+        limit: usize,
+        component_index: usize,
+        context: &'static str,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        collector: &mut C,
+    ) -> Result<bool, InternalError>
+    where
+        C: SingleComponentCoveringCollector<T>,
+    {
+        // Phase 1: decode the raw key once, extract the requested component,
+        // and evaluate any optional index-only predicate against that same key.
+        let decoded_key = IndexKey::try_from_raw(raw_key)
+            .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+        let Some(component) = decoded_key.component(component_index) else {
+            return Err(InternalError::index_projection_component_required(
+                index.name(),
+                component_index,
+            ));
+        };
+
+        if let Some(execution) = index_predicate_execution
+            && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
+        {
+            return Ok(false);
+        }
+
+        // Phase 2: stream single-key entries directly into the caller-owned
+        // collector so narrow covering-read paths can skip intermediate tuple
+        // staging.
+        if let Some(storage_key) = value
+            .decode_single_key()
+            .map_err(InternalError::index_entry_decode_failed)?
+        {
+            collector.push(storage_key, component, out)?;
+            *scanned = scanned.saturating_add(1);
+            if *scanned == limit {
+                return Ok(true);
+            }
+
+            return Ok(false);
+        }
+
+        // Phase 3: preserve the existing multi-key semantics while still
+        // streaming directly into the caller-owned collector.
+        let storage_keys = value
+            .decode_keys()
+            .map_err(InternalError::index_entry_decode_failed)?;
+
+        if index.is_unique() && storage_keys.len() != 1 {
+            return Err(InternalError::unique_index_entry_single_key_required());
+        }
+
+        for storage_key in storage_keys {
+            collector.push(storage_key, component, out)?;
+            *scanned = scanned.saturating_add(1);
+            if *scanned == limit {
                 return Ok(true);
             }
         }

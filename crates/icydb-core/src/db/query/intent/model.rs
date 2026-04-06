@@ -7,7 +7,7 @@
 use crate::db::query::plan::expr::{FieldId, ProjectionSelection};
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, canonical::canonicalize_value_set},
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
@@ -336,6 +336,13 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
 ) -> Option<Predicate> {
     let predicate = normalized_predicate?;
 
+    if let Some(access_keys) = access.as_path().and_then(|path| path.as_by_keys())
+        && !access_keys.is_empty()
+        && predicate_matches_primary_key_in_set(&predicate, model.primary_key.name, access_keys)
+    {
+        return None;
+    }
+
     if let Some(access_key) = access.as_path().and_then(|path| path.as_by_key()) {
         let Predicate::Compare(cmp) = &predicate else {
             return Some(predicate);
@@ -350,7 +357,7 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
         return None;
     }
 
-    if let Some(crate::db::access::AccessPath::KeyRange { start, end }) = access.as_path()
+    if let Some((start, end)) = access.as_primary_key_range_path()
         && predicate_matches_primary_key_half_open_range(
             &predicate,
             model.primary_key.name,
@@ -362,6 +369,30 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
     }
 
     Some(predicate)
+}
+
+// Return whether one normalized predicate is exactly the same primary-key IN
+// set already guaranteed by one canonical `ByKeys` access path.
+fn predicate_matches_primary_key_in_set(
+    predicate: &Predicate,
+    primary_key_name: &str,
+    access_keys: &[Value],
+) -> bool {
+    let Predicate::Compare(cmp) = predicate else {
+        return false;
+    };
+    if cmp.field != primary_key_name || cmp.op != CompareOp::In {
+        return false;
+    }
+
+    let Value::List(predicate_keys) = &cmp.value else {
+        return false;
+    };
+
+    let mut canonical_predicate_keys = predicate_keys.clone();
+    canonicalize_value_set(&mut canonical_predicate_keys);
+
+    canonical_predicate_keys == access_keys
 }
 
 // Return whether one normalized predicate is exactly the same half-open
