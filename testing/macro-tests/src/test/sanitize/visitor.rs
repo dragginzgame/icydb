@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::prelude::*;
 
-pub use icydb_testing_fixtures::macro_test::sanitize::visitor::*;
+pub use icydb_testing_test_fixtures::macro_test::sanitize::visitor::*;
 
 #[cfg(test)]
 mod tests {

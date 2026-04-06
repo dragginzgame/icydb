@@ -9,5 +9,5 @@
 - focused operation-repeat rerun status:
   - not rerun in this refresh
 - notes:
-  - `quickstart-samples.json` is a fresh current-tree broad matrix from the successful rerun
+  - `demo_rpg-samples.json` is a fresh current-tree broad matrix from the successful rerun
   - `operation-repeat-samples.json` remains the earlier same-day focused matrix and was preserved as reference while this pass focused on the broad surface matrix plus the shared scalar execute path

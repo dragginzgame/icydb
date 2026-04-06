@@ -1,7 +1,7 @@
 # Mimic Changelog
 
 ## [0.29] - Public Release Prep - 2025-11-19
-- Rewrote the README with public-facing positioning, expanded quickstart steps, and detailed onboarding/contribution info for new users.
+- Rewrote the README with public-facing positioning, expanded demo_rpg steps, and detailed onboarding/contribution info for new users.
 - Clarified repository status and support expectations as Mimic moves from a private to a public home.
 - Updated documentation references to the latest tag (`v0.29.0`) so adopters can pin to the launch release.
 - Fixed a bug where tuples only had the first pub

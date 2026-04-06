@@ -1,4 +1,4 @@
-pub use icydb_testing_fixtures::macro_test::validate::newtype::*;
+pub use icydb_testing_test_fixtures::macro_test::validate::newtype::*;
 
 #[cfg(test)]
 mod test {

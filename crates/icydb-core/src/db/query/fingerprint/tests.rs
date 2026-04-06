@@ -12,7 +12,7 @@ use crate::{
             explain::{ExplainGroupedStrategy, ExplainGrouping},
             fingerprint::{
                 finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
-                new_plan_fingerprint_hasher_v2,
+                new_plan_fingerprint_hasher_v1,
             },
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::{
@@ -35,11 +35,11 @@ use std::ops::Bound;
 
 fn fingerprint_with_projection(plan: &AccessPlannedQuery, projection: &ProjectionSpec) -> [u8; 32] {
     let explain = plan.explain();
-    let mut hasher = new_plan_fingerprint_hasher_v2();
+    let mut hasher = new_plan_fingerprint_hasher_v1();
     hash_explain_plan_profile_with_projection(
         &mut hasher,
         &explain,
-        hash_parts::ExplainHashProfile::FingerprintV2,
+        hash_parts::ExplainHashProfile::FingerprintV1,
         projection,
     );
 
@@ -94,11 +94,11 @@ fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan 
 
 #[test]
 fn plan_fingerprint_hasher_profile_seed_matches_manual_contract() {
-    let mut helper = new_plan_fingerprint_hasher_v2();
+    let mut helper = new_plan_fingerprint_hasher_v1();
     helper.update(b"payload");
 
     let mut manual = Sha256::new();
-    manual.update(b"planfp:v2");
+    manual.update(b"planfp:v1");
     manual.update(b"payload");
 
     assert_eq!(helper.finalize(), manual.finalize());

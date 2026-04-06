@@ -7,11 +7,23 @@
 * `crates/icydb-schema-derive`: Derive and codegen macros.
 * `crates/icydb-schema`: Schema AST/builders and validation.
 * `crates/icydb-build`: Build/codegen helpers and canister glue.
-* `canisters/minimal`: Minimal SQL canister harness used for wasm audit baseline.
-* `canisters/quickstart`: SQL quickstart canister harness used for onboarding and integration flows.
-* `schema/quickstart`: Quickstart canister schema fixtures.
-* `schema/minimal`: Minimal schema fixtures for lightweight wasm auditing.
-* `schema/test`: Shared schema fixtures for macro/e2e test harnesses.
+* `canisters/audit/minimal`: Minimal SQL canister harness used for wasm audit baseline.
+* `canisters/audit/one_simple`: One-entity simple SQL audit harness.
+* `canisters/audit/one_complex`: One-entity complex SQL audit harness.
+* `canisters/audit/ten_simple`: Ten-entity simple SQL audit harness.
+* `canisters/audit/ten_complex`: Ten-entity complex SQL audit harness.
+* `canisters/demo/rpg`: Broad SQL RPG demo canister harness used for onboarding and integration flows.
+* `canisters/test/sql_parity`: Broad SQL parity/explain test canister harness.
+* `canisters/test/sql`: Lightweight SQL smoke-test canister harness.
+* `schema/demo/rpg`: Demo canister schema fixtures.
+* `schema/test/sql_parity`: Broad SQL parity test-canister schema fixtures.
+* `schema/audit/minimal`: Minimal schema fixtures for lightweight wasm auditing.
+* `schema/audit/one_simple`: One-entity simple SQL audit schema fixtures.
+* `schema/audit/one_complex`: One-entity complex SQL audit schema fixtures.
+* `schema/audit/ten_simple`: Ten-entity simple SQL audit schema fixtures.
+* `schema/audit/ten_complex`: Ten-entity complex SQL audit schema fixtures.
+* `schema/test/fixtures`: Shared schema fixtures for macro/e2e test harnesses.
+* `schema/test/sql`: Lightweight SQL smoke-test schema fixtures.
 * `testing/macro-tests`: Macro and schema contract tests.
 * `testing/pocket-ic`: Pocket-IC integration tests.
 * `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
@@ -267,6 +279,7 @@ These are intentional post-0.34 cleanup candidates identified during the DB narr
 * Linting: Code must pass `make clippy`; prefer `?` over `unwrap()`, handle errors explicitly.
 * Keep public APIs documented; co-locate small unit tests in the same file under `mod tests`.
 * Backwards compatibility is **not** a goal; prefer breaking changes when they simplify the model.
+* Before `1.0.0`, internal protocols/formats must hard-cut to the latest single version; do not keep parallel `v1`/`v2` support, compatibility branches, or decode fallbacks for superseded internal protocol versions.
 
 ---
 
@@ -433,7 +446,7 @@ Code is considered non-trivial if it:
 * Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
 * Package cache: clears `~/.cargo/.package-cache` before running cargo.
 * Versioning: separate job runs `scripts/app/check-versioning.sh`.
-* Canisters: release job builds `canister_quickstart` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
+* Canisters: release job builds `canister_demo_rpg` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
 
 ---
 

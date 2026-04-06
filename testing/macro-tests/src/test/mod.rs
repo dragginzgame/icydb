@@ -11,6 +11,6 @@ pub mod structured_field_value;
 pub mod validate;
 pub mod view_into;
 
-pub use icydb_testing_fixtures::macro_test::{
+pub use icydb_testing_test_fixtures::macro_test::{
     EnumSorted, EnumUnspecified, List, Map, Negative, NewtypeValidated, Record, Set,
 };

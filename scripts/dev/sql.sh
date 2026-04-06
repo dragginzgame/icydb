@@ -13,14 +13,14 @@ Examples:
   sql.sh "show entities"
   sql.sh "show indexes character"
   sql.sh "show columns character"
-  sql.sh --canister quickstart "select count(*) from character"
+  sql.sh --canister demo_rpg "select count(*) from character"
   sql.sh --deploy
   sql.sh --reset
   sql.sh --init
   sql.sh --init "select count(*) from character"  # deploy + reset + load
 
 Environment:
-  SQLQ_CANISTER  Default canister name (default: quickstart)
+  SQLQ_CANISTER  Default canister name (default: demo_rpg)
 
 Flags:
   --deploy  Deploy canister only.
@@ -29,7 +29,7 @@ Flags:
 USAGE
 }
 
-canister="${SQLQ_CANISTER:-quickstart}"
+canister="${SQLQ_CANISTER:-demo_rpg}"
 deploy_requested=false
 reset_requested=false
 init_requested=false

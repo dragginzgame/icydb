@@ -1,4 +1,4 @@
-pub use icydb_testing_fixtures::macro_test::sanitize::clamp::*;
+pub use icydb_testing_test_fixtures::macro_test::sanitize::clamp::*;
 
 ///
 /// TESTS

@@ -6,21 +6,23 @@ use std::{
     process::Command,
 };
 
-const QUICKSTART_CANISTER_NAME: &str = "quickstart";
-const QUICKSTART_CANISTER_PACKAGE: &str = "canister_quickstart";
+const DEMO_RPG_CANISTER_NAME: &str = "demo_rpg";
+const DEMO_RPG_CANISTER_PACKAGE: &str = "canister_demo_rpg";
+const SQL_PARITY_CANISTER_NAME: &str = "sql_parity";
+const SQL_PARITY_CANISTER_PACKAGE: &str = "canister_test_sql_parity";
 const MINIMAL_CANISTER_NAME: &str = "minimal";
-const MINIMAL_CANISTER_PACKAGE: &str = "canister_minimal";
+const MINIMAL_CANISTER_PACKAGE: &str = "canister_audit_minimal";
 const ONE_SIMPLE_CANISTER_NAME: &str = "one_simple";
-const ONE_SIMPLE_CANISTER_PACKAGE: &str = "canister_one_simple";
+const ONE_SIMPLE_CANISTER_PACKAGE: &str = "canister_audit_one_simple";
 const ONE_COMPLEX_CANISTER_NAME: &str = "one_complex";
-const ONE_COMPLEX_CANISTER_PACKAGE: &str = "canister_one_complex";
+const ONE_COMPLEX_CANISTER_PACKAGE: &str = "canister_audit_one_complex";
 const TEN_SIMPLE_CANISTER_NAME: &str = "ten_simple";
-const TEN_SIMPLE_CANISTER_PACKAGE: &str = "canister_ten_simple";
+const TEN_SIMPLE_CANISTER_PACKAGE: &str = "canister_audit_ten_simple";
 const TEN_COMPLEX_CANISTER_NAME: &str = "ten_complex";
-const TEN_COMPLEX_CANISTER_PACKAGE: &str = "canister_ten_complex";
+const TEN_COMPLEX_CANISTER_PACKAGE: &str = "canister_audit_ten_complex";
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
-const QUICKSTART_WASM_PROFILE_ENV: &str = "QUICKSTART_WASM_PROFILE";
+const DEMO_RPG_WASM_PROFILE_ENV: &str = "DEMO_RPG_WASM_PROFILE";
 const CANISTER_SQL_MODE_ENV: &str = "ICYDB_CANISTER_SQL_MODE";
 
 fn workspace_root() -> PathBuf {
@@ -44,14 +46,15 @@ fn canister_wasm_path(workspace_root: &Path, profile: &str, package_name: &str) 
 
 fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
     match canister_name {
-        QUICKSTART_CANISTER_NAME => Ok(QUICKSTART_CANISTER_PACKAGE),
+        DEMO_RPG_CANISTER_NAME => Ok(DEMO_RPG_CANISTER_PACKAGE),
+        SQL_PARITY_CANISTER_NAME => Ok(SQL_PARITY_CANISTER_PACKAGE),
         MINIMAL_CANISTER_NAME => Ok(MINIMAL_CANISTER_PACKAGE),
         ONE_SIMPLE_CANISTER_NAME => Ok(ONE_SIMPLE_CANISTER_PACKAGE),
         ONE_COMPLEX_CANISTER_NAME => Ok(ONE_COMPLEX_CANISTER_PACKAGE),
         TEN_SIMPLE_CANISTER_NAME => Ok(TEN_SIMPLE_CANISTER_PACKAGE),
         TEN_COMPLEX_CANISTER_NAME => Ok(TEN_COMPLEX_CANISTER_PACKAGE),
         _ => Err(format!(
-            "unsupported canister '{canister_name}', expected '{QUICKSTART_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
+            "unsupported canister '{canister_name}', expected '{DEMO_RPG_CANISTER_NAME}', '{SQL_PARITY_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
         )),
     }
 }
@@ -76,7 +79,7 @@ fn should_default_to_wasm_release_profile() -> bool {
 
 fn selected_canister_wasm_profile() -> Result<&'static str, String> {
     let explicit_profile =
-        env::var_os(CANISTER_WASM_PROFILE_ENV).or_else(|| env::var_os(QUICKSTART_WASM_PROFILE_ENV));
+        env::var_os(CANISTER_WASM_PROFILE_ENV).or_else(|| env::var_os(DEMO_RPG_WASM_PROFILE_ENV));
     if let Some(explicit_profile) = explicit_profile {
         let normalized = explicit_profile.to_string_lossy().to_ascii_lowercase();
         return match normalized.as_str() {
@@ -84,7 +87,7 @@ fn selected_canister_wasm_profile() -> Result<&'static str, String> {
             "release" => Ok("release"),
             "wasm-release" => Ok("wasm-release"),
             other => Err(format!(
-                "invalid {CANISTER_WASM_PROFILE_ENV}/{QUICKSTART_WASM_PROFILE_ENV} value '{other}', expected 'debug', 'release', or 'wasm-release'"
+                "invalid {CANISTER_WASM_PROFILE_ENV}/{DEMO_RPG_WASM_PROFILE_ENV} value '{other}', expected 'debug', 'release', or 'wasm-release'"
             )),
         };
     }
@@ -222,7 +225,7 @@ fn build_canister_package(
 /// Build profile selection:
 /// - `wasm-release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
 /// - `debug` otherwise
-/// - overridden by `QUICKSTART_WASM_PROFILE=debug|release|wasm-release`
+/// - overridden by `DEMO_RPG_WASM_PROFILE=debug|release|wasm-release`
 ///
 pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
     let package_name = package_for_canister_name(canister_name)?;

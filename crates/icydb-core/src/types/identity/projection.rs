@@ -40,8 +40,9 @@ use std::fmt;
 
 // Domain separator for the projection protocol.
 //
-// Bump this if the projection envelope changes incompatibly.
-const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v2";
+// Pre-1.0.0 protocol changes hard-cut the active tag instead of preserving
+// multiple internal projection versions in parallel.
+const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v1";
 
 // -----------------------------------------------------------------------------
 // Projected identity
@@ -151,7 +152,7 @@ mod tests {
         let projected = id.project();
         assert_eq!(
             projected.to_string(),
-            "aff2dcfa48e7868d2177d30d963d8926b82ffd7c822e22d6c4e42514d6ffa890"
+            "2da507e94f2d3dcb66fad5f74338d3fdf31f7b8a0e56e5888078f0c91a5b643f"
         );
     }
 

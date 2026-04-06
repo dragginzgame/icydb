@@ -268,10 +268,10 @@ fn assert_explain_contains_tokens(explain: &str, tokens: &[&str], context: &str)
 }
 
 #[test]
-fn facade_query_from_sql_matrix_lowers_expected_modes_and_grouping() {
+fn facade_query_from_sql_parity_lowers_expected_modes_and_grouping() {
     let session = fresh_facade_session();
 
-    // Phase 1: define SQL matrix inputs and expected shape contracts.
+    // Phase 1: define SQL parity inputs and expected shape contracts.
     let cases = vec![
         (
             "SELECT * FROM FacadeSqlEntity ORDER BY age ASC LIMIT 1",

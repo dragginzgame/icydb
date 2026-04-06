@@ -1,4 +1,4 @@
-pub use icydb_testing_fixtures::macro_test::collection::*;
+pub use icydb_testing_test_fixtures::macro_test::collection::*;
 
 #[cfg(test)]
 pub mod test {

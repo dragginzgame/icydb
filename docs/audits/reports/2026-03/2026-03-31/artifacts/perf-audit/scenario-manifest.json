@@ -1,5 +1,5 @@
 {
-  "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+  "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
   "generated_at_utc": "2026-03-31T13:58:23Z",
   "status": "numeric_baseline_partial",
   "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
@@ -17,10 +17,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -36,10 +36,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -55,10 +55,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -74,10 +74,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -93,10 +93,10 @@
       "page_shape": "none",
       "cursor_state": "none",
       "result_cardinality_class": "metadata_payload",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -112,10 +112,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "text_output",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -131,10 +131,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "text_output",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -150,10 +150,10 @@
       "page_shape": "none",
       "cursor_state": "none",
       "result_cardinality_class": "text_output",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -169,10 +169,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "three_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -188,10 +188,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "empty",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -207,10 +207,10 @@
       "page_shape": "paged_limit_2",
       "cursor_state": "first_page",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -226,10 +226,10 @@
       "page_shape": "paged_limit_2",
       "cursor_state": "second_page",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -245,10 +245,10 @@
       "page_shape": "paged_limit_2_invalid_cursor",
       "cursor_state": "invalid",
       "result_cardinality_class": "error",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -264,10 +264,10 @@
       "page_shape": "none",
       "cursor_state": "none",
       "result_cardinality_class": "scalar_value",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -283,10 +283,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -302,10 +302,10 @@
       "page_shape": "none",
       "cursor_state": "none",
       "result_cardinality_class": "metadata_payload",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -321,10 +321,10 @@
       "page_shape": "none",
       "cursor_state": "none",
       "result_cardinality_class": "metadata_payload",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -340,10 +340,10 @@
       "page_shape": "none",
       "cursor_state": "none",
       "result_cardinality_class": "metadata_payload",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -359,10 +359,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -378,10 +378,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -397,10 +397,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -416,10 +416,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -435,10 +435,10 @@
       "page_shape": "paged_limit_2",
       "cursor_state": "first_page",
       "result_cardinality_class": "two_rows",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -454,10 +454,10 @@
       "page_shape": "paged_limit_2",
       "cursor_state": "second_page",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -473,10 +473,10 @@
       "page_shape": "paged_limit_2_invalid_cursor",
       "cursor_state": "invalid",
       "result_cardinality_class": "error",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -492,10 +492,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "text_output",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -511,10 +511,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     },
     {
@@ -530,10 +530,10 @@
       "page_shape": "limit_only",
       "cursor_state": "none",
       "result_cardinality_class": "one_row",
-      "store_state": "fresh_quickstart_fixture_canister",
-      "index_state": "quickstart_default_indexes",
+      "store_state": "fresh_demo_rpg_fixture_canister",
+      "index_state": "demo_rpg_default_indexes",
       "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
-      "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+      "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
       "verification_status": "measured"
     }
   ]

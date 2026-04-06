@@ -11,9 +11,12 @@
 
 ---
 
-## SQL Quickstart
+## Local SQL Demo
 
-Use this when working inside this repo with the test SQL canister.
+Use this when working inside this repo against the demo SQL canister surface.
+The demo code now lives under `canisters/demo/rpg`, but the default local DFX
+canister name is still `demo_rpg`, which is what `scripts/dev/sql.sh` talks
+to unless you override `--canister`.
 
 1. Initialize the SQL harness (deploy + erase fixtures + load defaults):
 
@@ -80,20 +83,21 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.66.0`
-- Latest tagged release in this repo: `v0.66.0`
+- Workspace version on `main`: `0.69.2`
+- Latest tagged release in this repo: `v0.69.2`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.66.x` notes: `docs/changelog/0.66.md`
+- Detailed `0.69.x` notes: `docs/changelog/0.69.md`
+- Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
 
 ---
 
 ## Recent Highlights
 
-- `0.66.0` keeps row format, SQL behavior, routing, and executor semantics unchanged while splitting several large owner modules into smaller owner-local boundaries so follow-on work lands against narrower surfaces.
-- The public mutation API remains the mode-driven `UpdatePatch` + `MutationMode` + `mutate_structural(...)` surface introduced in the `0.64` line.
-- Reduced SQL now includes the unified `execute_sql_dispatch` / `sql_dispatch::query(...)` introspection lane plus bounded prefix `LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, and `UPPER(field) LIKE 'prefix%'` lowering.
+- `0.69.3` is a narrow follow-up that fixes generated canister memory registration on the newer `canic-memory` API, so generated `db()` startup stays deterministic without reopening the broader executor work.
+- `0.69.2` keeps the witness-backed covering routes unchanged and cuts about `7%–13%` from several `Character` and `ActiveUser` index-covered SQL reads by letting the shared execution kernel materialize those covering windows directly.
+- `0.69.1` keeps the new covering-read behavior intact while moving generated bootstrap, commit-slot wiring, and facade SQL tests onto the smaller public `canic-memory` API surface.
+- `0.69.0` turns covering reads into a real execution route, proves simple primary-key reads can skip row checks entirely, and adds the first explicit witness-backed secondary cohorts for common `ORDER BY` and filtered composite reads.
 - SQL remains default-on. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
-- Repo-managed cargo flows use IcyDB-local cargo state, which helps keep local build/test/check runs from contending with sibling repositories on the same filesystem.
 
 ---
 
@@ -123,14 +127,14 @@ Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.66.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.69.2" }
 ```
 
 Compile out the SQL frontend if you only use typed Rust APIs:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.66.0", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.69.2", default-features = false }
 ```
 
 With `default-features = false`, `db::sql::*`, SQL session helpers, and generated
@@ -351,7 +355,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.66 Line)
+## Reduced SQL Scope (Current 0.69 Line)
 
 Executable SQL entrypoints:
 
@@ -390,11 +394,15 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema-derive` — procedural macros for schema/types.
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
-- `canisters/minimal`, `canisters/one_simple`, `canisters/one_complex`, `canisters/ten_simple`, `canisters/ten_complex` — SQL canister harnesses used for wasm footprint auditing across small and larger audit fixture sets.
-- `canisters/quickstart` — SQL quickstart canister harness for onboarding and integration flows.
-- `schema/minimal`, `schema/one_simple`, `schema/one_complex`, `schema/ten_simple`, `schema/ten_complex` — matching audit schema fixtures used by the wasm footprint matrix.
-- `schema/quickstart` — SQL quickstart canister schema fixtures.
-- `schema/test` — shared schema fixtures for macro/e2e test harnesses.
+- `canisters/audit/*` — SQL canister harnesses used for wasm footprint auditing across small and larger audit fixture sets.
+- `canisters/demo/rpg` — the broad SQL RPG demo plus perf/integration canister surface.
+- `canisters/test/sql` — the lightweight SQL smoke-test canister surface.
+- `canisters/test/sql_parity` — the broad SQL-vs-typed/fluent parity and explain canister surface.
+- `schema/audit/*` — matching audit schema fixtures used by the wasm footprint matrix.
+- `schema/demo/rpg` — the broad demo canister schema surface.
+- `schema/test/fixtures` — shared schema fixtures for macro/e2e test harnesses.
+- `schema/test/sql` — the lightweight SQL smoke-test fixture surface.
+- `schema/test/sql_parity` — the broad SQL parity test-canister fixture surface.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
 - `testing/wasm-fixtures` — shared generated-surface assertions and helpers for the wasm audit canisters.
@@ -407,10 +415,12 @@ Out of scope and fail-closed by design:
 IcyDB keeps schema definitions in dedicated crates so canister builds only link
 the schema surface they need.
 
-- `schema/quickstart` holds the SQL quickstart canister schema surface.
-- `schema/test` holds shared schema fixtures used by macro/e2e test harnesses.
-- `canisters/quickstart/src/seed` holds deterministic quickstart fixture datasets.
-- `schema/minimal`, `schema/one_simple`, `schema/one_complex`, `schema/ten_simple`, and `schema/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
+- `schema/demo/rpg` holds the broad demo canister schema surface.
+- `schema/test/fixtures` holds shared schema fixtures used by macro/e2e test harnesses.
+- `schema/test/sql` holds the lightweight SQL smoke-test fixture surface.
+- `schema/test/sql_parity` holds the broad SQL parity test-canister fixture surface.
+- `schema/demo/rpg/src/fixtures` holds deterministic RPG fixture datasets shared by demo and test canisters.
+- `schema/audit/minimal`, `schema/audit/one_simple`, `schema/audit/one_complex`, `schema/audit/ten_simple`, and `schema/audit/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
 - `testing/wasm-fixtures` holds shared generated actor / `sql_dispatch` assertions used across those audit canisters.
 
 This split keeps the wasm audit baseline from absorbing unrelated fixture schema
@@ -443,6 +453,7 @@ dfx canister call <canister> icydb_metrics_reset
 make check      # type-check workspace
 make clippy     # lint (warnings denied)
 make test       # unit + integration tests
+make test-sql-parity  # broad SQL parity canister only
 make fmt        # format workspace
 make build      # release build
 make wasm-size-report   # build/report wasm sizes for minimal + one/ten simple/complex audit canisters
@@ -475,9 +486,8 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ## Current Focus
 
-- Preserve grouped/HAVING, continuation, and resource-model invariants while consolidation work continues behind the same public contracts.
-- Keep complexity hotspots partitioned into owner-local modules instead of letting large mixed roots regrow.
-- Continue numeric and semantic-duplication cleanup without widening public APIs or changing row/query contracts.
+- Keep the new planner-proven and witness-backed covering routes fail-closed while extending measured executor wins.
+- Keep demo, test, and audit canister surfaces separated so smoke tests, parity tests, and wasm audits do not compete for the same binary.
 - Preserve deterministic local SQL harness flows (`scripts/dev/sql.sh`), wasm audit baselines, and CI parity.
 - Keep `CandidType` wire-surface comments as plain `//` comments instead of `///` doc comments so normal canister builds do not retain those strings in wasm.
 - Track active work in `docs/ROADMAP.md` and current design docs under `docs/design/`.

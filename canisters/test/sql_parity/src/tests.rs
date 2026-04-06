@@ -1,0 +1,2863 @@
+mod tests {
+    use super::{
+        Customer, CustomerAccount, CustomerOrder, SqlQueryResult, db, fixtures_load_default,
+        sql_dispatch,
+    };
+    use candid::encode_one;
+    use icydb::{db::PersistedRow, traits::EntityValue};
+    use icydb_testing_test_sql_parity_fixtures::{fixtures, schema::SqlParityCanister};
+    use std::collections::BTreeSet;
+
+    const DEMO_RPG_MEMORY_MIN: u8 = 104;
+    const DEMO_RPG_MEMORY_MAX: u8 = 154;
+
+    // The generated `db()` bootstrap now flushes pending eager-init state
+    // without introducing a new owner range at call time. In host-parallel
+    // unit tests, later test threads can therefore observe the sql-parity
+    // range as missing on the current thread once an earlier thread already
+    // drained that process-global eager-init queue. Re-queue the sql-parity
+    // application range before each bootstrap-dependent test path so the
+    // generated `db()` bootstrap stays deterministic per test thread.
+    fn ensure_sql_test_memory_range() {
+        ::icydb::__reexports::canic_memory::ic_memory_range!(
+            DEMO_RPG_MEMORY_MIN,
+            DEMO_RPG_MEMORY_MAX
+        );
+    }
+
+    fn dispatch_result_for_sql(sql: &str) -> SqlQueryResult {
+        ensure_sql_test_memory_range();
+        sql_dispatch::query(sql).expect("sql_dispatch query should succeed")
+    }
+
+    fn dispatch_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
+        ensure_sql_test_memory_range();
+        sql_dispatch::query(sql)
+    }
+
+    fn test_db() -> icydb::db::DbSession<SqlParityCanister> {
+        ensure_sql_test_memory_range();
+        db()
+    }
+
+    fn reload_default_fixtures() {
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload should succeed");
+    }
+
+    fn typed_result_for_sql_as<E>(sql: &str) -> SqlQueryResult
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        test_db()
+            .execute_sql_dispatch::<E>(sql)
+            .expect("typed execute_sql_dispatch should succeed")
+    }
+
+    fn typed_result_for_sql(sql: &str) -> SqlQueryResult {
+        typed_result_for_sql_as::<Customer>(sql)
+    }
+
+    fn typed_result_for_sql_unchecked_as<E>(sql: &str) -> Result<SqlQueryResult, icydb::Error>
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        test_db().execute_sql_dispatch::<E>(sql)
+    }
+
+    fn typed_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
+        typed_result_for_sql_unchecked_as::<Customer>(sql)
+    }
+
+    // Compare one sql_dispatch lane payload against the typed `execute_sql_dispatch` path.
+    fn assert_dispatch_matches_typed(sql: &str, context: &str) {
+        let dispatch = dispatch_result_for_sql(sql);
+        let typed = typed_result_for_sql(sql);
+
+        assert_eq!(dispatch, typed, "{context}");
+    }
+
+    // Compare one sql_dispatch lane payload against one typed dispatch entity
+    // surface without re-hardcoding the entity type at each callsite.
+    fn assert_dispatch_matches_typed_as<E>(sql: &str, context: &str)
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        let dispatch = dispatch_result_for_sql(sql);
+        let typed = typed_result_for_sql_as::<E>(sql);
+
+        assert_eq!(dispatch, typed, "{context}");
+    }
+
+    // Compare one fallible projection SQL path across dispatch and typed execution.
+    fn assert_dispatch_result_matches_typed(sql: &str, context: &str) {
+        assert_dispatch_result_matches_typed_as::<Customer>(sql, context);
+    }
+
+    // Compare one fallible projection SQL path across dispatch and one typed
+    // entity-specific execution surface.
+    fn assert_dispatch_result_matches_typed_as<E>(sql: &str, context: &str)
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        let dispatch = dispatch_result_for_sql_unchecked(sql);
+        let typed = typed_result_for_sql_unchecked_as::<E>(sql);
+
+        match (dispatch, typed) {
+            (Ok(dispatch), Ok(typed)) => {
+                assert_eq!(dispatch, typed, "{context}");
+            }
+            (Err(dispatch_err), Err(typed_err)) => {
+                assert_eq!(
+                    dispatch_err.kind(),
+                    typed_err.kind(),
+                    "{context}: error kind mismatch",
+                );
+                assert_eq!(
+                    dispatch_err.origin(),
+                    typed_err.origin(),
+                    "{context}: error origin mismatch",
+                );
+            }
+            (dispatch, typed) => {
+                panic!("{context}: dispatch={dispatch:?} typed={typed:?}");
+            }
+        }
+    }
+
+    // Normalize one row-shaped SQL payload for comparisons across fixture
+    // reloads that regenerate primary keys and audit timestamps.
+    fn normalized_mutating_dispatch_payload(payload: SqlQueryResult) -> SqlQueryResult {
+        match payload {
+            SqlQueryResult::Projection(mut rows) => {
+                for row in &mut rows.rows {
+                    for (index, column) in rows.columns.iter().enumerate() {
+                        if matches!(column.as_str(), "id" | "created_at" | "updated_at") {
+                            row[index] = "<dynamic>".to_string();
+                        }
+                    }
+                }
+
+                SqlQueryResult::Projection(rows)
+            }
+            other => other,
+        }
+    }
+
+    // Compare one mutating SQL path across generated and typed dispatch by
+    // reloading the deterministic fixture dataset before each execution.
+    fn assert_delete_dispatch_result_matches_typed(sql: &str, context: &str) {
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload before generated DELETE should succeed");
+        let dispatch = sql_dispatch::query(sql);
+
+        ensure_sql_test_memory_range();
+        fixtures_load_default().expect("fixture reload before typed DELETE should succeed");
+        let typed = test_db().execute_sql_dispatch::<Customer>(sql);
+
+        match (dispatch, typed) {
+            (Ok(dispatch), Ok(typed)) => {
+                assert_eq!(
+                    normalized_mutating_dispatch_payload(dispatch),
+                    normalized_mutating_dispatch_payload(typed),
+                    "{context}",
+                );
+            }
+            (Err(dispatch_err), Err(typed_err)) => {
+                assert_eq!(
+                    dispatch_err.kind(),
+                    typed_err.kind(),
+                    "{context}: error kind mismatch",
+                );
+                assert_eq!(
+                    dispatch_err.origin(),
+                    typed_err.origin(),
+                    "{context}: error origin mismatch",
+                );
+            }
+            (dispatch, typed) => {
+                panic!("{context}: dispatch={dispatch:?} typed={typed:?}");
+            }
+        }
+    }
+
+    fn dispatch_explain_for_sql(sql: &str) -> String {
+        let payload = dispatch_result_for_sql(sql);
+        match payload {
+            SqlQueryResult::Explain { explain, .. } => explain,
+            other => panic!(
+                "sql_dispatch query should return explain payload for EXPLAIN SQL: {other:?}"
+            ),
+        }
+    }
+
+    fn explain_access_line(explain: &str) -> &str {
+        explain
+            .lines()
+            .find(|line| line.starts_with("access="))
+            .expect("explain payload should include an access line")
+    }
+
+    #[test]
+    fn generated_sql_dispatch_surface_is_stable() {
+        let actor =
+            icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_from_out_dir!();
+
+        assert!(
+            !actor.contains("from_statement_sql"),
+            "generated sql_dispatch must not include removed from_statement_sql resolver"
+        );
+        assert!(
+            !actor.contains("pub fn query_rows ("),
+            "generated sql_dispatch must not include removed query_rows convenience entrypoint"
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_explain_text_matches_typed_explain_surface() {
+        let sql = "EXPLAIN SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 5";
+        let typed_explain_payload = test_db()
+            .execute_sql_dispatch::<Customer>(sql)
+            .expect("typed execute_sql_dispatch should succeed");
+        let typed_explain = match typed_explain_payload {
+            SqlQueryResult::Explain { explain, .. } => explain,
+            other => panic!(
+                "typed execute_sql_dispatch should return explain payload for EXPLAIN SQL: {other:?}"
+            ),
+        };
+        let dispatch_explain = dispatch_explain_for_sql(sql);
+
+        assert_eq!(
+            dispatch_explain, typed_explain,
+            "typed execute_sql_dispatch and sql_dispatch explain should render identical canonical text",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_access_line_matches_typed_query_access_plan() {
+        let query_sql = "SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 5";
+        let explain_sql = format!("EXPLAIN {query_sql}");
+
+        let typed_query = test_db()
+            .query_from_sql::<Customer>(query_sql)
+            .expect("typed query_from_sql should lower");
+        let typed_access = format!(
+            "access={:?}",
+            typed_query
+                .explain()
+                .expect("typed query explain projection should succeed")
+                .access(),
+        );
+
+        let dispatch_explain = dispatch_explain_for_sql(explain_sql.as_str());
+        let dispatch_access = explain_access_line(dispatch_explain.as_str());
+
+        assert_eq!(
+            dispatch_access, typed_access,
+            "typed query access plan and sql_dispatch explain access line should stay equivalent",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_dispatch_supports_show_entities_lane() {
+        let payload = test_db()
+            .execute_sql_dispatch::<Customer>("SHOW ENTITIES")
+            .expect("typed execute_sql_dispatch should support SHOW ENTITIES");
+
+        match payload {
+            SqlQueryResult::ShowEntities { entities } => {
+                assert!(
+                    entities.contains(&"Customer".to_string()),
+                    "SHOW ENTITIES should include Customer fixture entity",
+                );
+                assert!(
+                    entities.contains(&"CustomerAccount".to_string()),
+                    "SHOW ENTITIES should include CustomerAccount fixture entity",
+                );
+                assert!(
+                    entities.contains(&"CustomerOrder".to_string()),
+                    "SHOW ENTITIES should include CustomerOrder fixture entity",
+                );
+            }
+            other => panic!(
+                "SHOW ENTITIES should return ShowEntities payload from execute_sql_dispatch: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_projection_matches_typed_projection_surface() {
+        let sql = "SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 5";
+        assert_dispatch_result_matches_typed(
+            sql,
+            "typed execute_sql_dispatch and sql_dispatch should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_computed_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep computed projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_projection_matches_expected_rows() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "Customer");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "alice");
+                assert_eq!(rows.rows[1][1], "bob");
+            }
+            other => {
+                panic!("expression-order projection should return a projection payload: {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_projection_matches_expected_rows() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "Customer");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "charlie");
+                assert_eq!(rows.rows[1][1], "bob");
+            }
+            other => panic!(
+                "descending expression-order projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_explain_reports_materialized_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("Customer|LOWER(name)")
+                && explain.contains("OrderByAccessSatisfied"),
+            "expression-order explain should preserve the shared index-range access contract: {explain}",
+        );
+        assert!(
+            explain.contains("cov_read_route=Text(\"materialized\")")
+                && explain.contains("cov_scan_reason=Text(\"order_mat\")"),
+            "expression-order explain should report the non-covering materialized projection route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_expression_order_desc_explain_reports_materialized_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("Customer|LOWER(name)")
+                && explain.contains("OrderByAccessSatisfied"),
+            "descending expression-order explain should preserve the shared index-range access contract: {explain}",
+        );
+        assert!(
+            explain.contains("cov_read_route=Text(\"materialized\")")
+                && explain.contains("cov_scan_reason=Text(\"order_mat\")")
+                && explain.contains("scan_dir=Text(\"desc\")"),
+            "descending expression-order explain should report the non-covering materialized projection route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PK-only Customer covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PK-only Customer covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_projection_matches_expected_shape() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql("SELECT id FROM Customer ORDER BY id ASC LIMIT 1");
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "Customer");
+                assert_eq!(rows.columns, vec!["id".to_string()]);
+                assert_eq!(rows.row_count, 1);
+                assert_eq!(rows.rows.len(), 1);
+                assert_eq!(rows.rows[0].len(), 1);
+            }
+            other => {
+                panic!("PK-only covering projection should return a projection payload: {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_primary_key_covering_explain_reports_planner_proven_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\")])")
+                && explain.contains("covering_sources=List([Text(\"primary_key\")])"),
+            "PK-only covering explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "PK-only covering explain should report the planner-proven row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_explain_reports_witness_validated_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary equality covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering equality explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering equality explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_desc_explain_matches_typed_surface()
+    {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary equality desc covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering equality desc explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering equality desc explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering range explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering desc range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering desc range explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering desc range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_covering_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_covering_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_like_prefix_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_direct_starts_with_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_strict_text_range_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_equivalent_strict_prefix_forms_match_projection_rows() {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerOrder STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated CustomerOrder text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerOrder STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending CustomerOrder text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder order-only composite covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder order-only composite covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_desc_projection_matches_typed_surface()
+    {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder order-only composite covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_order_only_composite_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder order-only composite covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder numeric-equality projection parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder numeric-equality EXPLAIN parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_explain_reports_witness_validated_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "CustomerOrder numeric-equality explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerOrder numeric-equality explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality projection parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality EXPLAIN parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "descending CustomerOrder numeric-equality explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerOrder numeric-equality explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder numeric-equality bounded status projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder numeric-equality bounded status EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "CustomerOrder numeric-equality bounded status explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerOrder numeric-equality bounded status explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality bounded status projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality bounded status EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "descending CustomerOrder numeric-equality bounded status explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerOrder numeric-equality bounded status explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerAccount STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated CustomerAccount text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerAccount STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending CustomerAccount text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite strict LIKE prefix covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite strict LIKE prefix covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "CustomerAccount filtered composite order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerAccount filtered composite order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "CustomerAccount filtered composite strict LIKE prefix explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerAccount filtered composite strict LIKE prefix explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "descending CustomerAccount filtered composite strict LIKE prefix explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerAccount filtered composite strict LIKE prefix explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite order-only covering projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "descending CustomerAccount filtered composite order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerAccount filtered composite order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_offset_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "descending CustomerAccount filtered composite order-only offset explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerAccount filtered composite order-only offset explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression-order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression-order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_desc_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression key-only order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression key-only order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "CustomerAccount filtered composite expression key-only order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerAccount filtered composite expression key-only order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression key-only order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression key-only order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "descending CustomerAccount filtered composite expression key-only order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerAccount filtered composite expression key-only order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression key-only strict text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression key-only strict text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "CustomerAccount filtered composite expression key-only strict text-range explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerAccount filtered composite expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression key-only direct STARTS_WITH projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression key-only direct STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "CustomerAccount filtered composite expression key-only direct STARTS_WITH explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerAccount filtered composite expression key-only direct STARTS_WITH explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression strict LIKE prefix projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression strict LIKE prefix EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_desc_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerAccount filtered composite STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated CustomerAccount filtered composite text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerAccount filtered composite STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending CustomerAccount filtered composite text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 1);
+                assert_eq!(rows.rows.len(), 1);
+                assert_eq!(rows.rows[0][1], "bravo");
+            }
+            other => panic!(
+                "filtered strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 1);
+                assert_eq!(rows.rows.len(), 1);
+                assert_eq!(rows.rows[0][1], "bravo");
+            }
+            other => panic!(
+                "descending filtered strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bravo");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "filtered expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bristle");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "descending filtered expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bravo");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "filtered expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "handle".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bristle");
+                assert_eq!(rows.rows[1][1], "Brisk");
+            }
+            other => panic!(
+                "descending filtered expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated CustomerAccount filtered expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerAccount filtered expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending CustomerAccount filtered expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite expression order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bravo");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bristle");
+            }
+            other => panic!(
+                "filtered composite expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(
+                    rows.columns,
+                    vec!["id".to_string(), "tier".to_string(), "handle".to_string()]
+                );
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "gold");
+                assert_eq!(rows.rows[0][2], "bristle");
+                assert_eq!(rows.rows[1][1], "gold");
+                assert_eq!(rows.rows[1][2], "bravo");
+            }
+            other => panic!(
+                "descending filtered composite expression strict LIKE prefix CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered composite expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated CustomerAccount filtered composite expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
+     {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated descending CustomerAccount filtered composite expression STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated descending CustomerAccount filtered composite expression text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_expected_rows() {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "bravo");
+                assert_eq!(rows.rows[1][1], "charlie");
+            }
+            other => panic!(
+                "filtered order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_order_only_desc_projection_matches_expected_rows()
+     {
+        reload_default_fixtures();
+
+        let payload = dispatch_result_for_sql(
+            "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+        );
+
+        match payload {
+            SqlQueryResult::Projection(rows) => {
+                assert_eq!(rows.entity, "CustomerAccount");
+                assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+                assert_eq!(rows.row_count, 2);
+                assert_eq!(rows.rows.len(), 2);
+                assert_eq!(rows.rows[0][1], "echo");
+                assert_eq!(rows.rows[1][1], "charlie");
+            }
+            other => panic!(
+                "descending filtered order-only CustomerAccount projection should return a projection payload: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_global_aggregate_execution_stays_fail_closed() {
+        let sql = "SELECT COUNT(*) FROM Customer";
+        let dispatch_err = dispatch_result_for_sql_unchecked(sql)
+            .expect_err("sql_dispatch should reject global aggregate execution");
+        let typed_err = typed_result_for_sql_unchecked(sql)
+            .expect_err("typed execute_sql_dispatch should reject global aggregate execution");
+
+        assert_eq!(
+            dispatch_err.kind(),
+            typed_err.kind(),
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate error kind parity",
+        );
+        assert_eq!(
+            dispatch_err.origin(),
+            typed_err.origin(),
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate error origin parity",
+        );
+        assert!(
+            dispatch_err.to_string().contains("global aggregate SELECT")
+                && dispatch_err
+                    .to_string()
+                    .contains("execute_sql_aggregate(...)"),
+            "sql_dispatch should preserve explicit aggregate-lane guidance",
+        );
+        assert!(
+            typed_err.to_string().contains("global aggregate SELECT")
+                && typed_err.to_string().contains("execute_sql_aggregate(...)"),
+            "typed execute_sql_dispatch should preserve explicit aggregate-lane guidance",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_grouped_execution_stays_fail_closed() {
+        let sql = "SELECT age, COUNT(*) FROM Customer GROUP BY age";
+        let dispatch_err = dispatch_result_for_sql_unchecked(sql)
+            .expect_err("sql_dispatch should reject grouped SQL execution");
+        let typed_err = typed_result_for_sql_unchecked(sql)
+            .expect_err("typed execute_sql_dispatch should reject grouped SQL execution");
+
+        assert_eq!(
+            dispatch_err.kind(),
+            typed_err.kind(),
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL error kind parity",
+        );
+        assert_eq!(
+            dispatch_err.origin(),
+            typed_err.origin(),
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped SQL error origin parity",
+        );
+        assert!(
+            dispatch_err
+                .to_string()
+                .contains("generated SQL query surface rejects grouped SELECT execution")
+                && dispatch_err
+                    .to_string()
+                    .contains("execute_sql_grouped(...)"),
+            "sql_dispatch should preserve explicit grouped-entrypoint guidance",
+        );
+        assert!(
+            typed_err
+                .to_string()
+                .contains("execute_sql_dispatch rejects grouped SELECT execution")
+                && typed_err.to_string().contains("execute_sql_grouped(...)"),
+            "typed execute_sql_dispatch should preserve explicit grouped-entrypoint guidance",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_grouped_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT age, COUNT(*) FROM Customer GROUP BY age",
+            "typed execute_sql_dispatch and sql_dispatch should keep grouped EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_starts_with_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_starts_with_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) STARTS_WITH parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_starts_with_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) STARTS_WITH EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_execution_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_equivalent_prefix_forms_match_explain_execution_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("IndexRangeScan")
+                    && explain.contains("OrderByMaterializedSort")
+                    && explain.contains("proj_fields=List([Text(\"id\"), Text(\"name\")])"),
+                "direct LOWER(field) equivalent prefix-form explains should preserve the shared expression index-range materialized route: {explain}",
+            );
+            assert!(
+                !explain.contains("FullScan"),
+                "direct LOWER(field) equivalent prefix-form explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_equivalent_prefix_forms_match_explain_json_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Load\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct LOWER(field) equivalent prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct LOWER(field) equivalent prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_equivalent_prefix_forms_match_projection_rows() {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated direct LOWER(field) STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated direct LOWER(field) ordered text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_delete_matches_typed_surface() {
+        assert_delete_dispatch_result_matches_typed(
+            "DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_delete_matches_typed_surface()
+    {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_strict_text_range_explain_json_delete_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct LOWER(field) ordered text-range EXPLAIN JSON DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_lower_delete_equivalent_prefix_forms_match_explain_json_route()
+    {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) LIKE 'a%' ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 1",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Delete\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct LOWER(field) equivalent delete prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct LOWER(field) equivalent delete prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_starts_with_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_starts_with_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_starts_with_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) STARTS_WITH EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_json_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_execution_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_equivalent_prefix_forms_match_explain_execution_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("IndexRangeScan")
+                    && explain.contains("OrderByMaterializedSort")
+                    && explain.contains("proj_fields=List([Text(\"id\"), Text(\"name\")])"),
+                "direct UPPER(field) equivalent prefix-form explains should preserve the shared expression index-range materialized route: {explain}",
+            );
+            assert!(
+                !explain.contains("FullScan"),
+                "direct UPPER(field) equivalent prefix-form explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_equivalent_prefix_forms_match_explain_json_route() {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Load\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct UPPER(field) equivalent prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct UPPER(field) equivalent prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_equivalent_prefix_forms_match_projection_rows() {
+        reload_default_fixtures();
+
+        let like = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 2",
+        );
+        let starts_with = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2",
+        );
+        let range = dispatch_result_for_sql(
+            "SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2",
+        );
+
+        assert_eq!(
+            starts_with, like,
+            "generated direct UPPER(field) STARTS_WITH and LIKE prefix queries should keep projection parity",
+        );
+        assert_eq!(
+            range, like,
+            "generated direct UPPER(field) ordered text-range and LIKE prefix queries should keep projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_delete_matches_typed_surface() {
+        assert_delete_dispatch_result_matches_typed(
+            "DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_delete_matches_typed_surface()
+    {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_strict_text_range_explain_json_delete_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep direct UPPER(field) ordered text-range EXPLAIN JSON DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_direct_upper_delete_equivalent_prefix_forms_match_explain_json_route()
+    {
+        reload_default_fixtures();
+
+        let explains = [
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) LIKE 'A%' ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 1",
+            ),
+            dispatch_explain_for_sql(
+                "EXPLAIN JSON DELETE FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 1",
+            ),
+        ];
+
+        for explain in explains {
+            assert!(
+                explain.contains("\"mode\":{\"type\":\"Delete\"")
+                    && explain.contains("\"access\":{\"type\":\"IndexRange\""),
+                "direct UPPER(field) equivalent delete prefix-form JSON explains should preserve the shared expression index-range route: {explain}",
+            );
+            assert!(
+                !explain.contains("\"type\":\"FullScan\""),
+                "direct UPPER(field) equivalent delete prefix-form JSON explains must not fall back to full scan: {explain}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_stays_fail_closed() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH fail-closed parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_non_casefold_wrapped_direct_starts_with_explain_stays_fail_closed() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT id, name FROM Customer WHERE STARTS_WITH(TRIM(name), 'a') ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep non-casefold wrapped direct STARTS_WITH EXPLAIN fail-closed parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_computed_projection_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep computed projection EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_delete_matches_typed_delete_surface() {
+        assert_delete_dispatch_result_matches_typed(
+            "DELETE FROM Customer ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_explain_delete_matches_typed_explain_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN DELETE FROM Customer ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep EXPLAIN DELETE parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_describe_matches_typed_describe_surface() {
+        assert_dispatch_matches_typed(
+            "DESCRIBE public.Customer",
+            "typed execute_sql_dispatch and sql_dispatch should return identical DESCRIBE payloads",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_show_indexes_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "SHOW INDEXES public.Customer",
+            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW INDEXES payloads",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_show_columns_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "SHOW COLUMNS public.Customer",
+            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW COLUMNS payloads",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_show_entities_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "SHOW ENTITIES",
+            "typed execute_sql_dispatch and sql_dispatch should return identical SHOW ENTITIES payloads",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_order_metadata_surfaces_encode_cleanly() {
+        ensure_sql_test_memory_range();
+
+        for sql in [
+            "DESCRIBE CustomerOrder",
+            "DESCRIBE public.CustomerOrder",
+            "SHOW INDEXES CustomerOrder",
+            "SHOW INDEXES public.CustomerOrder",
+            "SHOW COLUMNS CustomerOrder",
+            "SHOW COLUMNS public.CustomerOrder",
+        ] {
+            let payload = sql_dispatch::query(sql).unwrap_or_else(|err| {
+                panic!("sql_dispatch query should succeed for {sql}: {err:?}")
+            });
+            let encoded = encode_one(&payload).unwrap_or_else(|err| {
+                panic!("Candid encoding should succeed for {sql} payload {payload:?}: {err}")
+            });
+            let decoded: SqlQueryResult = candid::decode_one(&encoded).unwrap_or_else(|err| {
+                panic!("Candid decoding should succeed for {sql} payload {payload:?}: {err}")
+            });
+
+            assert_eq!(
+                decoded, payload,
+                "CustomerOrder metadata payload should survive canister-style Candid roundtrip for {sql}",
+            );
+        }
+    }
+
+    #[test]
+    fn generated_sql_parity_order_fixtures_have_expected_count() {
+        let rows = fixtures::customer_orders();
+
+        assert_eq!(rows.len(), 6);
+    }
+
+    #[test]
+    fn generated_sql_parity_order_fixtures_keep_unique_names() {
+        let rows = fixtures::customer_orders();
+        let names: BTreeSet<String> = rows.iter().map(|row| row.name.clone()).collect();
+
+        assert_eq!(names.len(), rows.len());
+        assert!(names.contains("A-101"));
+        assert!(names.contains("Z-900"));
+    }
+
+    #[test]
+    fn generated_sql_parity_customer_fixtures_keep_expected_gold_handles() {
+        let rows = fixtures::customer_accounts();
+        let gold_handles: BTreeSet<String> = rows
+            .iter()
+            .filter(|row| row.active && row.tier == "gold")
+            .map(|row| row.handle.clone())
+            .collect();
+
+        assert!(
+            gold_handles == BTreeSet::from(["bravo".to_string(), "bristle".to_string()])
+        );
+    }
+}

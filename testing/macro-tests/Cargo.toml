@@ -12,7 +12,7 @@ authors = { workspace = true }
 [dependencies]
 candid = { workspace = true }
 icydb = { workspace = true }
-icydb-testing-fixtures = { workspace = true }
+icydb-testing-test-fixtures = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]

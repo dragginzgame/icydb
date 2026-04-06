@@ -1,0 +1,15 @@
+[package]
+name = "icydb-testing-audit-ten-complex-fixtures"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+description = "Ten-entity complex schema fixture crate for wasm SQL auditing"
+
+[dependencies]
+candid = { workspace = true }
+icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-testing-wasm-fixtures = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,4 +1,4 @@
-pub use icydb_testing_fixtures::macro_test::entity::*;
+pub use icydb_testing_test_fixtures::macro_test::entity::*;
 
 ///
 /// TESTS

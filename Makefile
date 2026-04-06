@@ -2,7 +2,7 @@
         test build check clippy fmt fmt-check clean install-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
-        wasm-size-report wasm-audit-report \
+        wasm-size-report wasm-audit-report test-sql-parity \
         check-architecture-text-scan-invariants check-invariants
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
@@ -118,8 +118,15 @@ release: ensure-clean
 test: clippy test-unit
 
 test-unit:
-	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_quickstart --verbose
-	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_quickstart --all-targets --verbose
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_parity --verbose
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib --verbose
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_test_sql_parity --lib --verbose -- --test-threads=1
+
+test-demo:
+	@$(MAKE) test-sql-parity
+
+test-sql-parity:
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_test_sql_parity --lib --verbose -- --test-threads=1
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh

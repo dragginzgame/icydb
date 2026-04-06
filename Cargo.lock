@@ -308,70 +308,92 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_minimal"
+name = "canister_audit_minimal"
 version = "0.69.2"
 dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
- "icydb-testing-minimal-fixtures",
+ "icydb-testing-audit-minimal-fixtures",
  "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
-name = "canister_one_complex"
+name = "canister_audit_one_complex"
 version = "0.69.2"
 dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
- "icydb-testing-one-complex-fixtures",
+ "icydb-testing-audit-one-complex-fixtures",
  "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
-name = "canister_one_simple"
+name = "canister_audit_one_simple"
 version = "0.69.2"
 dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
- "icydb-testing-one-simple-fixtures",
+ "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
-name = "canister_quickstart"
+name = "canister_audit_ten_complex"
 version = "0.69.2"
 dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
- "icydb-testing-quickstart-fixtures",
+ "icydb-testing-audit-ten-complex-fixtures",
  "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "canister_audit_ten_simple"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "canic-cdk",
+ "icydb",
+ "icydb-testing-audit-ten-simple-fixtures",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "canister_demo_rpg"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "canic-cdk",
+ "icydb",
+ "icydb-testing-demo-rpg-fixtures",
  "serde",
 ]
 
 [[package]]
-name = "canister_ten_complex"
+name = "canister_test_sql"
 version = "0.69.2"
 dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
- "icydb-testing-ten-complex-fixtures",
+ "icydb-testing-test-sql-fixtures",
  "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
-name = "canister_ten_simple"
+name = "canister_test_sql_parity"
 version = "0.69.2"
 dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
- "icydb-testing-ten-simple-fixtures",
+ "icydb-testing-test-sql-parity-fixtures",
  "icydb-testing-wasm-fixtures",
+ "serde",
 ]
 
 [[package]]
@@ -1431,13 +1453,58 @@ version = "0.69.2"
 dependencies = [
  "candid",
  "icydb",
- "icydb-testing-fixtures",
+ "icydb-testing-test-fixtures",
  "serde",
  "trybuild",
 ]
 
 [[package]]
-name = "icydb-testing-fixtures"
+name = "icydb-testing-audit-minimal-fixtures"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "icydb",
+ "serde",
+]
+
+[[package]]
+name = "icydb-testing-audit-one-complex-fixtures"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-audit-one-simple-fixtures"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-audit-ten-complex-fixtures"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-audit-ten-simple-fixtures"
+version = "0.69.2"
+dependencies = [
+ "candid",
+ "icydb",
+ "icydb-testing-wasm-fixtures",
+]
+
+[[package]]
+name = "icydb-testing-demo-rpg-fixtures"
 version = "0.69.2"
 dependencies = [
  "candid",
@@ -1457,7 +1524,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-minimal-fixtures"
+name = "icydb-testing-test-fixtures"
 version = "0.69.2"
 dependencies = [
  "candid",
@@ -1466,48 +1533,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-one-complex-fixtures"
+name = "icydb-testing-test-sql-fixtures"
 version = "0.69.2"
 dependencies = [
  "candid",
  "icydb",
- "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]
-name = "icydb-testing-one-simple-fixtures"
-version = "0.69.2"
-dependencies = [
- "candid",
- "icydb",
- "icydb-testing-wasm-fixtures",
-]
-
-[[package]]
-name = "icydb-testing-quickstart-fixtures"
+name = "icydb-testing-test-sql-parity-fixtures"
 version = "0.69.2"
 dependencies = [
  "candid",
  "icydb",
  "serde",
-]
-
-[[package]]
-name = "icydb-testing-ten-complex-fixtures"
-version = "0.69.2"
-dependencies = [
- "candid",
- "icydb",
- "icydb-testing-wasm-fixtures",
-]
-
-[[package]]
-name = "icydb-testing-ten-simple-fixtures"
-version = "0.69.2"
-dependencies = [
- "candid",
- "icydb",
- "icydb-testing-wasm-fixtures",
 ]
 
 [[package]]

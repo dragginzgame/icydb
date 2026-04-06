@@ -2,26 +2,26 @@
 
 ## Report Preamble
 
-- scope: numeric quickstart-canister baseline for query instruction footprint across generated SQL dispatch, typed SQL surfaces, fluent load surfaces, metadata lanes, explain, grouped aggregate, grouped `HAVING`, global aggregate, cursor continuation, and cursor rejection
+- scope: numeric demo_rpg-canister baseline for query instruction footprint across generated SQL dispatch, typed SQL surfaces, fluent load surfaces, metadata lanes, explain, grouped aggregate, grouped `HAVING`, global aggregate, cursor continuation, and cursor rejection
 - definition path: `docs/audits/recurring/crosscutting/crosscutting-perf-audit.md`
 - compared baseline report path: `N/A (first numeric run for this audit scope)`
 - code snapshot identifier: `9a4c1c31`
-- method tag/version: `PERF-0.3-quickstart-pocketic-surface-sampling-expanded`
+- method tag/version: `PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded`
 - comparability status: `non-comparable`
   - this is the first same-method numeric baseline for this audit scope
-  - future reruns using the same quickstart `sql_perf(...)` harness, fresh-canister-per-scenario topology, stable scenario keys, and the normalized artifact script should be comparable
+  - future reruns using the same demo_rpg `sql_perf(...)` harness, fresh-canister-per-scenario topology, stable scenario keys, and the normalized artifact script should be comparable
 - auditor: `Codex`
 - run timestamp (UTC): `2026-03-31T13:58:23Z`
 - branch: `main`
 - worktree: `dirty`
-- execution environment: `PocketIC + quickstart test canister`
+- execution environment: `PocketIC + demo_rpg test canister`
 - entities in scope: `User` for numeric measurements; fixture presence still verified for `Order` and `Character`
-- entry surfaces in scope: quickstart generated `sql(...)`, typed `execute_sql_dispatch::<User>(...)`, typed `query_from_sql::<User>(...)` + `execute_query(...)`, typed `execute_sql::<User>(...)`, typed `execute_sql_grouped::<User>(...)`, typed `execute_sql_aggregate::<User>(...)`, fluent `load::<User>()`, fluent paged `load::<User>()`
+- entry surfaces in scope: demo_rpg generated `sql(...)`, typed `execute_sql_dispatch::<User>(...)`, typed `query_from_sql::<User>(...)` + `execute_query(...)`, typed `execute_sql::<User>(...)`, typed `execute_sql_grouped::<User>(...)`, typed `execute_sql_aggregate::<User>(...)`, fluent `load::<User>()`, fluent paged `load::<User>()`
 - query shapes in scope: scalar projection, scalar whole-row load, filtered fluent load, delete mutation projection, metadata lane, explain, grouped aggregate, grouped `HAVING`, grouped continuation, grouped invalid cursor, global aggregate, paged fluent continuation, paged fluent invalid cursor, computed projection parity, rejection / unsupported path
 
 ## Initial Read
 
-This rerun refreshes the quickstart numeric baseline after generated query-lane
+This rerun refreshes the demo_rpg numeric baseline after generated query-lane
 real `DELETE` support and computed text projection parity landed.
 
 The matrix now includes:
@@ -41,12 +41,12 @@ The matrix now includes:
 
 The method remains intentionally narrow:
 
-- all authoritative totals come from quickstart wasm-side sampling via `performance_counter(1)`
+- all authoritative totals come from demo_rpg wasm-side sampling via `performance_counter(1)`
 - every scenario uses a fresh canister install plus fresh fixture load
 - most scenarios execute `5` repeated calls inside one canister query to expose first-run and warmed-run spread
 - the two mutating `DELETE` scenarios execute `1` call each so the sample does not fold repeated fixture mutation into one misleading warmed-run number
 
-This is now a useful drift baseline for the quickstart canister path, but it is
+This is now a useful drift baseline for the demo_rpg canister path, but it is
 still partial for the full audit definition because it does not yet isolate
 parse/lower/plan phases and it still does not cover fluent grouped builders,
 SQL cursor signature mismatch rejection, or host-only `icydb-core` surfaces
@@ -125,9 +125,9 @@ report should be treated as current for that scenario.
 ## Phase Coverage Gaps
 
 - Host-side query metrics remain unusable for instruction totals because `read_perf_counter()` still returns `0` outside `wasm32`.
-- Quickstart totals are still end-to-end surface totals, not internal phase checkpoints.
+- Demo RPG totals are still end-to-end surface totals, not internal phase checkpoints.
 - Fluent grouped builders are not yet sampled numerically.
-- SQL canister dynamic dispatch is only numerically sampled on the quickstart topology, not across other fixture canisters.
+- SQL canister dynamic dispatch is only numerically sampled on the demo_rpg topology, not across other fixture canisters.
 - The current matrix is still anchored to one representative entity (`User`) for numeric comparisons.
 - Cursor rejection now has invalid-payload totals, but query-signature mismatch cursor totals are still missing.
 
@@ -184,8 +184,8 @@ Measured skew in this run:
 Most important surface finding:
 
 - typed and generated dispatch now keep computed projection in near-parity at `590,898` vs `592,842`
-- generated quickstart `sql(...)` now supports `EXPLAIN DELETE` at `103,157` average local instructions
-- generated quickstart `sql(...)` now supports real `DELETE` at `1,095,056` average local instructions and stays slightly cheaper than typed dispatch on the same sampled shape
+- generated demo_rpg `sql(...)` now supports `EXPLAIN DELETE` at `103,157` average local instructions
+- generated demo_rpg `sql(...)` now supports real `DELETE` at `1,095,056` average local instructions and stays slightly cheaper than typed dispatch on the same sampled shape
 - count-only fluent delete on the same sampled shape is `1,053,912`, so deleted-row projection is currently only a small fraction of end-to-end delete cost on this path
 
 The main remaining surface skew in this matrix is aggregate handling, not computed projection.
@@ -269,7 +269,7 @@ coverage and phase isolation.
 ## Verification Readout
 
 - comparability status: `non-comparable` to history because this is still the first same-method numeric baseline
-- authoritative instruction rows: `present` for `27` measured quickstart canister scenarios
+- authoritative instruction rows: `present` for `27` measured demo_rpg canister scenarios
 - structural coverage scan: `PASS`
 - runtime verification: `PASS`
 - overall audit status: `PARTIAL`
@@ -277,7 +277,7 @@ coverage and phase isolation.
 Verification commands:
 
 - `cargo check -p icydb-core` -> PASS
-- `cargo test -p canister_quickstart --features sql -- --nocapture` -> PASS
+- `cargo test -p canister_demo_rpg --features sql -- --nocapture` -> PASS
 - `POCKET_IC_BIN=/tmp/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_canister sql_canister_perf_harness_reports_positive_instruction_samples -- --nocapture` -> PASS
 
 ## Follow-Up Actions

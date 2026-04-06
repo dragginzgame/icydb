@@ -1,20 +1,20 @@
 {
-  "method_tag": "PERF-0.3-quickstart-pocketic-surface-sampling-expanded",
+  "method_tag": "PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded",
   "scope": "query instruction footprint",
   "definition_path": "docs/audits/recurring/crosscutting/crosscutting-perf-audit.md",
   "baseline_report_path": null,
   "comparability_status": "non-comparable",
-  "execution_environment": "PocketIC + quickstart test canister",
+  "execution_environment": "PocketIC + demo_rpg test canister",
   "authoritative_signal_status": "present_partial",
   "authoritative_signal_reason": [
-    "Quickstart sql_perf query harness samples performance_counter(1) inside wasm.",
+    "Demo RPG sql_perf query harness samples performance_counter(1) inside wasm.",
     "Measured surfaces now include generated dispatch, typed SQL, fluent load, paged load, grouped HAVING, grouped/global explain, cursor rejection, metadata, aggregate, and rejection paths.",
     "Fluent grouped builders, cursor signature mismatch rejection, and internal phase totals are still missing."
   ],
   "freshness_model": "fresh_canister_per_scenario + repeated_within_one_query_call",
   "verification_commands": [
     "cargo check -p icydb-core",
-    "cargo test -p canister_quickstart --features sql -- --nocapture",
+    "cargo test -p canister_demo_rpg --features sql -- --nocapture",
     "POCKET_IC_BIN=/tmp/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_canister sql_canister_perf_harness_reports_positive_instruction_samples -- --nocapture"
   ]
 }

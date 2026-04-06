@@ -1,0 +1,14 @@
+[package]
+name = "icydb-testing-test-sql-fixtures"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+description = "Small schema fixture crate for lightweight SQL smoke canisters"
+
+[dependencies]
+candid = { workspace = true }
+icydb = { workspace = true }
+
+[lints]
+workspace = true

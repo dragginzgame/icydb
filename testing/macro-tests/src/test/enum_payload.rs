@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::prelude::*;
 
-pub use icydb_testing_fixtures::macro_test::enum_payload::*;
+pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 
 ///
 /// TESTS

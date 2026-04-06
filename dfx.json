@@ -3,7 +3,7 @@
         "minimal": {
             "type": "custom",
             "candid": ".dfx/local/canisters/minimal/minimal.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- minimal'",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_fixture_canister -- minimal'",
             "wasm": ".dfx/local/canisters/minimal/minimal.wasm",
             "shrink": true,
             "gzip": true,
@@ -16,7 +16,7 @@
         "one_simple": {
             "type": "custom",
             "candid": ".dfx/local/canisters/one_simple/one_simple.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- one_simple'",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_fixture_canister -- one_simple'",
             "wasm": ".dfx/local/canisters/one_simple/one_simple.wasm",
             "shrink": true,
             "gzip": true,
@@ -29,7 +29,7 @@
         "one_complex": {
             "type": "custom",
             "candid": ".dfx/local/canisters/one_complex/one_complex.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- one_complex'",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_fixture_canister -- one_complex'",
             "wasm": ".dfx/local/canisters/one_complex/one_complex.wasm",
             "shrink": true,
             "gzip": true,
@@ -39,11 +39,11 @@
                 }
             ]
         },
-        "quickstart": {
+        "demo_rpg": {
             "type": "custom",
-            "candid": ".dfx/local/canisters/quickstart/quickstart.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- quickstart'",
-            "wasm": ".dfx/local/canisters/quickstart/quickstart.wasm",
+            "candid": ".dfx/local/canisters/demo_rpg/demo_rpg.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_fixture_canister -- demo_rpg'",
+            "wasm": ".dfx/local/canisters/demo_rpg/demo_rpg.wasm",
             "shrink": true,
             "gzip": true,
             "metadata": [
@@ -55,7 +55,7 @@
         "ten_simple": {
             "type": "custom",
             "candid": ".dfx/local/canisters/ten_simple/ten_simple.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- ten_simple'",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_fixture_canister -- ten_simple'",
             "wasm": ".dfx/local/canisters/ten_simple/ten_simple.wasm",
             "shrink": true,
             "gzip": true,
@@ -68,7 +68,7 @@
         "ten_complex": {
             "type": "custom",
             "candid": ".dfx/local/canisters/ten_complex/ten_complex.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- ten_complex'",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_fixture_canister -- ten_complex'",
             "wasm": ".dfx/local/canisters/ten_complex/ten_complex.wasm",
             "shrink": true,
             "gzip": true,

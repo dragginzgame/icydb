@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::prelude::*;
 
-pub use icydb_testing_fixtures::macro_test::validate::finance::*;
+pub use icydb_testing_test_fixtures::macro_test::validate::finance::*;
 
 #[cfg(test)]
 mod tests {

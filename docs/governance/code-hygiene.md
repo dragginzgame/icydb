@@ -297,6 +297,7 @@ During maintenance passes, remove:
 - Duplicate helpers
 - Dead code
 - Legacy compatibility logic
+- Multi-version internal protocol support kept only for pre-`1.0.0` compatibility
 - Outdated comments
 
 ## 15. Formatting

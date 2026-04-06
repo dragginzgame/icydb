@@ -58,9 +58,9 @@ build_variant() {
     (
         cd "$ROOT"
         export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
-        export QUICKSTART_WASM_PROFILE="$PROFILE"
+        export DEMO_RPG_WASM_PROFILE="$PROFILE"
         export ICYDB_CANISTER_SQL_MODE="$sql_mode"
-        cargo run -p icydb-testing-integration --bin build_quickstart_canister --locked -- "$CANISTER_NAME"
+        cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- "$CANISTER_NAME"
     )
 
     DFX_DIR="$ROOT/.dfx/local/canisters/$CANISTER_NAME"

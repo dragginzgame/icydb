@@ -1,1 +1,1 @@
-pub use icydb_testing_fixtures::e2e::index::*;
+pub use icydb_testing_test_fixtures::e2e::index::*;

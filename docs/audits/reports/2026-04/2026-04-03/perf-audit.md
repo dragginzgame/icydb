@@ -2,16 +2,16 @@
 
 ## Report Preamble
 
-- scope: refreshed quickstart-canister PocketIC baseline for generated SQL
+- scope: refreshed demo_rpg-canister PocketIC baseline for generated SQL
   dispatch, typed SQL surfaces, fluent load/paged surfaces, metadata lanes,
   explain, grouped aggregate, global aggregate, delete, write, batch insert,
   computed projection, and direct `STARTS_WITH(...)` predicate paths
 - definition path: `docs/audits/recurring/crosscutting/crosscutting-perf-audit.md`
 - compared baseline report path: `docs/audits/reports/2026-03/2026-03-31/perf-audit.md`
 - code snapshot identifier: `b7f86bac`
-- method tag/version: `PERF-0.3-quickstart-pocketic-surface-sampling-expanded`
+- method tag/version: `PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded`
 - comparability status: `partial`
-  - the broad quickstart surface matrix below is a fresh same-method rerun and
+  - the broad demo_rpg surface matrix below is a fresh same-method rerun and
     is directly comparable for scenario keys that already existed on
     `2026-03-31`
   - the matrix also includes newer write and direct `STARTS_WITH(...)` rows that
@@ -24,7 +24,7 @@
 - run timestamp (UTC): `2026-04-03T11:34:50Z`
 - branch: `main`
 - worktree: `dirty`
-- execution environment: `PocketIC + quickstart test canister`
+- execution environment: `PocketIC + demo_rpg test canister`
 - entities in scope: `User`
 - entry surfaces in scope: generated `sql_dispatch::query(...)`, typed
   `execute_sql_dispatch::<User>(...)`, typed `query_from_sql::<User>(...)` +
@@ -149,7 +149,7 @@ focused on the broad surface matrix plus the scalar execute hot path.
 ## Artifacts
 
 - fresh broad sample matrix:
-  - `docs/audits/reports/2026-04/2026-04-03/artifacts/perf-audit/quickstart-samples.json`
+  - `docs/audits/reports/2026-04/2026-04-03/artifacts/perf-audit/demo_rpg-samples.json`
 - earlier same-day focused operation-repeat matrix:
   - `docs/audits/reports/2026-04/2026-04-03/artifacts/perf-audit/operation-repeat-samples.json`
 - verification notes:
@@ -164,4 +164,4 @@ The broad runtime baseline is refreshed again. The next useful follow-up is:
   query baseline, and
 - keep watching aggregate execution separately from the broader scalar/grouped
   /delete improvements because it is still the clearest remaining regression in
-  the quickstart surface matrix.
+  the demo_rpg surface matrix.

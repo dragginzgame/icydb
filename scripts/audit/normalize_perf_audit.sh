@@ -3,11 +3,11 @@
 set -euo pipefail
 
 artifact_dir="${1:?usage: normalize_perf_audit.sh <artifact-dir>}"
-samples_path="${artifact_dir}/quickstart-samples.json"
+samples_path="${artifact_dir}/demo_rpg-samples.json"
 manifest_path="${artifact_dir}/scenario-manifest.json"
 rows_path="${artifact_dir}/instruction-rows.json"
 
-method_tag="PERF-0.3-quickstart-pocketic-surface-sampling-expanded"
+method_tag="PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded"
 generated_at_utc="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 freshness_model="fresh_canister_per_scenario + repeated_within_one_query_call"
 
@@ -142,8 +142,8 @@ jq \
         page_shape: page_shape,
         cursor_state: cursor_state,
         result_cardinality_class: result_cardinality_class,
-        store_state: "fresh_quickstart_fixture_canister",
-        index_state: "quickstart_default_indexes",
+        store_state: "fresh_demo_rpg_fixture_canister",
+        index_state: "demo_rpg_default_indexes",
         freshness_model: $freshness_model,
         method_tag: $method_tag,
         verification_status: "measured"

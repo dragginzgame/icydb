@@ -1,0 +1,18 @@
+[package]
+name = "icydb-testing-audit-minimal-fixtures"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+license = { workspace = true }
+description = "Minimal schema fixture crate for lightweight wasm SQL canister builds"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+candid = { workspace = true }
+icydb = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

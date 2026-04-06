@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::prelude::*;
 
-pub use icydb_testing_fixtures::macro_test::field_projection_order::*;
+pub use icydb_testing_test_fixtures::macro_test::field_projection_order::*;
 
 ///
 /// TESTS

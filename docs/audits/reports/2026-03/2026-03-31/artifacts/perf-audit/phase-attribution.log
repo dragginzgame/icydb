@@ -1,63 +1,63 @@
-2026-03-31T08:44:08Z PERF-0.3-quickstart-pocketic-surface-sampling-expanded
+2026-03-31T08:44:08Z PERF-0.3-demo_rpg-pocketic-surface-sampling-expanded
 
 surface_total.generated_dispatch: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.typed_sql_dispatch: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.query_from_sql_execute_query: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.execute_sql: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.execute_sql_grouped: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.execute_sql_grouped_having: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.execute_sql_grouped_second_page: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.execute_sql_grouped_invalid_cursor: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.execute_sql_aggregate: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.fluent_load: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.fluent_paged_first_page: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.fluent_paged_second_page: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.fluent_paged_invalid_cursor: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.explain_grouped: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 surface_total.explain_aggregate: PASS
-  source: quickstart sql_perf harness
+  source: demo_rpg sql_perf harness
   evidence: authoritative wasm-side totals present
 
 parse_sql: PARTIAL

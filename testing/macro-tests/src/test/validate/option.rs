@@ -1,4 +1,4 @@
-pub use icydb_testing_fixtures::macro_test::validate::option::*;
+pub use icydb_testing_test_fixtures::macro_test::validate::option::*;
 
 #[cfg(test)]
 mod tests {
