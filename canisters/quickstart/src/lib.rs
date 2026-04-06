@@ -92,12 +92,13 @@ mod tests {
     const QUICKSTART_MEMORY_MIN: u8 = 104;
     const QUICKSTART_MEMORY_MAX: u8 = 154;
 
-    // `MemoryApi::bootstrap_owner_range()` drains one process-global
-    // eager-init queue. In host-parallel unit tests, later test threads can
-    // therefore observe the quickstart canister range as missing on the current
-    // thread even though the queue was already consumed elsewhere. Re-queue the
-    // quickstart application range before each bootstrap-dependent test path so
-    // the generated `db()` bootstrap stays deterministic per test thread.
+    // The generated `db()` bootstrap now flushes pending eager-init state
+    // without introducing a new owner range at call time. In host-parallel
+    // unit tests, later test threads can therefore observe the quickstart
+    // range as missing on the current thread once an earlier thread already
+    // drained that process-global eager-init queue. Re-queue the quickstart
+    // application range before each bootstrap-dependent test path so the
+    // generated `db()` bootstrap stays deterministic per test thread.
     fn ensure_sql_test_memory_range() {
         ::icydb::__reexports::canic_memory::ic_memory_range!(
             QUICKSTART_MEMORY_MIN,

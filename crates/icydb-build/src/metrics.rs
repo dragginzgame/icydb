@@ -22,6 +22,5 @@ pub fn generate(_builder: &ActorBuilder) -> TokenStream {
 
             Ok(())
         }
-
     }
 }

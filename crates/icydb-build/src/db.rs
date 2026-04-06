@@ -102,6 +102,10 @@ fn store_wiring_tokens(
     memory_max: u8,
 ) -> TokenStream {
     quote! {
+        ::icydb::__reexports::canic_memory::eager_init!({
+            ::icydb::__reexports::canic_memory::ic_memory_range!(#memory_min, #memory_max);
+        });
+
         #data_defs
         #index_defs
         #entity_runtime_hooks
@@ -121,8 +125,8 @@ fn store_wiring_tokens(
         fn ensure_memory_bootstrap() {
             use ::icydb::__reexports::canic_memory::api::MemoryApi;
 
-            MemoryApi::bootstrap_owner_range(env!("CARGO_PKG_NAME"), #memory_min, #memory_max)
-                .expect("generated canister memory registry bootstrap should succeed");
+            MemoryApi::bootstrap_pending()
+                .expect("generated canister memory registry pending flush should succeed");
         }
 
         #[doc(hidden)]
