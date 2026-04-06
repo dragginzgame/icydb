@@ -34,7 +34,7 @@ use crate::error::InternalError;
 #[cfg(test)]
 use crate::testing::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
 #[cfg(test)]
-use canic_memory::{registry::MemoryRegistryError, runtime::registry::MemoryRegistryRuntime};
+use canic_memory::api::MemoryApi;
 
 ///
 /// Re-exports
@@ -103,22 +103,9 @@ pub(in crate::db) fn clear_migration_state_bytes() -> Result<(), InternalError> 
 /// canonical id managed by `test_support`.
 #[cfg(test)]
 pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> {
-    // Phase 1: ensure the memory registry has at least one reserved range.
-    let init_result = MemoryRegistryRuntime::init(Some((
-        "icydb_test",
-        TEST_MEMORY_RANGE_START,
-        TEST_MEMORY_RANGE_END,
-    )));
-    match init_result {
-        Ok(_) => {}
-        Err(MemoryRegistryError::Overlap { .. }) => {
-            MemoryRegistryRuntime::init(None)
-                .map_err(InternalError::commit_memory_registry_init_failed)?;
-        }
-        Err(err) => {
-            return Err(InternalError::commit_memory_registry_init_failed(err));
-        }
-    }
+    // Phase 1: bootstrap the reserved test range through the public memory API.
+    MemoryApi::bootstrap_owner_range("icydb_test", TEST_MEMORY_RANGE_START, TEST_MEMORY_RANGE_END)
+        .map_err(InternalError::commit_memory_registry_init_failed)?;
 
     // Phase 2: pin and register the explicit commit marker slot.
     memory::configure_commit_memory_id(test_commit_memory_id())?;

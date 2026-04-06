@@ -243,6 +243,65 @@ fn index_key_rejects_trailing_bytes() {
 }
 
 #[test]
+fn raw_index_key_validated_component_reads_requested_segment() {
+    let first = encode_component(&Value::Text("alpha".to_string()));
+    let second = encode_component(&Value::Uint(7));
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![first.clone(), second.clone()],
+        make_pk(9),
+    );
+
+    let raw = key.to_raw();
+    assert_eq!(
+        raw.validated_component(0)
+            .expect("first component should validate"),
+        Some(first.as_slice()),
+    );
+    assert_eq!(
+        raw.validated_component(1)
+            .expect("second component should validate"),
+        Some(second.as_slice()),
+    );
+}
+
+#[test]
+fn raw_index_key_validated_component_returns_none_for_out_of_range_slot() {
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Text("alpha".to_string()))],
+        make_pk(9),
+    );
+
+    assert_eq!(
+        key.to_raw()
+            .validated_component(1)
+            .expect("out-of-range component should still validate the key"),
+        None,
+    );
+}
+
+#[test]
+fn raw_index_key_validated_component_rejects_trailing_bytes() {
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Text("alpha".to_string()))],
+        make_pk(9),
+    );
+    let mut bytes = key.to_raw().as_bytes().to_vec();
+    bytes.push(42);
+
+    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let err = raw
+        .validated_component(0)
+        .expect_err("component extraction should reject trailing bytes");
+    assert!(err.contains("trailing"));
+}
+
+#[test]
 fn index_key_prefix_bounds_are_isolated_between_user_and_system_kinds() {
     let prefix = vec![vec![0x33u8, 0x44, 0x55]];
 

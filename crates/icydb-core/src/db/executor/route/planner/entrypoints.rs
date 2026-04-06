@@ -16,12 +16,14 @@ use crate::{
                 derive_execution_capabilities_for_model,
                 derive_load_terminal_fast_path_contract_for_model_plan,
                 pk_order_stream_fast_path_shape_supported_for_model,
+                promote_load_terminal_fast_path_with_secondary_authority_witness,
             },
         },
         query::{
             builder::AggregateExpr,
             plan::{AccessPlannedQuery, PlannerRouteProfile},
         },
+        registry::StoreHandle,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -73,6 +75,27 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_
         probe_fetch_hint,
         RouteIntent::Load,
     ))
+}
+
+/// Build canonical execution routing for one initial load execution and then
+/// promote narrow witness-backed covering authority from the resolved store
+/// pair when it is explicitly synchronized.
+pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_model_store_witness(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    probe_fetch_hint: Option<usize>,
+    store: StoreHandle,
+) -> Result<ExecutionPlan, InternalError> {
+    let mut route_plan =
+        build_initial_execution_route_plan_for_load_with_model(model, plan, probe_fetch_hint)?;
+    promote_load_terminal_fast_path_with_secondary_authority_witness(
+        store,
+        model,
+        plan,
+        &mut route_plan.load_terminal_fast_path,
+    );
+
+    Ok(route_plan)
 }
 
 /// Build canonical execution routing for mutation execution from structural model authority.

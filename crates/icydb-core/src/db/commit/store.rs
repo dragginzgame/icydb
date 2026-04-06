@@ -13,17 +13,14 @@ use crate::{
             commit_marker_payload_capacity, single_row_commit_marker_payload_capacity,
             write_commit_marker_payload, write_single_row_commit_marker_payload,
         },
-        memory::commit_memory_id,
+        memory::commit_memory_handle,
         validate_commit_marker_shape,
     },
     error::InternalError,
 };
 use canic_cdk::structures::{
-    Cell as StableCell, DefaultMemoryImpl, Storable,
-    memory::{MemoryId, VirtualMemory},
-    storable::Bound,
+    Cell as StableCell, DefaultMemoryImpl, Storable, memory::VirtualMemory, storable::Bound,
 };
-use canic_memory::MEMORY_MANAGER;
 use std::{borrow::Cow, cell::RefCell};
 
 ///
@@ -699,7 +696,7 @@ pub(super) fn with_commit_store<R>(
         // Phase 1: lazily initialize storage if this thread has not touched it.
         if cell.borrow().is_none() {
             // StableCell::init performs a benign stable write for the empty marker.
-            let store = CommitStore::init(commit_memory()?);
+            let store = CommitStore::init(commit_memory_handle()?);
             *cell.borrow_mut() = Some(store);
         }
 
@@ -725,12 +722,6 @@ pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -
         let store = guard.as_mut().expect("commit store not initialized");
         f(store)
     })
-}
-
-/// Resolve the virtual memory backing the commit marker store.
-fn commit_memory() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
-    let id = commit_memory_id()?;
-    Ok(MEMORY_MANAGER.with_borrow_mut(|mgr| mgr.get(MemoryId::new(id))))
 }
 
 ///

@@ -16,6 +16,7 @@ use crate::{
             mutation::{
                 MutationInput, PreparedRowOpDelta, commit_prepared_single_save_row_op_with_window,
                 commit_save_row_ops_with_window, emit_index_delta_metrics, mutation_write_context,
+                synchronized_store_handles_for_prepared_row_ops,
             },
         },
         relation::model_has_strong_relation_targets,
@@ -226,6 +227,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                         E,
                     >(&self.db, &marker_row_op, &ctx, &ctx, schema_fingerprint)?;
                 Self::commit_prepared_single_row(
+                    &self.db,
                     marker_row_op,
                     prepared_row_op,
                     |delta| accumulate_prepared_row_op_delta(&mut batch_delta, delta),
@@ -551,6 +553,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Phase 1: persist/apply one single-row commit through the shared
         // commit-window path under the normal single-save metrics contract.
         Self::commit_prepared_single_row(
+            &self.db,
             marker_row_op,
             prepared_row_op,
             |delta| emit_index_delta_metrics::<E>(delta),
@@ -633,6 +636,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             )?;
 
         Self::commit_prepared_single_row(
+            &self.db,
             marker_row_op,
             prepared_row_op,
             |delta| emit_index_delta_metrics::<E>(delta),
@@ -681,15 +685,22 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Open + apply commit mechanics for one logical row operation.
     fn commit_prepared_single_row(
+        db: &Db<E::Canister>,
         marker_row_op: CommitRowOp,
         prepared_row_op: crate::db::commit::PreparedRowCommitOp,
         on_index_applied: impl FnOnce(&PreparedRowOpDelta),
         on_data_applied: impl FnOnce(),
     ) -> Result<(), InternalError> {
+        let synchronized_store_handles = synchronized_store_handles_for_prepared_row_ops(
+            db,
+            std::slice::from_ref(&prepared_row_op),
+        );
+
         // FIRST STABLE WRITE: commit marker is persisted before any mutations.
         commit_prepared_single_save_row_op_with_window(
             marker_row_op,
             prepared_row_op,
+            synchronized_store_handles,
             "save_row_apply",
             on_index_applied,
             || {

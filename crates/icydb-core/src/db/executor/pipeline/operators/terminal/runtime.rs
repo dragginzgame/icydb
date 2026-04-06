@@ -93,9 +93,8 @@ use crate::{
         },
         predicate::PredicateProgram,
         query::plan::{
-            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-            CoveringReadExecutionPlan, CoveringReadFieldSource,
-            constant_covering_projection_value_from_access,
+            AccessPlannedQuery, CoveringProjectionOrder, CoveringReadExecutionPlan,
+            CoveringReadFieldSource, constant_covering_projection_value_from_access,
             expr::projection_references_only_fields,
         },
         registry::StoreHandle,
@@ -686,6 +685,7 @@ fn try_materialize_sql_route_single_component_projected_rows(
             .unwrap_or(usize::MAX),
             component_index,
             consistency,
+            existing_row_mode: covering.existing_row_mode,
         },
         |storage_key, decoded_component| {
             sql_project_row_from_single_covering_component(
@@ -709,15 +709,12 @@ fn try_materialize_sql_route_single_component_projected_rows(
 const fn sql_route_covering_row_check_required(
     load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
 ) -> bool {
-    matches!(
-        load_terminal_fast_path,
-        Some(LoadTerminalFastPathContract::CoveringRead(
-            CoveringReadExecutionPlan {
-                existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
-                ..
-            }
-        ))
-    )
+    match load_terminal_fast_path {
+        Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
+            covering.existing_row_mode.requires_row_presence_check()
+        }
+        None => false,
+    }
 }
 
 #[cfg(feature = "sql")]
@@ -958,6 +955,7 @@ fn sql_route_covering_component_rows(
         raw_pairs,
         store,
         consistency,
+        covering.existing_row_mode,
         |decoded| {
             if decoded.len() != component_slots.len() {
                 return Err(InternalError::query_executor_invariant(

@@ -5,7 +5,6 @@
 
 use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
-use derive_more::Deref;
 
 ///
 /// DataStore
@@ -16,46 +15,74 @@ use derive_more::Deref;
 /// This type intentionally does not enforce commit-phase ordering.
 ///
 
-#[derive(Deref)]
-pub struct DataStore(BTreeMap<RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>>);
+pub struct DataStore {
+    map: BTreeMap<RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
+    secondary_covering_authoritative: bool,
+}
 
 impl DataStore {
     /// Initialize a data store with the provided backing memory.
     #[must_use]
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        Self(BTreeMap::init(memory))
+        Self {
+            map: BTreeMap::init(memory),
+            secondary_covering_authoritative: false,
+        }
     }
 
     /// Insert or replace one row by raw key.
     pub(in crate::db) fn insert(&mut self, key: RawDataKey, row: CanonicalRow) -> Option<RawRow> {
-        self.0.insert(key, row.into_raw_row())
+        let previous = self.map.insert(key, row.into_raw_row());
+        self.invalidate_secondary_covering_authority();
+
+        previous
     }
 
     /// Insert one raw row directly for corruption-focused test setup only.
     #[cfg(test)]
     pub(crate) fn insert_raw_for_test(&mut self, key: RawDataKey, row: RawRow) -> Option<RawRow> {
-        self.0.insert(key, row)
+        let previous = self.map.insert(key, row);
+        self.invalidate_secondary_covering_authority();
+
+        previous
     }
 
     /// Remove one row by raw key.
     pub fn remove(&mut self, key: &RawDataKey) -> Option<RawRow> {
-        self.0.remove(key)
+        let previous = self.map.remove(key);
+        self.invalidate_secondary_covering_authority();
+
+        previous
     }
 
     /// Load one row by raw key.
     pub fn get(&self, key: &RawDataKey) -> Option<RawRow> {
-        self.0.get(key)
+        self.map.get(key)
     }
 
     /// Return whether one raw key exists without cloning the row payload.
     #[must_use]
     pub fn contains(&self, key: &RawDataKey) -> bool {
-        self.0.contains_key(key)
+        self.map.contains_key(key)
     }
 
     /// Clear all stored rows from the data store.
     pub fn clear(&mut self) {
-        self.0.clear();
+        self.map.clear();
+        self.invalidate_secondary_covering_authority();
+    }
+
+    /// Return whether this row store currently participates in a synchronized
+    /// secondary-covering authority witness.
+    #[must_use]
+    pub(in crate::db) const fn secondary_covering_authoritative(&self) -> bool {
+        self.secondary_covering_authoritative
+    }
+
+    /// Mark this row store as synchronized with its paired secondary index
+    /// store after successful commit or recovery.
+    pub(in crate::db) const fn mark_secondary_covering_authoritative(&mut self) {
+        self.secondary_covering_authoritative = true;
     }
 
     /// Sum of bytes used by all stored rows.
@@ -64,5 +91,19 @@ impl DataStore {
         self.iter()
             .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)
             .sum()
+    }
+
+    // Any direct row-store mutation invalidates the secondary covering
+    // authority witness until commit/recovery re-synchronizes the pair.
+    const fn invalidate_secondary_covering_authority(&mut self) {
+        self.secondary_covering_authoritative = false;
+    }
+}
+
+impl std::ops::Deref for DataStore {
+    type Target = BTreeMap<RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
     }
 }

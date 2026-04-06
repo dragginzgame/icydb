@@ -317,6 +317,42 @@ impl PartialOrd for RawIndexKey {
     }
 }
 
+impl RawIndexKey {
+    // Validate one raw index key while extracting only the requested component
+    // segment. This keeps single-component covering scans from allocating a
+    // full decoded `IndexKey` when they only need one component payload.
+    pub(in crate::db) fn validated_component(
+        &self,
+        index: usize,
+    ) -> Result<Option<&[u8]>, &'static str> {
+        let bytes = self.as_bytes();
+        let (_, _, component_count, mut offset) = parse_index_key_header(bytes)?;
+        if index >= component_count {
+            return Ok(None);
+        }
+
+        let mut target = None;
+        for component_offset in 0..component_count {
+            let segment = read_segment(
+                bytes,
+                &mut offset,
+                IndexKey::MAX_COMPONENT_SIZE,
+                "component segment",
+            )?;
+            if component_offset == index {
+                target = Some(segment);
+            }
+        }
+
+        read_segment(bytes, &mut offset, IndexKey::MAX_PK_SIZE, "primary key")?;
+        if offset != bytes.len() {
+            return Err(ERR_TRAILING_BYTES);
+        }
+
+        Ok(target)
+    }
+}
+
 ///
 /// TESTS
 ///

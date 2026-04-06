@@ -10,13 +10,14 @@ use crate::{
         executor::{ExecutionPreparation, preparation::slot_map_for_model_plan},
         predicate::IndexPredicateCapability,
         query::plan::{
-            AccessPlannedQuery, CoveringReadExecutionPlan, covering_read_execution_plan,
+            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+            CoveringReadExecutionPlan, CoveringReadFieldSource, covering_read_execution_plan,
             index_covering_existing_rows_terminal_eligible,
         },
+        registry::StoreHandle,
     },
     model::entity::EntityModel,
 };
-
 ///
 /// BytesTerminalFastPathContract
 ///
@@ -64,6 +65,95 @@ pub(in crate::db::executor) enum ExistsTerminalFastPathContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum LoadTerminalFastPathContract {
     CoveringRead(CoveringReadExecutionPlan),
+}
+
+///
+/// SecondaryWitnessValidatedCoveringCohort
+///
+/// Route-owned classifier for the explicit secondary witness-backed covering
+/// cohorts.
+/// Each variant names one admitted single-field family so widening stays
+/// centralized in one owner instead of growing more structural booleans.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SecondaryWitnessValidatedCoveringCohort {
+    OrderOnlySingleField,
+    EqualityPrefixPrimaryKeyOrder,
+    BoundedRangeSingleField,
+    CompositeEqualityPrefixSuffixOrder,
+}
+
+impl SecondaryWitnessValidatedCoveringCohort {
+    // Return whether one planner-owned covering-order contract matches this
+    // explicit witness-backed secondary cohort.
+    const fn matches_order_contract(self, order_contract: CoveringProjectionOrder) -> bool {
+        matches!(
+            (self, order_contract),
+            (
+                Self::OrderOnlySingleField | Self::BoundedRangeSingleField,
+                CoveringProjectionOrder::IndexOrder(_)
+            ) | (
+                Self::CompositeEqualityPrefixSuffixOrder,
+                CoveringProjectionOrder::IndexOrder(Direction::Asc)
+            ) | (
+                Self::EqualityPrefixPrimaryKeyOrder,
+                CoveringProjectionOrder::PrimaryKeyOrder(_)
+            )
+        )
+    }
+
+    // Return whether one covering field-source layout matches this explicit
+    // witness-backed secondary cohort.
+    const fn matches_field_source_counts(
+        self,
+        field_count: usize,
+        component_field_count: usize,
+        constant_field_count: usize,
+        expected_component_field_present: bool,
+    ) -> bool {
+        match self {
+            Self::OrderOnlySingleField | Self::BoundedRangeSingleField => {
+                field_count == 2
+                    && component_field_count == 1
+                    && constant_field_count == 0
+                    && expected_component_field_present
+            }
+            Self::EqualityPrefixPrimaryKeyOrder => {
+                field_count == 2
+                    && component_field_count == 0
+                    && constant_field_count == 1
+                    && !expected_component_field_present
+            }
+            Self::CompositeEqualityPrefixSuffixOrder => {
+                field_count == 3
+                    && component_field_count == 1
+                    && constant_field_count == 1
+                    && expected_component_field_present
+            }
+        }
+    }
+}
+
+// Promote one narrow secondary covering cohort onto witness-backed authority
+// when the resolved store pair is synchronized and the route contract is
+// otherwise already explicit covering-read.
+pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_authority_witness(
+    store: StoreHandle,
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
+) {
+    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
+        return;
+    };
+    if !store.secondary_covering_authoritative()
+        || !secondary_witness_validated_covering_eligible(model, plan, covering)
+    {
+        return;
+    }
+
+    covering.existing_row_mode = CoveringExistingRowMode::WitnessValidated;
 }
 
 // Return whether the structural plan still carries a residual predicate.
@@ -164,4 +254,134 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_model
             .is_some_and(|profile| profile.index() == IndexPredicateCapability::FullyIndexable);
 
     derive_load_terminal_fast_path_contract_for_model(model, plan, strict_predicate_compatible)
+}
+
+// Return whether one covering-read contract matches the first explicit
+// witness-backed secondary authority cohort.
+fn secondary_witness_validated_covering_eligible(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
+) -> bool {
+    // Phase 1: keep the first witness-backed cohort extremely narrow and
+    // single-field so the authority upgrade stays explicit.
+    if !plan.scalar_plan().mode.is_load()
+        || !plan_predicate_is_absent_or_fully_indexable(model, plan)
+        || plan.scalar_plan().distinct
+        || plan
+            .scalar_plan()
+            .page
+            .as_ref()
+            .is_some_and(|page| page.offset != 0)
+        || covering.existing_row_mode != CoveringExistingRowMode::RequiresRowPresenceCheck
+    {
+        return false;
+    }
+
+    // Phase 2: classify one explicit single-field secondary witness cohort.
+    // The classifier is the policy owner; the checks below only validate that
+    // the current covering contract actually matches the admitted cohort.
+    let Some(cohort) = secondary_witness_validated_covering_cohort(plan, covering) else {
+        return false;
+    };
+
+    // Phase 3: require the narrow two-field layout that current runtime
+    // covering execution knows how to emit under witness-backed authority.
+    let Some(primary_key_slot) = model
+        .fields
+        .iter()
+        .position(|field| field.name == model.primary_key().name)
+    else {
+        return false;
+    };
+    let mut component_field_count = 0usize;
+    let mut constant_field_count = 0usize;
+    let mut expected_component_field_present = false;
+    for field in &covering.fields {
+        match field.source {
+            CoveringReadFieldSource::PrimaryKey => {
+                if field.field_slot.index != primary_key_slot {
+                    return false;
+                }
+            }
+            CoveringReadFieldSource::IndexComponent { component_index } => {
+                if component_index != match cohort {
+                    SecondaryWitnessValidatedCoveringCohort::CompositeEqualityPrefixSuffixOrder => {
+                        1
+                    }
+                    _ => 0,
+                } {
+                    return false;
+                }
+                component_field_count = component_field_count.saturating_add(1);
+                expected_component_field_present = true;
+            }
+            CoveringReadFieldSource::Constant(_) => {
+                constant_field_count = constant_field_count.saturating_add(1);
+            }
+        }
+    }
+
+    cohort.matches_field_source_counts(
+        covering.fields.len(),
+        component_field_count,
+        constant_field_count,
+        expected_component_field_present,
+    )
+}
+
+// Return whether the current scalar predicate is either absent or fully
+// index-compatible on the chosen access route.
+fn plan_predicate_is_absent_or_fully_indexable(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+) -> bool {
+    if plan.scalar_plan().predicate.is_none() {
+        return true;
+    }
+
+    let execution_preparation =
+        ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
+
+    execution_preparation
+        .predicate_capability_profile()
+        .is_some_and(|profile| profile.index() == IndexPredicateCapability::FullyIndexable)
+}
+
+// Classify one explicit secondary witness-backed covering cohort from the
+// structural access route plus planner-owned covering order contract.
+fn secondary_witness_validated_covering_cohort(
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
+) -> Option<SecondaryWitnessValidatedCoveringCohort> {
+    if let Some((index, prefix_values)) = plan.access.as_index_prefix_path() {
+        let cohort = match prefix_values.len() {
+            0 if index.fields().len() == 1 => {
+                Some(SecondaryWitnessValidatedCoveringCohort::OrderOnlySingleField)
+            }
+            1 if index.fields().len() == 1 => {
+                Some(SecondaryWitnessValidatedCoveringCohort::EqualityPrefixPrimaryKeyOrder)
+            }
+            1 if index.fields().len() == 2 => {
+                Some(SecondaryWitnessValidatedCoveringCohort::CompositeEqualityPrefixSuffixOrder)
+            }
+            _ => None,
+        };
+
+        return cohort.filter(|cohort| cohort.matches_order_contract(covering.order_contract));
+    }
+
+    if let Some((index, prefix_values, _, _)) = plan.access.as_index_range_path() {
+        if index.fields().len() != 1 || !prefix_values.is_empty() {
+            return None;
+        }
+
+        let cohort = SecondaryWitnessValidatedCoveringCohort::BoundedRangeSingleField;
+
+        return cohort
+            .matches_order_contract(covering.order_contract)
+            .then_some(cohort);
+    }
+
+    None
 }

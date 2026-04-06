@@ -187,6 +187,16 @@ impl<C: CanisterKind> Db<C> {
         executor::StoreResolver::new(self)
     }
 
+    /// Mark every registered store pair as synchronized for secondary
+    /// covering authority after a full authoritative rebuild.
+    pub(in crate::db) fn mark_all_registered_stores_secondary_covering_authoritative(&self) {
+        self.with_store_registry(|registry| {
+            for (_, handle) in registry.iter() {
+                handle.mark_secondary_covering_authoritative();
+            }
+        });
+    }
+
     /// Build one storage diagnostics report for registered stores/entities.
     pub(crate) fn storage_report(
         &self,

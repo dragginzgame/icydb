@@ -506,6 +506,24 @@ fn remove_indexed_session_sql_row_data(id: u128) {
     });
 }
 
+// Remove one filtered indexed SQL fixture row from the primary store while
+// preserving the filtered secondary index entry so witness-backed composite
+// covering routes can validate stale-key fallback.
+fn remove_filtered_indexed_session_sql_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<FilteredIndexedSessionSqlEntity>(Ulid::from_u128(id))
+        .expect("filtered indexed SQL fixture data key should build")
+        .to_raw()
+        .expect("filtered indexed SQL fixture data key should encode");
+
+    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected filtered indexed SQL fixture row to exist before data-only removal",
+        );
+    });
+}
+
 // Remove one composite indexed SQL fixture row from the primary store while
 // preserving the secondary `(code, serial)` index entry so multi-component
 // covering projections can validate stale-key parity.
@@ -3937,12 +3955,19 @@ fn session_explain_execution_order_only_filtered_composite_covering_query_uses_i
             (9_225, "charlie-user", true, "gold", "charlie", 50),
         ],
     );
+    assert!(
+        INDEXED_SESSION_SQL_DB
+            .recovered_store(IndexedSessionSqlStore::PATH)
+            .expect("filtered composite indexed store should recover")
+            .secondary_covering_authoritative(),
+        "filtered composite indexed store should be authoritative after synchronized seed inserts",
+    );
 
     // Phase 2: require the guarded composite order-only SQL lane to surface
     // the shared index-prefix covering route with access-satisfied suffix ordering.
     let descriptor = session
         .query_from_sql::<FilteredIndexedSessionSqlEntity>(
-            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
         )
         .expect("filtered composite order-only covering SQL query should lower")
         .explain_execution()
@@ -4061,6 +4086,40 @@ fn session_explain_execution_order_only_filtered_composite_desc_covering_query_u
         )
         .is_none(),
         "descending guarded filtered composite-order roots should fail closed on reverse suffix streaming safety",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_filtered_composite_covering_query_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_221, "alpha", false, "gold", "bramble", 10),
+            (9_222, "bravo-user", true, "gold", "bravo", 20),
+            (9_223, "bristle-user", true, "gold", "bristle", 30),
+            (9_224, "brisk-user", true, "silver", "brisk", 40),
+            (9_225, "charlie-user", true, "gold", "charlie", 50),
+        ],
+    );
+    remove_filtered_indexed_session_sql_row_data(9_222);
+
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        )
+        .expect("stale filtered composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("stale filtered composite order-only covering SQL explain_execution should succeed");
+
+    assert_eq!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .and_then(|node| node.node_properties().get("existing_row_mode")),
+        Some(&Value::Text("row_check_required".to_string())),
+        "stale filtered composite-order covering routes should fall back to row-check mode",
     );
 }
 
@@ -5538,6 +5597,379 @@ fn execute_sql_projection_index_coverable_secondary_order_field_skips_stale_rows
     assert_eq!(
         entity_projected_rows, projected_rows,
         "covering secondary-order SQL projection should preserve stale-key parity",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_111_u128, "alice", 10_u64),
+        (9_112, "bob", 20),
+        (9_113, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL witness fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("witness-backed secondary covering EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized secondary covering EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed secondary covering EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_is_witness_validated()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_114_u128, "alice", 10_u64),
+        (9_115, "alice", 20),
+        (9_116, "bob", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL witness equality fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id LIMIT 1",
+    )
+    .expect("witness-backed secondary covering equality EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized secondary covering equality EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed secondary covering equality EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_desc_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_117_u128, "alice", 10_u64),
+        (9_118, "alice", 20),
+        (9_119, "bob", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL witness equality desc fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+    )
+    .expect("witness-backed secondary covering equality desc EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized secondary covering equality desc EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed secondary covering equality desc EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_121_u128, "alice", 10_u64),
+        (9_122, "bob", 20),
+        (9_123, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale witness fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_121);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("stale secondary covering EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop secondary covering EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the witness-backed route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_124_u128, "alice", 10_u64),
+        (9_125, "alice", 20),
+        (9_126, "bob", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale witness equality fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_124);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id LIMIT 1",
+    )
+    .expect("stale secondary covering equality EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop secondary covering equality EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the witness-backed equality route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_desc_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_127_u128, "alice", 10_u64),
+        (9_128, "alice", 20),
+        (9_129, "bob", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale witness equality desc fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_127);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+    )
+    .expect("stale secondary covering equality desc EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop secondary covering equality desc EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the witness-backed equality desc route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_131_u128, "alice", 10_u64),
+        (9_132, "bob", 20),
+        (9_133, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL witness range fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("witness-backed secondary covering range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized secondary covering range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed secondary covering range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_desc_is_witness_validated()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_134_u128, "alice", 10_u64),
+        (9_135, "bob", 20),
+        (9_136, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL witness desc range fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+    )
+    .expect("witness-backed secondary covering desc range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized secondary covering desc range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed secondary covering desc range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_141_u128, "alice", 10_u64),
+        (9_142, "bob", 20),
+        (9_143, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale witness range fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_141);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("stale secondary covering range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop secondary covering range EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the witness-backed range route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_desc_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_144_u128, "alice", 10_u64),
+        (9_145, "bob", 20),
+        (9_146, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale desc range fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_144);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+    )
+    .expect("stale secondary covering desc range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop secondary covering desc range EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the witness-backed desc range route: {explain}",
     );
 }
 

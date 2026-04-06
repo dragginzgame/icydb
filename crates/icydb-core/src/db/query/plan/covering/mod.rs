@@ -109,7 +109,17 @@ pub(in crate::db) struct CoveringReadPlan {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CoveringExistingRowMode {
     ProvenByPlanner,
+    WitnessValidated,
     RequiresRowPresenceCheck,
+}
+
+impl CoveringExistingRowMode {
+    /// Return whether execution still owes an authoritative row-presence probe
+    /// before it may emit covering output.
+    #[must_use]
+    pub(in crate::db) const fn requires_row_presence_check(self) -> bool {
+        matches!(self, Self::RequiresRowPresenceCheck)
+    }
 }
 
 ///

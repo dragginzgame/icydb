@@ -273,6 +273,7 @@ where
             raw_pairs,
             prepared.store,
             prepared.consistency(),
+            crate::db::query::plan::CoveringExistingRowMode::RequiresRowPresenceCheck,
             "bytes covering projection expected one decoded component",
             serialized_value_len,
         )?

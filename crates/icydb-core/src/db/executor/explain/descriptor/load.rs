@@ -11,6 +11,7 @@ use crate::{
             route::{
                 ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
                 build_initial_execution_route_plan_for_load_with_model,
+                build_initial_execution_route_plan_for_load_with_model_store_witness,
             },
         },
         predicate::IndexPredicateCapability,
@@ -25,6 +26,7 @@ use crate::{
                 CoveringReadFieldSource, project_access_choice_explain_snapshot,
             },
         },
+        registry::StoreHandle,
     },
     error::InternalError,
     value::Value,
@@ -50,10 +52,36 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
+
+    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
+}
+
+// Assemble one canonical scalar load execution descriptor tree through one
+// store-backed route plan that may promote witness-validated covering
+// authority.
+pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_store_witness(
+    model: &'static crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery,
+    store: StoreHandle,
+) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
+    let route_plan = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        model, plan, None, store,
+    )?;
+
+    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
+}
+
+// Assemble one canonical scalar load execution descriptor tree through one
+// caller-supplied route plan.
+fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
+    model: &'static crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery,
+    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+) -> ExplainExecutionNodeDescriptor {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
     let route_shape = route_plan.shape();
     let predicate_index_capability =
         execution_preparation_predicate_index_capability(&execution_preparation);
@@ -73,7 +101,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
             access_strategy,
             execution_mode,
         );
-    annotate_access_root_node_properties(&mut root, &route_plan);
+    annotate_access_root_node_properties(&mut root, route_plan);
     annotate_access_choice_node_properties(&mut root, access_choice);
     let covering_scan = load_terminal_fast_path.is_some();
     root.covering_scan = Some(covering_scan);
@@ -93,7 +121,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     }
     annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
     annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
-    annotate_fast_path_reason_node_properties(&mut root, &route_plan);
+    annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
     let explain_predicate = if strict_predicate_compatible {
@@ -111,13 +139,13 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     }
     root.children.extend(load_modifier_execution_nodes(
         plan,
-        &route_plan,
+        route_plan,
         execution_mode,
         route_shape,
         load_terminal_fast_path,
     ));
 
-    Ok(root)
+    root
 }
 
 fn load_modifier_execution_nodes(
@@ -180,10 +208,27 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
+
+    Ok(
+        assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
+            model,
+            plan,
+            &route_plan,
+        ),
+    )
+}
+
+// Assemble canonical verbose diagnostics for one scalar load route through one
+// caller-supplied route plan.
+fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
+    model: &'static crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery,
+    route_plan: &crate::db::executor::route::ExecutionRoutePlan,
+) -> Vec<String> {
     // Phase 1: build canonical route authority inputs for load mode.
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let has_residual_predicate = plan.has_residual_predicate();
     let strict_predicate_compatible = !has_residual_predicate
@@ -212,7 +257,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         ),
         route_diagnostic_line_debug("limit", &route_plan.continuation().limit()),
         route_diagnostic_line_debug("fast_path_order", &route_plan.fast_path_order()),
-        secondary_order_pushdown_verbose_line(&route_plan),
+        secondary_order_pushdown_verbose_line(route_plan),
     ];
     lines.push(route_fetch_diagnostic_line(
         "top_n_seek",
@@ -274,7 +319,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
         ));
     }
 
-    Ok(lines)
+    lines
 }
 
 // Keep scalar covering-read explain labels local to the load descriptor so the
@@ -393,6 +438,7 @@ const fn covering_existing_row_mode_label(
 ) -> &'static str {
     match existing_row_mode {
         CoveringExistingRowMode::ProvenByPlanner => "planner_proven",
+        CoveringExistingRowMode::WitnessValidated => "witness_validated",
         CoveringExistingRowMode::RequiresRowPresenceCheck => "row_check_required",
     }
 }

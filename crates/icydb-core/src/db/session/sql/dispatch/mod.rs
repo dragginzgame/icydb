@@ -357,6 +357,12 @@ impl<C: CanisterKind> DbSession<C> {
                     E::MODEL.primary_key.name,
                 )
                 .map_err(QueryError::from_sql_lowering_error)?;
+                if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
+                    &lowered,
+                    EntityAuthority::for_type::<E>(),
+                )? {
+                    return Ok(SqlDispatchResult::Explain(explain));
+                }
 
                 lowered
                     .explain_for_model(E::MODEL)
@@ -432,6 +438,11 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.model().name(),
                     authority.model().primary_key.name,
                 )?;
+                if let Some(explain) =
+                    self.explain_lowered_sql_execution_for_authority(&lowered, authority)?
+                {
+                    return Ok(SqlDispatchResult::Explain(explain));
+                }
 
                 lowered
                     .explain_for_model(authority.model())

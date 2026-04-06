@@ -683,7 +683,7 @@ const fn scalar_select_attribution_cases() -> [(
     SqlPerfAttributionSurface,
     &'static str,
     u32,
-); 11] {
+); 13] {
     [
         (
             "user_name_eq_limit1",
@@ -730,6 +730,20 @@ const fn scalar_select_attribution_cases() -> [(
         (
             "user_secondary_covering_name_limit2_desc",
             "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2",
+            SqlPerfAttributionSurface::TypedDispatchUser,
+            "User",
+            2,
+        ),
+        (
+            "user_secondary_covering_name_strict_range_limit2_asc",
+            "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+            SqlPerfAttributionSurface::TypedDispatchUser,
+            "User",
+            2,
+        ),
+        (
+            "user_secondary_covering_name_strict_range_limit2_desc",
+            "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
             SqlPerfAttributionSurface::TypedDispatchUser,
             "User",
             2,
@@ -1212,6 +1226,203 @@ fn sql_canister_query_lane_supports_user_secondary_covering_order_only_projectio
                 &[ANY_PROJECTION_VALUE, "bob"],
             ],
             "descending User secondary covering projection should preserve ordered rows",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_witness_validated_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("query User secondary covering EXPLAIN EXECUTION should return an Ok payload");
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "name",
+            ],
+            &["row_check_required"],
+            "User secondary covering EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_equality_witness_validated_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+        )
+        .expect(
+            "query User secondary covering equality EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "name",
+            ],
+            &["row_check_required"],
+            "User secondary covering equality EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_equality_desc_witness_validated_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+        )
+        .expect(
+            "query User secondary covering equality desc EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "name",
+            ],
+            &["row_check_required"],
+            "User secondary covering equality desc EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_user_secondary_covering_strict_range_projection_window() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+            "ascending User secondary covering range projection should return projected rows",
+        );
+        assert_projection_window(
+            &rows,
+            "User",
+            &["id", "name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "alice"],
+                &[ANY_PROJECTION_VALUE, "bob"],
+            ],
+            "ascending User secondary covering range projection should preserve ordered rows",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_strict_range_witness_validated_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query User secondary covering range EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "name",
+            ],
+            &["row_check_required"],
+            "User secondary covering range EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_user_secondary_covering_strict_range_desc_projection_window() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+            "descending User secondary covering range projection should return projected rows",
+        );
+        assert_projection_window(
+            &rows,
+            "User",
+            &["id", "name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "bob"],
+                &[ANY_PROJECTION_VALUE, "alice"],
+            ],
+            "descending User secondary covering range projection should preserve ordered rows",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_strict_range_desc_witness_validated_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query User secondary covering desc range EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "User",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "name",
+            ],
+            &["row_check_required"],
+            "User secondary covering desc range EXPLAIN EXECUTION should expose the witness-backed covering route",
         );
     });
 }
@@ -2639,6 +2850,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "IndexPrefixScan",
                 "covering_read",
                 "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
                 "prefix_len",
                 "Uint(1)",
                 "prefix_values",
@@ -2648,7 +2861,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "tier",
                 "handle",
             ],
-            &[],
+            &["row_check_required"],
             "ActiveUser filtered composite order-only EXPLAIN EXECUTION should expose the covering index-prefix route with one equality prefix",
         );
     });
@@ -4371,10 +4584,30 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "generated.dispatch.projection.user_name_eq_limit.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id DESC LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.projection.user_name_eq_limit",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
                     sql: "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.dispatch.projection.user_name_eq_limit.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id DESC LIMIT 1"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -4419,6 +4652,28 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.secondary_covering.user_name_strict_range_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.secondary_covering.user_name_strict_range_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.secondary_covering.user_name_order_only_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
@@ -4433,6 +4688,28 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchUser,
                     sql: "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.secondary_covering.user_name_strict_range_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.secondary_covering.user_name_strict_range_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchUser,
+                    sql: "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,

@@ -22,6 +22,7 @@ use crate::{
             SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
             StructuralPrimaryRowReader, key_within_envelope,
         },
+        registry::StoreHandle,
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
@@ -639,6 +640,8 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
         index_store_guards,
         delta,
     } = open_commit_window::<E>(db, row_ops)?;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
     apply_prepared_row_ops(
         commit,
@@ -648,6 +651,7 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
         || on_index_applied(&delta),
         on_data_applied,
     )?;
+    mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
 
     Ok(())
 }
@@ -732,6 +736,8 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         index_store_guards,
         delta,
     } = open_commit_window_structural(db, row_ops)?;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
     apply_prepared_row_ops(
         commit,
@@ -751,6 +757,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         },
         || {},
     )?;
+    mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
 
     Ok(())
 }
@@ -796,10 +803,13 @@ pub(in crate::db::executor) fn commit_single_save_row_op_with_window_and_schema_
             &context,
             schema_fingerprint,
         )?;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
 
     commit_prepared_single_save_row_op_with_window(
         row_op,
         prepared_row_op,
+        synchronized_store_handles,
         apply_phase,
         on_index_applied,
         on_data_applied,
@@ -810,6 +820,7 @@ pub(in crate::db::executor) fn commit_single_save_row_op_with_window_and_schema_
 pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
     row_op: CommitRowOp,
     prepared_row_op: PreparedRowCommitOp,
+    synchronized_store_handles: Vec<StoreHandle>,
     apply_phase: &'static str,
     on_index_applied: impl FnOnce(&PreparedRowOpDelta),
     on_data_applied: impl FnOnce(),
@@ -828,6 +839,7 @@ pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
         || on_index_applied(&delta),
         on_data_applied,
     )?;
+    mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
 
     Ok(())
 }
@@ -848,6 +860,8 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
             &context,
             commit_schema_fingerprint_for_entity::<E>(),
         )?;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
     let SingleRowApplyPrep {
         guards: index_store_guards,
         delta,
@@ -862,6 +876,7 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
         || emit_index_delta_metrics::<E>(&delta),
         || {},
     )?;
+    mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
 
     Ok(())
 }
@@ -875,6 +890,8 @@ fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
     apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     let prepared_row_op = db.prepare_row_commit_op(&row_op)?;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
     let SingleRowApplyPrep {
         guards: index_store_guards,
         delta,
@@ -899,6 +916,7 @@ fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
         },
         || {},
     )?;
+    mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
 
     Ok(())
 }
@@ -966,6 +984,42 @@ fn snapshot_index_store_generations(
     }
 
     guards
+}
+
+/// Resolve the exact registered store pairs that one prepared-op batch
+/// synchronized through authoritative row + paired index mutation.
+#[must_use]
+pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C: CanisterKind>(
+    db: &Db<C>,
+    prepared_row_ops: &[PreparedRowCommitOp],
+) -> Vec<StoreHandle> {
+    let registered_handles = db.with_store_registry(|registry| {
+        registry
+            .iter()
+            .map(|(_, handle)| handle)
+            .collect::<Vec<StoreHandle>>()
+    });
+
+    registered_handles
+        .into_iter()
+        .filter(|handle| {
+            prepared_row_ops.iter().any(|row_op| {
+                ptr::eq(handle.data_store(), row_op.data_store)
+                    && row_op
+                        .index_ops
+                        .iter()
+                        .any(|index_op| ptr::eq(handle.index_store(), index_op.store))
+            })
+        })
+        .collect()
+}
+
+// Mark one batch of synchronized store pairs as witness-valid after commit
+// apply succeeds and the commit marker is already closed.
+fn mark_store_handles_secondary_covering_authoritative(handles: &[StoreHandle]) {
+    for handle in handles {
+        handle.mark_secondary_covering_authoritative();
+    }
 }
 
 // Verify index stores have not changed since preflight snapshot capture.

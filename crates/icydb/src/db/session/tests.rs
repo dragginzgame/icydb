@@ -4,17 +4,10 @@ use crate::{
     macros::{canister, entity, store},
     traits::{Path as _, Sanitizer as _},
 };
-use canic_cdk::structures::{
-    DefaultMemoryImpl,
-    memory::{MemoryId, MemoryManager, VirtualMemory},
-};
+use canic_cdk::structures::{DefaultMemoryImpl, memory::VirtualMemory};
+use canic_memory::api::MemoryApi;
 use icydb_core as core;
 use std::cell::RefCell;
-
-fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
-    let manager = MemoryManager::init(DefaultMemoryImpl::default());
-    manager.get(MemoryId::new(id))
-}
 
 ///
 /// FacadeSqlCanister
@@ -51,11 +44,18 @@ pub struct FacadeSqlStore {}
 )]
 pub struct FacadeSqlEntity {}
 
+fn test_memory(id: u8, label: &str) -> VirtualMemory<DefaultMemoryImpl> {
+    MemoryApi::bootstrap_owner_range(env!("CARGO_PKG_NAME"), 240, 250)
+        .expect("facade SQL tests should bootstrap their reserved memory range");
+    MemoryApi::register(id, env!("CARGO_PKG_NAME"), label)
+        .expect("facade SQL tests should register memory slots within their reserved range")
+}
+
 thread_local! {
     static FACADE_SQL_DATA_STORE: RefCell<core::db::DataStore> =
-        RefCell::new(core::db::DataStore::init(test_memory(241)));
+        RefCell::new(core::db::DataStore::init(test_memory(241, "FacadeSqlDataStore")));
     static FACADE_SQL_INDEX_STORE: RefCell<core::db::IndexStore> =
-        RefCell::new(core::db::IndexStore::init(test_memory(242)));
+        RefCell::new(core::db::IndexStore::init(test_memory(242, "FacadeSqlIndexStore")));
     static FACADE_SQL_STORE_REGISTRY: core::db::StoreRegistry = {
         let mut registry = core::db::StoreRegistry::new();
         registry

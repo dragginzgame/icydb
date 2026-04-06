@@ -87,6 +87,10 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
+    // Phase 5: authoritative rebuild succeeded, so every registered store pair
+    // may advertise synchronized secondary-covering authority again.
+    db.mark_all_registered_stores_secondary_covering_authoritative();
+
     let _ = RECOVERED.set(());
 
     Ok(())

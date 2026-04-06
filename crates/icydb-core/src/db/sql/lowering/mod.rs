@@ -99,6 +99,19 @@ impl LoweredSqlCommand {
             | LoweredSqlCommandInner::ShowEntities => None,
         }
     }
+
+    #[must_use]
+    pub(in crate::db) const fn explain_query(&self) -> Option<(SqlExplainMode, &LoweredSqlQuery)> {
+        match &self.0 {
+            LoweredSqlCommandInner::Explain { mode, query } => Some((*mode, query)),
+            LoweredSqlCommandInner::Query(_)
+            | LoweredSqlCommandInner::ExplainGlobalAggregate { .. }
+            | LoweredSqlCommandInner::DescribeEntity
+            | LoweredSqlCommandInner::ShowIndexesEntity
+            | LoweredSqlCommandInner::ShowColumnsEntity
+            | LoweredSqlCommandInner::ShowEntities => None,
+        }
+    }
 }
 
 ///

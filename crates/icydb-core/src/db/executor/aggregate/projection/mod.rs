@@ -849,6 +849,7 @@ where
             raw_pairs,
             prepared.store,
             prepared.consistency(),
+            crate::db::query::plan::CoveringExistingRowMode::RequiresRowPresenceCheck,
             "aggregate covering projection expected one decoded component",
             |value| Ok(value.clone()),
         )?

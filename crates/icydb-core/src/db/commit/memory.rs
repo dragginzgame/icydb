@@ -4,10 +4,8 @@
 //! Boundary: commit::{recovery,store} -> commit::memory (one-way).
 
 use crate::{db::commit::marker::COMMIT_LABEL, error::InternalError};
-use canic_memory::{
-    registry::{MemoryRangeEntry, MemoryRegistry},
-    runtime::registry::MemoryRegistryRuntime,
-};
+use canic_cdk::structures::{DefaultMemoryImpl, memory::VirtualMemory};
+use canic_memory::api::{MemoryApi, MemoryInspection};
 use std::sync::OnceLock;
 
 static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
@@ -35,8 +33,8 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
         return Ok(*cached_id);
     }
 
-    // Phase 2: initialize registry runtime and validate slot ownership.
-    MemoryRegistryRuntime::init(None).map_err(InternalError::commit_memory_registry_init_failed)?;
+    // Phase 2: flush deferred registry state and validate slot ownership.
+    MemoryApi::bootstrap_pending().map_err(InternalError::commit_memory_registry_init_failed)?;
 
     validate_commit_slot_registration(memory_id)?;
 
@@ -45,11 +43,20 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
     Ok(memory_id)
 }
 
+/// Open the configured commit-marker memory slot through the shared memory API.
+pub(super) fn commit_memory_handle() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+    let memory_id = commit_memory_id()?;
+    let owner = owner_for_memory_id(memory_id)?;
+
+    MemoryApi::register(memory_id, &owner, COMMIT_LABEL)
+        .map_err(InternalError::commit_memory_id_registration_failed)
+}
+
 /// Validate that exactly one canonical commit-marker slot exists.
 fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError> {
-    let mut commit_ids = MemoryRegistryRuntime::snapshot_entries()
+    let mut commit_ids = MemoryApi::registered()
         .into_iter()
-        .filter_map(|(id, entry)| (entry.label == COMMIT_LABEL).then_some(id))
+        .filter_map(|entry| (entry.label == COMMIT_LABEL).then_some(entry.id))
         .collect::<Vec<_>>();
     commit_ids.sort_unstable();
     commit_ids.dedup();
@@ -69,15 +76,14 @@ fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError>
 
 /// Register the configured commit-marker slot when no prior slot exists.
 fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
-    if let Some(entry) = MemoryRegistryRuntime::get(memory_id) {
+    let inspection = inspect_memory(memory_id)?;
+    if let Some(label) = inspection.label.as_deref() {
         return Err(InternalError::commit_memory_id_already_registered(
-            memory_id,
-            &entry.label,
+            memory_id, label,
         ));
     }
 
-    let owner = owner_for_memory_id(memory_id)?;
-    MemoryRegistry::register(memory_id, &owner, COMMIT_LABEL)
+    MemoryApi::register(memory_id, &inspection.owner, COMMIT_LABEL)
         .map_err(InternalError::commit_memory_id_registration_failed)?;
 
     Ok(())
@@ -85,29 +91,22 @@ fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
 
 /// Resolve the canonical owner label for one configured memory id.
 fn owner_for_memory_id(memory_id: u8) -> Result<String, InternalError> {
-    owner_for_memory_id_in_ranges(memory_id, &MemoryRegistryRuntime::snapshot_range_entries())
+    Ok(inspect_memory(memory_id)?.owner)
 }
 
-/// Resolve owner label from registry range entries.
-fn owner_for_memory_id_in_ranges(
-    memory_id: u8,
-    ranges: &[MemoryRangeEntry],
-) -> Result<String, InternalError> {
-    // Memory-range ownership is non-overlapping by registry contract, so the
-    // first matching owner is the canonical owner for this memory id.
-    let owner = ranges
-        .iter()
-        .find(|range_entry| range_entry.range.contains(memory_id))
-        .map(|range_entry| range_entry.owner.clone());
-
-    owner.ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(memory_id))
+// Inspect one configured memory id through the public Canic memory API.
+fn inspect_memory(memory_id: u8) -> Result<MemoryInspection, InternalError> {
+    MemoryApi::inspect(memory_id)
+        .ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(memory_id))
 }
 
 #[cfg(test)]
-fn range_entry(owner: &str, start: u8, end: u8) -> MemoryRangeEntry {
-    MemoryRangeEntry {
+fn inspection(memory_id: u8, owner: &str, start: u8, end: u8) -> MemoryInspection {
+    MemoryInspection {
+        id: memory_id,
         owner: owner.to_string(),
         range: canic_memory::registry::MemoryRange { start, end },
+        label: None,
     }
 }
 
@@ -121,26 +120,18 @@ mod tests {
     use crate::error::{ErrorClass, ErrorOrigin};
 
     #[test]
-    fn owner_for_memory_id_returns_matching_owner() {
-        let ranges = vec![range_entry("a", 1, 10), range_entry("b", 11, 20)];
-        let owner = owner_for_memory_id_in_ranges(12, &ranges).expect("owner should resolve");
+    fn owner_for_memory_inspection_returns_matching_owner() {
+        let inspection = inspection(12, "b", 11, 20);
+        let owner = inspection.owner;
         assert_eq!(owner, "b");
     }
 
     #[test]
-    fn owner_for_memory_id_rejects_out_of_range_id() {
-        let ranges = vec![range_entry("a", 1, 10), range_entry("b", 11, 20)];
-        let err =
-            owner_for_memory_id_in_ranges(30, &ranges).expect_err("id outside ranges must fail");
+    fn inspect_memory_missing_id_maps_to_out_of_range_error() {
+        let err = MemoryApi::inspect(30)
+            .ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(30))
+            .expect_err("id outside ranges must fail");
         assert_eq!(err.class, ErrorClass::Unsupported);
         assert_eq!(err.origin, ErrorOrigin::Store);
-    }
-
-    #[test]
-    fn owner_for_memory_id_prefers_first_matching_range_owner() {
-        let ranges = vec![range_entry("a", 1, 10), range_entry("b", 10, 20)];
-        let owner =
-            owner_for_memory_id_in_ranges(10, &ranges).expect("first matching owner should win");
-        assert_eq!(owner, "a");
     }
 }

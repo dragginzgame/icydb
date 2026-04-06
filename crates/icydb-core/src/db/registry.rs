@@ -87,6 +87,21 @@ impl StoreHandle {
         self.index.with_borrow_mut(f)
     }
 
+    /// Return whether this store pair currently carries a synchronized
+    /// secondary covering-authority witness.
+    #[must_use]
+    pub(in crate::db) fn secondary_covering_authoritative(&self) -> bool {
+        self.with_data(DataStore::secondary_covering_authoritative)
+            && self.with_index(IndexStore::secondary_covering_authoritative)
+    }
+
+    /// Mark this row/index store pair as synchronized for witness-backed
+    /// secondary covering after successful commit or recovery.
+    pub(in crate::db) fn mark_secondary_covering_authoritative(&self) {
+        self.with_data_mut(DataStore::mark_secondary_covering_authoritative);
+        self.with_index_mut(IndexStore::mark_secondary_covering_authoritative);
+    }
+
     /// Return the raw row-store accessor.
     #[must_use]
     pub const fn data_store(&self) -> &'static LocalKey<RefCell<DataStore>> {

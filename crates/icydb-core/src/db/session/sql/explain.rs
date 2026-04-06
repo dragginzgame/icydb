@@ -5,18 +5,24 @@
 
 use crate::{
     db::{
-        MissingRowPolicy, QueryError,
+        DbSession, MissingRowPolicy, QueryError,
+        executor::{
+            EntityAuthority, assemble_load_execution_node_descriptor_with_model_store_witness,
+        },
         query::builder::aggregate::AggregateExpr,
+        query::intent::StructuralQuery,
         query::plan::{FieldSlot, resolve_aggregate_target_field_slot},
         session::sql::surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
         sql::lowering::{
-            LoweredSqlCommand, SqlGlobalAggregateCommandCore, SqlGlobalAggregateTerminal,
+            LoweredSqlCommand, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
+            SqlGlobalAggregateTerminal, apply_lowered_select_shape,
             bind_lowered_sql_explain_global_aggregate_structural,
             render_lowered_sql_explain_plan_or_json,
         },
         sql::parser::SqlExplainMode,
     },
     model::EntityModel,
+    traits::CanisterKind,
 };
 
 // Resolve one aggregate target field through planner slot contracts before
@@ -112,6 +118,43 @@ impl LoweredSqlCommand {
         Err(QueryError::unsupported_query(
             "shared EXPLAIN dispatch could not classify lowered SQL shape",
         ))
+    }
+}
+
+impl<C: CanisterKind> DbSession<C> {
+    // Render one SQL EXPLAIN EXECUTION payload through the store-backed route
+    // planner so witness-validated covering routes remain visible on the SQL
+    // surface even though generic query-builder explain stays conservative.
+    pub(in crate::db::session::sql) fn explain_lowered_sql_execution_for_authority(
+        &self,
+        lowered: &LoweredSqlCommand,
+        authority: EntityAuthority,
+    ) -> Result<Option<String>, QueryError> {
+        let Some((SqlExplainMode::Execution, query)) = lowered.explain_query() else {
+            return Ok(None);
+        };
+        let LoweredSqlQuery::Select(select) = query else {
+            return Ok(None);
+        };
+
+        let structural = apply_lowered_select_shape(
+            StructuralQuery::new(authority.model(), MissingRowPolicy::Ignore),
+            select.clone(),
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let plan = structural.build_plan()?;
+        let store = self
+            .db
+            .recovered_store(authority.store_path())
+            .map_err(QueryError::execute)?;
+        let descriptor = assemble_load_execution_node_descriptor_with_model_store_witness(
+            authority.model(),
+            &plan,
+            store,
+        )
+        .map_err(QueryError::execute)?;
+
+        Ok(Some(descriptor.render_text_tree()))
     }
 }
 

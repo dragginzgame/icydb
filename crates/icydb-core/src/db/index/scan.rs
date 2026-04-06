@@ -566,22 +566,42 @@ impl IndexStore {
     where
         C: SingleComponentCoveringCollector<T>,
     {
-        // Phase 1: decode the raw key once, extract the requested component,
-        // and evaluate any optional index-only predicate against that same key.
-        let decoded_key = IndexKey::try_from_raw(raw_key)
-            .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
-        let Some(component) = decoded_key.component(component_index) else {
-            return Err(InternalError::index_projection_component_required(
-                index.name(),
-                component_index,
-            ));
-        };
+        // Phase 1: extract the requested component and evaluate any optional
+        // index-only predicate. When no predicate needs the full decoded key,
+        // validate and read only the requested component segment.
+        let predicate_component;
+        let component = if let Some(execution) = index_predicate_execution {
+            let decoded_key = IndexKey::try_from_raw(raw_key)
+                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+            if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+                return Ok(false);
+            }
 
-        if let Some(execution) = index_predicate_execution
-            && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
-        {
-            return Ok(false);
-        }
+            // Keep the predicate-evaluation branch simple and semantically
+            // identical to the older path. The raw-component fast path below
+            // is reserved for the hotter no-index-predicate cohort.
+            predicate_component = decoded_key
+                .component(component_index)
+                .ok_or_else(|| {
+                    InternalError::index_projection_component_required(
+                        index.name(),
+                        component_index,
+                    )
+                })?
+                .to_vec();
+
+            predicate_component.as_slice()
+        } else {
+            raw_key
+                .validated_component(component_index)
+                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?
+                .ok_or_else(|| {
+                    InternalError::index_projection_component_required(
+                        index.name(),
+                        component_index,
+                    )
+                })?
+        };
 
         // Phase 2: stream single-key entries directly into the caller-owned
         // collector so narrow covering-read paths can skip intermediate tuple

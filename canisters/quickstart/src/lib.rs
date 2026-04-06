@@ -92,7 +92,7 @@ mod tests {
     const QUICKSTART_MEMORY_MIN: u8 = 104;
     const QUICKSTART_MEMORY_MAX: u8 = 154;
 
-    // `MemoryRuntimeApi::bootstrap_registry()` drains one process-global
+    // `MemoryApi::bootstrap_owner_range()` drains one process-global
     // eager-init queue. In host-parallel unit tests, later test threads can
     // therefore observe the quickstart canister range as missing on the current
     // thread even though the queue was already consumed elsewhere. Re-queue the
@@ -564,6 +564,147 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_user_secondary_covering_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed User secondary covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_explain_reports_witness_validated_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed User secondary equality covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering equality explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering equality explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_desc_explain_matches_typed_surface()
+    {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed User secondary equality desc covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_equality_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering equality desc explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering equality desc explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed User secondary covering range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering range explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed User secondary covering desc range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_user_secondary_covering_strict_range_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "secondary covering desc range explain should expose the explicit covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "secondary covering desc range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_character_covering_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<Character>(
             "SELECT id, name FROM Character WHERE name = 'Alex Ander' ORDER BY id LIMIT 1",
@@ -927,6 +1068,28 @@ mod tests {
         assert_dispatch_matches_typed_as::<ActiveUser>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "ActiveUser filtered composite order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "ActiveUser filtered composite order-only explain should report the witness-backed row mode: {explain}",
         );
     }
 

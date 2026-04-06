@@ -12,7 +12,7 @@ use crate::{
         executor::runtime_context::read_row_presence_with_consistency_from_data_store,
         index::SingleComponentCoveringCollector,
         predicate::MissingRowPolicy,
-        query::plan::CoveringProjectionOrder,
+        query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
     },
     error::InternalError,
@@ -65,6 +65,7 @@ pub(in crate::db::executor) struct SingleComponentCoveringScanRequest<'a> {
     pub(in crate::db::executor) limit: usize,
     pub(in crate::db::executor) component_index: usize,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
+    pub(in crate::db::executor) existing_row_mode: CoveringExistingRowMode,
 }
 
 ///
@@ -87,6 +88,7 @@ struct SingleComponentCoveringBoundsRequest<'a> {
     limit: usize,
     component_index: usize,
     consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
 }
 
 ///
@@ -101,6 +103,7 @@ struct SingleComponentProjectionCollector<'a, 'b, F> {
     data: &'a DataStore,
     entity_tag: EntityTag,
     consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
     unsupported_component: &'b mut bool,
     map_decoded: F,
 }
@@ -116,11 +119,13 @@ where
         out: &mut Vec<T>,
     ) -> Result<(), InternalError> {
         let data_key = DataKey::new(self.entity_tag, storage_key);
-        if !read_row_presence_with_consistency_from_data_store(
-            self.data,
-            &data_key,
-            self.consistency,
-        )? {
+        if self.existing_row_mode.requires_row_presence_check()
+            && !read_row_presence_with_consistency_from_data_store(
+                self.data,
+                &data_key,
+                self.consistency,
+            )?
+        {
             return Ok(());
         }
 
@@ -269,6 +274,7 @@ where
                 limit: request.limit,
                 component_index: request.component_index,
                 consistency: request.consistency,
+                existing_row_mode: request.existing_row_mode,
             },
             map_decoded,
         );
@@ -290,6 +296,7 @@ where
                 limit: request.limit,
                 component_index: request.component_index,
                 consistency: request.consistency,
+                existing_row_mode: request.existing_row_mode,
             },
             map_decoded,
         );
@@ -347,6 +354,7 @@ where
                 data,
                 entity_tag: request.entity_tag,
                 consistency: request.consistency,
+                existing_row_mode: request.existing_row_mode,
                 unsupported_component: &mut unsupported_component,
                 map_decoded,
             };
@@ -426,6 +434,7 @@ pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
     raw_pairs: CoveringProjectionComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
     mut map_decoded: F,
 ) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
 where
@@ -434,7 +443,13 @@ where
     store.with_data(|data| {
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
         for (data_key, components) in raw_pairs {
-            if !read_row_presence_with_consistency_from_data_store(data, &data_key, consistency)? {
+            if existing_row_mode.requires_row_presence_check()
+                && !read_row_presence_with_consistency_from_data_store(
+                    data,
+                    &data_key,
+                    consistency,
+                )?
+            {
                 continue;
             }
 
@@ -454,19 +469,26 @@ pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
     raw_pairs: CoveringProjectionComponentRows,
     store: StoreHandle,
     consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
     invariant_message: &'static str,
     mut map_decoded: F,
 ) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
 where
     F: FnMut(&Value) -> Result<T, InternalError>,
 {
-    decode_covering_projection_pairs(raw_pairs, store, consistency, |decoded| {
-        let [value] = decoded.as_slice() else {
-            return Err(InternalError::query_executor_invariant(invariant_message));
-        };
+    decode_covering_projection_pairs(
+        raw_pairs,
+        store,
+        consistency,
+        existing_row_mode,
+        |decoded| {
+            let [value] = decoded.as_slice() else {
+                return Err(InternalError::query_executor_invariant(invariant_message));
+            };
 
-        map_decoded(value)
-    })
+            map_decoded(value)
+        },
+    )
 }
 
 fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> {

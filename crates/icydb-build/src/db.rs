@@ -118,27 +118,11 @@ fn store_wiring_tokens(
             };
         }
 
-        // reserve the ic memory range
-        ::icydb::__reexports::canic_memory::eager_init!({
-            ::icydb::__reexports::canic_memory::ic_memory_range!(
-                #memory_min,
-                #memory_max
-            );
-        });
-
         fn ensure_memory_bootstrap() {
-            use ::icydb::__reexports::canic_memory::runtime::{
-                init_eager_tls, registry::MemoryRegistryRuntime, run_registered_eager_init,
-            };
+            use ::icydb::__reexports::canic_memory::api::MemoryApi;
 
-            if MemoryRegistryRuntime::is_initialized() {
-                return;
-            }
-
-            init_eager_tls();
-            run_registered_eager_init();
-            MemoryRegistryRuntime::init(None)
-                .expect("generated canister memory registry init should succeed");
+            MemoryApi::bootstrap_owner_range(env!("CARGO_PKG_NAME"), #memory_min, #memory_max)
+                .expect("generated canister memory registry bootstrap should succeed");
         }
 
         #[doc(hidden)]
