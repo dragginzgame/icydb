@@ -30,7 +30,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.94.1"
 edition = "2024"
-version = "0.69.0"
+version = "0.69.1"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
@@ -46,13 +46,13 @@ convert_case = "0.11"
 ctor = "0.8"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
-icydb = { path = "crates/icydb", version = "0.69.0" }
-icydb-build = { path = "crates/icydb-build", version = "0.69.0" }
-icydb-core = { path = "crates/icydb-core", version = "0.69.0" }
-icydb-derive = { path = "crates/icydb-derive", version = "0.69.0" }
-icydb-primitives = { path = "crates/icydb-primitives", version = "0.69.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.69.0" }
-icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.69.0" }
+icydb = { path = "crates/icydb", version = "0.69.1" }
+icydb-build = { path = "crates/icydb-build", version = "0.69.1" }
+icydb-core = { path = "crates/icydb-core", version = "0.69.1" }
+icydb-derive = { path = "crates/icydb-derive", version = "0.69.1" }
+icydb-primitives = { path = "crates/icydb-primitives", version = "0.69.1" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.69.1" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.69.1" }
 icydb-testing-fixtures = { path = "schema/test" }
 icydb-testing-minimal-fixtures = { path = "schema/minimal" }
 icydb-testing-one-complex-fixtures = { path = "schema/one_complex" }
@@ -61,7 +61,7 @@ icydb-testing-quickstart-fixtures = { path = "schema/quickstart" }
 icydb-testing-ten-complex-fixtures = { path = "schema/ten_complex" }
 icydb-testing-ten-simple-fixtures = { path = "schema/ten_simple" }
 icydb-testing-wasm-fixtures = { path = "testing/wasm-fixtures" }
-icydb-utils = { path = "crates/icydb-utils", version = "0.69.0" }
+icydb-utils = { path = "crates/icydb-utils", version = "0.69.1" }
 num-bigint = "0.4"
 proc-macro2 = "1.0"
 proptest = "1.9.0"
