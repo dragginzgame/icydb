@@ -24,7 +24,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::entity::EntityModel,
+    model::{entity::EntityModel, field::FieldKind},
     traits::FieldValue,
     value::Value,
 };
@@ -196,6 +196,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         value: Value,
     ) -> Result<Self, QueryError> {
         let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
+        let value = canonicalize_group_field_numeric_value_for_kind(self.model, field, &value)
+            .unwrap_or(value);
 
         self.push_having_clause(GroupHavingClause {
             symbol: GroupHavingSymbol::GroupField(field_slot),
@@ -323,6 +325,69 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         }
 
         Ok(plan)
+    }
+}
+
+// Keep grouped fluent HAVING literals aligned with the model-owned field kind
+// when the conversion is lossless and unambiguous. This preserves plan parity
+// with the SQL lowering boundary for grouped key clauses without widening the
+// rule to unrelated aggregate symbols or non-numeric values.
+fn canonicalize_group_field_numeric_value_for_kind(
+    model: &EntityModel,
+    field: &str,
+    value: &Value,
+) -> Option<Value> {
+    let field_kind = model
+        .fields()
+        .iter()
+        .find(|candidate| candidate.name() == field)
+        .map(crate::model::field::FieldModel::kind)?;
+
+    canonicalize_group_field_numeric_value(field_kind, value)
+}
+
+// Only the narrow Int<->Uint lossless cases are canonicalized here. Grouped
+// fluent clauses already carry runtime `Value`s, so this helper only removes
+// the remaining representation drift for numeric key fields that SQL literals
+// already normalize before grouped HAVING binding.
+fn canonicalize_group_field_numeric_value(field_kind: FieldKind, value: &Value) -> Option<Value> {
+    match field_kind {
+        FieldKind::Relation { key_kind, .. } => {
+            canonicalize_group_field_numeric_value(*key_kind, value)
+        }
+        FieldKind::Int => match value {
+            Value::Int(inner) => Some(Value::Int(*inner)),
+            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            _ => None,
+        },
+        FieldKind::Uint => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+            Value::Uint(inner) => Some(Value::Uint(*inner)),
+            _ => None,
+        },
+        FieldKind::Account
+        | FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Enum { .. }
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::List(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Principal
+        | FieldKind::Set(_)
+        | FieldKind::Structured { .. }
+        | FieldKind::Subaccount
+        | FieldKind::Text
+        | FieldKind::Timestamp
+        | FieldKind::Uint128
+        | FieldKind::UintBig
+        | FieldKind::Ulid
+        | FieldKind::Unit => None,
     }
 }
 

@@ -1233,18 +1233,18 @@ fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
     assert_expression_access_choice_selected(&diagnostics, "IndexRange(email_expr)");
     assert_eq!(
         diagnostics.get("diag.r.predicate_stage"),
-        Some(&"residual_post_access".to_string()),
-        "text-casefold expression starts-with must keep residual filtering enabled",
+        Some(&"index_prefilter(strict_all_or_none)".to_string()),
+        "text-casefold expression starts-with should keep the shared strict prefilter stage",
     );
     assert_eq!(
         diagnostics.get("diag.d.has_index_predicate_prefilter"),
-        Some(&"false".to_string()),
-        "text-casefold expression starts-with should not compile strict index prefilters",
+        Some(&"true".to_string()),
+        "text-casefold expression starts-with should compile the shared strict index prefilter",
     );
     assert_eq!(
         diagnostics.get("diag.d.has_residual_predicate_filter"),
-        Some(&"true".to_string()),
-        "text-casefold expression starts-with must retain residual predicate filter enforcement",
+        Some(&"false".to_string()),
+        "text-casefold expression starts-with should no longer require a residual predicate filter",
     );
 
     let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
