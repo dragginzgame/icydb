@@ -899,6 +899,161 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_character_numeric_equality_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character numeric-equality projection parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character numeric-equality EXPLAIN parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_explain_reports_witness_validated_route() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"level\"), Text(\"class_name\")])"
+                ),
+            "Character numeric-equality explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "Character numeric-equality explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_desc_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character numeric-equality projection parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_desc_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character numeric-equality EXPLAIN parity on uint-backed fields",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"level\"), Text(\"class_name\")])"
+                ),
+            "descending Character numeric-equality explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending Character numeric-equality explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_class_name_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character numeric-equality bounded class_name projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_class_name_strict_text_range_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Character numeric-equality bounded class_name EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_class_name_strict_text_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"level\"), Text(\"class_name\")])"
+                ),
+            "Character numeric-equality bounded class_name explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "Character numeric-equality bounded class_name explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_class_name_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<Character>(
+            "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character numeric-equality bounded class_name projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_class_name_strict_text_range_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<Character>(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Character numeric-equality bounded class_name EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_character_numeric_equality_class_name_strict_text_range_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"level\"), Text(\"class_name\")])"
+                ),
+            "descending Character numeric-equality bounded class_name explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending Character numeric-equality bounded class_name explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<ActiveUser>(
             "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
@@ -1094,6 +1249,50 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "ActiveUser filtered composite strict LIKE prefix explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "ActiveUser filtered composite strict LIKE prefix explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "descending ActiveUser filtered composite strict LIKE prefix explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending ActiveUser filtered composite strict LIKE prefix explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<ActiveUser>(
@@ -1108,6 +1307,50 @@ mod tests {
         assert_dispatch_matches_typed_as::<ActiveUser>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite order-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "descending ActiveUser filtered composite order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending ActiveUser filtered composite order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_offset_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"tier\"), Text(\"handle\")])"
+                ),
+            "descending ActiveUser filtered composite order-only offset explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending ActiveUser filtered composite order-only offset explain should report the witness-backed row mode: {explain}",
         );
     }
 
@@ -1234,6 +1477,158 @@ mod tests {
         assert_dispatch_matches_typed_as::<ActiveUser>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression key-only order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression key-only order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "ActiveUser filtered composite expression key-only order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "ActiveUser filtered composite expression key-only order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression key-only order-only projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending ActiveUser filtered composite expression key-only order-only EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "descending ActiveUser filtered composite expression key-only order-only explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending ActiveUser filtered composite expression key-only order-only explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression key-only strict text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression key-only strict text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "ActiveUser filtered composite expression key-only strict text-range explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "ActiveUser filtered composite expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<ActiveUser>(
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression key-only direct STARTS_WITH projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<ActiveUser>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep ActiveUser filtered composite expression key-only direct STARTS_WITH EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "ActiveUser filtered composite expression key-only direct STARTS_WITH explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "ActiveUser filtered composite expression key-only direct STARTS_WITH explain should report the witness-backed row mode: {explain}",
         );
     }
 

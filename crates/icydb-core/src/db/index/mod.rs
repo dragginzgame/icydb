@@ -32,7 +32,7 @@ pub(in crate::db) use plan::{
 };
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram,
-    canonical_index_predicate, compile_index_program,
+    canonical_index_predicate, compile_index_program, compile_index_program_for_targets,
 };
 #[cfg(test)]
 pub(in crate::db) use range::raw_keys_for_encoded_prefix_with_kind;

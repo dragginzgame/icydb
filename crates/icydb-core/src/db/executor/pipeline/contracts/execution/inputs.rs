@@ -329,6 +329,25 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
 }
 
 ///
+/// DirectCoveringScanMaterializationRequest
+///
+/// Structural pre-key-stream covering-scan materialization envelope.
+/// This keeps the kernel-owned early covering attempt on the same runtime
+/// boundary as the later row-collector path without requiring a placeholder
+/// ordered key stream.
+///
+
+pub(in crate::db::executor) struct DirectCoveringScanMaterializationRequest<'a> {
+    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
+    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
+    pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
+    pub(in crate::db::executor) load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
+    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
+    pub(in crate::db::executor) validate_projection: bool,
+    pub(in crate::db::executor) retain_slot_rows: bool,
+}
+
+///
 /// ExecutionRuntime
 ///
 /// Executor-bound runtime adapter resolved once at the typed boundary.
@@ -373,6 +392,14 @@ pub(in crate::db::executor) trait ExecutionRuntime {
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError>;
+
+    /// Attempt the cursorless direct covering-scan short path before generic
+    /// key-stream resolution when the same terminal-owned covering contract
+    /// can already materialize the final structural page without a key stream.
+    fn try_materialize_load_via_direct_covering_scan<'a>(
+        &'a self,
+        request: DirectCoveringScanMaterializationRequest<'a>,
+    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError>;
 
     /// Attempt the cursorless row-collector short path and erase the typed page result.
     fn try_materialize_load_via_row_collector<'a>(
@@ -621,6 +648,18 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
             physical_fetch_hint,
             index_predicate_execution,
             preserve_leaf_index_order,
+        )
+    }
+
+    fn try_materialize_load_via_direct_covering_scan<'a>(
+        &'a self,
+        request: DirectCoveringScanMaterializationRequest<'a>,
+    ) -> Result<Option<StructuralRowCollectorPayload>, InternalError> {
+        ExecutionKernel::try_materialize_load_via_direct_covering_scan(
+            request,
+            self.core.model,
+            self.core.scalar_row_runtime()?.store,
+            self.core.covering_component_scan,
         )
     }
 

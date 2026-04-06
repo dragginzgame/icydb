@@ -6,9 +6,10 @@
 use crate::{
     db::{
         executor::{
-            ExecutionPlan, ScalarContinuationBindings,
+            ExecutionOptimization, ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
-                ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+                DirectCoveringScanMaterializationRequest, ExecutionInputs,
+                MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
                 RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
                 StructuralCursorPage,
             },
@@ -97,6 +98,15 @@ impl ExecutionKernel {
         continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
+        // Phase 0: let the cursorless SQL covering-scan short path win before
+        // the executor pays to resolve a generic ordered key stream that the
+        // terminal would immediately ignore and rescan.
+        if let Some(direct_covering_attempt) =
+            Self::try_materialize_direct_covering_route_attempt(inputs, route_plan, continuation)?
+        {
+            return Ok(direct_covering_attempt);
+        }
+
         let mut resolved =
             Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
         let (page, keys_scanned, post_access_rows) = Self::materialize_resolved_execution_stream(
@@ -116,6 +126,70 @@ impl ExecutionKernel {
             index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
             distinct_keys_deduped: resolved.distinct_keys_deduped(),
         })
+    }
+
+    // Materialize one cursorless SQL covering-scan attempt before generic
+    // key-stream resolution when the same route-owned covering contract can
+    // already produce the final structural page directly.
+    fn try_materialize_direct_covering_route_attempt(
+        inputs: &ExecutionInputs<'_>,
+        route_plan: &ExecutionPlan,
+        continuation: ScalarContinuationBindings<'_>,
+    ) -> Result<Option<MaterializedExecutionAttempt>, InternalError> {
+        let Some((page, keys_scanned, post_access_rows)) = inputs
+            .runtime()
+            .try_materialize_load_via_direct_covering_scan(
+                DirectCoveringScanMaterializationRequest {
+                    plan: inputs.plan(),
+                    scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+                    cursor_boundary: continuation.post_access_cursor_boundary(),
+                    load_terminal_fast_path: route_plan.load_terminal_fast_path(),
+                    predicate_slots: inputs.execution_preparation().compiled_predicate(),
+                    validate_projection: inputs.validate_projection(),
+                    retain_slot_rows: inputs.retain_slot_rows(),
+                },
+            )?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(MaterializedExecutionAttempt {
+            page,
+            rows_scanned: keys_scanned,
+            post_access_rows,
+            optimization: Self::direct_covering_route_optimization(route_plan),
+            index_predicate_applied: false,
+            index_predicate_keys_rejected: 0,
+            distinct_keys_deduped: 0,
+        }))
+    }
+
+    // Project the route-owned fast-path optimization label onto direct
+    // covering-scan attempts that bypass generic key-stream construction.
+    const fn direct_covering_route_optimization(
+        route_plan: &ExecutionPlan,
+    ) -> Option<ExecutionOptimization> {
+        if route_plan.index_range_limit_fast_path_enabled() {
+            return Some(ExecutionOptimization::IndexRangeLimitPushdown);
+        }
+
+        if route_plan.secondary_fast_path_eligible() {
+            return Some(if route_plan.top_n_seek_spec().is_some() {
+                ExecutionOptimization::SecondaryOrderTopNSeek
+            } else {
+                ExecutionOptimization::SecondaryOrderPushdown
+            });
+        }
+
+        if route_plan.pk_order_fast_path_eligible() {
+            return Some(if route_plan.top_n_seek_spec().is_some() {
+                ExecutionOptimization::PrimaryKeyTopNSeek
+            } else {
+                ExecutionOptimization::PrimaryKey
+            });
+        }
+
+        None
     }
 
     // Merge probe and fallback attempts under canonical residual-retry accounting.

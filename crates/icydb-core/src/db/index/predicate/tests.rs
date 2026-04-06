@@ -11,11 +11,11 @@ use crate::{
         },
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate, ExecutablePredicate,
-            compare_eq, compare_order,
+            IndexCompileTarget, compare_eq, compare_order,
         },
     },
     error::{ErrorClass, ErrorOrigin},
-    model::index::IndexModel,
+    model::index::{IndexExpression, IndexKeyItem, IndexModel},
     types::Decimal,
     types::EntityTag,
     value::Value,
@@ -23,8 +23,8 @@ use crate::{
 use std::cmp::Ordering;
 
 use super::{
-    IndexCompilePolicy, canonical_index_predicate, compile_index_program, eval_index_compare,
-    eval_index_program_on_decoded_key,
+    IndexCompilePolicy, canonical_index_predicate, compile_index_program,
+    compile_index_program_for_targets, eval_index_compare, eval_index_program_on_decoded_key,
 };
 
 // Match index compare operations to strict predicate semantics for expected results.
@@ -363,6 +363,56 @@ fn compile_index_program_strict_mode_accepts_starts_with_max_unicode_prefix() {
             op: IndexCompareOp::Gte,
             literal: IndexLiteral::One(expected_lower),
         },
+    );
+}
+
+#[test]
+fn compile_index_program_targets_accept_text_casefold_strict_range() {
+    let predicate = ExecutablePredicate::And(vec![
+        ExecutablePredicate::Compare(ExecutableComparePredicate {
+            field_slot: Some(1),
+            op: CompareOp::Gte,
+            value: Value::Text("BR".to_string()),
+            coercion: CoercionSpec::new(CoercionId::TextCasefold),
+        }),
+        ExecutablePredicate::Compare(ExecutableComparePredicate {
+            field_slot: Some(1),
+            op: CompareOp::Lt,
+            value: Value::Text("BS".to_string()),
+            coercion: CoercionSpec::new(CoercionId::TextCasefold),
+        }),
+    ]);
+    let compile_targets = [IndexCompileTarget {
+        component_index: 0,
+        field_slot: 1,
+        key_item: IndexKeyItem::Expression(IndexExpression::Lower("name")),
+    }];
+
+    let program = compile_index_program_for_targets(
+        &predicate,
+        &compile_targets,
+        IndexCompilePolicy::StrictAllOrNone,
+    )
+    .expect("strict-all-or-none should compile text-casefold range for expression target");
+    let expected_lower =
+        literal_index_component_bytes(&Value::Text("br".to_string())).expect("lower bytes");
+    let expected_upper =
+        literal_index_component_bytes(&Value::Text("bs".to_string())).expect("upper bytes");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::And(vec![
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Gte,
+                literal: IndexLiteral::One(expected_lower),
+            },
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Lt,
+                literal: IndexLiteral::One(expected_upper),
+            },
+        ]),
     );
 }
 

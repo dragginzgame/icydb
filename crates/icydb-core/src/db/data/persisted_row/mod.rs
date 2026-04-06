@@ -551,6 +551,26 @@ where
     Ok(slot_payloads)
 }
 
+// Build one dense canonical slot image from already-decoded runtime values.
+// This keeps row-emission paths from re-decoding raw slot bytes when a caller
+// already owns the validated structural value cache.
+fn dense_canonical_slot_image_from_value_source<'a, F>(
+    model: &'static EntityModel,
+    mut value_for_slot: F,
+) -> Result<Vec<Vec<u8>>, InternalError>
+where
+    F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+{
+    let mut slot_payloads = Vec::with_capacity(model.fields().len());
+
+    for slot in 0..model.fields().len() {
+        let value = value_for_slot(slot)?;
+        slot_payloads.push(encode_slot_value_from_value(model, slot, value.as_ref())?);
+    }
+
+    Ok(slot_payloads)
+}
+
 // Emit one raw row from a dense canonical slot image.
 fn emit_raw_row_from_slot_payloads(
     model: &'static EntityModel,
@@ -565,16 +585,39 @@ fn emit_raw_row_from_slot_payloads(
         )));
     }
 
-    let mut writer = SlotBufferWriter::for_model(model);
+    let payload_capacity = slot_payloads
+        .iter()
+        .try_fold(0usize, |len, payload| len.checked_add(payload.len()))
+        .ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(
+                "canonical slot image payload length overflow",
+            )
+        })?;
+    let mut payload_bytes = Vec::with_capacity(payload_capacity);
+    let mut slot_table = Vec::with_capacity(slot_payloads.len());
 
-    // Phase 1: write the already canonicalized dense slot image through the
-    // single row-container authority.
+    // Phase 1: flatten the already canonicalized dense slot image directly so
+    // row re-emission does not clone each slot payload back through the
+    // mutable slot-writer staging buffer first.
     for (slot, payload) in slot_payloads.iter().enumerate() {
-        writer.write_slot(slot, Some(payload.as_slice()))?;
+        let start = u32::try_from(payload_bytes.len()).map_err(|_| {
+            InternalError::persisted_row_encode_failed(format!(
+                "canonical slot payload start exceeds u32 range: slot={slot}",
+            ))
+        })?;
+        let len = u32::try_from(payload.len()).map_err(|_| {
+            InternalError::persisted_row_encode_failed(format!(
+                "canonical slot payload length exceeds u32 range: slot={slot}",
+            ))
+        })?;
+        payload_bytes.extend_from_slice(payload.as_slice());
+        slot_table.push((start, len));
     }
 
     // Phase 2: wrap the canonical slot container in the shared row envelope.
-    let encoded = serialize_row_payload(writer.finish()?)?;
+    let row_payload =
+        encode_slot_payload_from_parts(slot_payloads.len(), slot_table.as_slice(), &payload_bytes)?;
+    let encoded = serialize_row_payload(row_payload)?;
     let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
 
     Ok(CanonicalRow::from_canonical_raw_row(raw_row))
@@ -630,14 +673,19 @@ where
 pub(in crate::db) fn canonical_row_from_structural_slot_reader(
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    // Phase 1: canonicalize every declared slot from the already-decoded row image.
-    let slot_payloads = dense_canonical_slot_image_from_payload_source(row_fields.model, |slot| {
-        row_fields.field_bytes.field(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is missing from the baseline row for entity '{}'",
-                row_fields.model.path()
-            ))
-        })
+    // Phase 1: re-encode every declared slot from the already-decoded cache so
+    // commit preparation does not re-enter raw field-byte decode after the
+    // structural reader has already validated the row.
+    let slot_payloads = dense_canonical_slot_image_from_value_source(row_fields.model, |slot| {
+        row_fields
+            .required_cached_value(slot)
+            .map(Cow::Borrowed)
+            .map_err(|_| {
+                InternalError::persisted_row_encode_failed(format!(
+                    "slot {slot} is missing from the structural value cache for entity '{}'",
+                    row_fields.model.path()
+                ))
+            })
     })?;
 
     // Phase 2: re-emit the full image through the single row-emission owner.

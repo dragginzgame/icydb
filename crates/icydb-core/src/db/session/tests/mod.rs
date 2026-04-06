@@ -4995,6 +4995,159 @@ fn session_explain_execution_filtered_composite_expression_prefix_query_uses_ind
 }
 
 #[test]
+fn session_explain_execution_filtered_composite_expression_prefix_key_only_keeps_bounded_route_parity()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so both projection shapes
+    // share the same filtered composite expression route family.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: collect the fuller materialized sibling and the narrower
+    // key-only covering sibling from the same guarded prefix shape.
+    let full_descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression prefix full-projection SQL query should lower")
+        .explain_execution()
+        .expect(
+            "filtered composite expression prefix full-projection SQL explain_execution should succeed",
+        );
+    let key_only_descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression prefix key-only SQL query should lower")
+        .explain_execution()
+        .expect(
+            "filtered composite expression prefix key-only SQL explain_execution should succeed",
+        );
+
+    // Phase 3: require the shared bounded route contract to stay in parity
+    // even though the projection surface differs.
+    assert_eq!(
+        full_descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "filtered composite expression prefix full-projection roots should stay on the shared index-range root",
+    );
+    assert_eq!(
+        key_only_descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "filtered composite expression prefix key-only roots should stay on the shared index-range root",
+    );
+    assert_eq!(
+        full_descriptor.node_properties().get("prefix_len"),
+        key_only_descriptor.node_properties().get("prefix_len"),
+        "filtered composite expression prefix siblings should keep the same equality-prefix arity",
+    );
+    assert_eq!(
+        full_descriptor.node_properties().get("prefix_values"),
+        key_only_descriptor.node_properties().get("prefix_values"),
+        "filtered composite expression prefix siblings should keep the same equality-prefix value contract",
+    );
+    assert_eq!(
+        full_descriptor.node_properties().get("fetch"),
+        key_only_descriptor.node_properties().get("fetch"),
+        "filtered composite expression prefix siblings should keep the same bounded fetch contract at the scan root",
+    );
+    assert_eq!(
+        full_descriptor.node_properties().get("fast_path"),
+        key_only_descriptor.node_properties().get("fast_path"),
+        "filtered composite expression prefix siblings should keep the same fast-path route label",
+    );
+    assert_eq!(
+        full_descriptor.node_properties().get("fast_reason"),
+        key_only_descriptor.node_properties().get("fast_reason"),
+        "filtered composite expression prefix siblings should keep the same fast-path eligibility reason",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(&full_descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        explain_execution_find_first_node(&key_only_descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        "filtered composite expression prefix siblings should either both derive Top-N seek or both fail closed before it",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(
+            &full_descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        explain_execution_find_first_node(
+            &key_only_descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "filtered composite expression prefix siblings should either both derive index-range limit pushdown or both stay off that fast path",
+    );
+    assert_eq!(
+        explain_execution_find_first_node(
+            &full_descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        explain_execution_find_first_node(
+            &key_only_descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "filtered composite expression prefix siblings should keep the same access-satisfied ordering contract",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_filtered_composite_expression_prefix_key_only_keeps_trace_scan_parity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session().debug();
+
+    // Phase 1: seed the guarded mixed-case dataset so both projection shapes
+    // execute against the same filtered composite expression route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: execute the fuller materialized sibling and the narrower
+    // key-only covering sibling with trace enabled.
+    let full_query = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression prefix full-projection SQL query should lower");
+    let key_only_query = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression prefix key-only SQL query should lower");
+    let full_execution = session
+        .execute_load_query_paged_with_trace(&full_query, None)
+        .expect(
+            "filtered composite expression prefix full-projection traced execution should succeed",
+        );
+    let key_only_execution = session
+        .execute_load_query_paged_with_trace(&key_only_query, None)
+        .expect("filtered composite expression prefix key-only traced execution should succeed");
+    let full_trace = full_execution
+        .execution_trace()
+        .expect("filtered composite expression prefix full-projection execution should emit trace");
+    let key_only_trace = key_only_execution
+        .execution_trace()
+        .expect("filtered composite expression prefix key-only execution should emit trace");
+
+    // Phase 3: require the narrowed projection not to widen access traversal
+    // or lose the same coarse optimization label.
+    assert_eq!(
+        full_trace.optimization(),
+        key_only_trace.optimization(),
+        "filtered composite expression prefix siblings should keep the same coarse execution optimization label",
+    );
+    assert_eq!(
+        full_trace.keys_scanned(),
+        key_only_trace.keys_scanned(),
+        "filtered composite expression prefix siblings should scan the same bounded key count",
+    );
+}
+
+#[test]
 fn session_explain_execution_filtered_composite_expression_text_range_query_uses_index_range_access()
  {
     reset_indexed_session_sql_store();
@@ -5176,7 +5329,6 @@ fn session_explain_execution_order_only_composite_desc_covering_query_uses_index
     );
 }
 
-#[test]
 fn execute_sql_projection_expression_order_query_matches_entity_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -5710,7 +5862,6 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_des
     );
 }
 
-#[test]
 fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_reverts_after_stale_row_mutation()
  {
     reset_indexed_session_sql_store();
@@ -5824,7 +5975,6 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_des
     );
 }
 
-#[test]
 fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_is_witness_validated() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -5894,6 +6044,281 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_desc_is
     assert!(
         !explain.contains("row_check_required"),
         "witness-backed secondary covering desc range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_order_field_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect(
+        "witness-backed filtered composite expression key-only order EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite expression key-only order EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite expression key-only order EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_order_field_desc_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "descending witness-backed filtered composite expression key-only order EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized descending filtered composite expression key-only order EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "descending witness-backed filtered composite expression key-only order EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_range_field_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect(
+        "witness-backed filtered composite expression key-only range EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite expression key-only range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite expression key-only range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_direct_starts_with_field_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect(
+        "witness-backed filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_order_only_desc_is_witness_validated()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, active, tier, handle, age) in [
+        (9_147_u128, "alpha", false, "gold", "bramble", 10_u64),
+        (9_148, "bravo-user", true, "gold", "bravo", 20),
+        (9_149, "bristle-user", true, "gold", "bristle", 30),
+        (9_150, "brisk-user", true, "silver", "brisk", 40),
+        (9_151, "charlie-user", true, "gold", "charlie", 50),
+    ] {
+        session
+            .insert(FilteredIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                active,
+                tier: tier.to_string(),
+                handle: handle.to_string(),
+                age,
+            })
+            .expect("filtered composite witness desc order-only fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+    )
+    .expect("witness-backed filtered composite desc order-only EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite desc order-only EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite desc order-only EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_order_only_desc_offset_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, active, tier, handle, age) in [
+        (9_152_u128, "alpha", false, "gold", "bramble", 10_u64),
+        (9_153, "bravo-user", true, "gold", "bravo", 20),
+        (9_154, "bristle-user", true, "gold", "bristle", 30),
+        (9_155, "brisk-user", true, "silver", "brisk", 40),
+        (9_156, "charlie-user", true, "gold", "charlie", 50),
+    ] {
+        session
+            .insert(FilteredIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                active,
+                tier: tier.to_string(),
+                handle: handle.to_string(),
+                age,
+            })
+            .expect("filtered composite witness desc offset fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+    )
+    .expect("witness-backed filtered composite desc offset EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite desc offset EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite desc offset EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_range_field_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, active, tier, handle, age) in [
+        (9_151_u128, "alpha", false, "gold", "bramble", 10_u64),
+        (9_152, "bravo-user", true, "gold", "bravo", 20),
+        (9_153, "bristle-user", true, "gold", "bristle", 30),
+        (9_154, "brisk-user", true, "silver", "brisk", 40),
+        (9_155, "charlie-user", true, "gold", "charlie", 50),
+    ] {
+        session
+            .insert(FilteredIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                active,
+                tier: tier.to_string(),
+                handle: handle.to_string(),
+                age,
+            })
+            .expect("filtered composite witness range fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2",
+    )
+    .expect("witness-backed filtered composite range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_range_field_desc_is_witness_validated()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, active, tier, handle, age) in [
+        (9_156_u128, "alpha", false, "gold", "bramble", 10_u64),
+        (9_157, "bravo-user", true, "gold", "bravo", 20),
+        (9_158, "bristle-user", true, "gold", "bristle", 30),
+        (9_159, "brisk-user", true, "silver", "brisk", 40),
+        (9_160, "charlie-user", true, "gold", "charlie", 50),
+    ] {
+        session
+            .insert(FilteredIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                active,
+                tier: tier.to_string(),
+                handle: handle.to_string(),
+                age,
+            })
+            .expect("filtered composite witness desc range fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2",
+    )
+    .expect("witness-backed filtered composite desc range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized filtered composite desc range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed filtered composite desc range EXPLAIN EXECUTION should not report row_check_required: {explain}",
     );
 }
 

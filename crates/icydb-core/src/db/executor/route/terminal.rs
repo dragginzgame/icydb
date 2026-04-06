@@ -82,6 +82,7 @@ enum SecondaryWitnessValidatedCoveringCohort {
     EqualityPrefixPrimaryKeyOrder,
     BoundedRangeSingleField,
     CompositeEqualityPrefixSuffixOrder,
+    CompositeBoundedRangeSuffixOrder,
 }
 
 impl SecondaryWitnessValidatedCoveringCohort {
@@ -94,8 +95,8 @@ impl SecondaryWitnessValidatedCoveringCohort {
                 Self::OrderOnlySingleField | Self::BoundedRangeSingleField,
                 CoveringProjectionOrder::IndexOrder(_)
             ) | (
-                Self::CompositeEqualityPrefixSuffixOrder,
-                CoveringProjectionOrder::IndexOrder(Direction::Asc)
+                Self::CompositeEqualityPrefixSuffixOrder | Self::CompositeBoundedRangeSuffixOrder,
+                CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc)
             ) | (
                 Self::EqualityPrefixPrimaryKeyOrder,
                 CoveringProjectionOrder::PrimaryKeyOrder(_)
@@ -110,26 +111,36 @@ impl SecondaryWitnessValidatedCoveringCohort {
         field_count: usize,
         component_field_count: usize,
         constant_field_count: usize,
-        expected_component_field_present: bool,
     ) -> bool {
+        if field_count == 0 {
+            return false;
+        }
+
         match self {
             Self::OrderOnlySingleField | Self::BoundedRangeSingleField => {
-                field_count == 2
-                    && component_field_count == 1
+                component_field_count <= 1
                     && constant_field_count == 0
-                    && expected_component_field_present
+                    && component_field_count <= field_count
             }
             Self::EqualityPrefixPrimaryKeyOrder => {
-                field_count == 2
-                    && component_field_count == 0
-                    && constant_field_count == 1
-                    && !expected_component_field_present
+                component_field_count == 0 && constant_field_count <= 1
             }
-            Self::CompositeEqualityPrefixSuffixOrder => {
-                field_count == 3
-                    && component_field_count == 1
-                    && constant_field_count == 1
-                    && expected_component_field_present
+            Self::CompositeEqualityPrefixSuffixOrder | Self::CompositeBoundedRangeSuffixOrder => {
+                component_field_count <= 1
+                    && constant_field_count <= 1
+                    && component_field_count.saturating_add(constant_field_count) <= field_count
+            }
+        }
+    }
+
+    // Return the expected decoded index-component slot for one projected
+    // component field when this cohort uses one.
+    const fn expected_component_index(self) -> Option<usize> {
+        match self {
+            Self::OrderOnlySingleField | Self::BoundedRangeSingleField => Some(0),
+            Self::EqualityPrefixPrimaryKeyOrder => None,
+            Self::CompositeEqualityPrefixSuffixOrder | Self::CompositeBoundedRangeSuffixOrder => {
+                Some(1)
             }
         }
     }
@@ -268,11 +279,6 @@ fn secondary_witness_validated_covering_eligible(
     if !plan.scalar_plan().mode.is_load()
         || !plan_predicate_is_absent_or_fully_indexable(model, plan)
         || plan.scalar_plan().distinct
-        || plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .is_some_and(|page| page.offset != 0)
         || covering.existing_row_mode != CoveringExistingRowMode::RequiresRowPresenceCheck
     {
         return false;
@@ -296,7 +302,6 @@ fn secondary_witness_validated_covering_eligible(
     };
     let mut component_field_count = 0usize;
     let mut constant_field_count = 0usize;
-    let mut expected_component_field_present = false;
     for field in &covering.fields {
         match field.source {
             CoveringReadFieldSource::PrimaryKey => {
@@ -305,16 +310,10 @@ fn secondary_witness_validated_covering_eligible(
                 }
             }
             CoveringReadFieldSource::IndexComponent { component_index } => {
-                if component_index != match cohort {
-                    SecondaryWitnessValidatedCoveringCohort::CompositeEqualityPrefixSuffixOrder => {
-                        1
-                    }
-                    _ => 0,
-                } {
+                if Some(component_index) != cohort.expected_component_index() {
                     return false;
                 }
                 component_field_count = component_field_count.saturating_add(1);
-                expected_component_field_present = true;
             }
             CoveringReadFieldSource::Constant(_) => {
                 constant_field_count = constant_field_count.saturating_add(1);
@@ -326,7 +325,6 @@ fn secondary_witness_validated_covering_eligible(
         covering.fields.len(),
         component_field_count,
         constant_field_count,
-        expected_component_field_present,
     )
 }
 
@@ -372,11 +370,13 @@ fn secondary_witness_validated_covering_cohort(
     }
 
     if let Some((index, prefix_values, _, _)) = plan.access.as_index_range_path() {
-        if index.fields().len() != 1 || !prefix_values.is_empty() {
-            return None;
-        }
-
-        let cohort = SecondaryWitnessValidatedCoveringCohort::BoundedRangeSingleField;
+        let cohort = match (index.fields().len(), prefix_values.len()) {
+            (1, 0) => Some(SecondaryWitnessValidatedCoveringCohort::BoundedRangeSingleField),
+            (2, 1) => {
+                Some(SecondaryWitnessValidatedCoveringCohort::CompositeBoundedRangeSuffixOrder)
+            }
+            _ => None,
+        }?;
 
         return cohort
             .matches_order_contract(covering.order_contract)

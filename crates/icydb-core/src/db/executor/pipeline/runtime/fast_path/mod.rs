@@ -11,7 +11,10 @@ use crate::{
             ExecutionKernel, ExecutionOptimization, ExecutionPlan,
             pipeline::contracts::{ExecutionInputs, ResolvedExecutionKeyStream},
         },
-        index::{IndexCompilePolicy, compile_index_program, predicate::IndexPredicateExecution},
+        index::{
+            IndexCompilePolicy, compile_index_program, compile_index_program_for_targets,
+            predicate::IndexPredicateExecution,
+        },
     },
     error::InternalError,
 };
@@ -44,6 +47,15 @@ impl ExecutionKernel {
                 .execution_preparation()
                 .compiled_predicate()
                 .and_then(|compiled_predicate| {
+                    if let Some(compile_targets) = inputs.execution_preparation().compile_targets()
+                    {
+                        return compile_index_program_for_targets(
+                            compiled_predicate.executable(),
+                            compile_targets,
+                            predicate_compile_mode,
+                        );
+                    }
+
                     let slot_map = inputs.execution_preparation().slot_map()?;
 
                     compile_index_program(

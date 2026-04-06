@@ -677,176 +677,258 @@ fn assert_positive_perf_sample(label: &str, sample: &SqlPerfSample) {
 
 // Keep scalar attribution focused on a small representative SELECT cohort so
 // read-path tuning does not overfit one especially friendly benchmark query.
-const fn scalar_select_attribution_cases() -> [(
-    &'static str,
-    &'static str,
-    SqlPerfAttributionSurface,
-    &'static str,
-    u32,
-); 13] {
-    [
-        (
-            "user_name_eq_limit1",
-            "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            1,
-        ),
-        (
-            "user_full_row_limit2",
-            "SELECT * FROM User ORDER BY id LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            2,
-        ),
-        (
-            "user_name_order_name_limit1",
-            "SELECT name FROM User ORDER BY name ASC LIMIT 1",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            1,
-        ),
-        (
-            "user_age_order_id_limit1",
-            "SELECT age FROM User ORDER BY id ASC LIMIT 1",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            1,
-        ),
-        (
-            "user_primary_key_covering_id_limit1",
-            "SELECT id FROM User ORDER BY id ASC LIMIT 1",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            1,
-        ),
-        (
-            "user_secondary_covering_name_limit2_asc",
-            "SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            2,
-        ),
-        (
-            "user_secondary_covering_name_limit2_desc",
-            "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            2,
-        ),
-        (
-            "user_secondary_covering_name_strict_range_limit2_asc",
-            "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            2,
-        ),
-        (
-            "user_secondary_covering_name_strict_range_limit2_desc",
-            "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchUser,
-            "User",
-            2,
-        ),
-        (
-            "character_order_only_composite_limit2_asc",
-            "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchCharacter,
-            "Character",
-            2,
-        ),
-        (
-            "character_order_only_composite_limit2_desc",
-            "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchCharacter,
-            "Character",
-            2,
-        ),
-        (
-            "active_user_filtered_order_only_name_limit2_asc",
-            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-        (
-            "active_user_filtered_composite_expression_order_only_handle_limit2_asc",
-            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            SqlPerfAttributionSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-    ]
-}
+const SCALAR_SELECT_ATTRIBUTION_CASES: &[(&str, &str, SqlPerfAttributionSurface, &str, u32)] = &[
+    (
+        "user_name_eq_limit1",
+        "SELECT id, name FROM User WHERE name = 'alice' ORDER BY id LIMIT 1",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        1,
+    ),
+    (
+        "user_full_row_limit2",
+        "SELECT * FROM User ORDER BY id LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        2,
+    ),
+    (
+        "user_name_order_name_limit1",
+        "SELECT name FROM User ORDER BY name ASC LIMIT 1",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        1,
+    ),
+    (
+        "user_age_order_id_limit1",
+        "SELECT age FROM User ORDER BY id ASC LIMIT 1",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        1,
+    ),
+    (
+        "user_primary_key_covering_id_limit1",
+        "SELECT id FROM User ORDER BY id ASC LIMIT 1",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        1,
+    ),
+    (
+        "user_secondary_covering_name_limit2_asc",
+        "SELECT id, name FROM User ORDER BY name ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        2,
+    ),
+    (
+        "user_secondary_covering_name_limit2_desc",
+        "SELECT id, name FROM User ORDER BY name DESC, id DESC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        2,
+    ),
+    (
+        "user_secondary_covering_name_strict_range_limit2_asc",
+        "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        2,
+    ),
+    (
+        "user_secondary_covering_name_strict_range_limit2_desc",
+        "SELECT id, name FROM User WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchUser,
+        "User",
+        2,
+    ),
+    (
+        "character_order_only_composite_limit2_asc",
+        "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_order_only_composite_limit2_desc",
+        "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_numeric_equality_level20_limit2_asc",
+        "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_numeric_equality_level20_limit2_desc",
+        "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "active_user_filtered_order_only_name_limit2_asc",
+        "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_order_only_handle_limit2_asc",
+        "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2_asc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2_desc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_strict_range_tier_limit2_asc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2_asc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+];
 
 // Keep non-User ordered covering perf parity focused on the read shapes that
 // drove the recent `0.68` planner and route work.
-const fn non_user_ordered_covering_perf_cases() -> [(
-    &'static str,
-    &'static str,
-    SqlPerfSurface,
-    &'static str,
-    u32,
-); 8] {
-    [
-        (
-            "character_order_only_composite.level_class_id_limit2.asc",
-            "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
-            SqlPerfSurface::TypedDispatchCharacter,
-            "Character",
-            2,
-        ),
-        (
-            "character_order_only_composite.level_class_id_limit2.desc",
-            "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
-            SqlPerfSurface::TypedDispatchCharacter,
-            "Character",
-            2,
-        ),
-        (
-            "active_user_filtered_order_only_name_limit2.asc",
-            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-            SqlPerfSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-        (
-            "active_user_filtered_order_only_name_limit2.desc",
-            "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
-            SqlPerfSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-        (
-            "active_user_filtered_composite_order_only_handle_limit2.asc",
-            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
-            SqlPerfSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-        (
-            "active_user_filtered_composite_order_only_handle_limit2.desc",
-            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
-            SqlPerfSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-        (
-            "active_user_filtered_composite_expression_order_only_handle_limit2.asc",
-            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-            SqlPerfSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-        (
-            "active_user_filtered_composite_expression_order_only_handle_limit2.desc",
-            "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-            SqlPerfSurface::TypedDispatchActiveUser,
-            "ActiveUser",
-            2,
-        ),
-    ]
-}
+const NON_USER_ORDERED_COVERING_PERF_CASES: &[(&str, &str, SqlPerfSurface, &str, u32)] = &[
+    (
+        "character_order_only_composite.level_class_id_limit2.asc",
+        "SELECT id, level, class_name FROM Character ORDER BY level ASC, class_name ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_order_only_composite.level_class_id_limit2.desc",
+        "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_numeric_equality.level_eq20_class_id_limit2.asc",
+        "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_numeric_equality.level_eq20_class_id_limit2.desc",
+        "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_numeric_equality_bounded_class_name.level_eq20_class_bd_limit2.asc",
+        "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "character_numeric_equality_bounded_class_name.level_eq20_class_bd_limit2.desc",
+        "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchCharacter,
+        "Character",
+        2,
+    ),
+    (
+        "active_user_filtered_order_only_name_limit2.asc",
+        "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_order_only_name_limit2.desc",
+        "SELECT id, name FROM ActiveUser WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_order_only_handle_limit2.asc",
+        "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_order_only_handle_limit2.desc",
+        "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_order_only_handle_limit2.asc",
+        "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_order_only_handle_limit2.desc",
+        "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+    (
+        "active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
+        "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        SqlPerfSurface::TypedDispatchActiveUser,
+        "ActiveUser",
+        2,
+    ),
+];
 
 // Assert one scalar attribution sample stays structurally sane for perf
 // reporting across the representative SELECT cohort.
@@ -1936,6 +2018,255 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_order_only_compo
 }
 
 #[test]
+fn sql_canister_query_lane_supports_character_numeric_equality_covering_projection() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: execute one numeric-equality Character projection so the
+        // generated SQL lane proves the strict uint equality shape reaches the
+        // same composite equality-prefix covering route as typed SQL.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+            "query Character numeric-equality covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the expected
+        // narrowed level window instead of broad composite traversal.
+        assert_projection_window(
+            &rows,
+            "Character",
+            &["id", "level", "class_name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "20", "Bard"],
+                &[ANY_PROJECTION_VALUE, "20", "Cleric"],
+            ],
+            "Character numeric-equality covering projection should preserve the equality-prefix ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_numeric_equality_covering_route() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: request one execution descriptor for the Character
+        // numeric-equality composite covering projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query Character numeric-equality covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Character",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "level",
+                "class_name",
+            ],
+            &["row_check_required"],
+            "Character numeric-equality EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_character_numeric_equality_desc_covering_projection() {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: execute one descending numeric-equality Character
+        // projection so the generated SQL lane proves reverse suffix order on
+        // the narrowed level prefix.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+            "query descending Character numeric-equality covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the reverse equality-prefix window stays ordered on
+        // the suffix field instead of materializing and resorting elsewhere.
+        assert_projection_window(
+            &rows,
+            "Character",
+            &["id", "level", "class_name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "20", "Cleric"],
+                &[ANY_PROJECTION_VALUE, "20", "Bard"],
+            ],
+            "descending Character numeric-equality covering projection should preserve the reverse equality-prefix ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_numeric_equality_desc_covering_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: request one execution descriptor for the descending
+        // Character numeric-equality composite covering projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending Character numeric-equality covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Character",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "level",
+                "class_name",
+            ],
+            &["row_check_required"],
+            "descending Character numeric-equality EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_character_numeric_equality_class_name_strict_text_range_covering_projection()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: execute one bounded suffix-range Character projection so
+        // the generated SQL lane proves the existing composite bounded-range
+        // witness family handles strict text bounds on the suffix field.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2",
+            "query Character numeric-equality bounded class_name covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the generated query surface returns the bounded
+        // suffix window rather than the broader numeric-equality cohort.
+        assert_projection_window(
+            &rows,
+            "Character",
+            &["id", "level", "class_name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "20", "Bard"],
+                &[ANY_PROJECTION_VALUE, "20", "Cleric"],
+            ],
+            "Character numeric-equality bounded class_name covering projection should preserve the bounded suffix ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_numeric_equality_class_name_strict_text_range_covering_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: request one execution descriptor for the bounded suffix
+        // Character numeric-equality composite covering projection shape.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query Character numeric-equality bounded class_name covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Character",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "level",
+                "class_name",
+            ],
+            &["row_check_required"],
+            "Character numeric-equality bounded class_name EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_character_numeric_equality_class_name_strict_text_range_desc_covering_projection()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: execute one descending bounded suffix-range Character
+        // projection so the generated SQL lane proves reverse suffix order on
+        // the same narrowed level prefix.
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2",
+            "query descending Character numeric-equality bounded class_name covering projection should return projected rows",
+        );
+
+        // Phase 2: assert the reverse bounded suffix window stays ordered on
+        // the suffix field instead of broadening or materializing elsewhere.
+        assert_projection_window(
+            &rows,
+            "Character",
+            &["id", "level", "class_name"],
+            &[
+                &[ANY_PROJECTION_VALUE, "20", "Cleric"],
+                &[ANY_PROJECTION_VALUE, "20", "Bard"],
+            ],
+            "descending Character numeric-equality bounded class_name covering projection should preserve the reverse bounded suffix ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_character_numeric_equality_class_name_strict_text_range_desc_covering_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: request one execution descriptor for the descending bounded
+        // suffix Character numeric-equality composite covering projection.
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending Character numeric-equality bounded class_name covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Character",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "witness_validated",
+                "id",
+                "level",
+                "class_name",
+            ],
+            &["row_check_required"],
+            "descending Character numeric-equality bounded class_name EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_active_user_filtered_order_only_covering_projection() {
     run_with_loaded_quickstart_canister(|pic, canister_id| {
         // Phase 1: execute one filtered-index guarded order-only projection so
@@ -2679,6 +3010,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "IndexRangeScan",
                 "covering_read",
                 "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
                 "prefix_len",
                 "Uint(1)",
                 "prefix_values",
@@ -2688,7 +3021,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "tier",
                 "handle",
             ],
-            &[],
+            &["row_check_required"],
             "ActiveUser filtered composite strict LIKE prefix EXPLAIN EXECUTION should expose the bounded covering index-range route with one equality prefix",
         );
     });
@@ -2784,6 +3117,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "IndexRangeScan",
                 "covering_read",
                 "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
                 "prefix_len",
                 "Uint(1)",
                 "prefix_values",
@@ -2793,7 +3128,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "tier",
                 "handle",
             ],
-            &[],
+            &["row_check_required"],
             "descending ActiveUser filtered composite strict LIKE prefix EXPLAIN EXECUTION should expose the reverse bounded covering index-range route with one equality prefix",
         );
     });
@@ -2918,6 +3253,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "IndexPrefixScan",
                 "covering_read",
                 "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
                 "prefix_len",
                 "Uint(1)",
                 "prefix_values",
@@ -2927,7 +3264,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "tier",
                 "handle",
             ],
-            &["TopNSeek", "OrderByAccessSatisfied"],
+            &["TopNSeek", "OrderByAccessSatisfied", "row_check_required"],
             "descending ActiveUser filtered composite order-only EXPLAIN EXECUTION should expose the reverse covering index-prefix route with one equality prefix and a fail-closed materialized sort without TopN",
         );
     });
@@ -2982,6 +3319,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "IndexPrefixScan",
                 "covering_read",
                 "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
                 "prefix_len",
                 "Uint(1)",
                 "prefix_values",
@@ -2992,7 +3331,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
                 "tier",
                 "handle",
             ],
-            &["TopNSeek", "OrderByAccessSatisfied"],
+            &["TopNSeek", "OrderByAccessSatisfied", "row_check_required"],
             "descending ActiveUser filtered composite order-only offset EXPLAIN EXECUTION should expose the materialized-boundary index-prefix route without TopN",
         );
     });
@@ -3481,6 +3820,240 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
             ],
             &[],
             "ActiveUser filtered composite expression order-only EXPLAIN EXECUTION should expose the materialized index-prefix route with one equality prefix",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_key_only_order_only_projection()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "query ActiveUser filtered composite expression key-only order-only projection should return projected rows",
+        );
+
+        assert_projection_window(
+            &rows,
+            "ActiveUser",
+            &["id", "tier"],
+            &[
+                &[ANY_PROJECTION_VALUE, "gold"],
+                &[ANY_PROJECTION_VALUE, "gold"],
+            ],
+            "ActiveUser filtered composite expression key-only order-only projection should expose the guarded covering window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_order_only_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query ActiveUser filtered composite expression key-only order-only EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexPrefixScan",
+                "covering_read",
+                "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
+                "prefix_len",
+                "Uint(1)",
+                "prefix_values",
+                "gold",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "id",
+                "tier",
+            ],
+            &["row_check_required"],
+            "ActiveUser filtered composite expression key-only order-only EXPLAIN EXECUTION should expose the witness-backed covering route with one equality prefix",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_order_only_desc_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query descending ActiveUser filtered composite expression key-only order-only EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexPrefixScan",
+                "covering_read",
+                "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
+                "prefix_len",
+                "Uint(1)",
+                "prefix_values",
+                "gold",
+                "LOWER(handle)",
+                "OrderByMaterializedSort",
+                "proj_fields",
+                "id",
+                "tier",
+            ],
+            &["row_check_required"],
+            "descending ActiveUser filtered composite expression key-only order-only EXPLAIN EXECUTION should expose the witness-backed covering route with one equality prefix and a fail-closed materialized sort",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_key_only_strict_text_range_projection()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "query ActiveUser filtered composite expression key-only strict text-range projection should return projected rows",
+        );
+
+        assert_projection_window(
+            &rows,
+            "ActiveUser",
+            &["id", "tier"],
+            &[
+                &[ANY_PROJECTION_VALUE, "gold"],
+                &[ANY_PROJECTION_VALUE, "gold"],
+            ],
+            "ActiveUser filtered composite expression key-only strict text-range projection should expose the guarded covering window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_strict_text_range_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query ActiveUser filtered composite expression key-only strict text-range EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexRangeScan",
+                "covering_read",
+                "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
+                "prefix_len",
+                "Uint(1)",
+                "prefix_values",
+                "gold",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "id",
+                "tier",
+            ],
+            &["row_check_required"],
+            "ActiveUser filtered composite expression key-only strict text-range EXPLAIN EXECUTION should expose the witness-backed covering route with one equality prefix",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_filtered_composite_expression_key_only_equivalent_direct_prefix_forms_match_projection_rows()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let like_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "query ActiveUser filtered composite expression key-only LIKE prefix projection should return projected rows",
+        );
+        let starts_with_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'BR') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+            "query ActiveUser filtered composite expression key-only STARTS_WITH projection should return projected rows",
+        );
+
+        assert_eq!(
+            starts_with_rows, like_rows,
+            "ActiveUser filtered composite expression key-only STARTS_WITH and LIKE prefix query rows should stay in parity",
+        );
+        assert_projection_window(
+            &like_rows,
+            "ActiveUser",
+            &["id", "tier"],
+            &[
+                &[ANY_PROJECTION_VALUE, "gold"],
+                &[ANY_PROJECTION_VALUE, "gold"],
+            ],
+            "ActiveUser filtered composite expression key-only direct prefix projection should expose the guarded covering window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_direct_starts_with_route()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query ActiveUser filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should return an Ok payload",
+        );
+
+        assert_explain_route(
+            payload,
+            "ActiveUser",
+            &[
+                "IndexRangeScan",
+                "covering_read",
+                "cov_read_route",
+                "existing_row_mode",
+                "witness_validated",
+                "prefix_len",
+                "Uint(1)",
+                "prefix_values",
+                "gold",
+                "LOWER(handle)",
+                "OrderByAccessSatisfied",
+                "proj_fields",
+                "id",
+                "tier",
+            ],
+            &["row_check_required"],
+            "ActiveUser filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should expose the witness-backed covering route with one equality prefix",
         );
     });
 }
@@ -5286,6 +5859,50 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
                     "generated.dispatch.active_user_filtered_composite_expression_strict_like_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
@@ -5409,6 +6026,50 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchActiveUser,
                     sql: "SELECT id, tier, handle FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    sql: "SELECT id, tier FROM ActiveUser WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5592,6 +6253,50 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.character_numeric_equality.level_eq20_class_id_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.character_numeric_equality.level_eq20_class_id_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.character_numeric_equality_bounded_class_name.level_eq20_class_bd_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "generated.dispatch.character_numeric_equality_bounded_class_name.level_eq20_class_bd_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::GeneratedDispatch,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.dispatch.character_order_only_composite.level_class_id_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchCharacter,
@@ -5606,6 +6311,50 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedDispatchCharacter,
                     sql: "SELECT id, level, class_name FROM Character ORDER BY level DESC, class_name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.character_numeric_equality.level_eq20_class_id_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCharacter,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.character_numeric_equality.level_eq20_class_id_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCharacter,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.character_numeric_equality_bounded_class_name.level_eq20_class_bd_limit2.asc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCharacter,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2"
+                        .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key:
+                    "typed.dispatch.character_numeric_equality_bounded_class_name.level_eq20_class_bd_limit2.desc",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedDispatchCharacter,
+                    sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5702,7 +6451,7 @@ fn sql_canister_perf_non_user_ordered_covering_generated_and_typed_dispatch_stay
         // Phase 1: measure the representative non-User ordered covering cohort
         // through both generated dispatch and the matching typed dispatch lane.
         for (scenario_key, sql, typed_surface, expected_entity, expected_row_count) in
-            non_user_ordered_covering_perf_cases()
+            NON_USER_ORDERED_COVERING_PERF_CASES.iter().copied()
         {
             let generated = sql_perf_sample(
                 pic,
@@ -5979,6 +6728,239 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_repo
             sample.outcome.row_count,
             Some(2),
             "descending Character order-only composite perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_reports_positive_instruction_samples()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: sample the generated query surface for the narrowed
+        // Character numeric-equality covering shape so perf checks pin the
+        // concrete equality-prefix witness cohort we just unblocked.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch sample stays structurally
+        // sane and returns the expected narrowed Character projection window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "Character numeric-equality first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "Character numeric-equality min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "Character numeric-equality max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "Character numeric-equality total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "Character numeric-equality repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "Character numeric-equality generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character numeric-equality perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character numeric-equality perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_desc_reports_positive_instruction_samples()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: sample the generated query surface for the descending
+        // Character numeric-equality covering shape so reverse suffix order
+        // stays pinned in the checked-in perf suite.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch sample stays
+        // structurally sane and returns the expected narrowed projection
+        // window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "descending Character numeric-equality first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "descending Character numeric-equality min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "descending Character numeric-equality max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "descending Character numeric-equality total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "descending Character numeric-equality repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "descending Character numeric-equality generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character numeric-equality perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character numeric-equality perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_bounded_class_name_reports_positive_instruction_samples()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: sample the generated query surface for the bounded suffix
+        // Character numeric-equality covering shape so perf checks pin the
+        // concrete composite bounded-range witness cohort.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch sample stays structurally
+        // sane and returns the expected bounded suffix Character projection.
+        assert!(
+            sample.first_local_instructions > 0,
+            "Character numeric-equality bounded class_name first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "Character numeric-equality bounded class_name min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "Character numeric-equality bounded class_name max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "Character numeric-equality bounded class_name total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "Character numeric-equality bounded class_name repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "Character numeric-equality bounded class_name generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character numeric-equality bounded class_name perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character numeric-equality bounded class_name perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_bounded_class_name_desc_reports_positive_instruction_samples()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: sample the generated query surface for the descending
+        // bounded suffix Character numeric-equality covering shape so reverse
+        // traversal stays pinned in the checked-in perf suite.
+        let sample = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch sample stays
+        // structurally sane and returns the expected bounded suffix window.
+        assert!(
+            sample.first_local_instructions > 0,
+            "descending Character numeric-equality bounded class_name first instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.min_local_instructions > 0,
+            "descending Character numeric-equality bounded class_name min instruction sample must be positive: {sample:?}",
+        );
+        assert!(
+            sample.max_local_instructions >= sample.min_local_instructions,
+            "descending Character numeric-equality bounded class_name max must be >= min: {sample:?}",
+        );
+        assert!(
+            sample.total_local_instructions >= sample.first_local_instructions,
+            "descending Character numeric-equality bounded class_name total must cover the first run: {sample:?}",
+        );
+        assert!(
+            sample.outcome_stable,
+            "descending Character numeric-equality bounded class_name repeated outcome must stay stable: {sample:?}",
+        );
+        assert!(
+            sample.outcome.success,
+            "descending Character numeric-equality bounded class_name generated dispatch sample must succeed: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character numeric-equality bounded class_name perf sample should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character numeric-equality bounded class_name perf sample should return the requested window size",
         );
     });
 }
@@ -6793,6 +7775,156 @@ fn sql_canister_perf_generated_dispatch_character_order_only_composite_desc_attr
 }
 
 #[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_attribution_reports_positive_stages()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: attribute the generated query surface for the narrowed
+        // Character numeric-equality covering shape added to the harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch attribution keeps positive
+        // stage accounting on the equality-prefix covering route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_numeric_equality",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character numeric-equality attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character numeric-equality attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_desc_attribution_reports_positive_stages()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: attribute the generated query surface for the descending
+        // Character numeric-equality covering shape added to the harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 ORDER BY class_name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch attribution keeps
+        // positive stage accounting on the reverse equality-prefix route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_numeric_equality_desc",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character numeric-equality attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character numeric-equality attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_bounded_class_name_attribution_reports_positive_stages()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: attribute the generated query surface for the bounded
+        // suffix Character numeric-equality covering shape added to the
+        // harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name ASC, id ASC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the generated dispatch attribution keeps positive
+        // stage accounting on the composite bounded-range covering route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_numeric_equality_bounded_class_name",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "Character numeric-equality bounded class_name attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "Character numeric-equality bounded class_name attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_generated_dispatch_character_numeric_equality_bounded_class_name_desc_attribution_reports_positive_stages()
+ {
+    run_with_loaded_quickstart_canister(|pic, canister_id| {
+        // Phase 1: attribute the generated query surface for the descending
+        // bounded suffix Character numeric-equality covering shape added to
+        // the harness.
+        let sample = sql_perf_attribution_sample(
+            pic,
+            canister_id,
+            &SqlPerfAttributionRequest {
+                surface: SqlPerfAttributionSurface::GeneratedDispatch,
+                sql: "SELECT id, level, class_name FROM Character WHERE level = 20 AND class_name >= 'B' AND class_name < 'D' ORDER BY class_name DESC, id DESC LIMIT 2"
+                    .to_string(),
+                cursor_token: None,
+            },
+        );
+
+        // Phase 2: assert the descending generated dispatch attribution keeps
+        // positive stage accounting on the reverse bounded-range route.
+        assert_positive_scalar_attribution_sample(
+            "generated.character_numeric_equality_bounded_class_name_desc",
+            &sample,
+            true,
+        );
+        assert_eq!(
+            sample.outcome.entity.as_deref(),
+            Some("Character"),
+            "descending Character numeric-equality bounded class_name attribution should stay on the Character route",
+        );
+        assert_eq!(
+            sample.outcome.row_count,
+            Some(2),
+            "descending Character numeric-equality bounded class_name attribution should return the requested window size",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribution_reports_positive_stages()
  {
     run_with_loaded_quickstart_canister(|pic, canister_id| {
@@ -7169,7 +8301,7 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
         let mut rows = Vec::new();
 
         for (scenario_key, sql, typed_surface, expected_entity, expected_row_count) in
-            scalar_select_attribution_cases()
+            SCALAR_SELECT_ATTRIBUTION_CASES
         {
             let generated = sql_perf_attribution_sample(
                 pic,
@@ -7184,7 +8316,7 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
                 pic,
                 canister_id,
                 &SqlPerfAttributionRequest {
-                    surface: typed_surface,
+                    surface: *typed_surface,
                     sql: sql.to_string(),
                     cursor_token: None,
                 },
@@ -7202,22 +8334,22 @@ fn sql_canister_perf_query_phase_attribution_reports_positive_stages() {
             );
             assert_eq!(
                 generated.outcome.entity.as_deref(),
-                Some(expected_entity),
+                Some(*expected_entity),
                 "generated.{scenario_key} attribution should stay on the expected entity route",
             );
             assert_eq!(
                 typed.outcome.entity.as_deref(),
-                Some(expected_entity),
+                Some(*expected_entity),
                 "typed.{scenario_key} attribution should stay on the expected entity route",
             );
             assert_eq!(
                 generated.outcome.row_count,
-                Some(expected_row_count),
+                Some(*expected_row_count),
                 "generated.{scenario_key} attribution should return the requested window size",
             );
             assert_eq!(
                 typed.outcome.row_count,
-                Some(expected_row_count),
+                Some(*expected_row_count),
                 "typed.{scenario_key} attribution should return the requested window size",
             );
 

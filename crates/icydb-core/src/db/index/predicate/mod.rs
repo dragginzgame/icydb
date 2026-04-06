@@ -19,7 +19,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-pub(crate) use compile::{IndexCompilePolicy, compile_index_program};
+pub(crate) use compile::{
+    IndexCompilePolicy, compile_index_program, compile_index_program_for_targets,
+};
 
 type CachedIndexPredicateResult = Result<&'static Predicate, SqlParseError>;
 type CachedIndexPredicateEntries = Vec<(&'static str, CachedIndexPredicateResult)>;

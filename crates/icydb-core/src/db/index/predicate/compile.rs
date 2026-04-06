@@ -10,9 +10,11 @@ use crate::{
             predicate::literal_index_component_bytes,
         },
         predicate::{
-            CompareOp, ExecutableComparePredicate, ExecutablePredicate, IndexPredicateCapability,
-            PredicateCapabilityContext, classify_index_compare_component,
-            classify_predicate_capabilities,
+            CompareOp, ExecutableComparePredicate, ExecutablePredicate, IndexCompileTarget,
+            IndexPredicateCapability, PredicateCapabilityContext, classify_index_compare_component,
+            classify_index_compare_target, classify_predicate_capabilities,
+            classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_target,
+            lower_index_starts_with_prefix_for_target,
         },
     },
     value::Value,
@@ -61,6 +63,32 @@ pub(crate) fn compile_index_program(
     }
 }
 
+/// Compile one optional index-only predicate program from one resolved
+/// predicate using key-item-aware compile targets.
+#[must_use]
+pub(crate) fn compile_index_program_for_targets(
+    predicate: &ExecutablePredicate,
+    compile_targets: &[IndexCompileTarget],
+    mode: IndexCompilePolicy,
+) -> Option<IndexPredicateProgram> {
+    match mode {
+        IndexCompilePolicy::ConservativeSubset => {
+            compile_index_program_from_resolved_for_targets(predicate, compile_targets)
+        }
+        IndexCompilePolicy::StrictAllOrNone => {
+            let capabilities =
+                classify_predicate_capabilities_for_targets(predicate, compile_targets);
+            match capabilities.index() {
+                IndexPredicateCapability::FullyIndexable => {
+                    compile_index_program_from_resolved_full_for_targets(predicate, compile_targets)
+                }
+                IndexPredicateCapability::PartiallyIndexable
+                | IndexPredicateCapability::RequiresFullScan => None,
+            }
+        }
+    }
+}
+
 /// Compile one resolved predicate tree into one index-only program.
 fn compile_index_program_from_resolved(
     predicate: &ExecutablePredicate,
@@ -73,6 +101,19 @@ fn compile_index_program_from_resolved(
     }
 
     compile_index_program_from_resolved_full(predicate, index_slots)
+}
+
+// Compile one resolved predicate tree into one index-only program using
+// key-item-aware compile targets.
+fn compile_index_program_from_resolved_for_targets(
+    predicate: &ExecutablePredicate,
+    compile_targets: &[IndexCompileTarget],
+) -> Option<IndexPredicateProgram> {
+    if let ExecutablePredicate::And(children) = predicate {
+        return compile_index_program_and_subset_for_targets(children, compile_targets);
+    }
+
+    compile_index_program_from_resolved_full_for_targets(predicate, compile_targets)
 }
 
 /// Compile an AND node by retaining only safely compilable children.
@@ -93,6 +134,44 @@ fn compile_index_program_and_subset(
             match capabilities.index() {
                 IndexPredicateCapability::FullyIndexable => {
                     compile_index_program_from_resolved_full(child, index_slots)
+                }
+                IndexPredicateCapability::PartiallyIndexable
+                | IndexPredicateCapability::RequiresFullScan => None,
+            }
+        };
+
+        let Some(child_program) = child_program else {
+            continue;
+        };
+        match child_program {
+            IndexPredicateProgram::True => {}
+            IndexPredicateProgram::False => return Some(IndexPredicateProgram::False),
+            other => compiled.push(other),
+        }
+    }
+
+    match compiled.len() {
+        0 => None,
+        1 => compiled.pop(),
+        _ => Some(IndexPredicateProgram::And(compiled)),
+    }
+}
+
+// Compile an AND node by retaining only safely compilable children for one
+// key-item-aware compile target set.
+fn compile_index_program_and_subset_for_targets(
+    children: &[ExecutablePredicate],
+    compile_targets: &[IndexCompileTarget],
+) -> Option<IndexPredicateProgram> {
+    let mut compiled = Vec::new();
+    for child in children {
+        let child_program = if let ExecutablePredicate::And(nested) = child {
+            compile_index_program_and_subset_for_targets(nested, compile_targets)
+        } else {
+            let capabilities = classify_predicate_capabilities_for_targets(child, compile_targets);
+            match capabilities.index() {
+                IndexPredicateCapability::FullyIndexable => {
+                    compile_index_program_from_resolved_full_for_targets(child, compile_targets)
                 }
                 IndexPredicateCapability::PartiallyIndexable
                 | IndexPredicateCapability::RequiresFullScan => None,
@@ -140,6 +219,47 @@ fn compile_index_program_from_resolved_full(
             compile_index_program_from_resolved_full(inner, index_slots)?,
         ))),
         ExecutablePredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
+        ExecutablePredicate::IsNull { .. }
+        | ExecutablePredicate::IsNotNull { .. }
+        | ExecutablePredicate::IsMissing { .. }
+        | ExecutablePredicate::IsEmpty { .. }
+        | ExecutablePredicate::IsNotEmpty { .. }
+        | ExecutablePredicate::TextContains { .. }
+        | ExecutablePredicate::TextContainsCi { .. } => None,
+    }
+}
+
+// Compile one resolved predicate tree only when every node is supported for
+// one key-item-aware compile target set.
+fn compile_index_program_from_resolved_full_for_targets(
+    predicate: &ExecutablePredicate,
+    compile_targets: &[IndexCompileTarget],
+) -> Option<IndexPredicateProgram> {
+    match predicate {
+        ExecutablePredicate::True => Some(IndexPredicateProgram::True),
+        ExecutablePredicate::False => Some(IndexPredicateProgram::False),
+        ExecutablePredicate::And(children) => Some(IndexPredicateProgram::And(
+            children
+                .iter()
+                .map(|child| {
+                    compile_index_program_from_resolved_full_for_targets(child, compile_targets)
+                })
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        ExecutablePredicate::Or(children) => Some(IndexPredicateProgram::Or(
+            children
+                .iter()
+                .map(|child| {
+                    compile_index_program_from_resolved_full_for_targets(child, compile_targets)
+                })
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        ExecutablePredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
+            compile_index_program_from_resolved_full_for_targets(inner, compile_targets)?,
+        ))),
+        ExecutablePredicate::Compare(cmp) => {
+            compile_compare_index_node_for_targets(cmp, compile_targets)
+        }
         ExecutablePredicate::IsNull { .. }
         | ExecutablePredicate::IsNotNull { .. }
         | ExecutablePredicate::IsMissing { .. }
@@ -225,6 +345,84 @@ fn compile_compare_index_node(
     }
 }
 
+// Compile one resolved compare node into index-only compare bytes for one
+// key-item-aware target set.
+fn compile_compare_index_node_for_targets(
+    cmp: &ExecutableComparePredicate,
+    compile_targets: &[IndexCompileTarget],
+) -> Option<IndexPredicateProgram> {
+    let target = classify_index_compare_target(cmp, compile_targets)?;
+
+    match cmp.op {
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte => {
+            let lowered =
+                lower_index_compare_literal_for_target(target, &cmp.value, cmp.coercion.id)?;
+            let literal = literal_index_component_bytes(&lowered)?;
+            let op = match cmp.op {
+                CompareOp::Eq => IndexCompareOp::Eq,
+                CompareOp::Ne => IndexCompareOp::Ne,
+                CompareOp::Lt => IndexCompareOp::Lt,
+                CompareOp::Lte => IndexCompareOp::Lte,
+                CompareOp::Gt => IndexCompareOp::Gt,
+                CompareOp::Gte => IndexCompareOp::Gte,
+                CompareOp::In
+                | CompareOp::NotIn
+                | CompareOp::Contains
+                | CompareOp::StartsWith
+                | CompareOp::EndsWith => unreachable!("handled in other compile branches"),
+            };
+
+            Some(IndexPredicateProgram::Compare {
+                component_index: target.component_index,
+                op,
+                literal: IndexLiteral::One(literal),
+            })
+        }
+        CompareOp::In | CompareOp::NotIn => {
+            let Value::List(values) = &cmp.value else {
+                return None;
+            };
+            let literals = values
+                .iter()
+                .map(|value| {
+                    let lowered =
+                        lower_index_compare_literal_for_target(target, value, cmp.coercion.id)?;
+                    literal_index_component_bytes(&lowered)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            if literals.is_empty() {
+                return None;
+            }
+            let op = match cmp.op {
+                CompareOp::In => IndexCompareOp::In,
+                CompareOp::NotIn => IndexCompareOp::NotIn,
+                CompareOp::Eq
+                | CompareOp::Ne
+                | CompareOp::Lt
+                | CompareOp::Lte
+                | CompareOp::Gt
+                | CompareOp::Gte
+                | CompareOp::Contains
+                | CompareOp::StartsWith
+                | CompareOp::EndsWith => unreachable!("handled in other compile branches"),
+            };
+
+            Some(IndexPredicateProgram::Compare {
+                component_index: target.component_index,
+                op,
+                literal: IndexLiteral::Many(literals),
+            })
+        }
+        CompareOp::StartsWith => compile_starts_with_index_node_for_target(cmp, target),
+        CompareOp::Contains | CompareOp::EndsWith => None,
+    }
+}
+
 fn compile_starts_with_index_node(
     component_index: usize,
     value: &Value,
@@ -250,6 +448,34 @@ fn compile_starts_with_index_node(
     let upper_literal = literal_index_component_bytes(&Value::Text(upper_prefix))?;
     let upper = IndexPredicateProgram::Compare {
         component_index,
+        op: IndexCompareOp::Lt,
+        literal: IndexLiteral::One(upper_literal),
+    };
+
+    Some(IndexPredicateProgram::And(vec![lower, upper]))
+}
+
+// Compile one starts-with compare node into one canonical bounded text range
+// for one key-item-aware compile target.
+fn compile_starts_with_index_node_for_target(
+    cmp: &ExecutableComparePredicate,
+    target: IndexCompileTarget,
+) -> Option<IndexPredicateProgram> {
+    let prefix = lower_index_starts_with_prefix_for_target(target, &cmp.value, cmp.coercion.id)?;
+    let lower_literal = literal_index_component_bytes(&Value::Text(prefix.clone()))?;
+    let lower = IndexPredicateProgram::Compare {
+        component_index: target.component_index,
+        op: IndexCompareOp::Gte,
+        literal: IndexLiteral::One(lower_literal),
+    };
+
+    let Some(upper_prefix) = next_text_prefix(&prefix) else {
+        return Some(lower);
+    };
+
+    let upper_literal = literal_index_component_bytes(&Value::Text(upper_prefix))?;
+    let upper = IndexPredicateProgram::Compare {
+        component_index: target.component_index,
         op: IndexCompareOp::Lt,
         literal: IndexLiteral::One(upper_literal),
     };

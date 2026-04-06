@@ -112,6 +112,74 @@ fn compile_sql_command_select_star_lowers_to_load_query() {
 }
 
 #[test]
+fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity WHERE age = 21 ORDER BY age ASC LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("strict numeric equality on uint field should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::Eq,
+            Value::Uint(21),
+            CoercionId::Strict,
+        )))
+        .order_by("age")
+        .limit(1);
+
+    assert_eq!(
+        query.plan().expect("SQL plan should build").into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent uint-equality plan should build")
+            .into_inner(),
+        "SQL uint equality should canonicalize its literal onto the strict runtime field variant",
+    );
+}
+
+#[test]
+fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity WHERE age = 21 ORDER BY age ASC LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("EXPLAIN EXECUTION with strict numeric equality on uint field should lower");
+
+    let SqlCommand::Explain { mode, query } = command else {
+        panic!("expected lowered explain command");
+    };
+    assert_eq!(mode, SqlExplainMode::Execution);
+
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::Eq,
+            Value::Uint(21),
+            CoercionId::Strict,
+        )))
+        .order_by("age")
+        .limit(1);
+
+    assert_eq!(
+        query
+            .plan()
+            .expect("SQL explain query plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent uint-equality plan should build")
+            .into_inner(),
+        "EXPLAIN EXECUTION should reuse the same canonical uint literal lowering as plain SQL execution",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_distinct_star_lowers_to_distinct_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT DISTINCT * FROM SqlLowerEntity",

@@ -16,9 +16,16 @@ use crate::db::{
     query::plan::{
         AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec,
         expr::{ProjectionSpec, projection_field_direct_field_name},
+        index_order_terms,
     },
 };
-use crate::{model::entity::EntityModel, value::Value};
+use crate::{
+    model::{
+        entity::EntityModel,
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    },
+    value::Value,
+};
 
 ///
 /// CoveringProjectionOrder
@@ -184,9 +191,10 @@ pub(in crate::db) fn covering_read_plan(
     // Phase 2: project one immutable covering-access contract shared by every
     // field in the scalar covering-read output.
     let metadata = covering_access_metadata(&plan.access)?;
+    let order_terms = metadata.order_terms();
     let order_contract = covering_projection_order_contract(
         plan.scalar_plan().order.as_ref(),
-        metadata.index_fields,
+        order_terms.as_slice(),
         metadata.prefix_len,
         primary_key_name,
         metadata.path_kind_is_range,
@@ -199,7 +207,7 @@ pub(in crate::db) fn covering_read_plan(
     let fields = covering_read_fields_from_projection(
         model,
         &projection,
-        metadata.index_fields,
+        metadata.coverable_component_fields.as_slice(),
         primary_key_name,
         &plan.access,
     )?;
@@ -252,13 +260,14 @@ pub(in crate::db) fn covering_index_projection_context<K>(
     primary_key_name: &'static str,
 ) -> Option<CoveringProjectionContext> {
     let metadata = covering_access_metadata(access)?;
+    let order_terms = metadata.order_terms();
     let component_index = metadata
-        .index_fields
+        .coverable_component_fields
         .iter()
-        .position(|field| *field == target_field)?;
+        .position(|field| field.is_some_and(|field| field == target_field))?;
     let order_contract = covering_projection_order_contract(
         order,
-        metadata.index_fields,
+        order_terms.as_slice(),
         metadata.prefix_len,
         primary_key_name,
         metadata.path_kind_is_range,
@@ -281,7 +290,7 @@ pub(in crate::db) fn constant_covering_projection_value_from_access<K>(
     let metadata = covering_access_metadata(access)?;
 
     constant_covering_projection_value_from_prefix(
-        metadata.index_fields,
+        metadata.coverable_component_fields.as_slice(),
         metadata.prefix_values,
         target_field,
     )
@@ -305,7 +314,7 @@ pub(in crate::db) const fn covering_index_adjacent_distinct_eligible(
 // Resolve one covering projection order contract from scalar ORDER BY shape.
 fn covering_projection_order_contract(
     order: Option<&OrderSpec>,
-    index_fields: &[&'static str],
+    index_order_terms: &[&str],
     prefix_len: usize,
     primary_key_name: &'static str,
     path_kind_is_range: bool,
@@ -326,7 +335,8 @@ fn covering_projection_order_contract(
         OrderDirection::Asc => Direction::Asc,
         OrderDirection::Desc => Direction::Desc,
     };
-    if order.matches_index_suffix_plus_primary_key(index_fields, prefix_len, primary_key_name) {
+    if order.matches_index_suffix_plus_primary_key(index_order_terms, prefix_len, primary_key_name)
+    {
         return Some(CoveringProjectionOrder::IndexOrder(direction));
     }
 
@@ -335,7 +345,7 @@ fn covering_projection_order_contract(
     }
 
     order
-        .matches_index_full_plus_primary_key(index_fields, primary_key_name)
+        .matches_index_full_plus_primary_key(index_order_terms, primary_key_name)
         .then_some(CoveringProjectionOrder::IndexOrder(direction))
 }
 
@@ -402,14 +412,18 @@ fn primary_store_covering_execution_plan(
 
 // Resolve one constant projection value from index-prefix component bindings.
 fn constant_covering_projection_value_from_prefix(
-    index_fields: &[&'static str],
+    coverable_component_fields: &[Option<&'static str>],
     prefix_values: &[Value],
     target_field: &str,
 ) -> Option<Value> {
-    index_fields
+    coverable_component_fields
         .iter()
         .zip(prefix_values.iter())
-        .find_map(|(field, value)| (*field == target_field).then(|| value.clone()))
+        .find_map(|(field, value)| {
+            field
+                .is_some_and(|field| field == target_field)
+                .then(|| value.clone())
+        })
 }
 
 ///
@@ -421,7 +435,8 @@ fn constant_covering_projection_value_from_prefix(
 ///
 
 struct CoveringAccessMetadata<'a> {
-    index_fields: &'a [&'static str],
+    order_terms: Vec<String>,
+    coverable_component_fields: Vec<Option<&'static str>>,
     prefix_values: &'a [Value],
     prefix_len: usize,
     path_kind_is_range: bool,
@@ -431,7 +446,8 @@ struct CoveringAccessMetadata<'a> {
 fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessMetadata<'_>> {
     if let Some((index, values)) = access.as_index_prefix_path() {
         return Some(CoveringAccessMetadata {
-            index_fields: index.fields(),
+            order_terms: index_order_terms(index),
+            coverable_component_fields: coverable_component_fields_for_index(index),
             prefix_values: values,
             prefix_len: values.len(),
             path_kind_is_range: false,
@@ -439,7 +455,8 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
     }
     if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
         return Some(CoveringAccessMetadata {
-            index_fields: index.fields(),
+            order_terms: index_order_terms(index),
+            coverable_component_fields: coverable_component_fields_for_index(index),
             prefix_values,
             prefix_len: prefix_values.len(),
             path_kind_is_range: true,
@@ -447,6 +464,14 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
     }
 
     None
+}
+
+impl CoveringAccessMetadata<'_> {
+    // Borrow the canonical order terms as string slices so planner-owned order
+    // matching uses expression-aware key-item text instead of raw field names.
+    fn order_terms(&self) -> Vec<&str> {
+        self.order_terms.iter().map(String::as_str).collect()
+    }
 }
 
 // Classify the planner-owned existing-row mode for one primary-store covering
@@ -501,7 +526,7 @@ fn primary_store_covering_order_supported<K>(
 fn covering_read_fields_from_projection(
     model: &EntityModel,
     projection: &ProjectionSpec,
-    index_fields: &[&'static str],
+    coverable_component_fields: &[Option<&'static str>],
     primary_key_name: &'static str,
     access: &AccessPlan<Value>,
 ) -> Option<Vec<CoveringReadField>> {
@@ -510,8 +535,12 @@ fn covering_read_fields_from_projection(
     for projection_field in projection.fields() {
         let field_name = projection_field_direct_field_name(projection_field)?;
         let field_slot = FieldSlot::resolve(model, field_name)?;
-        let source =
-            covering_read_field_source(field_name, index_fields, primary_key_name, access)?;
+        let source = covering_read_field_source(
+            field_name,
+            coverable_component_fields,
+            primary_key_name,
+            access,
+        )?;
 
         fields.push(CoveringReadField { field_slot, source });
     }
@@ -523,7 +552,7 @@ fn covering_read_fields_from_projection(
 #[cfg_attr(not(test), allow(dead_code))]
 fn covering_read_field_source(
     field_name: &str,
-    index_fields: &[&'static str],
+    coverable_component_fields: &[Option<&'static str>],
     primary_key_name: &'static str,
     access: &AccessPlan<Value>,
 ) -> Option<CoveringReadFieldSource> {
@@ -534,8 +563,25 @@ fn covering_read_field_source(
         return Some(CoveringReadFieldSource::Constant(value));
     }
 
-    index_fields
+    coverable_component_fields
         .iter()
-        .position(|field| *field == field_name)
+        .position(|field| field.is_some_and(|field| field == field_name))
         .map(|component_index| CoveringReadFieldSource::IndexComponent { component_index })
+}
+
+// Project one component-field layout that preserves only directly recoverable
+// raw entity fields. Expression key items intentionally map to `None` here so
+// covering reads do not claim the original field can be reconstructed from the
+// derived component bytes.
+fn coverable_component_fields_for_index(index: &IndexModel) -> Vec<Option<&'static str>> {
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => fields.iter().copied().map(Some).collect(),
+        IndexKeyItemsRef::Items(items) => items
+            .iter()
+            .map(|item| match item {
+                IndexKeyItem::Field(field) => Some(*field),
+                IndexKeyItem::Expression(_) => None,
+            })
+            .collect(),
+    }
 }

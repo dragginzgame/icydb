@@ -22,8 +22,11 @@ pub use row_policy::MissingRowPolicy;
 
 pub(crate) use crate::db::reduced_sql::SqlParseError;
 pub(in crate::db) use capability::{
-    IndexPredicateCapability, PredicateCapabilityContext, PredicateCapabilityProfile,
-    ScalarPredicateCapability, classify_index_compare_component, classify_predicate_capabilities,
+    IndexCompileTarget, IndexPredicateCapability, PredicateCapabilityContext,
+    PredicateCapabilityProfile, ScalarPredicateCapability, classify_index_compare_component,
+    classify_index_compare_target, classify_predicate_capabilities,
+    classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_target,
+    lower_index_starts_with_prefix_for_target,
 };
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;

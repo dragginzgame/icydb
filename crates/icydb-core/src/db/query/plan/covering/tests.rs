@@ -13,7 +13,10 @@ use crate::{
             expr::{BinaryOp, Expr, FieldId, ProjectionSelection},
         },
     },
-    model::{field::FieldKind, index::IndexModel},
+    model::{
+        field::FieldKind,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
+    },
     traits::EntitySchema,
     types::Ulid,
     value::Value,
@@ -22,6 +25,11 @@ use std::ops::Bound;
 
 const INDEX_FIELDS_RANK: [&str; 1] = ["rank"];
 const INDEX_FIELDS_GROUP_RANK: [&str; 2] = ["group", "rank"];
+const INDEX_FIELDS_GROUP_LABEL: [&str; 2] = ["group", "label"];
+const INDEX_KEY_ITEMS_GROUP_LOWER_LABEL: [IndexKeyItem; 2] = [
+    IndexKeyItem::Field("group"),
+    IndexKeyItem::Expression(IndexExpression::Lower("label")),
+];
 const COVERING_READ_FIELDS_GROUP_RANK: [&str; 2] = ["group", "rank"];
 const COVERING_READ_INDEX: IndexModel = IndexModel::new(
     "covering::tests::idx_group_rank",
@@ -444,6 +452,82 @@ fn covering_read_plan_accepts_prefix_bound_constant_projection() {
     assert_eq!(
         covering.fields[0].source,
         super::CoveringReadFieldSource::Constant(Value::Uint(7))
+    );
+}
+
+#[test]
+fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_order() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: crate::model::index::IndexModel::new_with_key_items(
+                "idx_expr",
+                "tests::Entity",
+                &INDEX_FIELDS_GROUP_LABEL,
+                &INDEX_KEY_ITEMS_GROUP_LOWER_LABEL,
+                false,
+            ),
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection =
+        ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("group")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("LOWER(label)".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true)
+        .expect("expression-suffix order with PK plus prefix constant projection should derive one covering-read plan");
+
+    assert_eq!(covering.prefix_len, 1);
+    assert_eq!(
+        covering.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+    assert_eq!(covering.fields.len(), 2);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        super::CoveringReadFieldSource::PrimaryKey
+    );
+    assert_eq!(covering.fields[1].field_slot.field(), "group");
+    assert_eq!(
+        covering.fields[1].source,
+        super::CoveringReadFieldSource::Constant(Value::Uint(7))
+    );
+}
+
+#[test]
+fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_order() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: crate::model::index::IndexModel::new_with_key_items(
+                "idx_expr",
+                "tests::Entity",
+                &INDEX_FIELDS_GROUP_LABEL,
+                &INDEX_KEY_ITEMS_GROUP_LOWER_LABEL,
+                false,
+            ),
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection =
+        ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("label")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("LOWER(label)".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let covering = super::covering_read_plan(covering_read_model(), &plan, "id", true);
+    assert!(
+        covering.is_none(),
+        "expression-index covering must not claim the original source field is stored in the derived component",
     );
 }
 

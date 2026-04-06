@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.69.x] 🧭 - 2026-04-06 - True Covering Read Execution
 
+- `0.69.2` keeps the shipped `0.69` witness-backed covering routes unchanged, makes persisted-row serializer/re-emission work cheaper, and cuts about `7%–13%` from several shared `Character` and `ActiveUser` index-covered SQL reads by letting the shared execution kernel materialize those covering windows directly instead of first building a generic ordered key stream.
 - `0.69.1` keeps the new `0.69` covering-read work intact while cleaning up IcyDB’s memory bootstrap and commit-slot wiring around `canic-memory 0.25.10`, so generated canisters, commit storage, and facade SQL tests now use the smaller public memory API end to end instead of mixing public helpers with lower-level registry calls.
 - `0.69.0` turns covering reads into a real execution route instead of planner-only metadata, proves when simple primary-key reads can skip row checks entirely, and adds the first explicit witness-backed secondary read cohorts so common `ORDER BY name` and filtered composite index reads can avoid the extra row-existence probe when the engine can prove the index and row stores are synchronized.
 
