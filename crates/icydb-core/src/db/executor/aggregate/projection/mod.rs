@@ -35,7 +35,8 @@ use crate::{
                     dedup_values_preserving_first, scalar_window_for_covering_projection,
                 },
             },
-            covering_projection_scan_direction, decode_single_covering_projection_pairs,
+            covering_projection_scan_direction, covering_requires_row_presence_check,
+            decode_single_covering_projection_pairs,
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
@@ -849,7 +850,7 @@ where
             raw_pairs,
             prepared.store,
             prepared.consistency(),
-            crate::db::query::plan::CoveringExistingRowMode::RequiresRowPresenceCheck,
+            covering_requires_row_presence_check(),
             "aggregate covering projection expected one decoded component",
             |value| Ok(value.clone()),
         )?

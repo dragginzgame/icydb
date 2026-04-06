@@ -17,7 +17,8 @@ use crate::{
                 extract_orderable_field_value_with_slot_reader,
                 resolve_any_aggregate_target_slot_from_planner_slot_with_model,
             },
-            covering_projection_scan_direction, decode_single_covering_projection_pairs,
+            covering_projection_scan_direction, covering_requires_row_presence_check,
+            decode_single_covering_projection_pairs,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             reorder_covering_projection_pairs,
             resolve_covering_projection_component_from_lowered_specs,
@@ -273,7 +274,7 @@ where
             raw_pairs,
             prepared.store,
             prepared.consistency(),
-            crate::db::query::plan::CoveringExistingRowMode::RequiresRowPresenceCheck,
+            covering_requires_row_presence_check(),
             "bytes covering projection expected one decoded component",
             serialized_value_len,
         )?

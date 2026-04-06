@@ -55,9 +55,9 @@ pub(in crate::db::executor) use covering::{
     CoveringProjectionComponentRows, SingleComponentCoveringProjectionOutcome,
     SingleComponentCoveringScanRequest,
     collect_single_component_covering_projection_values_from_lowered_specs,
-    covering_projection_scan_direction, decode_covering_projection_pairs,
-    decode_single_covering_projection_pairs, reorder_covering_projection_pairs,
-    resolve_covering_projection_component_from_lowered_specs,
+    covering_projection_scan_direction, covering_requires_row_presence_check,
+    decode_covering_projection_pairs, decode_single_covering_projection_pairs,
+    reorder_covering_projection_pairs, resolve_covering_projection_component_from_lowered_specs,
     resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;

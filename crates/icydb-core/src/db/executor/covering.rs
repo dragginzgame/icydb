@@ -35,6 +35,13 @@ type CoveringComponentValues = Vec<Vec<u8>>;
 pub(in crate::db::executor) type CoveringProjectionComponentRows =
     Vec<(DataKey, CoveringComponentValues)>;
 
+// Build the canonical executor-owned covering mode for fast paths that still
+// must verify row presence before trusting secondary/index-backed payloads.
+pub(in crate::db::executor) const fn covering_requires_row_presence_check()
+-> CoveringExistingRowMode {
+    CoveringExistingRowMode::RequiresRowPresenceCheck
+}
+
 ///
 /// SingleComponentCoveringProjectionOutcome
 ///
