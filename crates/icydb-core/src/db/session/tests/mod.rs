@@ -5329,6 +5329,7 @@ fn session_explain_execution_order_only_composite_desc_covering_query_uses_index
     );
 }
 
+#[test]
 fn execute_sql_projection_expression_order_query_matches_entity_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -5862,6 +5863,7 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_des
     );
 }
 
+#[test]
 fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_reverts_after_stale_row_mutation()
  {
     reset_indexed_session_sql_store();
@@ -5975,6 +5977,7 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_des
     );
 }
 
+#[test]
 fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_is_witness_validated() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
