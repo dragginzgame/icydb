@@ -1791,11 +1791,11 @@ fn sql_canister_query_lane_explain_execution_surfaces_character_covering_read_ro
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
-                "row_check_required",
+                "witness_validated",
                 "id",
                 "name",
             ],
-            &[],
+            &["row_check_required"],
             "Character covering EXPLAIN EXECUTION should expose the explicit covering-read route",
         );
     });

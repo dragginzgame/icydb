@@ -8670,7 +8670,7 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
+        Some(&Value::Text("witness_validated".to_string())),
         "projection node should expose the planner-owned existing-row mode explicitly",
     );
 }
