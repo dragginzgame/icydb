@@ -137,6 +137,39 @@ fn make_customer_name_order_stale(pic: &Pic, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_make_customer_name_order_stale");
 }
 
+// Remove the leading CustomerOrder composite-order base row while keeping the
+// secondary `(priority, status)` entry intact so integration tests can
+// exercise stale composite order-only fallback.
+fn make_customer_order_order_only_composite_stale(pic: &Pic, canister_id: Principal) {
+    expect_unit_update_ok(
+        pic,
+        canister_id,
+        "fixtures_make_customer_order_order_only_composite_stale",
+    );
+}
+
+// Remove the leading `priority = 20` CustomerOrder base row while keeping the
+// secondary `(priority, status)` entry intact so integration tests can
+// exercise stale equality-prefix suffix-order fallback.
+fn make_customer_order_numeric_equality_stale(pic: &Pic, canister_id: Principal) {
+    expect_unit_update_ok(
+        pic,
+        canister_id,
+        "fixtures_make_customer_order_numeric_equality_stale",
+    );
+}
+
+// Remove the leading descending CustomerOrder composite-order base row while
+// keeping the secondary `(priority, status)` entry intact so integration tests
+// can exercise stale descending composite order-only fallback.
+fn make_customer_order_order_only_composite_desc_stale(pic: &Pic, canister_id: Principal) {
+    expect_unit_update_ok(
+        pic,
+        canister_id,
+        "fixtures_make_customer_order_order_only_composite_desc_stale",
+    );
+}
+
 // Execute one canic-testkit-backed integration test body against a fresh
 // Pic instance. Keeping the lifecycle per-test matches the harness contract
 // and avoids reusing one shared underlying PocketIC process across the whole
@@ -1614,6 +1647,174 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_pk_plus_nam
             ],
             &["row_check_required", "witness_validated"],
             "stale Customer PK-plus-name covering EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_composite_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query stale CustomerOrder composite order-only EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+                "status",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale CustomerOrder composite order-only EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_composite_leading_component_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query stale CustomerOrder composite leading-component EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale CustomerOrder composite leading-component EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_composite_leading_component_desc_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_desc_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query stale descending CustomerOrder composite leading-component EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale descending CustomerOrder composite leading-component EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_composite_desc_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_desc_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query stale descending CustomerOrder composite order-only EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+                "status",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale descending CustomerOrder composite order-only EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_stale_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query stale CustomerOrder numeric-equality covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+                "status",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale CustomerOrder numeric-equality EXPLAIN EXECUTION should expose the storage-owned existence witness route",
         );
     });
 }
@@ -7252,6 +7453,465 @@ fn sql_canister_perf_customer_name_order_pk_projection_stale_reports_row_check_m
 }
 
 #[test]
+fn sql_canister_perf_customer_order_order_only_composite_stale_reports_row_check_metrics_in_parity()
+{
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_stale(pic, canister_id);
+        let sql = "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder composite order-only perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder composite order-only perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale CustomerOrder composite order-only perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale CustomerOrder composite order-only perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 2,
+            "generated stale CustomerOrder composite order-only perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale CustomerOrder composite order-only perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale CustomerOrder composite order-only perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale CustomerOrder composite order-only perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale CustomerOrder composite order-only perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale CustomerOrder composite order-only perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale CustomerOrder composite order-only perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 1,
+            "generated stale CustomerOrder composite order-only perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale CustomerOrder composite order-only perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_order_order_only_composite_leading_component_stale_reports_row_check_metrics_in_parity()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_stale(pic, canister_id);
+        let sql = "SELECT id, priority FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder composite leading-component perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder composite leading-component perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale CustomerOrder composite leading-component perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale CustomerOrder composite leading-component perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 2,
+            "generated stale CustomerOrder composite leading-component perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale CustomerOrder composite leading-component perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale CustomerOrder composite leading-component perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale CustomerOrder composite leading-component perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale CustomerOrder composite leading-component perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale CustomerOrder composite leading-component perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale CustomerOrder composite leading-component perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 1,
+            "generated stale CustomerOrder composite leading-component perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale CustomerOrder composite leading-component perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_order_order_only_composite_leading_component_desc_stale_reports_row_check_metrics_in_parity()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_desc_stale(pic, canister_id);
+        let sql = "SELECT id, priority FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder composite leading-component perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder composite leading-component perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale descending CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale descending CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale descending CustomerOrder composite leading-component perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale descending CustomerOrder composite leading-component perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 2,
+            "generated stale descending CustomerOrder composite leading-component perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale descending CustomerOrder composite leading-component perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale descending CustomerOrder composite leading-component perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale descending CustomerOrder composite leading-component perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale descending CustomerOrder composite leading-component perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale descending CustomerOrder composite leading-component perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale descending CustomerOrder composite leading-component perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 1,
+            "generated stale descending CustomerOrder composite leading-component perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale descending CustomerOrder composite leading-component perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_order_order_only_composite_desc_stale_reports_row_check_metrics_in_parity()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_desc_stale(pic, canister_id);
+        let sql = "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder composite order-only perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder composite order-only perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale descending CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale descending CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale descending CustomerOrder composite order-only perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale descending CustomerOrder composite order-only perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 2,
+            "generated stale descending CustomerOrder composite order-only perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale descending CustomerOrder composite order-only perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale descending CustomerOrder composite order-only perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale descending CustomerOrder composite order-only perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale descending CustomerOrder composite order-only perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale descending CustomerOrder composite order-only perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale descending CustomerOrder composite order-only perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 1,
+            "generated stale descending CustomerOrder composite order-only perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale descending CustomerOrder composite order-only perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_order_numeric_equality_stale_reports_row_check_metrics_in_parity() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+        let sql = "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder numeric-equality perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder numeric-equality perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale CustomerOrder numeric-equality perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale CustomerOrder numeric-equality perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale CustomerOrder numeric-equality perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale CustomerOrder numeric-equality perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 2,
+            "generated stale CustomerOrder numeric-equality perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale CustomerOrder numeric-equality perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale CustomerOrder numeric-equality perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale CustomerOrder numeric-equality perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale CustomerOrder numeric-equality perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale CustomerOrder numeric-equality perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale CustomerOrder numeric-equality perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 1,
+            "generated stale CustomerOrder numeric-equality perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale CustomerOrder numeric-equality perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
 #[ignore = "manual stale-row perf probe for before/after measurement runs"]
 fn sql_canister_perf_customer_name_order_stale_probe_reports_samples_as_json() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -7343,6 +8003,209 @@ fn sql_canister_perf_customer_name_order_pk_projection_stale_probe_reports_sampl
                 "typed": typed,
             }))
             .expect("stale Customer PK-plus-name order perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_order_only_composite_stale_probe_reports_samples_as_json() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder order-only composite perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder order-only composite perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_order_only_composite",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale CustomerOrder order-only composite perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_order_only_composite_leading_component_stale_probe_reports_samples_as_json()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder order-only composite leading-component perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder order-only composite leading-component perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_order_only_composite_leading_component",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale CustomerOrder order-only composite leading-component perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_order_only_composite_leading_component_desc_stale_probe_reports_samples_as_json()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_desc_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder order-only composite leading-component perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder order-only composite leading-component perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_order_only_composite_leading_component_desc",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale descending CustomerOrder order-only composite leading-component perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_order_only_composite_desc_stale_probe_reports_samples_as_json()
+{
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_order_only_composite_desc_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder order-only composite perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder order-only composite perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_order_only_composite_desc",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale descending CustomerOrder order-only composite perf probe should serialize to JSON")
         );
     });
 }
@@ -7459,6 +8322,56 @@ fn sql_canister_perf_generated_dispatch_user_expression_order_desc_reports_posit
             sample.outcome.row_count,
             Some(2),
             "descending Customer expression-order perf sample should return the requested window size",
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_numeric_equality_stale_probe_reports_samples_as_json() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder numeric-equality perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder numeric-equality perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_numeric_equality",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale CustomerOrder numeric-equality perf probe should serialize to JSON")
         );
     });
 }

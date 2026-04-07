@@ -37,7 +37,7 @@ const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 type CoveringComponentValues = Vec<Vec<u8>>;
 
 pub(in crate::db::executor) type CoveringProjectionComponentRows =
-    Vec<(DataKey, CoveringComponentValues)>;
+    Vec<(DataKey, IndexEntryExistenceWitness, CoveringComponentValues)>;
 
 // Build the canonical executor-owned covering mode for fast paths that still
 // must verify row presence before trusting secondary/index-backed payloads.
@@ -441,8 +441,14 @@ where
 {
     store.with_data(|data| {
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        for (data_key, components) in raw_pairs {
-            if existing_row_mode.requires_row_presence_check() {
+        for (data_key, existence_witness, components) in raw_pairs {
+            if existing_row_mode.uses_storage_existence_witness() {
+                record_row_check_covering_candidate_seen();
+
+                if existence_witness == IndexEntryExistenceWitness::Missing {
+                    continue;
+                }
+            } else if existing_row_mode.requires_row_presence_check() {
                 record_row_check_covering_candidate_seen();
 
                 if !read_row_presence_with_consistency_from_data_store(
@@ -458,7 +464,9 @@ where
                 return Ok(None);
             };
             projected_pairs.push((data_key, projected));
-            if existing_row_mode.requires_row_presence_check() {
+            if existing_row_mode.requires_row_presence_check()
+                || existing_row_mode.uses_storage_existence_witness()
+            {
                 record_row_check_row_emitted();
             }
         }

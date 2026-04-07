@@ -33,7 +33,7 @@ use crate::{
 use std::ops::Bound;
 
 type IndexComponentValues = Vec<Vec<u8>>;
-type DataKeyComponentRows = Vec<(DataKey, IndexComponentValues)>;
+type DataKeyComponentRows = Vec<(DataKey, IndexEntryExistenceWitness, IndexComponentValues)>;
 
 ///
 /// SingleComponentCoveringCollector
@@ -505,7 +505,7 @@ impl IndexStore {
         index: &IndexModel,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
-        out: &mut Vec<(DataKey, Vec<Vec<u8>>)>,
+        out: &mut Vec<(DataKey, IndexEntryExistenceWitness, Vec<Vec<u8>>)>,
         limit: Option<usize>,
         component_indices: &[usize],
         context: &'static str,
@@ -537,13 +537,17 @@ impl IndexStore {
 
         // Phase 2: fast-path one-key entries without allocating the full
         // membership vector.
-        if let Some(storage_key) = value
-            .decode_single_key()
+        if let Some(membership) = value
+            .decode_single_membership()
             .map_err(InternalError::index_entry_decode_failed)?
         {
             record_row_check_index_membership_single_key_entry();
             record_row_check_index_membership_key_decoded();
-            out.push((DataKey::new(entity, storage_key), components));
+            out.push((
+                DataKey::new(entity, membership.storage_key()),
+                membership.existence_witness(),
+                components,
+            ));
 
             if let Some(limit) = limit
                 && out.len() == limit
@@ -560,12 +564,12 @@ impl IndexStore {
         let mut halted = false;
         let mut decoded_keys = 0usize;
         record_row_check_index_membership_multi_key_entry();
-        let mut storage_keys = value
-            .iter_keys()
+        let mut memberships = value
+            .iter_memberships()
             .map_err(InternalError::index_entry_decode_failed)?;
 
-        for storage_key in &mut storage_keys {
-            let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
+        for membership in &mut memberships {
+            let membership = membership.map_err(InternalError::index_entry_decode_failed)?;
             decoded_keys = decoded_keys.saturating_add(1);
             record_row_check_index_membership_key_decoded();
 
@@ -573,7 +577,11 @@ impl IndexStore {
                 continue;
             }
 
-            out.push((DataKey::new(entity, storage_key), components.clone()));
+            out.push((
+                DataKey::new(entity, membership.storage_key()),
+                membership.existence_witness(),
+                components.clone(),
+            ));
 
             if let Some(limit) = limit
                 && out.len() == limit

@@ -208,10 +208,10 @@ const fn plan_has_no_distinct(plan: &AccessPlannedQuery) -> bool {
     !plan.scalar_plan().distinct
 }
 
-// Return whether the current covering route matches the kept explicit
-// storage-owned existence-witness prototype: one stale order-only secondary
-// route that projects the first index component and may additionally project
-// the primary key.
+// Return whether the current covering route matches one kept explicit
+// storage-owned existence-witness prototype. The admitted family is still
+// intentionally narrow: stale secondary order-only cohorts plus one measured
+// equality-prefix suffix-order sibling.
 fn secondary_storage_existence_witness_covering_eligible(
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
@@ -219,34 +219,72 @@ fn secondary_storage_existence_witness_covering_eligible(
     if !plan_has_no_distinct(plan)
         || plan_has_predicate(plan)
         || covering.existing_row_mode != CoveringExistingRowMode::RequiresRowPresenceCheck
-        || !matches!(
-            covering.order_contract,
-            CoveringProjectionOrder::IndexOrder(_)
-        )
-        || covering.fields.len() > 2
     {
         return false;
     }
 
-    let eligible_access_shape = matches!(
-        plan.access.as_index_prefix_path(),
-        Some((index, prefix_values)) if index.fields().len() == 1 && prefix_values.is_empty()
-    ) || matches!(
-        plan.access.as_index_range_path(),
-        Some((index, prefix_values, Bound::Unbounded, Bound::Unbounded))
-            if index.fields().len() == 1 && prefix_values.is_empty()
-    );
-    if !eligible_access_shape {
-        return false;
+    // Phase 1: admit one narrow measured equality-prefix suffix-order cohort
+    // explicitly before the broader order-only shape checks. This keeps the
+    // storage witness policy concrete: one constant equality prefix, one
+    // suffix component, and one primary key in ascending suffix order only.
+    if let Some((index, prefix_values)) = plan.access.as_index_prefix_path() {
+        if index.fields().len() == 2 && prefix_values.len() == 1 {
+            let mut component_zero_count = 0usize;
+            let mut component_one_count = 0usize;
+            let mut constant_count = 0usize;
+            let mut primary_key_count = 0usize;
+
+            for field in &covering.fields {
+                match field.source {
+                    CoveringReadFieldSource::IndexComponent { component_index: 0 } => {
+                        component_zero_count = component_zero_count.saturating_add(1);
+                    }
+                    CoveringReadFieldSource::IndexComponent { component_index: 1 } => {
+                        component_one_count = component_one_count.saturating_add(1);
+                    }
+                    CoveringReadFieldSource::IndexComponent { component_index: _ } => {
+                        return false;
+                    }
+                    CoveringReadFieldSource::Constant(_) => {
+                        constant_count = constant_count.saturating_add(1);
+                    }
+                    CoveringReadFieldSource::PrimaryKey => {
+                        primary_key_count = primary_key_count.saturating_add(1);
+                    }
+                }
+            }
+
+            return matches!(
+                covering.order_contract,
+                CoveringProjectionOrder::IndexOrder(Direction::Asc)
+            ) && component_zero_count == 0
+                && component_one_count == 1
+                && constant_count == 1
+                && primary_key_count == 1
+                && covering.fields.len()
+                    == component_one_count
+                        .saturating_add(constant_count)
+                        .saturating_add(primary_key_count);
+        }
     }
 
-    let mut index_component_count = 0usize;
+    // Phase 2: keep the existing pure order-only storage-witness families
+    // explicit. These shapes carry no equality prefix or bounded range.
+    let Some(index_field_count) = storage_existence_witness_index_field_count(plan) else {
+        return false;
+    };
+
+    let mut component_zero_count = 0usize;
+    let mut component_one_count = 0usize;
     let mut primary_key_count = 0usize;
 
     for field in &covering.fields {
         match field.source {
             CoveringReadFieldSource::IndexComponent { component_index: 0 } => {
-                index_component_count = index_component_count.saturating_add(1);
+                component_zero_count = component_zero_count.saturating_add(1);
+            }
+            CoveringReadFieldSource::IndexComponent { component_index: 1 } => {
+                component_one_count = component_one_count.saturating_add(1);
             }
             CoveringReadFieldSource::PrimaryKey => {
                 primary_key_count = primary_key_count.saturating_add(1);
@@ -255,9 +293,57 @@ fn secondary_storage_existence_witness_covering_eligible(
         }
     }
 
-    index_component_count == 1
-        && primary_key_count <= 1
-        && covering.fields.len() == index_component_count + primary_key_count
+    match index_field_count {
+        // Keep the original stale single-component family explicit: one
+        // projected component plus optional primary key, in either direction.
+        1 => {
+            matches!(
+                covering.order_contract,
+                CoveringProjectionOrder::IndexOrder(_)
+            ) && component_zero_count == 1
+                && component_one_count == 0
+                && primary_key_count <= 1
+                && covering.fields.len() == component_zero_count + primary_key_count
+        }
+        // Widen only the measured composite order-only sibling:
+        // both indexed components plus optional primary key, no bounded range
+        // or extra predicate authority. Also admit the narrower measured
+        // first-component-plus-PK siblings explicitly instead of broadening
+        // all composite subsets by analogy.
+        2 => {
+            let full_composite = matches!(
+                covering.order_contract,
+                CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc)
+            ) && component_zero_count == 1
+                && component_one_count == 1
+                && primary_key_count <= 1
+                && covering.fields.len()
+                    == component_zero_count + component_one_count + primary_key_count;
+            let leading_component_plus_pk = matches!(
+                covering.order_contract,
+                CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc)
+            ) && component_zero_count == 1
+                && component_one_count == 0
+                && primary_key_count == 1
+                && covering.fields.len() == component_zero_count + primary_key_count;
+
+            full_composite || leading_component_plus_pk
+        }
+        _ => false,
+    }
+}
+
+// Return the admitted index-field cardinality for one storage-witness stale
+// access shape. The current prototype allows only unbounded secondary
+// order-only scans with no equality prefix.
+fn storage_existence_witness_index_field_count(plan: &AccessPlannedQuery) -> Option<usize> {
+    match plan.access.as_index_prefix_path() {
+        Some((index, [])) => Some(index.fields().len()),
+        _ => match plan.access.as_index_range_path() {
+            Some((index, [], Bound::Unbounded, Bound::Unbounded)) => Some(index.fields().len()),
+            _ => None,
+        },
+    }
 }
 
 // Return one canonical scan direction for unordered plans or primary-key-only ordering.
