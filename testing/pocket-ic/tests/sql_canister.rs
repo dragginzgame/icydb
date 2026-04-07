@@ -174,7 +174,7 @@ fn run_with_fixture_canister(
         return;
     };
     let test_result = catch_unwind(AssertUnwindSafe(|| {
-        test_body(&fixture.pic, fixture.canister_id);
+        test_body(fixture.pic(), fixture.canister_id());
     }));
     drop(fixture);
 
