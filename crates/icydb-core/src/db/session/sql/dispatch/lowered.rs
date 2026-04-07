@@ -27,6 +27,23 @@ use crate::{
 type SqlQuerySurfaceRowParts = (Vec<String>, Vec<Vec<Value>>, u32);
 
 impl<C: CanisterKind> DbSession<C> {
+    // Build one structural query from the lowered shared SQL SELECT shape so
+    // both value-row and rendered-row dispatch surfaces reuse the same
+    // lowered-to-structural binding boundary.
+    fn structural_query_from_lowered_select(
+        select: &LoweredSelectShape,
+        authority: EntityAuthority,
+    ) -> Result<crate::db::query::intent::StructuralQuery, QueryError> {
+        apply_lowered_select_shape(
+            crate::db::query::intent::StructuralQuery::new(
+                authority.model(),
+                MissingRowPolicy::Ignore,
+            ),
+            select.clone(),
+        )
+        .map_err(QueryError::from_sql_lowering_error)
+    }
+
     // Execute one lowered SQL SELECT command entirely through the shared
     // structural projection path and keep the result in projection form.
     #[inline(never)]
@@ -35,34 +52,35 @@ impl<C: CanisterKind> DbSession<C> {
         select: &LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
-        let structural = apply_lowered_select_shape(
-            crate::db::query::intent::StructuralQuery::new(
-                authority.model(),
-                MissingRowPolicy::Ignore,
-            ),
-            select.clone(),
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
+        let structural = Self::structural_query_from_lowered_select(select, authority)?;
 
         self.execute_structural_sql_projection(structural, authority)
     }
 
     // Execute one lowered SQL SELECT command entirely through the shared
-    // structural projection path and package it for the shared dispatch lane.
+    // structural projection path and package it for the shared core dispatch
+    // lane using canonical value rows.
     #[inline(never)]
     pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_select_core(
         &self,
         select: &LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
-        let structural = apply_lowered_select_shape(
-            crate::db::query::intent::StructuralQuery::new(
-                authority.model(),
-                MissingRowPolicy::Ignore,
-            ),
-            select.clone(),
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
+        self.execute_lowered_sql_projection_core(select, authority)
+            .map(SqlProjectionPayload::into_dispatch_result)
+    }
+
+    // Execute one lowered SQL SELECT command entirely through the shared
+    // structural projection path and package it for the generated query
+    // surface when the terminal short path can prove rendered SQL rows
+    // directly.
+    #[inline(never)]
+    fn execute_lowered_sql_dispatch_select_text_core(
+        &self,
+        select: &LoweredSelectShape,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        let structural = Self::structural_query_from_lowered_select(select, authority)?;
 
         self.execute_structural_sql_projection_text(structural, authority)
     }
@@ -103,7 +121,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
-        self.execute_lowered_sql_dispatch_query_core(lowered, authority)
+        self.execute_lowered_sql_dispatch_query_text_core(lowered, authority)
     }
 
     /// Execute one already-lowered shared SQL `SELECT` shape for resolved authority.
@@ -148,9 +166,10 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    // Execute one lowered SQL query command through the shared structural core
-    // and delegate only true typed DELETE fallback to the caller.
-    fn execute_lowered_sql_dispatch_query_core(
+    // Execute one lowered SQL query command for the generated query surface,
+    // which may keep rendered SQL projection rows when the terminal short path
+    // can prove them directly.
+    fn execute_lowered_sql_dispatch_query_text_core(
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
@@ -164,7 +183,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         match query {
             LoweredSqlQuery::Select(select) => {
-                self.execute_lowered_sql_dispatch_select_core(select, authority)
+                self.execute_lowered_sql_dispatch_select_text_core(select, authority)
             }
             LoweredSqlQuery::Delete(delete) => {
                 self.execute_lowered_sql_dispatch_delete_core(delete, authority)
