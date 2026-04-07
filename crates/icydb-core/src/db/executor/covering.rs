@@ -7,9 +7,12 @@ use crate::{
     db::{
         access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         cursor::IndexScanContinuationInput,
-        data::{DataKey, DataStore},
+        data::DataKey,
         direction::Direction,
-        executor::runtime_context::read_row_presence_with_consistency_from_data_store,
+        executor::{
+            FusedSecondaryCoveringAuthority, read_row_presence_with_consistency_from_data_store,
+            record_row_check_covering_candidate_seen, record_row_check_row_emitted,
+        },
         index::SingleComponentCoveringCollector,
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
@@ -108,10 +111,7 @@ struct SingleComponentCoveringBoundsRequest<'a> {
 ///
 
 struct SingleComponentProjectionCollector<'a, 'b, F> {
-    data: &'a DataStore,
-    entity_tag: EntityTag,
-    consistency: MissingRowPolicy,
-    existing_row_mode: CoveringExistingRowMode,
+    covering_authority: Option<FusedSecondaryCoveringAuthority<'a>>,
     unsupported_component: &'b mut bool,
     map_decoded: F,
 }
@@ -126,13 +126,8 @@ where
         component: &[u8],
         out: &mut Vec<T>,
     ) -> Result<(), InternalError> {
-        let data_key = DataKey::new(self.entity_tag, storage_key);
-        if self.existing_row_mode.requires_row_presence_check()
-            && !read_row_presence_with_consistency_from_data_store(
-                self.data,
-                &data_key,
-                self.consistency,
-            )?
+        if let Some(authority) = self.covering_authority
+            && !authority.admits_storage_key(storage_key)?
         {
             return Ok(());
         }
@@ -142,6 +137,9 @@ where
             return Ok(());
         };
         out.push(projected);
+        if self.covering_authority.is_some() {
+            record_row_check_row_emitted();
+        }
 
         Ok(())
     }
@@ -384,10 +382,14 @@ where
         request.store.with_index(|index_store| {
             let mut unsupported_component = false;
             let mut collector = SingleComponentProjectionCollector {
-                data,
-                entity_tag: request.entity_tag,
-                consistency: request.consistency,
-                existing_row_mode: request.existing_row_mode,
+                covering_authority: request
+                    .existing_row_mode
+                    .requires_row_presence_check()
+                    .then_some(FusedSecondaryCoveringAuthority::new(
+                        data,
+                        request.entity_tag,
+                        request.consistency,
+                    )),
                 unsupported_component: &mut unsupported_component,
                 map_decoded: map_component,
             };
@@ -429,20 +431,25 @@ where
     store.with_data(|data| {
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
         for (data_key, components) in raw_pairs {
-            if existing_row_mode.requires_row_presence_check()
-                && !read_row_presence_with_consistency_from_data_store(
+            if existing_row_mode.requires_row_presence_check() {
+                record_row_check_covering_candidate_seen();
+
+                if !read_row_presence_with_consistency_from_data_store(
                     data,
                     &data_key,
                     consistency,
-                )?
-            {
-                continue;
+                )? {
+                    continue;
+                }
             }
 
             let Some(projected) = map_components(components)? else {
                 return Ok(None);
             };
             projected_pairs.push((data_key, projected));
+            if existing_row_mode.requires_row_presence_check() {
+                record_row_check_row_emitted();
+            }
         }
 
         Ok(Some(projected_pairs))

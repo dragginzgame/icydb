@@ -79,6 +79,7 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SecondaryWitnessValidatedCoveringCohort {
     OrderOnlySingleField,
+    CompositeOrderOnly,
     EqualityPrefixPrimaryKeyOrder,
     BoundedRangeSingleField,
     CompositeEqualityPrefixSuffixOrder,
@@ -95,7 +96,9 @@ impl SecondaryWitnessValidatedCoveringCohort {
                 Self::OrderOnlySingleField | Self::BoundedRangeSingleField,
                 CoveringProjectionOrder::IndexOrder(_)
             ) | (
-                Self::CompositeEqualityPrefixSuffixOrder | Self::CompositeBoundedRangeSuffixOrder,
+                Self::CompositeOrderOnly
+                    | Self::CompositeEqualityPrefixSuffixOrder
+                    | Self::CompositeBoundedRangeSuffixOrder,
                 CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc)
             ) | (
                 Self::EqualityPrefixPrimaryKeyOrder,
@@ -122,6 +125,11 @@ impl SecondaryWitnessValidatedCoveringCohort {
                     && constant_field_count == 0
                     && component_field_count <= field_count
             }
+            Self::CompositeOrderOnly => {
+                component_field_count <= 2
+                    && constant_field_count == 0
+                    && component_field_count <= field_count
+            }
             Self::EqualityPrefixPrimaryKeyOrder => {
                 component_field_count == 0 && constant_field_count <= 1
             }
@@ -135,12 +143,13 @@ impl SecondaryWitnessValidatedCoveringCohort {
 
     // Return the expected decoded index-component slot for one projected
     // component field when this cohort uses one.
-    const fn expected_component_index(self) -> Option<usize> {
+    const fn component_index_supported(self, component_index: usize) -> bool {
         match self {
-            Self::OrderOnlySingleField | Self::BoundedRangeSingleField => Some(0),
-            Self::EqualityPrefixPrimaryKeyOrder => None,
+            Self::OrderOnlySingleField | Self::BoundedRangeSingleField => component_index == 0,
+            Self::CompositeOrderOnly => component_index <= 1,
+            Self::EqualityPrefixPrimaryKeyOrder => false,
             Self::CompositeEqualityPrefixSuffixOrder | Self::CompositeBoundedRangeSuffixOrder => {
-                Some(1)
+                component_index == 1
             }
         }
     }
@@ -284,15 +293,16 @@ fn secondary_witness_validated_covering_eligible(
         return false;
     }
 
-    // Phase 2: classify one explicit single-field secondary witness cohort.
-    // The classifier is the policy owner; the checks below only validate that
-    // the current covering contract actually matches the admitted cohort.
+    // Phase 2: classify one explicit secondary witness cohort. The classifier
+    // is the policy owner; the checks below only validate that the current
+    // covering contract actually matches the admitted cohort.
     let Some(cohort) = secondary_witness_validated_covering_cohort(plan, covering) else {
         return false;
     };
 
-    // Phase 3: require the narrow two-field layout that current runtime
-    // covering execution knows how to emit under witness-backed authority.
+    // Phase 3: require the narrow covering-source layouts that current runtime
+    // covering execution already knows how to emit under witness-backed
+    // authority.
     let Some(primary_key_slot) = model
         .fields
         .iter()
@@ -310,7 +320,7 @@ fn secondary_witness_validated_covering_eligible(
                 }
             }
             CoveringReadFieldSource::IndexComponent { component_index } => {
-                if Some(component_index) != cohort.expected_component_index() {
+                if !cohort.component_index_supported(component_index) {
                     return false;
                 }
                 component_field_count = component_field_count.saturating_add(1);
@@ -357,6 +367,9 @@ fn secondary_witness_validated_covering_cohort(
             0 if index.fields().len() == 1 => {
                 Some(SecondaryWitnessValidatedCoveringCohort::OrderOnlySingleField)
             }
+            0 if index.fields().len() == 2 => {
+                Some(SecondaryWitnessValidatedCoveringCohort::CompositeOrderOnly)
+            }
             1 if index.fields().len() == 1 => {
                 Some(SecondaryWitnessValidatedCoveringCohort::EqualityPrefixPrimaryKeyOrder)
             }
@@ -372,6 +385,7 @@ fn secondary_witness_validated_covering_cohort(
     if let Some((index, prefix_values, _, _)) = plan.access.as_index_range_path() {
         let cohort = match (index.fields().len(), prefix_values.len()) {
             (1, 0) => Some(SecondaryWitnessValidatedCoveringCohort::BoundedRangeSingleField),
+            (2, 0) => Some(SecondaryWitnessValidatedCoveringCohort::CompositeOrderOnly),
             (2, 1) => {
                 Some(SecondaryWitnessValidatedCoveringCohort::CompositeBoundedRangeSuffixOrder)
             }

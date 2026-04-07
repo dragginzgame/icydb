@@ -20,13 +20,14 @@ use crate::{
         QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::{decode_optional_cursor_token, decode_optional_grouped_cursor_token},
+        data::DataKey,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         schema::{describe_entity_model, show_indexes_for_model},
     },
     error::InternalError,
     metrics::sink::{MetricsSink, with_metrics_sink},
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
 use std::thread::LocalKey;
@@ -310,4 +311,29 @@ impl<C: CanisterKind> DbSession<C> {
     {
         SaveExecutor::new(self.db, self.debug)
     }
+}
+
+/// Remove one entity row from the authoritative data store only.
+///
+/// This hidden helper exists for stale-index test fixtures that need to keep
+/// secondary/index state intact while deleting the base row bytes.
+#[doc(hidden)]
+pub fn debug_remove_entity_row_data_only<C, E>(
+    session: &DbSession<C>,
+    key: &E::Key,
+) -> Result<bool, InternalError>
+where
+    C: CanisterKind,
+    E: PersistedRow<Canister = C> + EntityValue,
+{
+    // Phase 1: resolve the store through the recovered session boundary so
+    // the helper cannot mutate pre-recovery state.
+    let store = session.db.recovered_store(E::Store::PATH)?;
+
+    // Phase 2: remove only the raw row-store entry, leaving index state
+    // untouched so stale-row fallback tests can exercise the fail-closed path.
+    let data_key = DataKey::try_from_field_value(E::ENTITY_TAG, key)?;
+    let raw_key = data_key.to_raw()?;
+
+    Ok(store.with_data_mut(|data| data.remove(&raw_key).is_some()))
 }

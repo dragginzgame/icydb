@@ -95,6 +95,10 @@ pub(in crate::db) use projection::{
     execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
 };
 pub(in crate::db) use runtime_context::*;
+#[cfg(feature = "structural-read-metrics")]
+pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,

@@ -16,7 +16,11 @@ use crate::{
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
+    types::EntityTag,
+    value::StorageKey,
 };
+#[cfg(any(test, feature = "structural-read-metrics"))]
+use std::cell::RefCell;
 use std::ops::Bound;
 
 // -----------------------------------------------------------------------------
@@ -80,6 +84,249 @@ impl<'a> StoreResolver<'a> {
     pub(in crate::db) fn try_get_store(self, path: &str) -> Result<StoreHandle, InternalError> {
         self.lookup.try_get_store(path)
     }
+}
+
+///
+/// RowCheckMetrics
+///
+/// RowCheckMetrics aggregates one test-scoped view of the executor-owned
+/// `row_check_required` boundary for secondary covering reads.
+/// It lets perf probes separate secondary scan traversal, membership decode,
+/// and authoritative row-presence probes without changing runtime policy.
+///
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg_attr(
+    all(test, not(feature = "structural-read-metrics")),
+    allow(unreachable_pub)
+)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RowCheckMetrics {
+    pub index_entries_scanned: u64,
+    pub index_membership_single_key_entries: u64,
+    pub index_membership_multi_key_entries: u64,
+    pub index_membership_keys_decoded: u64,
+    pub row_check_covering_candidates_seen: u64,
+    pub row_check_rows_emitted: u64,
+    pub row_presence_probe_count: u64,
+    pub row_presence_probe_hits: u64,
+    pub row_presence_probe_misses: u64,
+    pub row_presence_probe_borrowed_data_store_count: u64,
+    pub row_presence_probe_store_handle_count: u64,
+    pub row_presence_key_to_raw_encodes: u64,
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+std::thread_local! {
+    static ROW_CHECK_METRICS: RefCell<Option<RowCheckMetrics>> = const {
+        RefCell::new(None)
+    };
+}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+fn update_row_check_metrics(update: impl FnOnce(&mut RowCheckMetrics)) {
+    ROW_CHECK_METRICS.with(|metrics| {
+        let mut metrics = metrics.borrow_mut();
+        let Some(metrics) = metrics.as_mut() else {
+            return;
+        };
+
+        update(metrics);
+    });
+}
+
+///
+/// RowPresenceProbeSource
+///
+/// Internal source tag for authoritative row-presence probes.
+/// This keeps metrics able to distinguish already-borrowed data-store probes
+/// from probes that still re-enter through one store handle boundary.
+///
+
+enum RowPresenceProbeSource {
+    BorrowedDataStore,
+    StoreHandle,
+}
+
+///
+/// FusedSecondaryCoveringAuthority
+///
+/// FusedSecondaryCoveringAuthority
+///
+/// Executor-owned borrowed data-store authority for stale-fallback secondary
+/// covering reads. It keeps row-visibility policy in the executor while
+/// collapsing candidate admission, authoritative existence probing, and
+/// consistency handling into one explicit boundary.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct FusedSecondaryCoveringAuthority<'a> {
+    data: &'a DataStore,
+    entity_tag: EntityTag,
+    consistency: MissingRowPolicy,
+}
+
+impl<'a> FusedSecondaryCoveringAuthority<'a> {
+    /// Construct one fused stale-row authority over one borrowed data-store
+    /// boundary and one fixed entity identity.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        data: &'a DataStore,
+        entity_tag: EntityTag,
+        consistency: MissingRowPolicy,
+    ) -> Self {
+        Self {
+            data,
+            entity_tag,
+            consistency,
+        }
+    }
+
+    /// Admit or reject one secondary covering candidate under the existing
+    /// fail-closed stale-row contract.
+    pub(in crate::db::executor) fn admits_storage_key(
+        self,
+        storage_key: StorageKey,
+    ) -> Result<bool, InternalError> {
+        // Phase 1: account for the candidate and encode one authoritative
+        // row-store key directly from the entity tag plus storage key.
+        record_row_check_covering_candidate_seen();
+        record_row_presence_probe_source(RowPresenceProbeSource::BorrowedDataStore);
+        record_row_presence_key_to_raw_encode();
+        let raw_key = DataKey::raw_from_parts(self.entity_tag, storage_key)?;
+
+        // Phase 2: probe the borrowed data-store authority and preserve the
+        // current missing-row policy exactly.
+        let row_exists = self.data.contains(&raw_key);
+        record_row_presence_probe_result(row_exists);
+
+        match self.consistency {
+            MissingRowPolicy::Error => {
+                if row_exists {
+                    Ok(true)
+                } else {
+                    Err(
+                        ExecutorError::missing_row(&DataKey::new(self.entity_tag, storage_key))
+                            .into(),
+                    )
+                }
+            }
+            MissingRowPolicy::Ignore => Ok(row_exists),
+        }
+    }
+}
+
+pub(in crate::db) fn record_row_check_index_entry_scanned() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.index_entries_scanned = metrics.index_entries_scanned.saturating_add(1);
+    });
+}
+
+pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.index_membership_single_key_entries = metrics
+            .index_membership_single_key_entries
+            .saturating_add(1);
+    });
+}
+
+pub(in crate::db) fn record_row_check_index_membership_multi_key_entry() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.index_membership_multi_key_entries =
+            metrics.index_membership_multi_key_entries.saturating_add(1);
+    });
+}
+
+pub(in crate::db) fn record_row_check_index_membership_key_decoded() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.index_membership_keys_decoded =
+            metrics.index_membership_keys_decoded.saturating_add(1);
+    });
+}
+
+pub(in crate::db) fn record_row_check_covering_candidate_seen() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.row_check_covering_candidates_seen =
+            metrics.row_check_covering_candidates_seen.saturating_add(1);
+    });
+}
+
+pub(in crate::db) fn record_row_check_row_emitted() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.row_check_rows_emitted = metrics.row_check_rows_emitted.saturating_add(1);
+    });
+}
+
+#[allow(unused_variables)]
+fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| match source {
+        RowPresenceProbeSource::BorrowedDataStore => {
+            metrics.row_presence_probe_borrowed_data_store_count = metrics
+                .row_presence_probe_borrowed_data_store_count
+                .saturating_add(1);
+        }
+        RowPresenceProbeSource::StoreHandle => {
+            metrics.row_presence_probe_store_handle_count = metrics
+                .row_presence_probe_store_handle_count
+                .saturating_add(1);
+        }
+    });
+}
+
+fn record_row_presence_key_to_raw_encode() {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.row_presence_key_to_raw_encodes =
+            metrics.row_presence_key_to_raw_encodes.saturating_add(1);
+    });
+}
+
+#[allow(unused_variables)]
+fn record_row_presence_probe_result(row_exists: bool) {
+    #[cfg(any(test, feature = "structural-read-metrics"))]
+    update_row_check_metrics(|metrics| {
+        metrics.row_presence_probe_count = metrics.row_presence_probe_count.saturating_add(1);
+        if row_exists {
+            metrics.row_presence_probe_hits = metrics.row_presence_probe_hits.saturating_add(1);
+        } else {
+            metrics.row_presence_probe_misses = metrics.row_presence_probe_misses.saturating_add(1);
+        }
+    });
+}
+
+///
+/// with_row_check_metrics
+///
+/// Run one closure while collecting executor-owned `row_check_required`
+/// metrics on the current thread, then return the closure result plus the
+/// aggregated snapshot.
+///
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
+#[cfg_attr(
+    all(test, not(feature = "structural-read-metrics")),
+    allow(unreachable_pub)
+)]
+pub fn with_row_check_metrics<T>(f: impl FnOnce() -> T) -> (T, RowCheckMetrics) {
+    ROW_CHECK_METRICS.with(|metrics| {
+        debug_assert!(
+            metrics.borrow().is_none(),
+            "row_check metrics captures should not nest"
+        );
+        *metrics.borrow_mut() = Some(RowCheckMetrics::default());
+    });
+
+    let result = f();
+    let metrics = ROW_CHECK_METRICS.with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
+
+    (result, metrics)
 }
 
 impl<'a, E> Context<'a, E>
@@ -161,7 +408,12 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
     consistency: MissingRowPolicy,
 ) -> Result<bool, InternalError> {
     store.with_data(|data| {
-        read_row_presence_with_consistency_from_data_store(data, key, consistency)
+        read_row_presence_with_consistency(
+            data,
+            key,
+            consistency,
+            RowPresenceProbeSource::StoreHandle,
+        )
     })
 }
 
@@ -174,8 +426,25 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_stor
     key: &DataKey,
     consistency: MissingRowPolicy,
 ) -> Result<bool, InternalError> {
+    read_row_presence_with_consistency(
+        data,
+        key,
+        consistency,
+        RowPresenceProbeSource::BorrowedDataStore,
+    )
+}
+
+fn read_row_presence_with_consistency(
+    data: &DataStore,
+    key: &DataKey,
+    consistency: MissingRowPolicy,
+    source: RowPresenceProbeSource,
+) -> Result<bool, InternalError> {
+    record_row_presence_probe_source(source);
+    record_row_presence_key_to_raw_encode();
     let raw = key.to_raw()?;
     let row_exists = data.contains(&raw);
+    record_row_presence_probe_result(row_exists);
 
     match consistency {
         MissingRowPolicy::Error => {
@@ -347,4 +616,136 @@ fn sum_row_payload_bytes_from_ordered_key_stream_shared(
     }
 
     Ok(total)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        FusedSecondaryCoveringAuthority, read_row_presence_with_consistency_from_data_store,
+        read_row_presence_with_consistency_from_store, with_row_check_metrics,
+    };
+    use crate::{
+        db::{
+            data::{DataKey, DataStore, RawRow},
+            index::IndexStore,
+            predicate::MissingRowPolicy,
+            registry::StoreHandle,
+        },
+        testing::test_memory,
+        types::EntityTag,
+        value::StorageKey,
+    };
+    use std::cell::RefCell;
+
+    thread_local! {
+        static TEST_RUNTIME_CONTEXT_DATA_STORE: RefCell<DataStore> =
+            RefCell::new(DataStore::init(test_memory(171)));
+        static TEST_RUNTIME_CONTEXT_INDEX_STORE: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init(test_memory(172)));
+    }
+
+    fn test_key() -> DataKey {
+        DataKey::new(EntityTag::new(17), StorageKey::Uint(41))
+    }
+
+    fn reset_test_store() {
+        let raw_key = test_key().to_raw().expect("test key should encode");
+        let raw_row = RawRow::try_new(vec![0xAA]).expect("test raw row should encode");
+
+        TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow_mut(|store| {
+            store.clear();
+            let _ = store.insert_raw_for_test(raw_key, raw_row);
+        });
+    }
+
+    fn test_store_handle() -> StoreHandle {
+        StoreHandle::new(
+            &TEST_RUNTIME_CONTEXT_DATA_STORE,
+            &TEST_RUNTIME_CONTEXT_INDEX_STORE,
+        )
+    }
+
+    #[test]
+    fn row_check_metrics_distinguish_borrowed_data_store_probes() {
+        reset_test_store();
+        let key = test_key();
+
+        let (row_exists, metrics) = with_row_check_metrics(|| {
+            TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow(|store| {
+                read_row_presence_with_consistency_from_data_store(
+                    store,
+                    &key,
+                    MissingRowPolicy::Error,
+                )
+                .expect("borrowed row-presence probe should succeed")
+            })
+        });
+
+        assert!(row_exists, "borrowed probe should find the inserted row");
+        assert_eq!(metrics.row_presence_probe_count, 1);
+        assert_eq!(metrics.row_presence_probe_hits, 1);
+        assert_eq!(metrics.row_presence_probe_misses, 0);
+        assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 1);
+        assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
+    }
+
+    #[test]
+    fn row_check_metrics_distinguish_store_handle_probes() {
+        reset_test_store();
+        let key = test_key();
+
+        let (row_exists, metrics) = with_row_check_metrics(|| {
+            read_row_presence_with_consistency_from_store(
+                test_store_handle(),
+                &key,
+                MissingRowPolicy::Error,
+            )
+            .expect("store-handle row-presence probe should succeed")
+        });
+
+        assert!(
+            row_exists,
+            "store-handle probe should find the inserted row"
+        );
+        assert_eq!(metrics.row_presence_probe_count, 1);
+        assert_eq!(metrics.row_presence_probe_hits, 1);
+        assert_eq!(metrics.row_presence_probe_misses, 0);
+        assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
+        assert_eq!(metrics.row_presence_probe_store_handle_count, 1);
+        assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
+    }
+
+    #[test]
+    fn fused_secondary_covering_authority_tracks_candidate_and_probe_metrics() {
+        reset_test_store();
+
+        let (row_exists, metrics) = with_row_check_metrics(|| {
+            TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow(|store| {
+                FusedSecondaryCoveringAuthority::new(
+                    store,
+                    EntityTag::new(17),
+                    MissingRowPolicy::Error,
+                )
+                .admits_storage_key(StorageKey::Uint(41))
+                .expect("fused secondary covering probe should succeed")
+            })
+        });
+
+        assert!(
+            row_exists,
+            "fused secondary covering probe should find the inserted row"
+        );
+        assert_eq!(metrics.row_check_covering_candidates_seen, 1);
+        assert_eq!(metrics.row_presence_probe_count, 1);
+        assert_eq!(metrics.row_presence_probe_hits, 1);
+        assert_eq!(metrics.row_presence_probe_misses, 0);
+        assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 1);
+        assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
+    }
 }

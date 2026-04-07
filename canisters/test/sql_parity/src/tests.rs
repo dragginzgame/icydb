@@ -1,6 +1,8 @@
 mod tests {
     use super::{
         Customer, CustomerAccount, CustomerOrder, SqlQueryResult, db, fixtures_load_default,
+        fixtures_make_customer_name_order_stale,
+        perf::{SqlPerfRequest, SqlPerfSurface, sample_sql_surface},
         sql_dispatch,
     };
     use candid::encode_one;
@@ -45,6 +47,13 @@ mod tests {
         fixtures_load_default().expect("fixture reload should succeed");
     }
 
+    fn reload_default_fixtures_with_customer_name_stale() {
+        reload_default_fixtures();
+        ensure_sql_test_memory_range();
+        fixtures_make_customer_name_order_stale()
+            .expect("stale Customer name-order fixture mutation should succeed");
+    }
+
     fn typed_result_for_sql_as<E>(sql: &str) -> SqlQueryResult
     where
         E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
@@ -67,6 +76,17 @@ mod tests {
 
     fn typed_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
         typed_result_for_sql_unchecked_as::<Customer>(sql)
+    }
+
+    fn perf_sample(surface: SqlPerfSurface, sql: &str) -> super::perf::SqlPerfSample {
+        reload_default_fixtures();
+        sample_sql_surface(SqlPerfRequest {
+            surface,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect("sql perf sample should succeed")
     }
 
     // Compare one sql_dispatch lane payload against the typed `execute_sql_dispatch` path.
@@ -421,6 +441,154 @@ mod tests {
                 && explain.contains("cov_scan_reason=Text(\"order_mat\")")
                 && explain.contains("scan_dir=Text(\"desc\")"),
             "descending expression-order explain should report the non-covering materialized projection route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_order_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer expression key-only order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_order_explain_matches_typed_surface() {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer expression key-only order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_order_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain =
+            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2");
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\")])"),
+            "Customer expression key-only order explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "Customer expression key-only order explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_order_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression key-only order projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_order_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression key-only order EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_order_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain =
+            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2");
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\")])"),
+            "descending Customer expression key-only order explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending Customer expression key-only order explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer expression key-only strict text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep Customer expression key-only strict text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\")])"),
+            "Customer expression key-only strict text-range explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "Customer expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed(
+            "SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression key-only strict text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression key-only strict text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\")])"),
+            "descending Customer expression key-only strict text-range explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending Customer expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
         );
     }
 
@@ -799,6 +967,28 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_customer_order_order_only_composite_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "CustomerOrder order-only composite explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "CustomerOrder order-only composite explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_customer_order_order_only_composite_desc_projection_matches_typed_surface()
     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
@@ -812,6 +1002,28 @@ mod tests {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder order-only composite covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_order_only_composite_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "descending CustomerOrder order-only composite explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerOrder order-only composite explain should report the witness-backed row mode: {explain}",
         );
     }
 
@@ -1508,6 +1720,44 @@ mod tests {
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")"),
             "CustomerAccount filtered composite expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_projection_matches_typed_surface()
+     {
+        assert_dispatch_result_matches_typed_as::<CustomerAccount>(
+            "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression key-only strict text-range projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_explain_matches_typed_surface()
+     {
+        assert_dispatch_matches_typed_as::<CustomerAccount>(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered composite expression key-only strict text-range EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_explain_reports_witness_validated_route()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"tier\")])"),
+            "descending CustomerAccount filtered composite expression key-only strict text-range explain should expose the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            "descending CustomerAccount filtered composite expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
         );
     }
 
@@ -2859,6 +3109,179 @@ mod tests {
 
         assert!(
             gold_handles == BTreeSet::from(["bravo".to_string(), "bristle".to_string()])
+        );
+    }
+
+    #[test]
+    fn customer_name_order_perf_surface_keeps_row_check_metrics_zero_in_parity() {
+        let sql = "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2";
+        let generated = perf_sample(SqlPerfSurface::GeneratedDispatch, sql);
+        let typed = perf_sample(SqlPerfSurface::TypedDispatchCustomer, sql);
+
+        assert!(
+            generated.outcome.success,
+            "generated Customer name-order perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed Customer name-order perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(2),
+            "generated Customer name-order perf sample should return the requested window",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(2),
+            "typed Customer name-order perf sample should return the requested window",
+        );
+
+        let generated_metrics = generated
+            .outcome
+            .row_check_metrics
+            .expect("generated Customer name-order perf sample should attach row_check metrics");
+        let typed_metrics = typed
+            .outcome
+            .row_check_metrics
+            .expect("typed Customer name-order perf sample should attach row_check metrics");
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen,
+            0,
+            "generated Customer name-order perf sample should not enter the row_check covering candidate lane on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count,
+            0,
+            "generated Customer name-order perf sample should not execute row-presence probes on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits,
+            0,
+            "generated Customer name-order perf sample should not execute row-presence probes on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses,
+            0,
+            "generated Customer name-order perf sample should not hit stale-row misses on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count,
+            0,
+            "generated Customer name-order perf sample should not route through the borrowed data-store row-check helper on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count,
+            0,
+            "generated Customer name-order perf sample should not bounce through the store-handle row-presence helper on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes,
+            0,
+            "generated Customer name-order perf sample should not encode row-check primary keys on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted,
+            0,
+            "generated Customer name-order perf sample should not report row_check-emitted rows on the witness-backed default fixture set",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed Customer name-order perf samples should keep row_check metrics in parity",
+        );
+    }
+
+    #[test]
+    fn customer_name_order_stale_perf_surface_reports_row_check_metrics_in_parity() {
+        let sql = "SELECT name FROM Customer ORDER BY name ASC LIMIT 2";
+        reload_default_fixtures_with_customer_name_stale();
+        let generated = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect("generated stale sql perf sample should succeed");
+        let typed = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::TypedDispatchCustomer,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect("typed stale sql perf sample should succeed");
+
+        assert!(
+            generated.outcome.success,
+            "generated stale Customer name-order perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale Customer name-order perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale Customer name-order perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale Customer name-order perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated
+            .outcome
+            .row_check_metrics
+            .expect("generated stale Customer name-order perf sample should attach row_check metrics");
+        let typed_metrics = typed
+            .outcome
+            .row_check_metrics
+            .expect("typed stale Customer name-order perf sample should attach row_check metrics");
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen,
+            2,
+            "generated stale Customer name-order perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count,
+            2,
+            "generated stale Customer name-order perf sample should execute one authoritative probe per decoded secondary candidate",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits,
+            1,
+            "generated stale Customer name-order perf sample should find exactly one live row in the scanned window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses,
+            1,
+            "generated stale Customer name-order perf sample should report the missing leading base row",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count,
+            2,
+            "generated stale Customer name-order perf sample should keep stale-row checks on the borrowed data-store authority boundary",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count,
+            0,
+            "generated stale Customer name-order perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes,
+            2,
+            "generated stale Customer name-order perf sample should encode one authoritative row key per candidate",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted,
+            1,
+            "generated stale Customer name-order perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale Customer name-order perf samples should keep row_check metrics in parity",
         );
     }
 }

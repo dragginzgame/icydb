@@ -27,6 +27,7 @@ use crate::{
         },
         registry::StoreRegistry,
         response::EntityResponse,
+        with_row_check_metrics,
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
@@ -542,6 +543,24 @@ fn remove_composite_indexed_session_sql_row_data(id: u128) {
     });
 }
 
+// Remove one expression indexed SQL fixture row from the primary store while
+// preserving the `LOWER(name)` secondary index entry so store-backed witness
+// routes can validate stale-key fallback.
+fn remove_expression_indexed_session_sql_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<ExpressionIndexedSessionSqlEntity>(Ulid::from_u128(id))
+        .expect("expression indexed SQL fixture data key should build")
+        .to_raw()
+        .expect("expression indexed SQL fixture data key should encode");
+
+    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected expression indexed SQL fixture row to exist before data-only removal",
+        );
+    });
+}
+
 #[test]
 fn session_select_one_returns_constant_without_execution_metrics() {
     let session = sql_session();
@@ -771,6 +790,18 @@ where
             "projection row dispatch only supports row-producing SELECT or DELETE statements",
         )),
     }
+}
+
+fn dispatch_projection_rows_with_row_check_metrics<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> Result<(Vec<Vec<Value>>, crate::db::RowCheckMetrics), QueryError>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let (result, metrics) = with_row_check_metrics(|| dispatch_projection_rows::<E>(session, sql));
+
+    result.map(|rows| (rows, metrics))
 }
 
 fn dispatch_explain_sql<E>(
@@ -5219,6 +5250,161 @@ fn session_explain_execution_filtered_composite_expression_text_range_query_uses
 }
 
 #[test]
+fn session_explain_execution_filtered_composite_expression_key_only_strict_text_range_query_uses_covering_read_route()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so the key-only bounded
+    // sibling can prove true covering eligibility on the same equality-prefix
+    // expression route.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require query-builder explain to stay conservative while still
+    // surfacing the covering-read route for the narrower `(id, tier)` projection.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+        )
+        .expect("filtered composite expression key-only strict text-range SQL query should lower")
+        .explain_execution()
+        .expect(
+            "filtered composite expression key-only strict text-range SQL explain_execution should succeed",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "guarded filtered composite expression key-only strict text-range queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "guarded filtered composite expression key-only strict text-range queries should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "guarded filtered composite expression key-only strict text-range explain roots should expose the covering-read route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "guarded filtered composite expression key-only strict text-range explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "guarded filtered composite expression key-only strict text-range explain roots should expose the concrete equality-prefix value",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect(
+                "guarded filtered composite expression key-only strict text-range explain should emit a covering-read node",
+            );
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![
+            Value::Text("id".to_string()),
+            Value::Text("tier".to_string()),
+        ])),
+        "guarded filtered composite expression key-only strict text-range covering nodes should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "query-builder filtered composite expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "guarded filtered composite expression key-only strict text-range explain roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_filtered_composite_expression_key_only_strict_text_range_desc_query_uses_covering_read_route()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed the guarded mixed-case dataset so the descending bounded
+    // sibling stays on the same honest filtered composite covering family.
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    // Phase 2: require query-builder explain to stay conservative while still
+    // surfacing the reverse covering-read route for the narrower projection.
+    let descriptor = session
+        .query_from_sql::<FilteredIndexedSessionSqlEntity>(
+            "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "descending filtered composite expression key-only strict text-range SQL query should lower",
+        )
+        .explain_execution()
+        .expect(
+            "descending filtered composite expression key-only strict text-range SQL explain_execution should succeed",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending guarded filtered composite expression key-only strict text-range queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "descending guarded filtered composite expression key-only strict text-range queries should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "descending guarded filtered composite expression key-only strict text-range explain roots should expose the covering-read route label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_len"),
+        Some(&Value::Uint(1)),
+        "descending guarded filtered composite expression key-only strict text-range explain roots should report one equality-prefix slot",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::Text("gold".to_string())])),
+        "descending guarded filtered composite expression key-only strict text-range explain roots should expose the concrete equality-prefix value",
+    );
+    let projection_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::CoveringRead,
+    )
+    .expect(
+        "descending guarded filtered composite expression key-only strict text-range explain should emit a covering-read node",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![
+            Value::Text("id".to_string()),
+            Value::Text("tier".to_string()),
+        ])),
+        "descending guarded filtered composite expression key-only strict text-range covering nodes should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "descending query-builder filtered composite expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending guarded filtered composite expression key-only strict text-range explain roots should report access-satisfied LOWER(handle) ordering",
+    );
+}
+
+#[test]
 fn session_explain_execution_order_only_composite_covering_query_uses_index_range_access() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -5258,6 +5444,14 @@ fn session_explain_execution_order_only_composite_covering_query_uses_index_rang
         descriptor.node_properties().get("cov_read_route"),
         Some(&Value::Text("covering_read".to_string())),
         "order-only composite explain roots should expose the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("order-only composite explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "query-builder order-only composite covering nodes should stay conservative without store-backed witness promotion",
     );
     assert!(
         explain_execution_find_first_node(
@@ -5314,6 +5508,16 @@ fn session_explain_execution_order_only_composite_desc_covering_query_uses_index
         Some(true),
         "descending order-only composite coverable projections should keep the explicit covering-read route",
     );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect(
+                "descending order-only composite explain tree should emit a covering-read node",
+            );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "descending query-builder order-only composite covering nodes should stay conservative without store-backed witness promotion",
+    );
     assert_eq!(
         descriptor.node_properties().get("cov_read_route"),
         Some(&Value::Text("covering_read".to_string())),
@@ -5334,6 +5538,87 @@ fn session_explain_execution_order_only_composite_desc_covering_query_uses_index
         )
         .is_some(),
         "descending order-only composite index-range roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_composite_covering_query_reverts_after_stale_row_mutation()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset, then corrupt
+    // the leading row so the witness-backed composite order-only route must
+    // fall back to explicit row-presence checks.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_241_u128, "alpha", 2),
+            (9_242, "alpha", 1),
+            (9_243, "beta", 1),
+        ],
+    );
+    remove_composite_indexed_session_sql_row_data(9_242);
+
+    // Phase 2: require the stale mutation to drop the order-only composite
+    // route back to row-check-required instead of silently retaining witness
+    // authority.
+    let descriptor = session
+        .query_from_sql::<CompositeIndexedSessionSqlEntity>(
+            "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2",
+        )
+        .expect("stale composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("stale composite order-only covering SQL explain_execution should succeed");
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("stale order-only composite explain tree should emit a covering-read node");
+
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "stale composite order-only covering nodes must fall back to row-check-required",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_composite_desc_covering_query_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset, then corrupt a
+    // row so the descending witness-backed route must also drop back to the
+    // explicit row-check path.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_251_u128, "alpha", 2),
+            (9_252, "alpha", 1),
+            (9_253, "beta", 1),
+        ],
+    );
+    remove_composite_indexed_session_sql_row_data(9_252);
+
+    // Phase 2: require descending EXPLAIN EXECUTION to report the degraded
+    // existing-row mode after the stale-row mutation.
+    let descriptor = session
+        .query_from_sql::<CompositeIndexedSessionSqlEntity>(
+            "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code DESC, serial DESC, id DESC LIMIT 2",
+        )
+        .expect("stale descending composite order-only covering SQL query should lower")
+        .explain_execution()
+        .expect("stale descending composite order-only covering SQL explain_execution should succeed");
+    let projection_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::CoveringRead,
+    )
+    .expect("stale descending order-only composite explain tree should emit a covering-read node");
+
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "stale descending composite order-only covering nodes must fall back to row-check-required",
     );
 }
 
@@ -5570,6 +5855,279 @@ fn session_explain_execution_order_only_expression_query_uses_index_range_access
 }
 
 #[test]
+fn session_explain_execution_order_only_expression_key_only_query_uses_covering_read_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so the key-only
+    // expression-order sibling can prove true covering eligibility without
+    // claiming original `name` reconstruction from the lowered key.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_261_u128, "sam", 10),
+            (9_262, "Alex", 20),
+            (9_263, "bob", 30),
+        ],
+    );
+
+    // Phase 2: require query-builder explain to stay conservative while still
+    // surfacing the covering-read route for the `id`-only projection.
+    let descriptor = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect("expression key-only order SQL query should lower")
+        .explain_execution()
+        .expect("expression key-only order SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "expression key-only order queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "expression key-only order queries should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "expression key-only order explain roots should expose the covering-read route label",
+    );
+    let projection_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .expect("expression key-only order explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "expression key-only order covering nodes should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "query-builder expression key-only order explain must stay conservative without store-backed witness promotion",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "expression key-only order explain roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_expression_key_only_desc_query_uses_covering_read_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so the descending
+    // key-only expression-order sibling stays on the same honest covering
+    // family.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_264_u128, "sam", 10),
+            (9_265, "Alex", 20),
+            (9_266, "bob", 30),
+        ],
+    );
+
+    // Phase 2: require query-builder explain to surface the covering route
+    // while still staying conservative on existing-row authority.
+    let descriptor = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        )
+        .expect("descending expression key-only order SQL query should lower")
+        .explain_execution()
+        .expect("descending expression key-only order SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending expression key-only order queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "descending expression key-only order queries should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "descending expression key-only order explain roots should expose the covering-read route label",
+    );
+    let projection_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::CoveringRead,
+    )
+    .expect("descending expression key-only order explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "descending expression key-only order covering nodes should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "descending query-builder expression key-only order explain must stay conservative without store-backed witness promotion",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending expression key-only order explain roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_expression_key_only_strict_text_range_query_uses_covering_read_route()
+{
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so the bounded
+    // expression-key sibling can prove true covering eligibility without
+    // claiming original `name` reconstruction from the lowered key.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_267_u128, "sam", 10),
+            (9_268, "Alex", 20),
+            (9_269, "amy", 30),
+            (9_270, "bob", 40),
+        ],
+    );
+
+    // Phase 2: require query-builder explain to stay conservative while still
+    // surfacing the covering-read route for the bounded `id`-only projection.
+    let descriptor = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+        )
+        .expect("expression key-only strict text-range SQL query should lower")
+        .explain_execution()
+        .expect("expression key-only strict text-range SQL explain_execution should succeed");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "expression key-only strict text-range queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "expression key-only strict text-range queries should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "expression key-only strict text-range explain roots should expose the covering-read route label",
+    );
+    let projection_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::CoveringRead,
+    )
+    .expect("expression key-only strict text-range explain tree should emit a covering-read node");
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "expression key-only strict text-range covering nodes should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "query-builder expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "expression key-only strict text-range explain roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_expression_key_only_strict_text_range_desc_query_uses_covering_read_route()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic mixed-case dataset so the descending
+    // bounded expression-key sibling stays on the same honest covering family.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_271_u128, "sam", 10),
+            (9_272, "Alex", 20),
+            (9_273, "amy", 30),
+            (9_274, "bob", 40),
+        ],
+    );
+
+    // Phase 2: require query-builder explain to surface the covering route
+    // while still staying conservative on existing-row authority.
+    let descriptor = session
+        .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
+            "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+        )
+        .expect("descending expression key-only strict text-range SQL query should lower")
+        .explain_execution()
+        .expect(
+            "descending expression key-only strict text-range SQL explain_execution should succeed",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending expression key-only strict text-range queries should stay on the shared index-range root",
+    );
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "descending expression key-only strict text-range queries should expose the explicit covering-read route",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("cov_read_route"),
+        Some(&Value::Text("covering_read".to_string())),
+        "descending expression key-only strict text-range explain roots should expose the covering-read route label",
+    );
+    let projection_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::CoveringRead,
+    )
+    .expect(
+        "descending expression key-only strict text-range explain tree should emit a covering-read node",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("covering_fields"),
+        Some(&Value::List(vec![Value::Text("id".to_string())])),
+        "descending expression key-only strict text-range covering nodes should expose the projected field list",
+    );
+    assert_eq!(
+        projection_node.node_properties().get("existing_row_mode"),
+        Some(&Value::Text("row_check_required".to_string())),
+        "descending query-builder expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending expression key-only strict text-range explain roots should report access-satisfied ordering",
+    );
+}
+
+#[test]
 fn session_sql_expression_order_without_matching_index_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();
@@ -5759,6 +6317,53 @@ fn execute_sql_projection_index_coverable_secondary_order_field_skips_stale_rows
         entity_projected_rows, projected_rows,
         "covering secondary-order SQL projection should preserve stale-key parity",
     );
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_secondary_order_field_stale_path_reports_row_check_metrics()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_101_u128, "alice", 10_u64),
+        (9_102, "bob", 20),
+        (9_103, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order metrics fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_101);
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<IndexedSessionSqlEntity>(
+            &session,
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+        )
+        .expect("stale secondary-order covering projection query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![Value::Text("bob".to_string())]],
+        "stale secondary-order covering projection should consume scan budget on the stale leading key before emitting the first live row",
+    );
+    assert_eq!(metrics.index_entries_scanned, 2);
+    assert_eq!(metrics.index_membership_single_key_entries, 2);
+    assert_eq!(metrics.index_membership_multi_key_entries, 0);
+    assert_eq!(metrics.index_membership_keys_decoded, 2);
+    assert_eq!(metrics.row_check_covering_candidates_seen, 2);
+    assert_eq!(metrics.row_check_rows_emitted, 1);
+    assert_eq!(metrics.row_presence_probe_count, 2);
+    assert_eq!(metrics.row_presence_probe_hits, 1);
+    assert_eq!(metrics.row_presence_probe_misses, 1);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 2);
+    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 2);
 }
 
 #[test]
@@ -6059,6 +6664,318 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_desc_is
 }
 
 #[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_order_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_137_u128, "sam", 10_u64),
+        (9_138, "Alex", 20),
+        (9_139, "bob", 30),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("expression key-only witness fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+    )
+    .expect("witness-backed expression key-only order EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized expression key-only order EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed expression key-only order EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_order_desc_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_140_u128, "sam", 10_u64),
+        (9_141, "Alex", 20),
+        (9_142, "bob", 30),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("descending expression key-only witness fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+    )
+    .expect("descending witness-backed expression key-only order EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized descending expression key-only order EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "descending witness-backed expression key-only order EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_order_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_143_u128, "sam", 10_u64),
+        (9_144, "Alex", 20),
+        (9_145, "bob", 30),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("stale expression key-only witness fixture insert should succeed");
+    }
+    remove_expression_indexed_session_sql_row_data(9_144);
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+    )
+    .expect("stale expression key-only order EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop expression key-only order EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the expression key-only witness-backed route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_order_desc_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_146_u128, "sam", 10_u64),
+        (9_147, "Alex", 20),
+        (9_148, "bob", 30),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("stale descending expression key-only witness fixture insert should succeed");
+    }
+    remove_expression_indexed_session_sql_row_data(9_147);
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+    )
+    .expect("stale descending expression key-only order EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop descending expression key-only order EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the descending expression key-only witness-backed route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_149_u128, "sam", 10_u64),
+        (9_150, "Alex", 20),
+        (9_151, "amy", 30),
+        (9_152, "bob", 40),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("expression key-only strict text-range witness fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+    )
+    .expect("witness-backed expression key-only strict text-range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized expression key-only strict text-range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed expression key-only strict text-range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_desc_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_153_u128, "sam", 10_u64),
+        (9_154, "Alex", 20),
+        (9_155, "amy", 30),
+        (9_156, "bob", 40),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect(
+                "descending expression key-only strict text-range witness fixture insert should succeed",
+            );
+    }
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "descending witness-backed expression key-only strict text-range EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized descending expression key-only strict text-range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "descending witness-backed expression key-only strict text-range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_157_u128, "sam", 10_u64),
+        (9_158, "Alex", 20),
+        (9_159, "amy", 30),
+        (9_160, "bob", 40),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect(
+                "stale expression key-only strict text-range witness fixture insert should succeed",
+            );
+    }
+    remove_expression_indexed_session_sql_row_data(9_158);
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
+    )
+    .expect("stale expression key-only strict text-range EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop expression key-only strict text-range EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the expression key-only strict text-range witness-backed route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_desc_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_161_u128, "sam", 10_u64),
+        (9_162, "Alex", 20),
+        (9_163, "amy", 30),
+        (9_164, "bob", 40),
+    ] {
+        session
+            .insert(ExpressionIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect(
+                "stale descending expression key-only strict text-range witness fixture insert should succeed",
+            );
+    }
+    remove_expression_indexed_session_sql_row_data(9_162);
+
+    let explain = dispatch_explain_sql::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "stale descending expression key-only strict text-range EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop descending expression key-only strict text-range EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the descending expression key-only strict text-range witness-backed route: {explain}",
+    );
+}
+
+#[test]
 fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_order_field_is_witness_validated()
  {
     reset_indexed_session_sql_store();
@@ -6140,6 +7057,89 @@ fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only
 }
 
 #[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_range_field_desc_is_witness_validated()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "descending witness-backed filtered composite expression key-only range EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized descending filtered composite expression key-only range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "descending witness-backed filtered composite expression key-only range EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_range_field_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+    remove_filtered_indexed_session_sql_row_data(9_232);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
+    )
+    .expect(
+        "stale filtered composite expression key-only range EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop filtered composite expression key-only range EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the filtered composite expression key-only range witness-backed route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_range_field_desc_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_filtered_expression_indexed_session_sql_entities(&session);
+    remove_filtered_indexed_session_sql_row_data(9_233);
+
+    let explain = dispatch_explain_sql::<FilteredIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "stale descending filtered composite expression key-only range EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop descending filtered composite expression key-only range EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the descending filtered composite expression key-only range witness-backed route: {explain}",
+    );
+}
+
+#[test]
 fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only_direct_starts_with_field_is_witness_validated()
  {
     reset_indexed_session_sql_store();
@@ -6163,6 +7163,157 @@ fn execute_sql_dispatch_explain_execution_filtered_composite_expression_key_only
     assert!(
         !explain.contains("row_check_required"),
         "witness-backed filtered composite expression key-only direct STARTS_WITH EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_order_only_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_240_u128, "alpha", 2_u64),
+        (9_241, "alpha", 1),
+        (9_242, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect("composite order-only witness fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2",
+    )
+    .expect("witness-backed composite order-only EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized composite order-only EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "witness-backed composite order-only EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_order_only_desc_is_witness_validated() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_243_u128, "alpha", 2_u64),
+        (9_244, "alpha", 1),
+        (9_245, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect("descending composite order-only witness fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code DESC, serial DESC, id DESC LIMIT 2",
+    )
+    .expect("descending witness-backed composite order-only EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "store-synchronized descending composite order-only EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "descending witness-backed composite order-only EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_order_only_reverts_after_stale_row_mutation() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_246_u128, "alpha", 2_u64),
+        (9_247, "alpha", 1),
+        (9_248, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect("stale composite order-only witness fixture insert should succeed");
+    }
+    remove_composite_indexed_session_sql_row_data(9_247);
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2",
+    )
+    .expect("stale composite order-only EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop composite order-only EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the composite order-only witness-backed route: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_order_only_desc_reverts_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_249_u128, "alpha", 2_u64),
+        (9_250, "alpha", 1),
+        (9_251, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect("stale descending composite order-only witness fixture insert should succeed");
+    }
+    remove_composite_indexed_session_sql_row_data(9_250);
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code DESC, serial DESC, id DESC LIMIT 2",
+    )
+    .expect("stale descending composite order-only EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "stale-row mutation should drop descending composite order-only EXPLAIN EXECUTION back to row-check mode: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "stale-row mutation should invalidate the descending composite order-only witness-backed route: {explain}",
     );
 }
 

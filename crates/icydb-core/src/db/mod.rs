@@ -63,6 +63,9 @@ pub use data::{
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]
 pub use data::{StructuralReadMetrics, with_structural_read_metrics};
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[allow(unused_imports)]
+pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals, StorageReport,
@@ -70,6 +73,12 @@ pub use diagnostics::{
 #[doc(hidden)]
 pub use executor::EntityAuthority;
 pub use executor::MutationMode;
+#[cfg(feature = "structural-read-metrics")]
+#[doc(hidden)]
+pub use executor::{RowCheckMetrics, with_row_check_metrics};
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+#[allow(unused_imports)]
+pub(crate) use executor::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 #[doc(hidden)]
 pub use executor::{
@@ -118,7 +127,10 @@ pub use schema::{
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
 #[cfg(feature = "sql")]
-pub use session::{DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute};
+pub use session::{
+    DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
+    debug_remove_entity_row_data_only,
+};
 #[cfg(feature = "sql")]
 pub use sql::identifier::{
     identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,

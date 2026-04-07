@@ -11,6 +11,11 @@ use crate::{
         },
         data::DataKey,
         direction::Direction,
+        executor::{
+            record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
+            record_row_check_index_membership_multi_key_entry,
+            record_row_check_index_membership_single_key_entry,
+        },
         index::{
             IndexKey,
             entry::RawIndexEntry,
@@ -426,6 +431,8 @@ impl IndexStore {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
+        record_row_check_index_entry_scanned();
+
         // Phase 1: only decode raw key components when an index-only
         // predicate needs them. Plain membership scans only need the entry
         // payload, so they should not pay raw-key decode on every hit.
@@ -443,6 +450,8 @@ impl IndexStore {
             .decode_single_key()
             .map_err(InternalError::index_entry_decode_failed)?
         {
+            record_row_check_index_membership_single_key_entry();
+            record_row_check_index_membership_key_decoded();
             out.push(DataKey::new(entity, storage_key));
 
             if let Some(limit) = limit
@@ -459,6 +468,7 @@ impl IndexStore {
         // returning to the caller.
         let mut halted = false;
         let mut decoded_keys = 0usize;
+        record_row_check_index_membership_multi_key_entry();
         let mut storage_keys = value
             .iter_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
@@ -466,6 +476,7 @@ impl IndexStore {
         for storage_key in &mut storage_keys {
             let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
             decoded_keys = decoded_keys.saturating_add(1);
+            record_row_check_index_membership_key_decoded();
 
             if halted {
                 continue;
@@ -499,6 +510,8 @@ impl IndexStore {
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
+        record_row_check_index_entry_scanned();
+
         // Phase 1: decode the raw key once, extract every requested component,
         // and evaluate any optional index-only predicate against that one
         // decoded key view.
@@ -527,6 +540,8 @@ impl IndexStore {
             .decode_single_key()
             .map_err(InternalError::index_entry_decode_failed)?
         {
+            record_row_check_index_membership_single_key_entry();
+            record_row_check_index_membership_key_decoded();
             out.push((DataKey::new(entity, storage_key), components));
 
             if let Some(limit) = limit
@@ -543,6 +558,7 @@ impl IndexStore {
         // returning to the caller.
         let mut halted = false;
         let mut decoded_keys = 0usize;
+        record_row_check_index_membership_multi_key_entry();
         let mut storage_keys = value
             .iter_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
@@ -550,6 +566,7 @@ impl IndexStore {
         for storage_key in &mut storage_keys {
             let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
             decoded_keys = decoded_keys.saturating_add(1);
+            record_row_check_index_membership_key_decoded();
 
             if halted {
                 continue;
@@ -587,6 +604,8 @@ impl IndexStore {
     where
         C: SingleComponentCoveringCollector<T>,
     {
+        record_row_check_index_entry_scanned();
+
         // Phase 1: extract the requested component and evaluate any optional
         // index-only predicate. When no predicate needs the full decoded key,
         // validate and read only the requested component segment.
@@ -631,6 +650,8 @@ impl IndexStore {
             .decode_single_key()
             .map_err(InternalError::index_entry_decode_failed)?
         {
+            record_row_check_index_membership_single_key_entry();
+            record_row_check_index_membership_key_decoded();
             collector.push(storage_key, component, out)?;
             *scanned = scanned.saturating_add(1);
             if *scanned == limit {
@@ -645,6 +666,7 @@ impl IndexStore {
         // the full entry before returning.
         let mut halted = false;
         let mut decoded_keys = 0usize;
+        record_row_check_index_membership_multi_key_entry();
         let mut storage_keys = value
             .iter_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
@@ -652,6 +674,7 @@ impl IndexStore {
         for storage_key in &mut storage_keys {
             let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
             decoded_keys = decoded_keys.saturating_add(1);
+            record_row_check_index_membership_key_decoded();
 
             if halted {
                 continue;
@@ -683,6 +706,7 @@ mod tests {
         db::{
             data::{DataKey, StorageKey},
             index::{RawIndexEntry, RawIndexKey},
+            with_row_check_metrics,
         },
         error::ErrorClass,
         model::index::IndexModel,
@@ -724,6 +748,38 @@ mod tests {
     }
 
     #[test]
+    fn decode_index_entry_and_push_records_single_key_row_check_metrics() {
+        let entity = EntityTag::new(7);
+        let raw_key = RawIndexKey::from_bytes(Cow::Owned(vec![0xFF]));
+        let raw_entry =
+            RawIndexEntry::try_from_keys([StorageKey::Uint(11)]).expect("encode index entry");
+
+        let ((halted, out), metrics) = with_row_check_metrics(|| {
+            let mut out = Vec::new();
+            let halted = IndexStore::decode_index_entry_and_push(
+                entity,
+                &TEST_SCAN_INDEX,
+                &raw_key,
+                &raw_entry,
+                &mut out,
+                Some(1),
+                "test scan",
+                None,
+            )
+            .expect("single-key scan should succeed");
+
+            (halted, out)
+        });
+
+        assert!(halted, "bounded single-row scan should stop at the limit");
+        assert_eq!(out, vec![DataKey::new(entity, StorageKey::Uint(11))]);
+        assert_eq!(metrics.index_entries_scanned, 1);
+        assert_eq!(metrics.index_membership_single_key_entries, 1);
+        assert_eq!(metrics.index_membership_multi_key_entries, 0);
+        assert_eq!(metrics.index_membership_keys_decoded, 1);
+    }
+
+    #[test]
     fn decode_index_entry_and_push_limit_still_validates_full_multi_key_entry() {
         let entity = EntityTag::new(7);
         let raw_key = RawIndexKey::from_bytes(Cow::Owned(vec![0xFF]));
@@ -748,5 +804,43 @@ mod tests {
         .expect_err("bounded multi-key scan must still reject duplicate membership corruption");
 
         assert_eq!(err.class(), ErrorClass::Corruption);
+    }
+
+    #[test]
+    fn decode_index_entry_and_push_records_multi_key_row_check_metrics() {
+        let entity = EntityTag::new(7);
+        let raw_key = RawIndexKey::from_bytes(Cow::Owned(vec![0xFF]));
+        let raw_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(11), StorageKey::Uint(12)])
+            .expect("encode multi-key entry");
+
+        let ((halted, out), metrics) = with_row_check_metrics(|| {
+            let mut out = Vec::new();
+            let halted = IndexStore::decode_index_entry_and_push(
+                entity,
+                &TEST_SCAN_INDEX,
+                &raw_key,
+                &raw_entry,
+                &mut out,
+                Some(2),
+                "test scan",
+                None,
+            )
+            .expect("multi-key scan should succeed");
+
+            (halted, out)
+        });
+
+        assert!(halted, "bounded multi-key scan should stop at the limit");
+        assert_eq!(
+            out,
+            vec![
+                DataKey::new(entity, StorageKey::Uint(11)),
+                DataKey::new(entity, StorageKey::Uint(12)),
+            ],
+        );
+        assert_eq!(metrics.index_entries_scanned, 1);
+        assert_eq!(metrics.index_membership_single_key_entries, 0);
+        assert_eq!(metrics.index_membership_multi_key_entries, 1);
+        assert_eq!(metrics.index_membership_keys_decoded, 2);
     }
 }
