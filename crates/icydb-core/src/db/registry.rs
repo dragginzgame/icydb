@@ -50,6 +50,57 @@ impl From<StoreRegistryError> for InternalError {
 }
 
 ///
+/// SecondaryReadAuthoritySnapshot
+///
+/// Immutable authority snapshot for one store-backed secondary read.
+/// This keeps index lifecycle truth and synchronized witness bits together at
+/// the registry boundary so executor authority resolution can consume one
+/// stable input instead of reaching back into the live store handle.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SecondaryReadAuthoritySnapshot {
+    index_state: IndexState,
+    secondary_covering_authoritative: bool,
+    secondary_existence_witness_authoritative: bool,
+}
+
+impl SecondaryReadAuthoritySnapshot {
+    // Build one immutable authority snapshot from the current store state.
+    const fn new(
+        index_state: IndexState,
+        secondary_covering_authoritative: bool,
+        secondary_existence_witness_authoritative: bool,
+    ) -> Self {
+        Self {
+            index_state,
+            secondary_covering_authoritative,
+            secondary_existence_witness_authoritative,
+        }
+    }
+
+    // Return the explicit lifecycle state captured for this secondary read.
+    pub(in crate::db) const fn index_state(self) -> IndexState {
+        self.index_state
+    }
+
+    // Return whether this captured index state is probe-free eligible.
+    pub(in crate::db) const fn index_is_valid(self) -> bool {
+        matches!(self.index_state, IndexState::Valid)
+    }
+
+    // Return whether the stronger synchronized pair witness was captured.
+    pub(in crate::db) const fn secondary_covering_authoritative(self) -> bool {
+        self.secondary_covering_authoritative
+    }
+
+    // Return whether the narrower storage existence witness was captured.
+    pub(in crate::db) const fn secondary_existence_witness_authoritative(self) -> bool {
+        self.secondary_existence_witness_authoritative
+    }
+}
+
+///
 /// StoreHandle
 /// Bound pair of row and index stores for one schema `Store` path.
 ///
@@ -139,6 +190,20 @@ impl StoreHandle {
     pub(in crate::db) fn secondary_existence_witness_authoritative(&self) -> bool {
         self.with_data(DataStore::secondary_existence_witness_authoritative)
             && self.with_index(IndexStore::secondary_existence_witness_authoritative)
+    }
+
+    /// Capture one immutable authority snapshot for a single secondary read
+    /// resolution pass. This keeps lifecycle truth at the registry boundary
+    /// instead of letting deeper executor code rediscover it from `StoreHandle`.
+    #[must_use]
+    pub(in crate::db) fn secondary_read_authority_snapshot(
+        &self,
+    ) -> SecondaryReadAuthoritySnapshot {
+        SecondaryReadAuthoritySnapshot::new(
+            self.index_state(),
+            self.secondary_covering_authoritative(),
+            self.secondary_existence_witness_authoritative(),
+        )
     }
 
     /// Mark this row/index store pair as synchronized for one explicit

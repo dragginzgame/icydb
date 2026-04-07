@@ -411,8 +411,13 @@ fn annotate_store_backed_secondary_authority_node_properties(
     let Some(store) = store else {
         return;
     };
-    let resolved_authority_profile =
-        resolve_secondary_read_authority_profile(model, plan, load_terminal_fast_path, store);
+    let authority_snapshot = store.secondary_read_authority_snapshot();
+    let resolved_authority_profile = resolve_secondary_read_authority_profile(
+        model,
+        plan,
+        load_terminal_fast_path,
+        authority_snapshot,
+    );
     let Some((authority_decision, authority_reason)) =
         resolved_authority_profile.flat_explain_labels()
     else {

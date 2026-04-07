@@ -8,7 +8,7 @@ use crate::{
             AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
             CoveringReadExecutionPlan, CoveringReadFieldSource,
         },
-        registry::StoreHandle,
+        registry::SecondaryReadAuthoritySnapshot,
     },
     model::entity::EntityModel,
 };
@@ -454,11 +454,11 @@ enum StorageExistenceWitnessCoveringCohort {
 
 // Resolve one already-admitted probe-free covering mode for a concrete store
 // pair, if any, without widening the existing authority cohorts.
-fn secondary_covering_probe_free_mode_for_store(
+fn secondary_covering_probe_free_mode_for_snapshot(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
-    store: StoreHandle,
+    authority_snapshot: SecondaryReadAuthoritySnapshot,
 ) -> Option<CoveringExistingRowMode> {
     // Phase 1: covering routes that were already promoted elsewhere should not
     // be reclassified through this structural helper.
@@ -469,13 +469,13 @@ fn secondary_covering_probe_free_mode_for_store(
     // Phase 2: fail closed unless the index itself is query-visible as
     // `Valid`; synchronized witness bits alone are not enough while the store
     // is still building or dropping.
-    if !store.index_is_valid() {
+    if !authority_snapshot.index_is_valid() {
         return None;
     }
 
     // Phase 3: prefer the stronger synchronized pair witness whenever the
     // route matches one admitted witness-backed cohort.
-    if store.secondary_covering_authoritative()
+    if authority_snapshot.secondary_covering_authoritative()
         && secondary_witness_validated_covering_cohort(model, plan, covering).is_some()
     {
         return Some(CoveringExistingRowMode::WitnessValidated);
@@ -484,8 +484,8 @@ fn secondary_covering_probe_free_mode_for_store(
     // Phase 4: only use the stale storage witness when the synchronized pair
     // witness is absent and the route matches one explicitly admitted stale
     // cohort.
-    if !store.secondary_covering_authoritative()
-        && store.secondary_existence_witness_authoritative()
+    if !authority_snapshot.secondary_covering_authoritative()
+        && authority_snapshot.secondary_existence_witness_authoritative()
         && storage_existence_witness_covering_cohort(plan, covering).is_some()
     {
         return Some(CoveringExistingRowMode::StorageExistenceWitness);
@@ -551,9 +551,9 @@ pub(in crate::db::executor) fn resolve_secondary_read_authority_profile(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
-    store: StoreHandle,
+    authority_snapshot: SecondaryReadAuthoritySnapshot,
 ) -> ResolvedSecondaryReadAuthorityProfile {
-    let index_state = store.index_state();
+    let index_state = authority_snapshot.index_state();
 
     // Phase 1: resolve the rich executor behavior first without consulting the
     // flat classifier projection.
@@ -561,7 +561,12 @@ pub(in crate::db::executor) fn resolve_secondary_read_authority_profile(
         Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(covering)) => {
             preserved_probe_free_existing_row_mode(covering.existing_row_mode)
                 .or_else(|| {
-                    secondary_covering_probe_free_mode_for_store(model, plan, covering, store)
+                    secondary_covering_probe_free_mode_for_snapshot(
+                        model,
+                        plan,
+                        covering,
+                        authority_snapshot,
+                    )
                 })
                 .unwrap_or(CoveringExistingRowMode::RequiresRowPresenceCheck)
         }

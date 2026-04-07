@@ -79,11 +79,12 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_au
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
 ) {
+    let authority_snapshot = store.secondary_read_authority_snapshot();
     let resolved_authority_profile = resolve_secondary_read_authority_profile(
         model,
         plan,
         load_terminal_fast_path.as_ref(),
-        store,
+        authority_snapshot,
     );
     let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
         return;
@@ -105,11 +106,12 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_storage_exis
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
 ) {
+    let authority_snapshot = store.secondary_read_authority_snapshot();
     let resolved_authority_profile = resolve_secondary_read_authority_profile(
         model,
         plan,
         load_terminal_fast_path.as_ref(),
-        store,
+        authority_snapshot,
     );
     let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
         return;

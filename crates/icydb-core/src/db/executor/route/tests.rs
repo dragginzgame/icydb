@@ -1009,11 +1009,12 @@ fn route_plan_single_component_store_witness_matches_resolved_authority_profile(
         .load_terminal_fast_path()
         .expect("single-component witness-backed route should retain a covering-read contract");
     let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    let authority_snapshot = store.secondary_read_authority_snapshot();
     let resolved_authority_profile = resolve_secondary_read_authority_profile(
         RouteCapabilityEntity::MODEL,
         &plan,
         route_plan.load_terminal_fast_path(),
-        store,
+        authority_snapshot,
     );
 
     assert_eq!(
@@ -1035,18 +1036,20 @@ fn route_plan_flat_classifier_projection_keeps_single_component_and_composite_se
     );
 
     reset_route_authority_store();
+    let single_component_snapshot = store.secondary_read_authority_snapshot();
 
     let single_component_profile = resolve_secondary_read_authority_profile(
         RouteCapabilityEntity::MODEL,
         &single_component_plan,
         None,
-        store,
+        single_component_snapshot,
     );
+    let composite_snapshot = store.secondary_read_authority_snapshot();
     let composite_profile = resolve_secondary_read_authority_profile(
         RouteCapabilityEntity::MODEL,
         &composite_plan,
         composite_load_terminal_fast_path.as_ref(),
-        store,
+        composite_snapshot,
     );
 
     assert!(
@@ -1059,11 +1062,12 @@ fn route_plan_flat_classifier_projection_keeps_single_component_and_composite_se
     );
 
     store.mark_secondary_existence_witness_authoritative();
+    let stale_composite_snapshot = store.secondary_read_authority_snapshot();
     let stale_composite_profile = resolve_secondary_read_authority_profile(
         RouteCapabilityEntity::MODEL,
         &composite_plan,
         composite_load_terminal_fast_path.as_ref(),
-        store,
+        stale_composite_snapshot,
     );
 
     assert!(
@@ -1072,11 +1076,12 @@ fn route_plan_flat_classifier_projection_keeps_single_component_and_composite_se
     );
 
     store.mark_secondary_covering_authoritative();
+    let synchronized_composite_snapshot = store.secondary_read_authority_snapshot();
     let synchronized_composite_profile = resolve_secondary_read_authority_profile(
         RouteCapabilityEntity::MODEL,
         &composite_plan,
         composite_load_terminal_fast_path.as_ref(),
-        store,
+        synchronized_composite_snapshot,
     );
 
     assert!(
@@ -1103,11 +1108,12 @@ fn route_plan_composite_store_witness_matches_resolved_authority_profile() {
         .load_terminal_fast_path()
         .expect("composite witness-backed route should retain a covering-read contract");
     let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    let authority_snapshot = store.secondary_read_authority_snapshot();
     let resolved_authority_profile = resolve_secondary_read_authority_profile(
         RouteCapabilityEntity::MODEL,
         &plan,
         route_plan.load_terminal_fast_path(),
-        store,
+        authority_snapshot,
     );
 
     assert_eq!(
