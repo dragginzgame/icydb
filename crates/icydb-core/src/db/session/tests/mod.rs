@@ -11,22 +11,26 @@ mod sql_surface;
 use super::*;
 use crate::{
     db::{
-        Db, PlanError,
+        Db, MissingRowPolicy, PlanError,
         access::lower_index_range_specs,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::{CursorPlanError, IndexScanContinuationInput},
         data::{DataKey, DataStore},
         direction::Direction,
-        executor::ExecutorPlanError,
+        executor::{
+            ExecutorPlanError, assemble_load_execution_node_descriptor_with_model_store_witness,
+        },
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::explain::{ExplainExecutionNodeDescriptor, ExplainExecutionNodeType},
+        query::intent::StructuralQuery,
         query::plan::{
             AggregateKind,
             expr::{Expr, ProjectionField},
         },
         registry::{StoreHandle, StoreRegistry},
         response::EntityResponse,
+        sql::lowering::{LoweredSqlQuery, apply_lowered_select_shape},
         with_row_check_metrics,
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
@@ -612,21 +616,70 @@ fn session_select_one_returns_constant_without_execution_metrics() {
 
 #[test]
 fn session_show_indexes_reports_primary_and_secondary_indexes() {
+    reset_session_sql_store();
+    reset_indexed_session_sql_store();
     let session = sql_session();
     let indexed_session = indexed_sql_session();
 
     assert_eq!(
         session.show_indexes::<SessionSqlEntity>(),
-        vec!["PRIMARY KEY (id)".to_string()],
+        vec!["PRIMARY KEY (id) [state=valid]".to_string()],
         "entities without secondary indexes should only report primary key metadata",
     );
     assert_eq!(
         indexed_session.show_indexes::<IndexedSessionSqlEntity>(),
         vec![
-            "PRIMARY KEY (id)".to_string(),
-            "INDEX name (name)".to_string(),
+            "PRIMARY KEY (id) [state=valid]".to_string(),
+            "INDEX name (name) [state=valid]".to_string(),
         ],
         "entities with one secondary index should report both primary and index rows",
+    );
+}
+
+#[test]
+fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    assert_eq!(
+        dispatch_show_indexes_sql::<IndexedSessionSqlEntity>(
+            &session,
+            "SHOW INDEXES IndexedSessionSqlEntity",
+        )
+        .expect("SHOW INDEXES should succeed for valid index"),
+        vec![
+            "PRIMARY KEY (id) [state=valid]".to_string(),
+            "INDEX name (name) [state=valid]".to_string(),
+        ],
+        "SHOW INDEXES should expose the default valid lifecycle state on the runtime metadata surface",
+    );
+
+    mark_indexed_session_sql_index_building();
+    assert_eq!(
+        dispatch_show_indexes_sql::<IndexedSessionSqlEntity>(
+            &session,
+            "SHOW INDEXES IndexedSessionSqlEntity",
+        )
+        .expect("SHOW INDEXES should succeed for building index"),
+        vec![
+            "PRIMARY KEY (id) [state=building]".to_string(),
+            "INDEX name (name) [state=building]".to_string(),
+        ],
+        "SHOW INDEXES should expose Building while probe-free covering routes are forced to fail closed",
+    );
+
+    mark_indexed_session_sql_index_dropping();
+    assert_eq!(
+        dispatch_show_indexes_sql::<IndexedSessionSqlEntity>(
+            &session,
+            "SHOW INDEXES IndexedSessionSqlEntity",
+        )
+        .expect("SHOW INDEXES should succeed for dropping index"),
+        vec![
+            "PRIMARY KEY (id) [state=dropping]".to_string(),
+            "INDEX name (name) [state=dropping]".to_string(),
+        ],
+        "SHOW INDEXES should expose Dropping while the route boundary keeps probe-free covering execution disabled",
     );
 }
 
@@ -790,7 +843,7 @@ fn dispatch_projection_columns<E>(
     sql: &str,
 ) -> Result<Vec<String>, QueryError>
 where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue + crate::traits::EntityKind,
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Projection { columns, .. }
@@ -1295,6 +1348,50 @@ fn explain_execution_find_first_node(
     }
 
     None
+}
+
+// Build one store-backed execution descriptor json payload for reduced SQL so
+// tests can lock the structured execution-explain surface separately from the
+// text EXPLAIN EXECUTION renderer.
+fn store_backed_execution_descriptor_json_for_sql<E>(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+) -> String
+where
+    E: PersistedRow<Canister = SessionSqlCanister>
+        + EntityValue
+        + crate::traits::EntityKind<Canister = SessionSqlCanister>,
+{
+    let parsed = session
+        .parse_sql_statement(sql)
+        .expect("store-backed execution descriptor sql should parse");
+    let lowered = parsed
+        .lower_query_lane_for_entity(E::MODEL.name(), E::MODEL.primary_key.name)
+        .expect("store-backed execution descriptor sql should lower");
+    let LoweredSqlQuery::Select(select) = lowered
+        .query()
+        .cloned()
+        .expect("store-backed execution descriptor should lower one query shape")
+    else {
+        panic!("store-backed execution descriptor helper only supports SELECT");
+    };
+    let structural = apply_lowered_select_shape(
+        StructuralQuery::new(E::MODEL, MissingRowPolicy::Ignore),
+        select,
+    )
+    .expect("store-backed execution descriptor structural query should bind");
+    let plan = structural
+        .build_plan()
+        .expect("store-backed execution descriptor plan should build");
+    let store = session
+        .db
+        .recovered_store(E::Store::PATH)
+        .expect("store-backed execution descriptor store should recover");
+    let descriptor =
+        assemble_load_execution_node_descriptor_with_model_store_witness(E::MODEL, &plan, store)
+            .expect("store-backed execution descriptor should assemble");
+
+    descriptor.render_json_canonical()
 }
 
 #[derive(Default)]
@@ -6930,7 +7027,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_name_projection_use
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")")
+            && explain.contains("authority_decision=Text(\"storage_existence_witness\")")
+            && explain.contains("authority_reason=Text(\"stale_storage_existence_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale secondary-order name projection EXPLAIN EXECUTION should promote to the storage-owned existence witness route: {explain}",
     );
     assert!(
@@ -7054,12 +7154,119 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_is_witn
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized secondary covering EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
         !explain.contains("row_check_required"),
         "witness-backed secondary covering EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn store_backed_execution_descriptor_json_secondary_covering_order_field_surfaces_witness_authority_metadata()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_211_u128, "alice", 10_u64),
+        (9_212, "bob", 20),
+        (9_213, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL witness descriptor fixture insert should succeed");
+    }
+
+    let descriptor_json = store_backed_execution_descriptor_json_for_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    );
+
+    assert!(
+        descriptor_json.contains("\"authority_decision\":\"Text(\\\"witness_validated\\\")\"")
+            && descriptor_json
+                .contains("\"authority_reason\":\"Text(\\\"synchronized_pair_witness\\\")\"")
+            && descriptor_json.contains("\"index_state\":\"Text(\\\"valid\\\")\""),
+        "store-backed execution descriptor json should expose the same witness-backed authority classification as EXPLAIN EXECUTION text: {descriptor_json}",
+    );
+}
+
+#[test]
+fn store_backed_execution_descriptor_json_secondary_covering_name_projection_surfaces_storage_existence_witness_metadata()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_214_u128, "alice", 10_u64),
+        (9_215, "bob", 20),
+        (9_216, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale descriptor fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_214);
+
+    let descriptor_json = store_backed_execution_descriptor_json_for_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+    );
+
+    assert!(
+        descriptor_json
+            .contains("\"authority_decision\":\"Text(\\\"storage_existence_witness\\\")\"")
+            && descriptor_json
+                .contains("\"authority_reason\":\"Text(\\\"stale_storage_existence_witness\\\")\"")
+            && descriptor_json.contains("\"index_state\":\"Text(\\\"valid\\\")\""),
+        "store-backed execution descriptor json should expose the storage-owned stale authority classification: {descriptor_json}",
+    );
+}
+
+#[test]
+fn store_backed_execution_descriptor_json_secondary_covering_order_field_building_index_surfaces_index_not_valid_metadata()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_217_u128, "alice", 10_u64),
+        (9_218, "bob", 20),
+        (9_219, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL invalid descriptor fixture insert should succeed");
+    }
+    mark_indexed_session_sql_index_building();
+
+    let descriptor_json = store_backed_execution_descriptor_json_for_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    );
+
+    assert!(
+        descriptor_json.contains("\"authority_decision\":\"Text(\\\"row_check_required\\\")\"")
+            && descriptor_json.contains("\"authority_reason\":\"Text(\\\"index_not_valid\\\")\"")
+            && descriptor_json.contains("\"index_state\":\"Text(\\\"building\\\")\""),
+        "store-backed execution descriptor json should expose the explicit invalid-index downgrade reason: {descriptor_json}",
     );
 }
 
@@ -7092,7 +7299,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_buildin
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"index_not_valid\")")
+            && explain.contains("index_state=Text(\"building\")"),
         "building indexes must fail closed back to row-check-required even when the synchronized witness bits were previously set: {explain}",
     );
     assert!(
@@ -7217,7 +7427,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_name_projection_dro
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"index_not_valid\")")
+            && explain.contains("index_state=Text(\"dropping\")"),
         "dropping indexes must fail closed back to row-check-required instead of keeping the stale storage witness route: {explain}",
     );
     assert!(

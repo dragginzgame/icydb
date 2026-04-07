@@ -21,7 +21,7 @@ pub(in crate::db) use describe::describe_entity_model;
 pub(crate) use fingerprint::{
     commit_schema_fingerprint_for_entity, commit_schema_fingerprint_for_model,
 };
-pub(in crate::db) use format::show_indexes_for_model;
+pub(in crate::db) use format::{show_indexes_for_model, show_indexes_for_model_with_runtime_state};
 pub(crate) use info::SchemaInfo;
 pub(crate) use types::{FieldType, field_type_from_model_kind, literal_matches_type};
 pub(crate) use validate::{reject_unsupported_query_features, validate};

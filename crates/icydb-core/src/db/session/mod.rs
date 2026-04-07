@@ -16,13 +16,16 @@ mod write;
 use crate::{
     db::{
         Db, EntityFieldDescription, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
-        IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PersistedRow, Query,
-        QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        IndexState, IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy,
+        PersistedRow, Query, QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::{decode_optional_cursor_token, decode_optional_grouped_cursor_token},
         data::DataKey,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
-        schema::{describe_entity_model, show_indexes_for_model},
+        schema::{
+            describe_entity_model, show_indexes_for_model,
+            show_indexes_for_model_with_runtime_state,
+        },
     },
     error::InternalError,
     metrics::sink::{MetricsSink, with_metrics_sink},
@@ -203,13 +206,30 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.show_indexes_for_model(E::MODEL)
+        self.show_indexes_for_store_model(E::Store::PATH, E::MODEL)
     }
 
     /// Return one stable, human-readable index listing for one schema model.
+    ///
+    /// This model-only helper is schema-owned and intentionally does not
+    /// attach runtime lifecycle state because it does not carry store
+    /// placement authority.
     #[must_use]
     pub fn show_indexes_for_model(&self, model: &'static EntityModel) -> Vec<String> {
         show_indexes_for_model(model)
+    }
+
+    // Return one stable, human-readable index listing for one resolved
+    // store/model pair, attaching the current runtime lifecycle state when the
+    // registry can resolve the backing store handle.
+    pub(in crate::db) fn show_indexes_for_store_model(
+        &self,
+        store_path: &str,
+        model: &'static EntityModel,
+    ) -> Vec<String> {
+        let runtime_state = self.try_index_state_for_store_path(store_path);
+
+        show_indexes_for_model_with_runtime_state(model, runtime_state)
     }
 
     /// Return one stable list of field descriptors for the entity schema.
@@ -234,6 +254,16 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn show_entities(&self) -> Vec<String> {
         self.db.runtime_entity_names()
+    }
+
+    // Best-effort runtime state lookup for metadata surfaces.
+    // SHOW INDEXES should stay readable even if one store handle is missing
+    // from the registry, so this helper falls back to the pure schema-owned
+    // listing instead of turning metadata inspection into an execution error.
+    fn try_index_state_for_store_path(&self, store_path: &str) -> Option<IndexState> {
+        self.db
+            .with_store_registry(|registry| registry.try_get_store(store_path).ok())
+            .map(|store| store.index_state())
     }
 
     /// Return one structured schema description for the entity.
@@ -348,4 +378,34 @@ where
     store.mark_secondary_existence_witness_authoritative();
 
     Ok(true)
+}
+
+/// Mark one recovered store index with one explicit lifecycle state.
+///
+/// This hidden helper exists for test fixtures that need to force one index
+/// out of the `Valid` state while keeping all other authority machinery
+/// unchanged.
+#[doc(hidden)]
+pub fn debug_mark_store_index_state<C>(
+    session: &DbSession<C>,
+    store_path: &str,
+    state: IndexState,
+) -> Result<(), InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: resolve the recovered store so lifecycle mutation cannot
+    // target pre-recovery state.
+    let store = session.db.recovered_store(store_path)?;
+
+    // Phase 2: apply the explicit lifecycle state directly to the index half
+    // of the store pair. Covering authority bits remain untouched so tests
+    // can observe the `Valid` gate fail closed in isolation.
+    match state {
+        IndexState::Building => store.mark_index_building(),
+        IndexState::Valid => store.mark_index_valid(),
+        IndexState::Dropping => store.mark_index_dropping(),
+    }
+
+    Ok(())
 }

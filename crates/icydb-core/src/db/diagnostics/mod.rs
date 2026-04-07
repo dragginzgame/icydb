@@ -12,7 +12,7 @@ use crate::{
         Db, EntityRuntimeHooks,
         commit::CommitRowOp,
         data::{DataKey, StorageKey, decode_structural_row_cbor},
-        index::IndexKey,
+        index::{IndexKey, IndexState},
         registry::StoreHandle,
     },
     error::{ErrorClass, InternalError},
@@ -387,6 +387,7 @@ pub struct IndexStoreSnapshot {
     pub(crate) user_entries: u64,
     pub(crate) system_entries: u64,
     pub(crate) memory_bytes: u64,
+    pub(crate) state: IndexState,
 }
 
 impl IndexStoreSnapshot {
@@ -398,6 +399,7 @@ impl IndexStoreSnapshot {
         user_entries: u64,
         system_entries: u64,
         memory_bytes: u64,
+        state: IndexState,
     ) -> Self {
         Self {
             path,
@@ -405,6 +407,7 @@ impl IndexStoreSnapshot {
             user_entries,
             system_entries,
             memory_bytes,
+            state,
         }
     }
 
@@ -436,6 +439,13 @@ impl IndexStoreSnapshot {
     #[must_use]
     pub const fn memory_bytes(&self) -> u64 {
         self.memory_bytes
+    }
+
+    /// Return the current explicit runtime lifecycle state for this index
+    /// store snapshot.
+    #[must_use]
+    pub const fn state(&self) -> IndexState {
+        self.state
     }
 }
 
@@ -632,6 +642,7 @@ pub(crate) fn storage_report_default<C: CanisterKind>(
                     user_entries,
                     system_entries,
                     store.memory_bytes(),
+                    store.state(),
                 ));
             });
         }
@@ -757,6 +768,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                     user_entries,
                     system_entries,
                     store.memory_bytes(),
+                    store.state(),
                 ));
             });
         }

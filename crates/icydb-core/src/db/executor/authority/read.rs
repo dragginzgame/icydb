@@ -7,6 +7,7 @@ use crate::{
             AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
             CoveringReadExecutionPlan, CoveringReadFieldSource,
         },
+        registry::StoreHandle,
     },
     model::entity::EntityModel,
 };
@@ -141,6 +142,38 @@ impl SecondaryCoveringAuthorityProfile {
     // cohort.
     pub(in crate::db::executor) const fn supports_storage_existence_witness(self) -> bool {
         self.storage_existence_witness_cohort.is_some()
+    }
+
+    // Resolve the final probe-free existing-row mode this explicit authority
+    // profile may use for one concrete store pair.
+    pub(in crate::db::executor) fn promoted_existing_row_mode_for_store(
+        self,
+        store: StoreHandle,
+    ) -> Option<CoveringExistingRowMode> {
+        // Phase 1: fail closed unless the index itself is query-visible as
+        // `Valid`; synchronized witness bits alone are not enough while the
+        // store is still building or dropping.
+        if !store.index_is_valid() {
+            return None;
+        }
+
+        // Phase 2: prefer the stronger synchronized pair witness whenever it
+        // exists so routes do not drift onto the narrower stale witness path.
+        if store.secondary_covering_authoritative() && self.supports_witness_validated() {
+            return Some(CoveringExistingRowMode::WitnessValidated);
+        }
+
+        // Phase 3: only use the stale storage witness when the synchronized
+        // pair witness is absent and the measured stale cohort is explicitly
+        // admitted by this authority profile.
+        if !store.secondary_covering_authoritative()
+            && store.secondary_existence_witness_authoritative()
+            && self.supports_storage_existence_witness()
+        {
+            return Some(CoveringExistingRowMode::StorageExistenceWitness);
+        }
+
+        None
     }
 }
 

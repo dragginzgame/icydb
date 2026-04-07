@@ -927,6 +927,32 @@ fn route_plan_store_witness_requires_valid_index_for_storage_existence_witness_p
 }
 
 #[test]
+fn route_plan_store_witness_prefers_witness_validated_over_storage_existence_witness() {
+    reset_route_authority_store();
+    let plan = secondary_order_covering_plan();
+    let store = route_authority_store_handle();
+
+    store.mark_secondary_covering_authoritative();
+    store.mark_secondary_existence_witness_authoritative();
+    let promoted_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("dual-authority route plan should build");
+    let covering = promoted_route
+        .load_terminal_fast_path()
+        .expect("dual-authority route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::WitnessValidated,
+        "When both witness bits are present, the centralized authority profile must prefer the stronger synchronized pair witness over the narrower stale storage witness",
+    );
+}
+
+#[test]
 fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_planner_proven() {
     let mut projected =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);

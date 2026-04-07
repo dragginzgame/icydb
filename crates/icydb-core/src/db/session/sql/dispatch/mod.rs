@@ -549,7 +549,7 @@ impl<C: CanisterKind> DbSession<C> {
                 self.describe_entity_model(authority.model()),
             )),
             SqlStatementRoute::ShowIndexes { .. } => Ok(SqlDispatchResult::ShowIndexes(
-                self.show_indexes_for_model(authority.model()),
+                self.show_indexes_for_store_model(authority.store_path(), authority.model()),
             )),
             SqlStatementRoute::ShowColumns { .. } => Ok(SqlDispatchResult::ShowColumns(
                 self.show_columns_for_model(authority.model()),

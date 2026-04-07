@@ -113,6 +113,11 @@ impl StoreHandle {
         self.with_index_mut(IndexStore::mark_valid);
     }
 
+    /// Mark the bound index store as Dropping.
+    pub(in crate::db) fn mark_index_dropping(&self) {
+        self.with_index_mut(IndexStore::mark_dropping);
+    }
+
     /// Return whether this store pair currently carries a synchronized
     /// secondary covering-authority witness.
     #[must_use]

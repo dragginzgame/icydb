@@ -137,6 +137,13 @@ fn make_customer_name_order_stale(pic: &Pic, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_make_customer_name_order_stale");
 }
 
+// Mark the shared Customer index store as Building so integration tests can
+// lock the fail-closed explain surface for one previously probe-free
+// secondary covering cohort.
+fn mark_customer_index_building(pic: &Pic, canister_id: Principal) {
+    expect_unit_update_ok(pic, canister_id, "fixtures_mark_customer_index_building");
+}
+
 // Remove the leading CustomerOrder composite-order base row while keeping the
 // secondary `(priority, status)` entry intact so integration tests can
 // exercise stale composite order-only fallback.
@@ -1583,11 +1590,16 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_wi
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
-                "witness_validated",
+                "index_state",
+                "valid",
                 "id",
                 "name",
             ],
@@ -1616,15 +1628,58 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_name_only_c
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "storage_existence_witness",
+                "authority_reason",
+                "stale_storage_existence_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
-                "storage_existence_witness",
+                "index_state",
+                "valid",
                 "name",
             ],
             &["row_check_required", "witness_validated"],
             "stale Customer name-only covering EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_building_index_not_valid_reason()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        mark_customer_index_building(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query building-index Customer secondary covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Customer",
+            &[
+                "CoveringRead",
+                "authority_decision",
+                "row_check_required",
+                "authority_reason",
+                "index_not_valid",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "index_state",
+                "building",
+                "id",
+                "name",
+            ],
+            &["witness_validated", "storage_existence_witness"],
+            "building-index Customer secondary covering EXPLAIN EXECUTION should expose the explicit index_not_valid downgrade",
         );
     });
 }
@@ -10890,6 +10945,10 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
                 assert!(
                     indexes.iter().any(|index| index.contains("PRIMARY KEY")),
                     "SHOW INDEXES payload should include at least the primary-key row",
+                );
+                assert!(
+                    indexes.iter().all(|index| index.contains("[state=valid]")),
+                    "SHOW INDEXES payload should surface the current valid index lifecycle state for the default metadata fixture",
                 );
             }
             other => panic!("query SHOW INDEXES should return ShowIndexes payload, got {other:?}"),

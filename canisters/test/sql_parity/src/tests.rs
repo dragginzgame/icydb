@@ -1,6 +1,7 @@
 mod tests {
     use super::{
         Customer, CustomerAccount, CustomerOrder, SqlQueryResult, db, fixtures_load_default,
+        fixtures_mark_customer_index_building,
         fixtures_make_customer_name_order_stale,
         fixtures_make_customer_order_numeric_equality_desc_stale,
         fixtures_make_customer_order_numeric_equality_stale,
@@ -56,6 +57,13 @@ mod tests {
         ensure_sql_test_memory_range();
         fixtures_make_customer_name_order_stale()
             .expect("stale Customer name-order fixture mutation should succeed");
+    }
+
+    fn reload_default_fixtures_with_customer_index_building() {
+        reload_default_fixtures();
+        ensure_sql_test_memory_range();
+        fixtures_mark_customer_index_building()
+            .expect("Customer index-building fixture mutation should succeed");
     }
 
     fn reload_default_fixtures_with_customer_order_order_only_composite_stale() {
@@ -703,7 +711,10 @@ mod tests {
             "secondary covering explain should expose the explicit covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+                && explain.contains("authority_decision=Text(\"witness_validated\")")
+                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+                && explain.contains("index_state=Text(\"valid\")"),
             "secondary covering explain should report the witness-backed row mode: {explain}",
         );
     }
@@ -733,12 +744,52 @@ mod tests {
             "stale Customer name-only covering explain should stay on the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")")
+                && explain.contains("authority_decision=Text(\"storage_existence_witness\")")
+                && explain.contains("authority_reason=Text(\"stale_storage_existence_witness\")")
+                && explain.contains("index_state=Text(\"valid\")"),
             "stale Customer name-only covering explain should report the storage-owned existence witness mode: {explain}",
         );
         assert!(
             !explain.contains("row_check_required"),
             "stale Customer name-only covering explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_secondary_covering_building_explain_matches_typed_surface() {
+        reload_default_fixtures_with_customer_index_building();
+
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep building-index Customer covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_secondary_covering_building_explain_reports_index_not_valid()
+    {
+        reload_default_fixtures_with_customer_index_building();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "building-index Customer covering explain should stay on the covering-read route contract while failing closed on authority: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"row_check_required\")")
+                && explain.contains("authority_decision=Text(\"row_check_required\")")
+                && explain.contains("authority_reason=Text(\"index_not_valid\")")
+                && explain.contains("index_state=Text(\"building\")"),
+            "building-index Customer covering explain should expose the explicit index_not_valid downgrade: {explain}",
+        );
+        assert!(
+            !explain.contains("witness_validated"),
+            "building-index Customer covering explain should not expose witness_validated authority: {explain}",
         );
     }
 

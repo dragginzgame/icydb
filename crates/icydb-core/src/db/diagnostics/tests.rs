@@ -16,7 +16,9 @@ use crate::{
             prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_structural_readers,
         },
         data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, StorageKey},
-        index::{IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey},
+        index::{
+            IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore, RawIndexEntry, RawIndexKey,
+        },
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
         schema::commit_schema_fingerprint_for_entity,
@@ -365,7 +367,7 @@ fn data_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64)> {
         .collect()
 }
 
-fn index_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64, u64, u64)> {
+fn index_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64, u64, u64, IndexState)> {
     report
         .storage_index()
         .iter()
@@ -376,6 +378,7 @@ fn index_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64, u64, u64)
                 snapshot.user_entries(),
                 snapshot.system_entries(),
                 snapshot.memory_bytes(),
+                snapshot.state(),
             )
         })
         .collect()
@@ -608,6 +611,29 @@ fn storage_report_system_vs_user_namespace_split() {
 }
 
 #[test]
+fn storage_report_index_snapshots_include_runtime_state() {
+    reset_stores();
+
+    with_index_store_mut(STORE_A_PATH, IndexStore::mark_building);
+    with_index_store_mut(STORE_Z_PATH, IndexStore::mark_dropping);
+
+    let report = diagnostics_report(&[]);
+    let store_a = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_A_PATH)
+        .expect("store A index snapshot should exist");
+    let store_z = report
+        .storage_index()
+        .iter()
+        .find(|snapshot| snapshot.path() == STORE_Z_PATH)
+        .expect("store Z index snapshot should exist");
+
+    assert_eq!(store_a.state(), IndexState::Building);
+    assert_eq!(store_z.state(), IndexState::Dropping);
+}
+
+#[test]
 fn integrity_report_detects_missing_forward_index_entries() {
     reset_stores();
 
@@ -723,6 +749,7 @@ fn index_store_snapshot_candid_shape_is_stable() {
         "user_entries",
         "system_entries",
         "memory_bytes",
+        "state",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),

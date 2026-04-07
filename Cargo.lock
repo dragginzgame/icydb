@@ -391,6 +391,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-core",
  "icydb-testing-test-sql-parity-fixtures",
  "icydb-testing-wasm-helpers",
  "serde",

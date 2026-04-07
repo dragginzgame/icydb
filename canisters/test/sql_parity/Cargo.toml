@@ -16,6 +16,7 @@ sql = ["icydb/sql", "icydb/structural-read-metrics"]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-core = { workspace = true }
 icydb-testing-test-sql-parity-fixtures = { workspace = true }
 serde = { workspace = true }
 

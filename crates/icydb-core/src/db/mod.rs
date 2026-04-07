@@ -129,7 +129,7 @@ pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
     DbSession, SqlDispatchResult, SqlParsedStatement, SqlStatementRoute,
-    debug_remove_entity_row_data_only,
+    debug_mark_store_index_state, debug_remove_entity_row_data_only,
 };
 #[cfg(feature = "sql")]
 pub use sql::identifier::{

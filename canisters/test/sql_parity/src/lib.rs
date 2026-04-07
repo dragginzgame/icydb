@@ -16,8 +16,10 @@ use canic_cdk::query;
 use canic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::db::sql::SqlQueryResult;
+use icydb::traits::Path;
 #[cfg(feature = "sql")]
 use icydb::types::Ulid;
+use icydb_core::db::IndexState;
 use icydb_testing_test_sql_parity_fixtures::{
     fixtures,
     schema::{Customer, CustomerAccount, CustomerOrder, SqlParityCanister},
@@ -274,6 +276,22 @@ fn fixtures_make_customer_order_order_only_composite_desc_stale() -> Result<(), 
     icydb::db::debug_remove_entity_row_data_only::<SqlParityCanister, CustomerOrder>(
         &core_db(),
         &order_id,
+    )?;
+
+    Ok(())
+}
+
+/// Mark the shared sql_parity store index state as Building so canister-level
+/// tests can lock the fail-closed explain surface for previously probe-free
+/// covering cohorts.
+#[cfg(feature = "sql")]
+#[doc(hidden)]
+#[update]
+fn fixtures_mark_customer_index_building() -> Result<(), icydb::Error> {
+    icydb_core::db::debug_mark_store_index_state(
+        &core_db(),
+        <Customer as icydb::traits::EntityPlacement>::Store::PATH,
+        IndexState::Building,
     )?;
 
     Ok(())

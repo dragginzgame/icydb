@@ -11,20 +11,35 @@ use crate::{
     error::InternalError,
 };
 
+use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
+use serde::Deserialize;
 
-///
-/// IndexState
-///
-/// Explicit lifecycle validity state for one index store.
-/// Validity matters because probe-free covering authority only makes sense once
-/// the index contents are fully built and query-visible for reads.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+//
+// IndexState
+//
+// Explicit lifecycle validity state for one index store.
+// Validity matters because probe-free covering authority only makes sense once
+// the index contents are fully built and query-visible for reads.
+//
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum IndexState {
     Building,
+    #[default]
     Valid,
     Dropping,
+}
+
+impl IndexState {
+    /// Return the stable lowercase text label for this lifecycle state.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Building => "building",
+            Self::Valid => "valid",
+            Self::Dropping => "dropping",
+        }
+    }
 }
 
 ///

@@ -71,9 +71,8 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 
 // Promote one narrow secondary covering cohort onto witness-backed authority
 // when the resolved store pair is synchronized and the centralized route-owned
-// authority profile marks the covering contract as explicitly admissible.
-// Validity is one extra gate here because one synchronized witness is still
-// not enough if the index itself is mid-build or mid-drop.
+// authority profile resolves this store pair onto the stronger synchronized
+// witness mode.
 pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_authority_witness(
     store: StoreHandle,
     model: &'static EntityModel,
@@ -85,9 +84,8 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_au
     };
     let authority_profile = derive_secondary_covering_authority_profile(model, plan, covering);
 
-    if !store.index_is_valid()
-        || !store.secondary_covering_authoritative()
-        || !authority_profile.supports_witness_validated()
+    if authority_profile.promoted_existing_row_mode_for_store(store)
+        != Some(CoveringExistingRowMode::WitnessValidated)
     {
         return;
     }
@@ -97,10 +95,8 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_au
 
 // Promote one narrow stale-fallback secondary covering cohort onto an
 // explicit storage-owned existence witness when the synchronized pair witness
-// is unavailable but the centralized route-owned authority profile still
-// marks the stale cohort as explicitly admissible.
-// Even that explicit witness must fail closed unless the index is query-visible
-// as `Valid`; incomplete or dropping indexes must keep the probe-based path.
+// is unavailable but the centralized route-owned authority profile resolves
+// this store pair onto the admitted stale witness mode.
 pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_storage_existence_witness(
     store: StoreHandle,
     model: &'static EntityModel,
@@ -112,10 +108,8 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_storage_exis
     };
     let authority_profile = derive_secondary_covering_authority_profile(model, plan, covering);
 
-    if !store.index_is_valid()
-        || store.secondary_covering_authoritative()
-        || !store.secondary_existence_witness_authoritative()
-        || !authority_profile.supports_storage_existence_witness()
+    if authority_profile.promoted_existing_row_mode_for_store(store)
+        != Some(CoveringExistingRowMode::StorageExistenceWitness)
     {
         return;
     }
