@@ -159,6 +159,17 @@ fn make_customer_order_numeric_equality_stale(pic: &Pic, canister_id: Principal)
     );
 }
 
+// Remove the leading descending `priority = 20` CustomerOrder base row while
+// keeping the secondary `(priority, status)` entry intact so integration tests
+// can exercise stale descending equality-prefix suffix-order fallback.
+fn make_customer_order_numeric_equality_desc_stale(pic: &Pic, canister_id: Principal) {
+    expect_unit_update_ok(
+        pic,
+        canister_id,
+        "fixtures_make_customer_order_numeric_equality_desc_stale",
+    );
+}
+
 // Remove the leading descending CustomerOrder composite-order base row while
 // keeping the secondary `(priority, status)` entry intact so integration tests
 // can exercise stale descending composite order-only fallback.
@@ -1815,6 +1826,177 @@ fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equ
             ],
             &["row_check_required", "witness_validated"],
             "stale CustomerOrder numeric-equality EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_desc_stale_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query stale descending CustomerOrder numeric-equality covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+                "status",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale descending CustomerOrder numeric-equality EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_leading_component_stale_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query stale CustomerOrder numeric-equality leading-component EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale CustomerOrder numeric-equality leading-component EXPLAIN EXECUTION should expose the storage-owned existence witness route once the shared covering-membership kernel can carry that authority shape",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equality_leading_component_desc_stale_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "query stale descending CustomerOrder numeric-equality leading-component EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "CustomerOrder",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "priority",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale descending CustomerOrder numeric-equality leading-component EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_customer_order_numeric_equality_desc_stale_projection() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "query stale descending CustomerOrder numeric-equality projection should return projected rows",
+        );
+
+        assert_projection_window(
+            &rows,
+            "CustomerOrder",
+            &["id", "priority", "status"],
+            &[
+                &[ANY_PROJECTION_VALUE, "20", "Closed"],
+                &[ANY_PROJECTION_VALUE, "20", "Billing"],
+            ],
+            "stale descending CustomerOrder numeric-equality projection should preserve the canonical reverse-ordered two-row window while filtering the missing descending-leading row",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_customer_order_numeric_equality_leading_component_desc_stale_projection()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "query stale descending CustomerOrder numeric-equality leading-component projection should return projected rows",
+        );
+
+        assert_projection_window(
+            &rows,
+            "CustomerOrder",
+            &["id", "priority"],
+            &[&[ANY_PROJECTION_VALUE, "20"], &[ANY_PROJECTION_VALUE, "20"]],
+            "stale descending CustomerOrder numeric-equality leading-component projection should preserve the canonical reverse-ordered two-row window while filtering the missing descending-leading row",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_supports_customer_order_numeric_equality_leading_component_stale_projection()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+
+        let rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+            "query stale CustomerOrder numeric-equality leading-component projection should return projected rows",
+        );
+
+        assert_projection_window(
+            &rows,
+            "CustomerOrder",
+            &["id", "priority"],
+            &[&[ANY_PROJECTION_VALUE, "20"]],
+            "stale CustomerOrder numeric-equality leading-component projection should consume the missing leading row against the requested window while keeping the storage-witness route semantically exact",
         );
     });
 }
@@ -7912,6 +8094,240 @@ fn sql_canister_perf_customer_order_numeric_equality_stale_reports_row_check_met
 }
 
 #[test]
+fn sql_canister_perf_customer_order_numeric_equality_desc_stale_reports_row_check_metrics_in_parity()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+        let sql = "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder numeric-equality perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder numeric-equality perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(2),
+            "generated stale descending CustomerOrder numeric-equality perf sample should preserve the canonical two-row window after filtering the missing descending-leading row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(2),
+            "typed stale descending CustomerOrder numeric-equality perf sample should preserve the canonical two-row window after filtering the missing descending-leading row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale descending CustomerOrder numeric-equality perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale descending CustomerOrder numeric-equality perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 4,
+            "generated stale descending CustomerOrder numeric-equality perf sample should inspect the full reverse equality-prefix candidate set before applying the final two-row window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale descending CustomerOrder numeric-equality perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale descending CustomerOrder numeric-equality perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale descending CustomerOrder numeric-equality perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale descending CustomerOrder numeric-equality perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale descending CustomerOrder numeric-equality perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale descending CustomerOrder numeric-equality perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 3,
+            "generated stale descending CustomerOrder numeric-equality perf sample should observe three live rows before the final two-row window is applied",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale descending CustomerOrder numeric-equality perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_order_numeric_equality_leading_component_stale_reports_row_check_metrics_in_parity()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+        let sql = "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder numeric-equality leading-component perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder numeric-equality leading-component perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale CustomerOrder numeric-equality leading-component perf sample should emit one live row after the missing leading membership consumes part of the window",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale CustomerOrder numeric-equality leading-component perf sample should emit one live row after the missing leading membership consumes part of the window",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 2);
+        assert_eq!(generated_metrics.row_presence_probe_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
+        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count,
+            0
+        );
+        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
+        assert_eq!(generated_metrics.row_check_rows_emitted, 1);
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale CustomerOrder numeric-equality leading-component perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_order_numeric_equality_leading_component_desc_stale_reports_row_check_metrics_in_parity()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+        let sql = "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2";
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql: sql.to_string(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(2),
+            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should preserve the canonical reverse-ordered two-row window after the missing descending-leading row is filtered out",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(2),
+            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should preserve the canonical reverse-ordered two-row window after the missing descending-leading row is filtered out",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 4);
+        assert_eq!(generated_metrics.row_presence_probe_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
+        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count,
+            0
+        );
+        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
+        assert_eq!(generated_metrics.row_check_rows_emitted, 3);
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale descending CustomerOrder numeric-equality leading-component perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
 #[ignore = "manual stale-row perf probe for before/after measurement runs"]
 fn sql_canister_perf_customer_name_order_stale_probe_reports_samples_as_json() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -8372,6 +8788,158 @@ fn sql_canister_perf_customer_order_numeric_equality_stale_probe_reports_samples
                 "typed": typed,
             }))
             .expect("stale CustomerOrder numeric-equality perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_numeric_equality_desc_stale_probe_reports_samples_as_json() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder numeric-equality perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder numeric-equality perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_numeric_equality_desc",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale descending CustomerOrder numeric-equality perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_numeric_equality_leading_component_stale_probe_reports_samples_as_json()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder numeric-equality leading-component perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder numeric-equality leading-component perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_numeric_equality_leading_component",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale CustomerOrder numeric-equality leading-component perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_order_numeric_equality_leading_component_desc_stale_probe_reports_samples_as_json()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_order_numeric_equality_desc_stale(pic, canister_id);
+        let sql =
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2"
+                .to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder numeric-equality leading-component perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder numeric-equality leading-component perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_order_numeric_equality_leading_component_desc",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale descending CustomerOrder numeric-equality leading-component perf probe should serialize to JSON")
         );
     });
 }

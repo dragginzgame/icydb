@@ -35,6 +35,9 @@ thread_local! {
     static DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_ASC_LEADING_ID: RefCell<Option<Ulid>> = const {
         RefCell::new(None)
     };
+    static DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_DESC_LEADING_ID: RefCell<Option<Ulid>> = const {
+        RefCell::new(None)
+    };
     static DEFAULT_CUSTOMER_ORDER_COMPOSITE_ASC_LEADING_ID: RefCell<Option<Ulid>> = const {
         RefCell::new(None)
     };
@@ -85,6 +88,8 @@ fn fixtures_reset() -> Result<(), icydb::Error> {
     #[cfg(feature = "sql")]
     DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_ASC_LEADING_ID.with_borrow_mut(|id| *id = None);
     #[cfg(feature = "sql")]
+    DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_DESC_LEADING_ID.with_borrow_mut(|id| *id = None);
+    #[cfg(feature = "sql")]
     DEFAULT_CUSTOMER_ORDER_COMPOSITE_ASC_LEADING_ID.with_borrow_mut(|id| *id = None);
     #[cfg(feature = "sql")]
     DEFAULT_CUSTOMER_ORDER_COMPOSITE_DESC_LEADING_ID.with_borrow_mut(|id| *id = None);
@@ -119,6 +124,12 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
         .map(|order| order.id)
         .expect("default CustomerOrder fixtures should include 'A-101'");
     #[cfg(feature = "sql")]
+    let default_customer_order_priority20_status_desc_leading_id = customer_orders
+        .iter()
+        .find(|order| order.name == "C-300")
+        .map(|order| order.id)
+        .expect("default CustomerOrder fixtures should include 'C-300'");
+    #[cfg(feature = "sql")]
     let default_customer_order_composite_desc_leading_id = customer_orders
         .iter()
         .find(|order| order.name == "Z-900")
@@ -137,6 +148,9 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
     #[cfg(feature = "sql")]
     DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_ASC_LEADING_ID
         .with_borrow_mut(|id| *id = Some(default_customer_order_priority20_status_asc_leading_id));
+    #[cfg(feature = "sql")]
+    DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_DESC_LEADING_ID
+        .with_borrow_mut(|id| *id = Some(default_customer_order_priority20_status_desc_leading_id));
     #[cfg(feature = "sql")]
     DEFAULT_CUSTOMER_ORDER_COMPOSITE_ASC_LEADING_ID
         .with_borrow_mut(|id| *id = Some(default_customer_order_composite_asc_leading_id));
@@ -209,6 +223,30 @@ fn fixtures_make_customer_order_numeric_equality_stale() -> Result<(), icydb::Er
     // Phase 2: remove only the base row bytes and keep the composite
     // secondary index entry intact so the stale equality-prefix route becomes
     // measurable.
+    icydb::db::debug_remove_entity_row_data_only::<SqlParityCanister, CustomerOrder>(
+        &core_db(),
+        &order_id,
+    )?;
+
+    Ok(())
+}
+
+/// Remove the leading descending `priority = 20` CustomerOrder base row while
+/// leaving the secondary `(priority, status)` index entry intact so tests can
+/// exercise the stale descending equality-prefix suffix-order path.
+#[cfg(feature = "sql")]
+#[doc(hidden)]
+#[update]
+fn fixtures_make_customer_order_numeric_equality_desc_stale() -> Result<(), icydb::Error> {
+    // Phase 1: resolve the cached default leading descending equality-prefix
+    // row id recorded when the default fixture dataset was loaded.
+    let order_id = DEFAULT_CUSTOMER_ORDER_PRIORITY20_STATUS_DESC_LEADING_ID
+        .with_borrow(|id| *id)
+        .expect("expected cached default descending CustomerOrder numeric-equality row 'C-300'");
+
+    // Phase 2: remove only the base row bytes and keep the composite
+    // secondary index entry intact so the stale descending equality-prefix
+    // route becomes measurable.
     icydb::db::debug_remove_entity_row_data_only::<SqlParityCanister, CustomerOrder>(
         &core_db(),
         &order_id,

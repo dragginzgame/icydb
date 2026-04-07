@@ -33,6 +33,7 @@ use crate::{
 use std::ops::Bound;
 
 type IndexComponentValues = Vec<Vec<u8>>;
+type DataKeyWitnessRows = Vec<(DataKey, IndexEntryExistenceWitness)>;
 type DataKeyComponentRows = Vec<(DataKey, IndexEntryExistenceWitness, IndexComponentValues)>;
 
 ///
@@ -70,6 +71,29 @@ impl IndexStore {
     ) -> Result<Vec<DataKey>, InternalError> {
         self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
             Self::decode_index_entry_and_push(
+                entity,
+                index,
+                raw_key,
+                value,
+                out,
+                Some(limit),
+                "range resolve",
+                index_predicate_execution,
+            )
+        })
+    }
+
+    pub(in crate::db) fn resolve_data_values_with_witness_in_raw_range_limited(
+        &self,
+        entity: EntityTag,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        continuation: IndexScanContinuationInput<'_>,
+        limit: usize,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<DataKeyWitnessRows, InternalError> {
+        self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
+            Self::decode_index_entry_and_push_with_witness(
                 entity,
                 index,
                 raw_key,
@@ -484,6 +508,90 @@ impl IndexStore {
             }
 
             out.push(DataKey::new(entity, storage_key));
+
+            if let Some(limit) = limit
+                && out.len() == limit
+            {
+                halted = true;
+            }
+        }
+
+        if index.is_unique() && decoded_keys != 1 {
+            return Err(InternalError::unique_index_entry_single_key_required());
+        }
+
+        Ok(halted)
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn decode_index_entry_and_push_with_witness(
+        entity: EntityTag,
+        index: &IndexModel,
+        raw_key: &RawIndexKey,
+        value: &RawIndexEntry,
+        out: &mut DataKeyWitnessRows,
+        limit: Option<usize>,
+        context: &'static str,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<bool, InternalError> {
+        record_row_check_index_entry_scanned();
+
+        // Phase 1: preserve the older raw-key decode discipline. Membership
+        // scans only pay decoded-key cost when an index-only predicate still
+        // needs the decoded view.
+        if let Some(execution) = index_predicate_execution {
+            let decoded_key = IndexKey::try_from_raw(raw_key)
+                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+            if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+                return Ok(false);
+            }
+        }
+
+        // Phase 2: fast-path one-key entries without allocating the full
+        // membership vector.
+        if let Some(membership) = value
+            .decode_single_membership()
+            .map_err(InternalError::index_entry_decode_failed)?
+        {
+            record_row_check_index_membership_single_key_entry();
+            record_row_check_index_membership_key_decoded();
+            out.push((
+                DataKey::new(entity, membership.storage_key()),
+                membership.existence_witness(),
+            ));
+
+            if let Some(limit) = limit
+                && out.len() == limit
+            {
+                return Ok(true);
+            }
+
+            return Ok(false);
+        }
+
+        // Phase 3: stream multi-key entry payloads without first allocating a
+        // membership vector, but still validate the full entry before
+        // returning to the caller.
+        let mut halted = false;
+        let mut decoded_keys = 0usize;
+        record_row_check_index_membership_multi_key_entry();
+        let mut memberships = value
+            .iter_memberships()
+            .map_err(InternalError::index_entry_decode_failed)?;
+
+        for membership in &mut memberships {
+            let membership = membership.map_err(InternalError::index_entry_decode_failed)?;
+            decoded_keys = decoded_keys.saturating_add(1);
+            record_row_check_index_membership_key_decoded();
+
+            if halted {
+                continue;
+            }
+
+            out.push((
+                DataKey::new(entity, membership.storage_key()),
+                membership.existence_witness(),
+            ));
 
             if let Some(limit) = limit
                 && out.len() == limit

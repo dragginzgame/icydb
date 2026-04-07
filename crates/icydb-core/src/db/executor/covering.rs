@@ -36,6 +36,9 @@ const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 
 type CoveringComponentValues = Vec<Vec<u8>>;
 
+pub(in crate::db::executor) type CoveringMembershipRows =
+    Vec<(DataKey, IndexEntryExistenceWitness)>;
+
 pub(in crate::db::executor) type CoveringProjectionComponentRows =
     Vec<(DataKey, IndexEntryExistenceWitness, CoveringComponentValues)>;
 
@@ -235,6 +238,62 @@ where
 
     Err(InternalError::query_executor_invariant(
         "covering projection component scans require index-backed access paths",
+    ))
+}
+
+// Resolve one covering membership stream from one lowered index-prefix or
+// index-range contract while preserving per-membership existence witnesses.
+pub(in crate::db::executor) fn resolve_covering_memberships_from_lowered_specs<F>(
+    entity_tag: EntityTag,
+    index_prefix_specs: &[LoweredIndexPrefixSpec],
+    index_range_specs: &[LoweredIndexRangeSpec],
+    direction: Direction,
+    limit: usize,
+    mut resolve_store_for_index: F,
+) -> Result<CoveringMembershipRows, InternalError>
+where
+    F: FnMut(&IndexModel) -> Result<StoreHandle, InternalError>,
+{
+    let continuation = IndexScanContinuationInput::new(None, direction);
+
+    if let [spec] = index_prefix_specs {
+        return resolve_store_for_index(spec.index())?.with_index(|index_store| {
+            index_store.resolve_data_values_with_witness_in_raw_range_limited(
+                entity_tag,
+                spec.index(),
+                (spec.lower(), spec.upper()),
+                continuation,
+                limit,
+                None,
+            )
+        });
+    }
+    if !index_prefix_specs.is_empty() {
+        return Err(InternalError::query_executor_invariant(
+            "covering membership index-prefix path requires one lowered prefix spec",
+        ));
+    }
+
+    if let [spec] = index_range_specs {
+        return resolve_store_for_index(spec.index())?.with_index(|index_store| {
+            index_store.resolve_data_values_with_witness_in_raw_range_limited(
+                entity_tag,
+                spec.index(),
+                (spec.lower(), spec.upper()),
+                continuation,
+                limit,
+                None,
+            )
+        });
+    }
+    if !index_range_specs.is_empty() {
+        return Err(InternalError::query_executor_invariant(
+            "covering membership index-range path requires one lowered range spec",
+        ));
+    }
+
+    Err(InternalError::query_executor_invariant(
+        "covering membership scans require index-backed access paths",
     ))
 }
 
@@ -472,6 +531,53 @@ where
         }
 
         Ok(Some(projected_pairs))
+    })
+}
+
+// Map one raw covering membership stream under the existing-row contract and
+// let the caller derive final terminal payloads from authoritative `DataKey`
+// values only.
+pub(in crate::db::executor) fn map_covering_membership_pairs<T, F>(
+    raw_pairs: CoveringMembershipRows,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
+    mut map_key: F,
+) -> Result<Vec<(DataKey, T)>, InternalError>
+where
+    F: FnMut(&DataKey) -> Result<T, InternalError>,
+{
+    store.with_data(|data| {
+        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
+        for (data_key, existence_witness) in raw_pairs {
+            if existing_row_mode.uses_storage_existence_witness() {
+                record_row_check_covering_candidate_seen();
+
+                if existence_witness == IndexEntryExistenceWitness::Missing {
+                    continue;
+                }
+            } else if existing_row_mode.requires_row_presence_check() {
+                record_row_check_covering_candidate_seen();
+
+                if !read_row_presence_with_consistency_from_data_store(
+                    data,
+                    &data_key,
+                    consistency,
+                )? {
+                    continue;
+                }
+            }
+
+            let projected = map_key(&data_key)?;
+            projected_pairs.push((data_key, projected));
+            if existing_row_mode.requires_row_presence_check()
+                || existing_row_mode.uses_storage_existence_witness()
+            {
+                record_row_check_row_emitted();
+            }
+        }
+
+        Ok(projected_pairs)
     })
 }
 

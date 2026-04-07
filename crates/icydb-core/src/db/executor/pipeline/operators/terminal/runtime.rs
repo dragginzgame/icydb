@@ -96,20 +96,21 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         executor::{
-            BudgetedOrderedKeyStream, CoveringProjectionComponentRows, ExecutionKernel,
-            OrderedKeyStream, ScalarContinuationBindings, SingleComponentCoveringProjectionOutcome,
-            SingleComponentCoveringScanRequest,
+            BudgetedOrderedKeyStream, CoveringMembershipRows, CoveringProjectionComponentRows,
+            ExecutionKernel, OrderedKeyStream, ScalarContinuationBindings,
+            SingleComponentCoveringProjectionOutcome, SingleComponentCoveringScanRequest,
             collect_single_component_covering_projection_from_lowered_specs,
             collect_single_component_covering_projection_values_from_lowered_specs,
             covering_projection_scan_direction, decode_covering_projection_pairs,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
-            map_covering_projection_pairs,
+            map_covering_membership_pairs, map_covering_projection_pairs,
             pipeline::contracts::{
                 CoveringComponentScanState, DirectCoveringScanMaterializationRequest,
                 RowCollectorMaterializationRequest,
             },
             projection::direct_projection_field_slots,
             read_row_presence_with_consistency_from_store, reorder_covering_projection_pairs,
+            resolve_covering_memberships_from_lowered_specs,
             resolve_covering_projection_components_from_lowered_specs,
             route::{
                 LoadOrderRouteContract, LoadTerminalFastPathContract,
@@ -777,6 +778,14 @@ fn try_materialize_sql_route_covering_projected_text_rows(
         return Ok(Some(projected_rows));
     }
 
+    if let Some(projected_rows) = try_materialize_sql_route_constant_covering_projected_text_rows(
+        context,
+        covering,
+        projection_field_slots.as_slice(),
+    )? {
+        return Ok(Some(projected_rows));
+    }
+
     let Some(layout) = sql_route_covering_slot_layout(context.model, covering, None)? else {
         return Ok(None);
     };
@@ -947,6 +956,14 @@ fn try_materialize_sql_route_covering_projected_rows(
         return Ok(Some(projected_rows));
     }
 
+    if let Some(projected_rows) = try_materialize_sql_route_constant_covering_projected_rows(
+        context,
+        covering,
+        projection_field_slots.as_slice(),
+    )? {
+        return Ok(Some(projected_rows));
+    }
+
     let Some(layout) = sql_route_covering_slot_layout(context.model, covering, None)? else {
         return Ok(None);
     };
@@ -986,6 +1003,116 @@ fn try_materialize_sql_route_covering_projected_rows(
 }
 
 #[cfg(feature = "sql")]
+// Attempt one route-owned constant-plus-primary-key projected-text path while
+// keeping membership-level witness handling below the shared covering kernel.
+fn try_materialize_sql_route_constant_covering_projected_text_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+    covering: &CoveringReadExecutionPlan,
+    projection_field_slots: &[(String, usize)],
+) -> Result<Option<CoveringProjectedTextRows>, InternalError> {
+    if !covering.existing_row_mode.uses_storage_existence_witness() {
+        return Ok(None);
+    }
+
+    let Some(projected_field_sources) =
+        sql_route_constant_projected_field_sources(covering, projection_field_slots)
+    else {
+        return Ok(None);
+    };
+    let Some((raw_pairs, keys_scanned)) = sql_route_covering_membership_rows(
+        context.plan,
+        context.store,
+        context.covering_component_scan,
+        covering,
+        context.scan_budget_hint,
+    )?
+    else {
+        return Ok(None);
+    };
+
+    // Phase 1: let the shared covering membership boundary apply the
+    // membership-level witness before any constant-plus-primary-key SQL
+    // projection is materialized.
+    let consistency = row_read_consistency_for_plan(context.plan);
+    let mut rows = map_covering_membership_pairs(
+        raw_pairs,
+        context.store,
+        consistency,
+        covering.existing_row_mode,
+        |data_key| {
+            sql_project_text_row_from_constant_covering_sources(
+                projected_field_sources.as_slice(),
+                &data_key.storage_key(),
+            )
+        },
+    )?;
+
+    // Phase 2: preserve the planner-owned logical order exactly as the
+    // decoded-component covering paths do.
+    reorder_covering_projection_pairs(covering.order_contract, rows.as_mut_slice());
+
+    Ok(Some((
+        rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
+        keys_scanned,
+    )))
+}
+
+#[cfg(feature = "sql")]
+// Attempt one route-owned constant-plus-primary-key projected-row path while
+// keeping membership-level witness handling below the shared covering kernel.
+fn try_materialize_sql_route_constant_covering_projected_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+    covering: &CoveringReadExecutionPlan,
+    projection_field_slots: &[(String, usize)],
+) -> Result<Option<CoveringProjectedRows>, InternalError> {
+    if !covering.existing_row_mode.uses_storage_existence_witness() {
+        return Ok(None);
+    }
+
+    let Some(projected_field_sources) =
+        sql_route_constant_projected_field_sources(covering, projection_field_slots)
+    else {
+        return Ok(None);
+    };
+    let Some((raw_pairs, keys_scanned)) = sql_route_covering_membership_rows(
+        context.plan,
+        context.store,
+        context.covering_component_scan,
+        covering,
+        context.scan_budget_hint,
+    )?
+    else {
+        return Ok(None);
+    };
+
+    // Phase 1: let the shared covering membership boundary apply the
+    // membership-level witness before any constant-plus-primary-key SQL
+    // projection is materialized.
+    let consistency = row_read_consistency_for_plan(context.plan);
+    let mut rows = map_covering_membership_pairs(
+        raw_pairs,
+        context.store,
+        consistency,
+        covering.existing_row_mode,
+        |data_key| {
+            sql_project_row_from_constant_covering_sources(
+                projected_field_sources.as_slice(),
+                &data_key.storage_key(),
+            )
+        },
+    )?;
+
+    // Phase 2: preserve the planner-owned logical order exactly as the
+    // decoded-component covering paths do.
+    reorder_covering_projection_pairs(covering.order_contract, rows.as_mut_slice());
+
+    Ok(Some((
+        rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
+        keys_scanned,
+    )))
+}
+
+#[cfg(feature = "sql")]
 // Attempt one route-owned direct projected-row path when every projected value
 // comes from the authoritative primary key or a bound access constant.
 fn try_materialize_sql_route_constant_projected_text_rows(
@@ -997,6 +1124,9 @@ fn try_materialize_sql_route_constant_projected_text_rows(
     else {
         return Ok(None);
     };
+    if !sql_route_covering_allows_constant_short_path(context.load_terminal_fast_path) {
+        return Ok(None);
+    }
     let projection = context.plan.projection_spec(context.model);
     let Some(projection_field_slots) = direct_projection_field_slots(context.model, &projection)
     else {
@@ -1063,6 +1193,9 @@ fn try_materialize_sql_route_constant_projected_rows(
     else {
         return Ok(None);
     };
+    if !sql_route_covering_allows_constant_short_path(context.load_terminal_fast_path) {
+        return Ok(None);
+    }
     let projection = context.plan.projection_spec(context.model);
     let Some(projection_field_slots) = direct_projection_field_slots(context.model, &projection)
     else {
@@ -1232,6 +1365,21 @@ const fn sql_route_covering_row_check_required(
             covering.existing_row_mode.requires_row_presence_check()
         }
         None => false,
+    }
+}
+
+#[cfg(feature = "sql")]
+// Return whether a constant-plus-primary-key SQL short path may trust the
+// current covering route contract. These short paths only see the ordered key
+// stream itself, so they cannot honor membership-level storage witnesses.
+const fn sql_route_covering_allows_constant_short_path(
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+) -> bool {
+    match load_terminal_fast_path {
+        Some(LoadTerminalFastPathContract::CoveringRead(covering)) => {
+            !covering.existing_row_mode.uses_storage_existence_witness()
+        }
+        None => true,
     }
 }
 
@@ -1465,6 +1613,37 @@ fn sql_route_constant_projected_field_sources(
     }
 
     Some(projected_field_sources)
+}
+
+#[cfg(feature = "sql")]
+// Scan one route-owned covering membership stream under the existing-row
+// contract while preserving the planner-owned traversal order and per-entry
+// existence witness.
+fn sql_route_covering_membership_rows(
+    plan: &AccessPlannedQuery,
+    store: StoreHandle,
+    scan_state: Option<CoveringComponentScanState<'_>>,
+    covering: &CoveringReadExecutionPlan,
+    scan_budget_hint: Option<usize>,
+) -> Result<Option<(CoveringMembershipRows, usize)>, InternalError> {
+    let Some(scan_state) = scan_state else {
+        return Ok(None);
+    };
+    let scan_direction = covering_projection_scan_direction(covering.order_contract);
+    let effective_scan_budget_hint =
+        covering_component_scan_budget_hint(covering.order_contract, scan_budget_hint);
+    let raw_pairs = resolve_covering_memberships_from_lowered_specs(
+        scan_state.entity_tag,
+        scan_state.index_prefix_specs,
+        scan_state.index_range_specs,
+        scan_direction,
+        effective_scan_budget_hint.unwrap_or(usize::MAX),
+        |_| Ok(store),
+    )?;
+    let keys_scanned = raw_pairs.len();
+    let _ = plan;
+
+    Ok(Some((raw_pairs, keys_scanned)))
 }
 
 #[cfg(feature = "sql")]
@@ -1832,6 +2011,9 @@ fn sql_constant_covering_slot_row_template_from_route_contract(
     predicate_slots: Option<&PredicateProgram>,
 ) -> Option<(Vec<Option<Value>>, usize)> {
     let LoadTerminalFastPathContract::CoveringRead(covering) = load_terminal_fast_path?;
+    if !sql_route_covering_allows_constant_short_path(load_terminal_fast_path) {
+        return None;
+    }
     let primary_key_slot = model
         .fields
         .iter()
@@ -2066,7 +2248,13 @@ fn render_sql_direct_constant_text(value: &Value) -> Result<String, InternalErro
 
 #[cfg(test)]
 mod tests {
-    use crate::db::{direction::Direction, query::plan::CoveringProjectionOrder};
+    use crate::db::{
+        direction::Direction,
+        executor::route::LoadTerminalFastPathContract,
+        query::plan::{
+            CoveringExistingRowMode, CoveringProjectionOrder, CoveringReadExecutionPlan,
+        },
+    };
 
     #[test]
     fn covering_component_scan_budget_hint_disables_bounded_fetch_for_pk_reorder() {
@@ -2093,6 +2281,33 @@ mod tests {
             ),
             Some(5),
             "index-order covering scans may preserve their bounded fetch hint",
+        );
+    }
+
+    #[test]
+    fn constant_covering_short_paths_reject_storage_existence_witness() {
+        let row_check_covering =
+            LoadTerminalFastPathContract::CoveringRead(CoveringReadExecutionPlan {
+                fields: Vec::new(),
+                order_contract: CoveringProjectionOrder::IndexOrder(Direction::Asc),
+                prefix_len: 0,
+                existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
+            });
+        let storage_witness_covering =
+            LoadTerminalFastPathContract::CoveringRead(CoveringReadExecutionPlan {
+                fields: Vec::new(),
+                order_contract: CoveringProjectionOrder::IndexOrder(Direction::Asc),
+                prefix_len: 0,
+                existing_row_mode: CoveringExistingRowMode::StorageExistenceWitness,
+            });
+
+        assert!(
+            super::sql_route_covering_allows_constant_short_path(Some(&row_check_covering)),
+            "constant-plus-primary-key SQL short paths may still run under row_check_required because they perform their own authoritative row presence checks",
+        );
+        assert!(
+            !super::sql_route_covering_allows_constant_short_path(Some(&storage_witness_covering)),
+            "constant-plus-primary-key SQL short paths must fail closed under storage_existence_witness because the ordered key stream does not carry membership-level missing-row witnesses",
         );
     }
 }

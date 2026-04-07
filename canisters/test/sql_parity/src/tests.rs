@@ -2,6 +2,7 @@ mod tests {
     use super::{
         Customer, CustomerAccount, CustomerOrder, SqlQueryResult, db, fixtures_load_default,
         fixtures_make_customer_name_order_stale,
+        fixtures_make_customer_order_numeric_equality_desc_stale,
         fixtures_make_customer_order_numeric_equality_stale,
         fixtures_make_customer_order_order_only_composite_desc_stale,
         fixtures_make_customer_order_order_only_composite_stale,
@@ -69,6 +70,13 @@ mod tests {
         ensure_sql_test_memory_range();
         fixtures_make_customer_order_numeric_equality_stale()
             .expect("stale CustomerOrder numeric-equality fixture mutation should succeed");
+    }
+
+    fn reload_default_fixtures_with_customer_order_numeric_equality_desc_stale() {
+        reload_default_fixtures();
+        ensure_sql_test_memory_range();
+        fixtures_make_customer_order_numeric_equality_desc_stale()
+            .expect("stale descending CustomerOrder numeric-equality fixture mutation should succeed");
     }
 
     fn reload_default_fixtures_with_customer_order_order_only_composite_desc_stale() {
@@ -932,6 +940,139 @@ mod tests {
         assert!(
             !explain.contains("row_check_required"),
             "stale CustomerOrder numeric-equality explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_stale_explain_matches_typed_surface(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_stale_projection_matches_typed_surface(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality projection parity on the storage-witness route",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_stale_explain_reports_storage_existence_witness_route(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains(
+                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
+                ),
+            "stale descending CustomerOrder numeric-equality explain should stay on the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            "stale descending CustomerOrder numeric-equality explain should report the storage-owned existence witness mode: {explain}",
+        );
+        assert!(
+            !explain.contains("row_check_required") && !explain.contains("witness_validated"),
+            "stale descending CustomerOrder numeric-equality explain should not fall back once the shared covering-membership kernel keeps reverse traversal honest: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_stale_explain_matches_typed_surface(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_stale();
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder numeric-equality leading-component EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_stale_explain_reports_storage_existence_witness_route(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_stale();
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain
+                    .contains("covering_fields=List([Text(\"id\"), Text(\"priority\")])"),
+            "stale CustomerOrder numeric-equality leading-component explain should stay on the covering-read route contract: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            "stale CustomerOrder numeric-equality leading-component explain should report the storage-owned existence witness mode once the shared covering-membership kernel can carry that authority shape: {explain}",
+        );
+        assert!(
+            !explain.contains("row_check_required") && !explain.contains("witness_validated"),
+            "stale CustomerOrder numeric-equality leading-component explain should not fall back once the covering-membership witness path is authoritative: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_stale_projection_matches_typed_surface(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_stale();
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder numeric-equality leading-component projection parity on the storage-witness route",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_desc_stale_explain_matches_typed_surface(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        assert_dispatch_matches_typed_as::<CustomerOrder>(
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality leading-component EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_desc_stale_explain_reports_storage_existence_witness_route(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain
+                    .contains("covering_fields=List([Text(\"id\"), Text(\"priority\")])"),
+            "stale descending CustomerOrder numeric-equality leading-component explain should stay on the covering-read route contract: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            "stale descending CustomerOrder numeric-equality leading-component explain should report the storage-owned existence witness mode once the reverse covering-membership kernel can carry that authority shape: {explain}",
+        );
+        assert!(
+            !explain.contains("row_check_required") && !explain.contains("witness_validated"),
+            "stale descending CustomerOrder numeric-equality leading-component explain should not fall back once the reverse covering-membership witness path is authoritative: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_desc_stale_projection_matches_typed_surface(
+    ) {
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality leading-component projection parity on the storage-witness route",
         );
     }
 
@@ -4033,6 +4174,201 @@ mod tests {
         assert_eq!(
             generated_metrics, typed_metrics,
             "generated and typed stale CustomerOrder numeric-equality perf samples should keep row_check metrics in parity",
+        );
+    }
+
+    #[test]
+    fn customer_order_numeric_equality_leading_component_stale_perf_surface_reports_row_check_metrics_in_parity(
+    ) {
+        let sql =
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2";
+        reload_default_fixtures_with_customer_order_numeric_equality_stale();
+        let generated = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect(
+            "generated stale CustomerOrder numeric-equality leading-component sql perf sample should succeed",
+        );
+        let typed = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect(
+            "typed stale CustomerOrder numeric-equality leading-component sql perf sample should succeed",
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale CustomerOrder numeric-equality leading-component perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale CustomerOrder numeric-equality leading-component perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale CustomerOrder numeric-equality leading-component perf sample should still emit one live row after the missing leading membership consumes part of the window",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale CustomerOrder numeric-equality leading-component perf sample should still emit one live row after the missing leading membership consumes part of the window",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 2);
+        assert_eq!(generated_metrics.row_presence_probe_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
+        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
+        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
+        assert_eq!(generated_metrics.row_check_rows_emitted, 1);
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale CustomerOrder numeric-equality leading-component perf samples should keep row_check metrics in parity",
+        );
+    }
+
+    #[test]
+    fn customer_order_numeric_equality_desc_stale_perf_surface_reports_row_check_metrics_in_parity()
+    {
+        let sql =
+            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2";
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        let generated = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect(
+            "generated stale descending CustomerOrder numeric-equality sql perf sample should succeed",
+        );
+        let typed = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect(
+            "typed stale descending CustomerOrder numeric-equality sql perf sample should succeed",
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder numeric-equality perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder numeric-equality perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(2),
+            "generated stale descending CustomerOrder numeric-equality perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(2),
+            "typed stale descending CustomerOrder numeric-equality perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale descending CustomerOrder numeric-equality perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale descending CustomerOrder numeric-equality perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 4);
+        assert_eq!(generated_metrics.row_presence_probe_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
+        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
+        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
+        assert_eq!(generated_metrics.row_check_rows_emitted, 3);
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale descending CustomerOrder numeric-equality perf samples should keep row_check metrics in parity",
+        );
+    }
+
+    #[test]
+    fn customer_order_numeric_equality_leading_component_desc_stale_perf_surface_reports_row_check_metrics_in_parity(
+    ) {
+        let sql =
+            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2";
+        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
+        let generated = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect(
+            "generated stale descending CustomerOrder numeric-equality leading-component sql perf sample should succeed",
+        );
+        let typed = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect(
+            "typed stale descending CustomerOrder numeric-equality leading-component sql perf sample should succeed",
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(2),
+            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(2),
+            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 4);
+        assert_eq!(generated_metrics.row_presence_probe_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
+        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
+        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
+        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
+        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
+        assert_eq!(generated_metrics.row_check_rows_emitted, 3);
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale descending CustomerOrder numeric-equality leading-component perf samples should keep row_check metrics in parity",
         );
     }
 

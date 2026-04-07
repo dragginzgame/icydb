@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.69.x] 🧭 - 2026-04-07 - True Covering Read Execution
 
+- `0.69.9` finishes the next narrow stale `CustomerOrder WHERE priority = 20 ORDER BY status ...` storage-witness follow-up, so three more equality-prefix index-backed reads keep the same stale-row-filtered results but skip the extra row-presence probe and run about `12%–21%` cheaper on the exact same query.
 - `0.69.8` broadens the new stale-row storage witness to a few narrow `CustomerOrder` index-backed reads, so those queries keep the same filtered output after stale index entries but skip the extra row-presence probe and run about `6.7%–7.6%` cheaper on the exact same query.
 - `0.69.7` adds a narrow storage-level witness for two stale `Customer ORDER BY name` index-backed reads, so those queries keep the same filtered output but skip the extra row-presence probe and run about `5.5%` cheaper on the exact same query.
 - `0.69.6` is a small follow-up to the `0.69.5` test-harness work that keeps the PocketIC SQL integration suite building against the newer `canic-testkit` fixture API, without changing query behavior or the covering-read authority rules.

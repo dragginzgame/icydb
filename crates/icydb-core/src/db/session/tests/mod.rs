@@ -6503,6 +6503,148 @@ fn execute_sql_projection_index_coverable_composite_equality_prefix_suffix_order
 }
 
 #[test]
+fn execute_sql_projection_index_coverable_composite_equality_prefix_suffix_order_desc_stale_path_reports_row_check_metrics()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_321_u128, "alpha", 2),
+            (9_322, "alpha", 1),
+            (9_323, "beta", 1),
+        ],
+    );
+    remove_composite_indexed_session_sql_row_data(9_321);
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<CompositeIndexedSessionSqlEntity>(
+            &session,
+            "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity WHERE code = 'alpha' ORDER BY serial DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "stale descending composite equality-prefix suffix-order covering projection query should execute",
+        );
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![
+            Value::Ulid(Ulid::from_u128(9_322)),
+            Value::Text("alpha".to_string()),
+            Value::Uint(1),
+        ]],
+        "stale descending composite equality-prefix suffix-order covering projection should consume scan budget on the missing descending-leading row before emitting the first live row",
+    );
+    assert_eq!(metrics.index_entries_scanned, 2);
+    assert_eq!(metrics.index_membership_single_key_entries, 2);
+    assert_eq!(metrics.index_membership_multi_key_entries, 0);
+    assert_eq!(metrics.index_membership_keys_decoded, 2);
+    assert_eq!(metrics.row_check_covering_candidates_seen, 2);
+    assert_eq!(metrics.row_check_rows_emitted, 1);
+    assert_eq!(metrics.row_presence_probe_count, 0);
+    assert_eq!(metrics.row_presence_probe_hits, 0);
+    assert_eq!(metrics.row_presence_probe_misses, 0);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
+    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 0);
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_composite_equality_prefix_leading_component_stale_path_reports_row_check_metrics()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_311_u128, "alpha", 2),
+            (9_312, "alpha", 1),
+            (9_313, "beta", 1),
+        ],
+    );
+    remove_composite_indexed_session_sql_row_data(9_312);
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<CompositeIndexedSessionSqlEntity>(
+            &session,
+            "SELECT id, code FROM CompositeIndexedSessionSqlEntity WHERE code = 'alpha' ORDER BY serial ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "stale composite equality-prefix leading-component covering projection query should execute",
+        );
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![
+            Value::Ulid(Ulid::from_u128(9_311)),
+            Value::Text("alpha".to_string()),
+        ]],
+        "stale composite equality-prefix leading-component covering projection should keep the live row while the missing leading membership still consumes scan budget",
+    );
+    assert_eq!(metrics.index_entries_scanned, 2);
+    assert_eq!(metrics.index_membership_single_key_entries, 2);
+    assert_eq!(metrics.index_membership_multi_key_entries, 0);
+    assert_eq!(metrics.index_membership_keys_decoded, 2);
+    assert_eq!(metrics.row_check_covering_candidates_seen, 2);
+    assert_eq!(metrics.row_check_rows_emitted, 1);
+    assert_eq!(metrics.row_presence_probe_count, 0);
+    assert_eq!(metrics.row_presence_probe_hits, 0);
+    assert_eq!(metrics.row_presence_probe_misses, 0);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
+    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 0);
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_composite_equality_prefix_leading_component_desc_stale_path_reports_row_check_metrics()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_331_u128, "alpha", 2),
+            (9_332, "alpha", 1),
+            (9_333, "beta", 1),
+        ],
+    );
+    remove_composite_indexed_session_sql_row_data(9_331);
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<CompositeIndexedSessionSqlEntity>(
+            &session,
+            "SELECT id, code FROM CompositeIndexedSessionSqlEntity WHERE code = 'alpha' ORDER BY serial DESC, id DESC LIMIT 2",
+        )
+        .expect(
+            "stale descending composite equality-prefix leading-component covering projection query should execute",
+        );
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![
+            Value::Ulid(Ulid::from_u128(9_332)),
+            Value::Text("alpha".to_string()),
+        ]],
+        "stale descending composite equality-prefix leading-component covering projection should consume the missing descending-leading row before emitting the remaining live row",
+    );
+    assert_eq!(metrics.index_entries_scanned, 2);
+    assert_eq!(metrics.index_membership_single_key_entries, 2);
+    assert_eq!(metrics.index_membership_multi_key_entries, 0);
+    assert_eq!(metrics.index_membership_keys_decoded, 2);
+    assert_eq!(metrics.row_check_covering_candidates_seen, 2);
+    assert_eq!(metrics.row_check_rows_emitted, 1);
+    assert_eq!(metrics.row_presence_probe_count, 0);
+    assert_eq!(metrics.row_presence_probe_hits, 0);
+    assert_eq!(metrics.row_presence_probe_misses, 0);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
+    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 0);
+}
+
+#[test]
 fn execute_sql_projection_index_coverable_composite_order_only_leading_component_stale_path_reports_row_check_metrics()
  {
     reset_indexed_session_sql_store();
@@ -7742,6 +7884,133 @@ fn execute_sql_dispatch_explain_execution_composite_equality_prefix_suffix_order
     assert!(
         !explain.contains("witness_validated") && !explain.contains("row_check_required"),
         "stale-row mutation should invalidate the synchronized composite equality-prefix suffix-order witness-backed route without falling back to row-check-required on the kept ascending cohort: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_equality_prefix_suffix_order_desc_uses_storage_existence_witness_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_324_u128, "alpha", 2_u64),
+        (9_325, "alpha", 1),
+        (9_326, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect(
+                "stale descending composite equality-prefix suffix-order witness fixture insert should succeed",
+            );
+    }
+    remove_composite_indexed_session_sql_row_data(9_324);
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity WHERE code = 'alpha' ORDER BY serial DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "stale descending composite equality-prefix suffix-order EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "stale-row mutation should promote descending composite equality-prefix suffix-order EXPLAIN EXECUTION to the storage-owned existence witness route: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated") && !explain.contains("row_check_required"),
+        "stale-row mutation should invalidate the synchronized descending composite equality-prefix suffix-order witness-backed route without falling back to row-check-required on the kept cohort: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_equality_prefix_leading_component_uses_storage_existence_witness_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_314_u128, "alpha", 2_u64),
+        (9_315, "alpha", 1),
+        (9_316, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect(
+                "stale composite equality-prefix leading-component witness fixture insert should succeed",
+            );
+    }
+    remove_composite_indexed_session_sql_row_data(9_315);
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code FROM CompositeIndexedSessionSqlEntity WHERE code = 'alpha' ORDER BY serial ASC, id ASC LIMIT 2",
+    )
+    .expect("stale composite equality-prefix leading-component EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "stale composite equality-prefix leading-component EXPLAIN EXECUTION should now expose the storage-owned existence witness route through the shared covering-membership kernel: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required") && !explain.contains("witness_validated"),
+        "stale composite equality-prefix leading-component EXPLAIN EXECUTION should not fall back once the covering-membership witness path is authoritative: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_composite_equality_prefix_leading_component_desc_uses_storage_existence_witness_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_334_u128, "alpha", 2_u64),
+        (9_335, "alpha", 1),
+        (9_336, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect(
+                "stale descending composite equality-prefix leading-component witness fixture insert should succeed",
+            );
+    }
+    remove_composite_indexed_session_sql_row_data(9_334);
+
+    let explain = dispatch_explain_sql::<CompositeIndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, code FROM CompositeIndexedSessionSqlEntity WHERE code = 'alpha' ORDER BY serial DESC, id DESC LIMIT 2",
+    )
+    .expect(
+        "stale descending composite equality-prefix leading-component EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "stale descending composite equality-prefix leading-component EXPLAIN EXECUTION should expose the storage-owned existence witness route through the shared covering-membership kernel: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required") && !explain.contains("witness_validated"),
+        "stale descending composite equality-prefix leading-component EXPLAIN EXECUTION should not fall back once the reverse covering-membership witness path is authoritative: {explain}",
     );
 }
 
