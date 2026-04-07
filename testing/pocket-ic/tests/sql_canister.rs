@@ -1948,9 +1948,10 @@ fn sql_canister_query_lane_supports_user_expression_key_only_order_covering_proj
 
         assert_eq!(rows.entity, "Customer");
         assert_eq!(rows.columns, vec!["id".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
         assert_eq!(rows.rows[0].len(), 1);
+        assert_eq!(rows.rows[1].len(), 1);
     });
 }
 
@@ -2058,9 +2059,10 @@ fn sql_canister_query_lane_supports_user_expression_key_only_order_desc_covering
 
         assert_eq!(rows.entity, "Customer");
         assert_eq!(rows.columns, vec!["id".to_string()]);
-        assert_eq!(rows.row_count, 1);
-        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.row_count, 2);
+        assert_eq!(rows.rows.len(), 2);
         assert_eq!(rows.rows[0].len(), 1);
+        assert_eq!(rows.rows[1].len(), 1);
     });
 }
 
