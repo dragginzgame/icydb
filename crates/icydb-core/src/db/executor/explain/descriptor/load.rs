@@ -7,10 +7,7 @@ use crate::{
     db::{
         executor::{
             ExecutionPreparation,
-            authority::{
-                SecondaryReadAuthorityOwner, classify_secondary_read_authority_explain_labels,
-                secondary_read_authority_owner,
-            },
+            authority::resolve_secondary_read_authority_profile,
             preparation::slot_map_for_model_plan,
             route::{
                 ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
@@ -414,26 +411,22 @@ fn annotate_store_backed_secondary_authority_node_properties(
     let Some(store) = store else {
         return;
     };
-    if !matches!(
-        secondary_read_authority_owner(model, plan, load_terminal_fast_path, store),
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-            | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
-    ) {
+    let resolved_authority_profile =
+        resolve_secondary_read_authority_profile(model, plan, load_terminal_fast_path, store);
+    let Some((authority_decision, authority_reason)) =
+        resolved_authority_profile.flat_explain_labels()
+    else {
         return;
-    }
-    let (authority_decision, authority_reason) = classify_secondary_read_authority_explain_labels(
-        model,
-        plan,
-        load_terminal_fast_path,
-        store,
-    );
+    };
 
     node.node_properties
         .insert("authority_decision", Value::from(authority_decision));
     node.node_properties
         .insert("authority_reason", Value::from(authority_reason));
-    node.node_properties
-        .insert("index_state", Value::from(store.index_state().as_str()));
+    node.node_properties.insert(
+        "index_state",
+        Value::from(resolved_authority_profile.index_state().as_str()),
+    );
 }
 
 // Emit one explicit projection terminal node when the scalar load route stays

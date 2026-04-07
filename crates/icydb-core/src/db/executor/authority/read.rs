@@ -22,7 +22,7 @@ use std::ops::Bound;
 /// probe free, or it must fail closed back to row checks.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum AuthorityDecision {
+enum AuthorityDecision {
     ProbeFree,
     RowCheckRequired,
 }
@@ -35,7 +35,7 @@ pub(in crate::db::executor) enum AuthorityDecision {
 /// selection and inspection stay on one shared classification story.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum AuthorityReason {
+enum AuthorityReason {
     ProbeRequired,
     IndexNotValid,
     SynchronizedPairWitness,
@@ -44,18 +44,50 @@ pub(in crate::db::executor) enum AuthorityReason {
 }
 
 ///
-/// SecondaryReadAuthorityOwner
+/// SecondaryReadAuthorityClassifier
 ///
-/// Explicit ownership split for store-backed secondary read authority.
-/// `0.70.2` keeps the flat classifier on the single-component line, while the
-/// older richer covering profile remains the authority owner for broader
-/// composite/stale covering cohorts until a wider invariant is proven.
+/// Flat compatibility projection for the current `0.70.2` authority surface.
+/// This keeps the existing decision/reason vocabulary stable while the richer
+/// executor-owned profile becomes the canonical behavior source.
+/// The classifier vocabulary is frozen to the currently admitted probe-free
+/// profile families and must not widen without explicit admissibility
+/// criteria.
 ///
+/// IMPORTANT:
+/// This classifier is a pure projection from `ResolvedSecondaryReadAuthorityProfile`.
+/// It must not:
+/// - inspect storage, schema, or route state directly
+/// - introduce new decision logic
+/// - be used to determine correctness
+///
+/// Production behavior must resolve `ResolvedSecondaryReadAuthorityProfile`
+/// first and only project this classifier for compatibility surfaces such as
+/// flat `EXPLAIN` labels and dispatch-facing summaries.
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum SecondaryReadAuthorityOwner {
-    FlatSingleComponentClassifier,
-    FlatCompositeWitnessValidatedClassifier,
-    RichCoveringProfile,
+struct SecondaryReadAuthorityClassifier {
+    decision: AuthorityDecision,
+    reason: AuthorityReason,
+}
+
+impl SecondaryReadAuthorityClassifier {
+    // Build one flat compatibility classifier from the current decision/reason
+    // pair without widening the existing external vocabulary. This constructor
+    // is projection-only and must not become a second behavior decision seam.
+    const fn new(decision: AuthorityDecision, reason: AuthorityReason) -> Self {
+        Self { decision, reason }
+    }
+
+    // Return the current flat authority decision.
+    const fn decision(self) -> AuthorityDecision {
+        self.decision
+    }
+
+    // Return the current flat authority reason.
+    const fn reason(self) -> AuthorityReason {
+        self.reason
+    }
 }
 
 ///
@@ -66,7 +98,7 @@ pub(in crate::db::executor) enum SecondaryReadAuthorityOwner {
 /// shipped witness-backed covering semantics for the single-component line.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct AuthorityContext {
+struct AuthorityContext {
     index_state: IndexState,
     is_covering: bool,
     is_classifier_supported_shape: bool,
@@ -88,6 +120,108 @@ impl AuthorityContext {
             is_classifier_supported_shape,
             probe_free_existing_row_mode,
         }
+    }
+}
+
+///
+/// ResolvedSecondaryReadAuthorityProfile
+///
+/// ResolvedSecondaryReadAuthorityProfile is the canonical executor-owned
+/// behavior profile for one concrete store-backed secondary read.
+/// It keeps lifecycle state and final existing-row behavior together, and it
+/// carries one optional flat classifier projection only when this resolved
+/// profile clears the current admissibility gate.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ResolvedSecondaryReadAuthorityProfile {
+    index_state: IndexState,
+    existing_row_mode: CoveringExistingRowMode,
+    flat_classifier: Option<SecondaryReadAuthorityClassifier>,
+}
+
+impl ResolvedSecondaryReadAuthorityProfile {
+    // Build one resolved behavior profile for the current store-backed
+    // secondary read boundary.
+    const fn new(
+        index_state: IndexState,
+        existing_row_mode: CoveringExistingRowMode,
+        flat_classifier: Option<SecondaryReadAuthorityClassifier>,
+    ) -> Self {
+        Self {
+            index_state,
+            existing_row_mode,
+            flat_classifier,
+        }
+    }
+
+    // Build one compatibility profile from the current flat classifier. This
+    // intentionally uses one neutral representative for fields the flat layer
+    // does not carry so round-trip projection stays stable.
+    const fn from_classifier(classifier: SecondaryReadAuthorityClassifier) -> Self {
+        match (classifier.decision(), classifier.reason()) {
+            (AuthorityDecision::ProbeFree, AuthorityReason::SynchronizedPairWitness) => Self::new(
+                IndexState::Valid,
+                CoveringExistingRowMode::WitnessValidated,
+                Some(classifier),
+            ),
+            (AuthorityDecision::ProbeFree, AuthorityReason::StaleStorageExistenceWitness) => {
+                Self::new(
+                    IndexState::Valid,
+                    CoveringExistingRowMode::StorageExistenceWitness,
+                    Some(classifier),
+                )
+            }
+            (AuthorityDecision::RowCheckRequired, AuthorityReason::IndexNotValid) => Self::new(
+                IndexState::Building,
+                CoveringExistingRowMode::RequiresRowPresenceCheck,
+                Some(classifier),
+            ),
+            _ => Self::new(
+                IndexState::Valid,
+                CoveringExistingRowMode::RequiresRowPresenceCheck,
+                Some(classifier),
+            ),
+        }
+    }
+
+    // Return the lifecycle state consumed by the current authority decision.
+    pub(in crate::db::executor) const fn index_state(self) -> IndexState {
+        self.index_state
+    }
+
+    // Return the final existing-row behavior for this resolved route.
+    pub(in crate::db::executor) const fn existing_row_mode(self) -> CoveringExistingRowMode {
+        self.existing_row_mode
+    }
+
+    // Return the optional flat classifier projection admitted for this
+    // resolved profile.
+    const fn flat_classifier(self) -> Option<SecondaryReadAuthorityClassifier> {
+        self.flat_classifier
+    }
+
+    // Return whether this resolved profile admits one flat compatibility
+    // projection.
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn has_flat_classifier_projection(self) -> bool {
+        self.flat_classifier.is_some()
+    }
+
+    // Return the optional flat EXPLAIN labels derived from this resolved
+    // profile. This keeps inspection on the same projection path as the flat
+    // compatibility classifier instead of re-deriving labels ad hoc.
+    pub(in crate::db::executor) const fn flat_explain_labels(
+        self,
+    ) -> Option<(&'static str, &'static str)> {
+        let Some(classifier) = self.flat_classifier else {
+            return None;
+        };
+
+        Some((
+            authority_decision_label(classifier.decision(), classifier.reason()),
+            authority_reason_label(classifier.reason()),
+        ))
     }
 }
 
@@ -122,9 +256,7 @@ const fn preserved_probe_free_existing_row_mode(
 }
 
 // Return the stable external label for one centralized authority reason.
-pub(in crate::db::executor) const fn authority_reason_label(
-    reason: AuthorityReason,
-) -> &'static str {
+const fn authority_reason_label(reason: AuthorityReason) -> &'static str {
     match reason {
         AuthorityReason::ProbeRequired => "probe_required",
         AuthorityReason::IndexNotValid => "index_not_valid",
@@ -136,7 +268,7 @@ pub(in crate::db::executor) const fn authority_reason_label(
 
 // Return the stable external decision label for one centralized authority
 // classification while keeping the current flat `EXPLAIN` vocabulary intact.
-pub(in crate::db::executor) const fn authority_decision_label(
+const fn authority_decision_label(
     decision: AuthorityDecision,
     reason: AuthorityReason,
 ) -> &'static str {
@@ -181,38 +313,12 @@ fn secondary_classifier_owns_composite_witness_validated_family(
         == Some(SecondaryWitnessValidatedCoveringCohort::CompositeOrderOnly)
 }
 
-// Return which authority mechanism owns one concrete store-backed secondary
-// read. `0.70.2` now admits one explicit composite synchronized-witness family
-// into the flat classifier, while stale composite families remain profile-owned.
-pub(in crate::db::executor) fn secondary_read_authority_owner(
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
-    store: StoreHandle,
-) -> SecondaryReadAuthorityOwner {
-    if secondary_access_is_single_component(plan) {
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-    } else if store.secondary_covering_authoritative()
-        && secondary_classifier_owns_composite_witness_validated_family(
-            model,
-            plan,
-            load_terminal_fast_path,
-        )
-    {
-        SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
-    } else {
-        SecondaryReadAuthorityOwner::RichCoveringProfile
-    }
-}
-
 // Classify one compact secondary-read authority context. The current `0.70.2`
 // rule is intentionally narrow:
 // - non-covering or non-single-component routes stay on row checks
 // - invalid indexes fail closed
 // - only the already-shipped witness-backed covering modes become probe free
-pub(in crate::db::executor) const fn classify_authority(
-    context: AuthorityContext,
-) -> (AuthorityDecision, AuthorityReason) {
+const fn classify_authority(context: AuthorityContext) -> (AuthorityDecision, AuthorityReason) {
     // The classifier is monotonic: once the route already carries an explicit
     // probe-free mode, classification must preserve that mode instead of
     // downgrading it through a second structural pass.
@@ -346,77 +452,6 @@ enum StorageExistenceWitnessCoveringCohort {
     CompositeEqualityPrefixLeadingComponent,
 }
 
-///
-/// SecondaryCoveringAuthorityProfile
-///
-/// SecondaryCoveringAuthorityProfile is the centralized route-owned authority
-/// summary for one already-derived covering-read contract.
-/// It keeps witness-validated and storage-existence-witness eligibility in one
-/// structural policy bundle so terminal routing no longer rediscover those
-/// cohorts independently.
-///
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db::executor) struct SecondaryCoveringAuthorityProfile {
-    witness_validated_cohort: Option<SecondaryWitnessValidatedCoveringCohort>,
-    storage_existence_witness_cohort: Option<StorageExistenceWitnessCoveringCohort>,
-}
-
-impl SecondaryCoveringAuthorityProfile {
-    // Build one empty profile for routes that stay on probe-required
-    // authority.
-    const fn none() -> Self {
-        Self {
-            witness_validated_cohort: None,
-            storage_existence_witness_cohort: None,
-        }
-    }
-
-    // Return whether this route matches one explicit witness-backed secondary
-    // cohort.
-    pub(in crate::db::executor) const fn supports_witness_validated(self) -> bool {
-        self.witness_validated_cohort.is_some()
-    }
-
-    // Return whether this route matches one explicit stale storage-witness
-    // cohort.
-    pub(in crate::db::executor) const fn supports_storage_existence_witness(self) -> bool {
-        self.storage_existence_witness_cohort.is_some()
-    }
-
-    // Resolve the final probe-free existing-row mode this explicit authority
-    // profile may use for one concrete store pair.
-    pub(in crate::db::executor) fn promoted_existing_row_mode_for_store(
-        self,
-        store: StoreHandle,
-    ) -> Option<CoveringExistingRowMode> {
-        // Phase 1: fail closed unless the index itself is query-visible as
-        // `Valid`; synchronized witness bits alone are not enough while the
-        // store is still building or dropping.
-        if !store.index_is_valid() {
-            return None;
-        }
-
-        // Phase 2: prefer the stronger synchronized pair witness whenever it
-        // exists so routes do not drift onto the narrower stale witness path.
-        if store.secondary_covering_authoritative() && self.supports_witness_validated() {
-            return Some(CoveringExistingRowMode::WitnessValidated);
-        }
-
-        // Phase 3: only use the stale storage witness when the synchronized
-        // pair witness is absent and the measured stale cohort is explicitly
-        // admitted by this authority profile.
-        if !store.secondary_covering_authoritative()
-            && store.secondary_existence_witness_authoritative()
-            && self.supports_storage_existence_witness()
-        {
-            return Some(CoveringExistingRowMode::StorageExistenceWitness);
-        }
-
-        None
-    }
-}
-
 // Resolve one already-admitted probe-free covering mode for a concrete store
 // pair, if any, without widening the existing authority cohorts.
 fn secondary_covering_probe_free_mode_for_store(
@@ -425,150 +460,125 @@ fn secondary_covering_probe_free_mode_for_store(
     covering: &CoveringReadExecutionPlan,
     store: StoreHandle,
 ) -> Option<CoveringExistingRowMode> {
-    derive_secondary_covering_authority_profile(model, plan, covering)
-        .promoted_existing_row_mode_for_store(store)
-}
-
-// Resolve the probe-free mode for the one explicit composite synchronized
-// witness family now owned by the flat classifier. This stays narrow on
-// purpose: stale composite storage-witness cohorts remain profile-owned.
-fn composite_witness_validated_probe_free_mode_for_store(
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
-    store: StoreHandle,
-) -> Option<CoveringExistingRowMode> {
-    let Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(covering)) =
-        load_terminal_fast_path
-    else {
+    // Phase 1: covering routes that were already promoted elsewhere should not
+    // be reclassified through this structural helper.
+    if covering.existing_row_mode != CoveringExistingRowMode::RequiresRowPresenceCheck {
         return None;
-    };
+    }
 
-    preserved_probe_free_existing_row_mode(covering.existing_row_mode).or_else(|| {
-        (store.index_is_valid()
-            && store.secondary_covering_authoritative()
-            && secondary_classifier_owns_composite_witness_validated_family(
-                model,
-                plan,
-                load_terminal_fast_path,
-            ))
-        .then_some(CoveringExistingRowMode::WitnessValidated)
-    })
+    // Phase 2: fail closed unless the index itself is query-visible as
+    // `Valid`; synchronized witness bits alone are not enough while the store
+    // is still building or dropping.
+    if !store.index_is_valid() {
+        return None;
+    }
+
+    // Phase 3: prefer the stronger synchronized pair witness whenever the
+    // route matches one admitted witness-backed cohort.
+    if store.secondary_covering_authoritative()
+        && secondary_witness_validated_covering_cohort(model, plan, covering).is_some()
+    {
+        return Some(CoveringExistingRowMode::WitnessValidated);
+    }
+
+    // Phase 4: only use the stale storage witness when the synchronized pair
+    // witness is absent and the route matches one explicitly admitted stale
+    // cohort.
+    if !store.secondary_covering_authoritative()
+        && store.secondary_existence_witness_authoritative()
+        && storage_existence_witness_covering_cohort(plan, covering).is_some()
+    {
+        return Some(CoveringExistingRowMode::StorageExistenceWitness);
+    }
+
+    None
 }
 
-// Classify one store-backed secondary load through the centralized `0.70.2`
-// authority decision point.
-pub(in crate::db::executor) fn classify_secondary_read_authority(
+// Derive one optional flat classifier projection from one already-resolved
+// executor profile. The rich behavior must be resolved before this runs, and
+// the projection exists only for the currently admitted flat vocabulary.
+fn derive_flat_classifier_if_admissible(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+    index_state: IndexState,
+    existing_row_mode: CoveringExistingRowMode,
+) -> Option<SecondaryReadAuthorityClassifier> {
+    let is_covering = matches!(
+        load_terminal_fast_path,
+        Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(_))
+    );
+    let probe_free_existing_row_mode = preserved_probe_free_existing_row_mode(existing_row_mode);
+    let classify = || {
+        let (decision, reason) = classify_authority(AuthorityContext::new(
+            index_state,
+            is_covering,
+            true,
+            probe_free_existing_row_mode,
+        ));
+        let classifier = SecondaryReadAuthorityClassifier::new(decision, reason);
+
+        debug_assert_eq!(
+            ResolvedSecondaryReadAuthorityProfile::from_classifier(classifier).flat_classifier(),
+            Some(classifier),
+            "secondary read classifier/profile compatibility projection must round-trip",
+        );
+
+        classifier
+    };
+
+    if secondary_access_is_single_component(plan) {
+        return Some(classify());
+    }
+
+    if matches!(existing_row_mode, CoveringExistingRowMode::WitnessValidated)
+        && secondary_classifier_owns_composite_witness_validated_family(
+            model,
+            plan,
+            load_terminal_fast_path,
+        )
+    {
+        return Some(classify());
+    }
+
+    None
+}
+
+// Resolve the final executor-owned behavior profile for one concrete
+// store-backed secondary read without forcing callers to branch separately on
+// rich behavior and the optional flat projection.
+pub(in crate::db::executor) fn resolve_secondary_read_authority_profile(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
     store: StoreHandle,
-) -> (AuthorityDecision, AuthorityReason) {
-    let authority_owner =
-        secondary_read_authority_owner(model, plan, load_terminal_fast_path, store);
-    let probe_free_existing_row_mode = match authority_owner {
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier => {
-            match load_terminal_fast_path {
-                Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(
-                    covering,
-                )) => preserved_probe_free_existing_row_mode(covering.existing_row_mode).or_else(
-                    || secondary_covering_probe_free_mode_for_store(model, plan, covering, store),
-                ),
-                None => None,
-            }
+) -> ResolvedSecondaryReadAuthorityProfile {
+    let index_state = store.index_state();
+
+    // Phase 1: resolve the rich executor behavior first without consulting the
+    // flat classifier projection.
+    let existing_row_mode = match load_terminal_fast_path {
+        Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(covering)) => {
+            preserved_probe_free_existing_row_mode(covering.existing_row_mode)
+                .or_else(|| {
+                    secondary_covering_probe_free_mode_for_store(model, plan, covering, store)
+                })
+                .unwrap_or(CoveringExistingRowMode::RequiresRowPresenceCheck)
         }
-        SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier => {
-            composite_witness_validated_probe_free_mode_for_store(
-                model,
-                plan,
-                load_terminal_fast_path,
-                store,
-            )
-        }
-        SecondaryReadAuthorityOwner::RichCoveringProfile => None,
+        None => CoveringExistingRowMode::RequiresRowPresenceCheck,
     };
-    let context = AuthorityContext::new(
-        store.index_state(),
-        matches!(
-            load_terminal_fast_path,
-            Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(_))
-        ),
-        !matches!(
-            authority_owner,
-            SecondaryReadAuthorityOwner::RichCoveringProfile
-        ),
-        probe_free_existing_row_mode,
+
+    // Phase 2: derive the optional flat compatibility projection only when
+    // the resolved rich behavior clears the current admissibility gate.
+    let flat_classifier = derive_flat_classifier_if_admissible(
+        model,
+        plan,
+        load_terminal_fast_path,
+        index_state,
+        existing_row_mode,
     );
 
-    classify_authority(context)
-}
-
-// Return the canonical covering existing-row mode for one single-component
-// secondary classifier result. Route promotion should consume this mapping
-// instead of reconstructing probe-free modes from local decision checks.
-pub(in crate::db::executor) fn classify_secondary_read_existing_row_mode(
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
-    store: StoreHandle,
-) -> Option<CoveringExistingRowMode> {
-    if !matches!(
-        secondary_read_authority_owner(model, plan, load_terminal_fast_path, store),
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-            | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
-    ) {
-        return None;
-    }
-
-    let (decision, reason) =
-        classify_secondary_read_authority(model, plan, load_terminal_fast_path, store);
-
-    Some(match (decision, reason) {
-        (AuthorityDecision::ProbeFree, AuthorityReason::SynchronizedPairWitness) => {
-            CoveringExistingRowMode::WitnessValidated
-        }
-        (AuthorityDecision::ProbeFree, AuthorityReason::StaleStorageExistenceWitness) => {
-            CoveringExistingRowMode::StorageExistenceWitness
-        }
-        _ => CoveringExistingRowMode::RequiresRowPresenceCheck,
-    })
-}
-
-// Return the canonical flat EXPLAIN labels for one store-backed secondary read
-// classification. `EXPLAIN` must consume this classifier output directly
-// instead of reconstructing authority labels from route-local flags.
-pub(in crate::db::executor) fn classify_secondary_read_authority_explain_labels(
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
-    store: StoreHandle,
-) -> (&'static str, &'static str) {
-    let (decision, reason) =
-        classify_secondary_read_authority(model, plan, load_terminal_fast_path, store);
-
-    (
-        authority_decision_label(decision, reason),
-        authority_reason_label(reason),
-    )
-}
-// Derive one centralized route-owned authority profile from the structural
-// plan plus planner-owned covering contract. This is intentionally
-// conservative and only returns the explicit cohorts already kept in `0.69`.
-pub(in crate::db::executor) fn derive_secondary_covering_authority_profile(
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    covering: &CoveringReadExecutionPlan,
-) -> SecondaryCoveringAuthorityProfile {
-    if covering.existing_row_mode != CoveringExistingRowMode::RequiresRowPresenceCheck {
-        return SecondaryCoveringAuthorityProfile::none();
-    }
-
-    SecondaryCoveringAuthorityProfile {
-        witness_validated_cohort: secondary_witness_validated_covering_cohort(
-            model, plan, covering,
-        ),
-        storage_existence_witness_cohort: storage_existence_witness_covering_cohort(plan, covering),
-    }
+    ResolvedSecondaryReadAuthorityProfile::new(index_state, existing_row_mode, flat_classifier)
 }
 
 // Return whether the current scalar predicate is either absent or fully
@@ -832,7 +842,9 @@ fn storage_existence_witness_index_field_count(plan: &AccessPlannedQuery) -> Opt
 mod tests {
     use crate::db::{
         executor::authority::read::{
-            AuthorityContext, AuthorityDecision, AuthorityReason, classify_authority,
+            AuthorityContext, AuthorityDecision, AuthorityReason,
+            ResolvedSecondaryReadAuthorityProfile, SecondaryReadAuthorityClassifier,
+            classify_authority,
         },
         index::IndexState,
         query::plan::CoveringExistingRowMode,
@@ -892,5 +904,68 @@ mod tests {
                 "the centralized classifier must never downgrade an already probe-free route",
             );
         }
+    }
+
+    #[test]
+    fn resolved_profile_round_trips_the_current_classifier_vocabulary() {
+        for classifier in [
+            SecondaryReadAuthorityClassifier::new(
+                AuthorityDecision::ProbeFree,
+                AuthorityReason::SynchronizedPairWitness,
+            ),
+            SecondaryReadAuthorityClassifier::new(
+                AuthorityDecision::ProbeFree,
+                AuthorityReason::StaleStorageExistenceWitness,
+            ),
+            SecondaryReadAuthorityClassifier::new(
+                AuthorityDecision::RowCheckRequired,
+                AuthorityReason::IndexNotValid,
+            ),
+            SecondaryReadAuthorityClassifier::new(
+                AuthorityDecision::RowCheckRequired,
+                AuthorityReason::AuthoritativeWitnessUnavailable,
+            ),
+            SecondaryReadAuthorityClassifier::new(
+                AuthorityDecision::RowCheckRequired,
+                AuthorityReason::ProbeRequired,
+            ),
+        ] {
+            assert_eq!(
+                ResolvedSecondaryReadAuthorityProfile::from_classifier(classifier)
+                    .flat_classifier(),
+                Some(classifier),
+                "the resolved authority profile must round-trip the current flat classifier vocabulary",
+            );
+        }
+    }
+
+    #[test]
+    fn classifier_projection_remains_lossy_relative_to_the_resolved_profile() {
+        let profile_owned_case = ResolvedSecondaryReadAuthorityProfile::new(
+            IndexState::Valid,
+            CoveringExistingRowMode::RequiresRowPresenceCheck,
+            None,
+        );
+        let representative_classifier = SecondaryReadAuthorityClassifier::new(
+            AuthorityDecision::RowCheckRequired,
+            AuthorityReason::ProbeRequired,
+        );
+        let flat_representative =
+            ResolvedSecondaryReadAuthorityProfile::from_classifier(representative_classifier);
+
+        assert_eq!(
+            profile_owned_case.flat_classifier(),
+            None,
+            "profile-owned cases must remain representable without inventing a flat classifier projection",
+        );
+        assert_eq!(
+            flat_representative.flat_classifier(),
+            Some(representative_classifier),
+            "flat compatibility representatives should still expose the stored projection",
+        );
+        assert_ne!(
+            flat_representative, profile_owned_case,
+            "the flat classifier must stay lossy and must not be able to reconstruct profile-owned cases",
+        );
     }
 }

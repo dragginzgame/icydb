@@ -8,11 +8,7 @@ use crate::{
         access::single_path_capabilities,
         direction::Direction,
         executor::{
-            ExecutionPreparation,
-            authority::{
-                SecondaryReadAuthorityOwner, classify_secondary_read_existing_row_mode,
-                derive_secondary_covering_authority_profile, secondary_read_authority_owner,
-            },
+            ExecutionPreparation, authority::resolve_secondary_read_authority_profile,
             preparation::slot_map_for_model_plan,
         },
         predicate::IndexPredicateCapability,
@@ -83,38 +79,17 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_au
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
 ) {
-    let authority_owner =
-        secondary_read_authority_owner(model, plan, load_terminal_fast_path.as_ref(), store);
-    let classified_existing_row_mode = match authority_owner {
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-        | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier => {
-            classify_secondary_read_existing_row_mode(
-                model,
-                plan,
-                load_terminal_fast_path.as_ref(),
-                store,
-            )
-        }
-        SecondaryReadAuthorityOwner::RichCoveringProfile => None,
-    };
+    let resolved_authority_profile = resolve_secondary_read_authority_profile(
+        model,
+        plan,
+        load_terminal_fast_path.as_ref(),
+        store,
+    );
     let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
         return;
     };
-    if matches!(
-        authority_owner,
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-            | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
-    ) {
-        if classified_existing_row_mode != Some(CoveringExistingRowMode::WitnessValidated) {
-            return;
-        }
-    } else {
-        let authority_profile = derive_secondary_covering_authority_profile(model, plan, covering);
-        if authority_profile.promoted_existing_row_mode_for_store(store)
-            != Some(CoveringExistingRowMode::WitnessValidated)
-        {
-            return;
-        }
+    if resolved_authority_profile.existing_row_mode() != CoveringExistingRowMode::WitnessValidated {
+        return;
     }
 
     covering.existing_row_mode = CoveringExistingRowMode::WitnessValidated;
@@ -130,37 +105,19 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_storage_exis
     plan: &AccessPlannedQuery,
     load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
 ) {
-    let authority_owner =
-        secondary_read_authority_owner(model, plan, load_terminal_fast_path.as_ref(), store);
-    let classified_existing_row_mode = match authority_owner {
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-        | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier => {
-            classify_secondary_read_existing_row_mode(
-                model,
-                plan,
-                load_terminal_fast_path.as_ref(),
-                store,
-            )
-        }
-        SecondaryReadAuthorityOwner::RichCoveringProfile => None,
-    };
+    let resolved_authority_profile = resolve_secondary_read_authority_profile(
+        model,
+        plan,
+        load_terminal_fast_path.as_ref(),
+        store,
+    );
     let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
         return;
     };
-    if matches!(
-        authority_owner,
-        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
-    ) {
-        if classified_existing_row_mode != Some(CoveringExistingRowMode::StorageExistenceWitness) {
-            return;
-        }
-    } else {
-        let authority_profile = derive_secondary_covering_authority_profile(model, plan, covering);
-        if authority_profile.promoted_existing_row_mode_for_store(store)
-            != Some(CoveringExistingRowMode::StorageExistenceWitness)
-        {
-            return;
-        }
+    if resolved_authority_profile.existing_row_mode()
+        != CoveringExistingRowMode::StorageExistenceWitness
+    {
+        return;
     }
 
     covering.existing_row_mode = CoveringExistingRowMode::StorageExistenceWitness;
