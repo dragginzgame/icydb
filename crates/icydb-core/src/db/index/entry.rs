@@ -619,6 +619,17 @@ mod tests {
     };
     use std::borrow::Cow;
 
+    fn duplicate_membership_bytes(key: StorageKey) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+        bytes.push(IndexEntryExistenceWitness::Present.to_stored_byte());
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+        bytes.push(IndexEntryExistenceWitness::Present.to_stored_byte());
+
+        bytes
+    }
+
     #[test]
     fn raw_index_entry_round_trip() {
         let keys = vec![StorageKey::Int(1), StorageKey::Uint(2)];
@@ -773,12 +784,7 @@ mod tests {
     #[test]
     fn raw_index_entry_rejects_duplicate_keys() {
         let key = StorageKey::Int(1);
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&2u32.to_be_bytes());
-        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
-        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
-
-        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(duplicate_membership_bytes(key)));
         assert!(matches!(
             raw.decode_keys(),
             Err(IndexEntryCorruption::DuplicateKey)
@@ -788,12 +794,7 @@ mod tests {
     #[test]
     fn raw_index_entry_iter_keys_rejects_duplicate_keys() {
         let key = StorageKey::Int(1);
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&2u32.to_be_bytes());
-        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
-        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
-
-        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(duplicate_membership_bytes(key)));
         let mut iter = raw.iter_keys().expect("build key iterator");
 
         assert_eq!(iter.next().expect("first item").expect("decode key"), key);
