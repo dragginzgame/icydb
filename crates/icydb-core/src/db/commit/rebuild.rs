@@ -8,7 +8,7 @@ use crate::{
         Db,
         commit::{CommitRowOp, PreparedIndexMutation},
         data::{DataKey, RawDataKey, RawRow},
-        index::{IndexStore, RawIndexEntry, RawIndexKey},
+        index::{IndexState, IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreHandle,
         schema::commit_schema_fingerprint_for_model,
     },
@@ -34,6 +34,7 @@ pub(in crate::db) fn rebuild_secondary_indexes_from_rows(
         .map(|(_, handle)| IndexStoreSnapshot {
             handle: *handle,
             entries: handle.with_index(IndexStore::entries),
+            state: handle.index_state(),
         })
         .collect::<Vec<_>>();
 
@@ -59,6 +60,7 @@ pub(in crate::db) fn rebuild_secondary_indexes_from_rows(
 struct IndexStoreSnapshot {
     handle: StoreHandle,
     entries: Vec<(RawIndexKey, RawIndexEntry)>,
+    state: IndexState,
 }
 
 /// Collect store handles in deterministic path order for stable rebuild behavior.
@@ -79,12 +81,18 @@ fn rebuild_secondary_indexes_in_place(
     db: &Db<impl CanisterKind>,
     stores: &[(&'static str, StoreHandle)],
 ) -> Result<(), InternalError> {
-    // Phase 1: clear all index stores before deterministic full rebuild.
+    // Phase 1: fail closed during rebuild so no query path can treat one
+    // partially rebuilt secondary index as authoritative.
+    for (_, handle) in stores {
+        handle.mark_index_building();
+    }
+
+    // Phase 2: clear all index stores before deterministic full rebuild.
     for (_, handle) in stores {
         handle.with_index_mut(IndexStore::clear);
     }
 
-    // Phase 2: rebuild index entries from authoritative row stores.
+    // Phase 3: rebuild index entries from authoritative row stores.
     for (store_path, handle) in stores {
         let rows = handle.with_data(|data_store| {
             data_store
@@ -141,6 +149,12 @@ fn restore_index_store_snapshots(snapshots: Vec<IndexStoreSnapshot>) {
             index_store.clear();
             for (raw_key, raw_entry) in snapshot.entries {
                 index_store.insert(raw_key, raw_entry);
+            }
+
+            match snapshot.state {
+                IndexState::Building => index_store.mark_building(),
+                IndexState::Valid => index_store.mark_valid(),
+                IndexState::Dropping => index_store.mark_dropping(),
             }
         });
     }

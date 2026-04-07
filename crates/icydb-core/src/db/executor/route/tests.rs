@@ -10,6 +10,7 @@ use super::{
     build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
+    build_initial_execution_route_plan_for_load_with_model_store_witness,
     derive_load_terminal_fast_path_contract_for_model,
     grouped_ordered_runtime_revalidation_flag_count_guard,
     grouped_plan_metrics_strategy_for_execution_strategy, route_capability_flag_count_guard,
@@ -19,6 +20,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         cursor::CursorBoundary,
+        data::DataStore,
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation,
@@ -28,7 +30,7 @@ use crate::{
             plan_metrics::GroupedPlanMetricsStrategy,
             preparation::slot_map_for_model_plan,
         },
-        index::{IndexCompilePolicy, compile_index_program},
+        index::{IndexCompilePolicy, IndexStore, compile_index_program},
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::builder::aggregate,
         query::explain::{
@@ -44,15 +46,17 @@ use crate::{
             expr::{FieldId, ProjectionSelection},
             grouped_executor_handoff, grouped_plan_strategy_hint,
         },
+        registry::StoreHandle,
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    testing::test_memory,
     traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::{fs, ops::Bound};
+use std::{cell::RefCell, fs, ops::Bound};
 
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
 const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
@@ -136,6 +140,13 @@ static UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &UNIQUE_ROUTE_CAPABILITY_INDEX_FIELDS,
     true,
 )];
+
+thread_local! {
+    static ROUTE_AUTHORITY_DATA_STORE: RefCell<DataStore> =
+        RefCell::new(DataStore::init(test_memory(180)));
+    static ROUTE_AUTHORITY_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(181)));
+}
 
 crate::test_entity_schema! {
     ident = UniqueRouteCapabilityEntity,
@@ -243,6 +254,49 @@ fn build_aggregate_spec_route(
         aggregate_expr,
         &execution_preparation,
     )
+}
+
+// Build one direct store handle for route-level authority promotion tests.
+fn route_authority_store_handle() -> StoreHandle {
+    StoreHandle::new(&ROUTE_AUTHORITY_DATA_STORE, &ROUTE_AUTHORITY_INDEX_STORE)
+}
+
+// Reset the route-level authority fixture so covering promotion tests start
+// from one empty `Valid` index with no synchronized authority bits restored.
+fn reset_route_authority_store() {
+    ROUTE_AUTHORITY_DATA_STORE.with(|store| store.borrow_mut().clear());
+    ROUTE_AUTHORITY_INDEX_STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        store.clear();
+        store.mark_valid();
+    });
+}
+
+// Build one narrow order-only covering plan used to prove that route-level
+// witness promotion now depends on index validity in addition to the older
+// synchronized authority bits.
+fn secondary_order_covering_plan() -> AccessPlannedQuery {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection =
+        ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("rank")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    plan
 }
 
 fn field_extrema_index_range_plan(
@@ -783,6 +837,92 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
     assert_eq!(
         covering.existing_row_mode,
         CoveringExistingRowMode::RequiresRowPresenceCheck,
+    );
+}
+
+#[test]
+fn route_plan_store_witness_requires_valid_index_for_witness_validated_promotion() {
+    reset_route_authority_store();
+    let plan = secondary_order_covering_plan();
+    let store = route_authority_store_handle();
+
+    store.mark_secondary_covering_authoritative();
+    let promoted_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("witness-valid route plan should build");
+    let covering = promoted_route
+        .load_terminal_fast_path()
+        .expect("witness-valid route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::WitnessValidated,
+        "Valid indexes may promote one eligible covering cohort onto witness-backed authority",
+    );
+
+    store.mark_index_building();
+    let invalid_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("invalid-index route plan should still build");
+    let covering = invalid_route
+        .load_terminal_fast_path()
+        .expect("invalid-index route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
+        "Building indexes must fail closed back to row_check_required even for one otherwise eligible witness-backed covering cohort",
+    );
+}
+
+#[test]
+fn route_plan_store_witness_requires_valid_index_for_storage_existence_witness_promotion() {
+    reset_route_authority_store();
+    let plan = secondary_order_covering_plan();
+    let store = route_authority_store_handle();
+
+    store.mark_secondary_existence_witness_authoritative();
+    let promoted_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("storage-witness-valid route plan should build");
+    let covering = promoted_route
+        .load_terminal_fast_path()
+        .expect("storage-witness-valid route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::StorageExistenceWitness,
+        "Valid indexes may promote one eligible stale covering cohort onto the storage existence witness route",
+    );
+
+    store.with_index_mut(IndexStore::mark_dropping);
+    let invalid_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("dropping-index route plan should still build");
+    let covering = invalid_route
+        .load_terminal_fast_path()
+        .expect("dropping-index route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    assert_eq!(
+        covering.existing_row_mode,
+        CoveringExistingRowMode::RequiresRowPresenceCheck,
+        "Dropping indexes must fail closed back to row_check_required even when the explicit stale storage witness was previously authoritative",
     );
 }
 

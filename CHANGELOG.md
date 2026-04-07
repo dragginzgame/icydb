@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.70.x] 🧭 - 2026-04-07 - Centralized Read Authority
+
+- `0.70.0` starts the new read-authority line by giving indexes explicit `Building` / `Valid` / `Dropping` lifecycle states and by requiring a `Valid` index before any probe-free covering read may use the newer witness-backed execution paths, while leaving aggregate index shortcuts on their older rules for now.
+
+See detailed breakdown:
+[docs/changelog/0.70.md](docs/changelog/0.70.md)
+
+---
+
 ## [0.69.x] 🧭 - 2026-04-07 - True Covering Read Execution
 
 - `0.69.9` finishes the next narrow stale `CustomerOrder WHERE priority = 20 ORDER BY status ...` storage-witness follow-up, so three more equality-prefix index-backed reads keep the same stale-row-filtered results but skip the extra row-presence probe and run about `12%–21%` cheaper on the exact same query.

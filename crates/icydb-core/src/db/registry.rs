@@ -4,7 +4,10 @@
 //! Boundary: manages registry state for named data/index stores and typed registry errors.
 
 use crate::{
-    db::{data::DataStore, index::IndexStore},
+    db::{
+        data::DataStore,
+        index::{IndexState, IndexStore},
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use std::{cell::RefCell, thread::LocalKey};
@@ -85,6 +88,29 @@ impl StoreHandle {
     /// Borrow the index store mutably.
     pub fn with_index_mut<R>(&self, f: impl FnOnce(&mut IndexStore) -> R) -> R {
         self.index.with_borrow_mut(f)
+    }
+
+    /// Return the explicit lifecycle state of the bound index store.
+    #[must_use]
+    pub(in crate::db) fn index_state(&self) -> IndexState {
+        self.with_index(IndexStore::state)
+    }
+
+    /// Return whether the bound index store is currently valid for probe-free
+    /// covering authority.
+    #[must_use]
+    pub(in crate::db) fn index_is_valid(&self) -> bool {
+        self.with_index(IndexStore::is_valid)
+    }
+
+    /// Mark the bound index store as Building.
+    pub(in crate::db) fn mark_index_building(&self) {
+        self.with_index_mut(IndexStore::mark_building);
+    }
+
+    /// Mark the bound index store as Valid.
+    pub(in crate::db) fn mark_index_valid(&self) {
+        self.with_index_mut(IndexStore::mark_valid);
     }
 
     /// Return whether this store pair currently carries a synchronized

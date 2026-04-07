@@ -97,6 +97,7 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_
     );
     promote_load_terminal_fast_path_with_storage_existence_witness(
         store,
+        model,
         plan,
         &mut route_plan.load_terminal_fast_path,
     );

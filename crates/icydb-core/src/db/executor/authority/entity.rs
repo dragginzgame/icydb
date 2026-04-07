@@ -1,8 +1,3 @@
-//! Module: db::executor::authority
-//! Responsibility: structural entity authority bundles for executor/runtime boundaries.
-//! Does not own: query semantics, store access, or typed API entrypoints.
-//! Boundary: replaces ad hoc `E::MODEL` / `E::ENTITY_TAG` / `E::PATH` threading in execution prep.
-
 use crate::{
     model::entity::EntityModel,
     traits::{EntityKind, Path},

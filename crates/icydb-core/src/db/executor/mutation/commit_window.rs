@@ -651,6 +651,7 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
         || on_index_applied(&delta),
         on_data_applied,
     )?;
+    mark_store_handles_index_valid(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_existence_witness_authoritative(
         synchronized_store_handles.as_slice(),
@@ -760,6 +761,7 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
         },
         || {},
     )?;
+    mark_store_handles_index_valid(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_existence_witness_authoritative(
         synchronized_store_handles.as_slice(),
@@ -845,6 +847,7 @@ pub(in crate::db::executor) fn commit_prepared_single_save_row_op_with_window(
         || on_index_applied(&delta),
         on_data_applied,
     )?;
+    mark_store_handles_index_valid(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_existence_witness_authoritative(
         synchronized_store_handles.as_slice(),
@@ -885,6 +888,7 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
         || emit_index_delta_metrics::<E>(&delta),
         || {},
     )?;
+    mark_store_handles_index_valid(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_existence_witness_authoritative(
         synchronized_store_handles.as_slice(),
@@ -928,6 +932,7 @@ fn commit_single_delete_row_op_with_window_for_path<C: CanisterKind>(
         },
         || {},
     )?;
+    mark_store_handles_index_valid(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_covering_authoritative(synchronized_store_handles.as_slice());
     mark_store_handles_secondary_existence_witness_authoritative(
         synchronized_store_handles.as_slice(),
@@ -1027,6 +1032,14 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
             })
         })
         .collect()
+}
+
+// Mark one batch of synchronized index stores as `Valid` after commit apply
+// succeeds and the commit marker is already closed.
+fn mark_store_handles_index_valid(handles: &[StoreHandle]) {
+    for handle in handles {
+        handle.mark_index_valid();
+    }
 }
 
 // Mark one batch of synchronized store pairs as witness-valid after commit

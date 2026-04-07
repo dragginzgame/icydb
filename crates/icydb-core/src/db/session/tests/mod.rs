@@ -25,7 +25,7 @@ use crate::{
             AggregateKind,
             expr::{Expr, ProjectionField},
         },
-        registry::StoreRegistry,
+        registry::{StoreHandle, StoreRegistry},
         response::EntityResponse,
         with_row_check_metrics,
     },
@@ -471,7 +471,11 @@ fn reset_session_sql_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered(&SESSION_SQL_DB).expect("write-side recovery should succeed");
     SESSION_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
-    SESSION_SQL_INDEX_STORE.with(|store| store.borrow_mut().clear());
+    SESSION_SQL_INDEX_STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        store.clear();
+        store.mark_valid();
+    });
 }
 
 fn sql_session() -> DbSession<SessionSqlCanister> {
@@ -482,11 +486,50 @@ fn reset_indexed_session_sql_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered(&INDEXED_SESSION_SQL_DB).expect("write-side recovery should succeed");
     INDEXED_SESSION_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
-    INDEXED_SESSION_SQL_INDEX_STORE.with(|store| store.borrow_mut().clear());
+    INDEXED_SESSION_SQL_INDEX_STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        store.clear();
+        store.mark_valid();
+    });
 }
 
 fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(INDEXED_SESSION_SQL_DB)
+}
+
+// Resolve the indexed SQL store handle through the recovered DB boundary.
+fn indexed_session_sql_store_handle() -> StoreHandle {
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+}
+
+// Mark the indexed SQL secondary index as Building so route-owned authority
+// promotions fail closed back to probe-based execution.
+fn mark_indexed_session_sql_index_building() {
+    indexed_session_sql_store_handle().mark_index_building();
+}
+
+// Mark the indexed SQL secondary index as Valid and then restore the narrower
+// synchronized covering-authority witness.
+fn restore_indexed_session_sql_covering_authority_after_valid_transition() {
+    let store = indexed_session_sql_store_handle();
+    store.mark_index_valid();
+    store.mark_secondary_covering_authoritative();
+}
+
+// Mark the indexed SQL secondary index as Valid and then restore the explicit
+// storage-owned stale-row existence witness contract.
+fn restore_indexed_session_sql_existence_witness_authority_after_valid_transition() {
+    let store = indexed_session_sql_store_handle();
+    store.mark_index_valid();
+    store.mark_secondary_existence_witness_authoritative();
+}
+
+// Mark the indexed SQL secondary index as Dropping so route-owned authority
+// promotions fail closed instead of trusting one disappearing index.
+fn mark_indexed_session_sql_index_dropping() {
+    indexed_session_sql_store_handle().with_index_mut(IndexStore::mark_dropping);
 }
 
 // Remove one indexed SQL fixture row from the primary store while preserving
@@ -6897,6 +6940,56 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_name_projection_use
 }
 
 #[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_name_projection_valid_index_keeps_storage_existence_witness_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_450_u128, "alice", 10_u64),
+        (9_451, "bob", 20),
+        (9_452, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL valid-state stale witness fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_450);
+    mark_indexed_session_sql_index_building();
+    restore_indexed_session_sql_existence_witness_authority_after_valid_transition();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+    )
+    .expect("valid-index stale secondary-order name projection EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "valid indexes should keep the explicit stale-row storage witness route available after one temporary invalid state: {explain}",
+    );
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<IndexedSessionSqlEntity>(
+            &session,
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+        )
+        .expect("valid-index stale secondary-order covering query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![Value::Text("bob".to_string())]],
+        "valid-index stale secondary-order query should preserve the guarded stale-row output",
+    );
+    assert_eq!(metrics.row_presence_probe_count, 0);
+}
+
+#[test]
 fn execute_sql_dispatch_explain_execution_secondary_covering_pk_plus_name_projection_uses_storage_existence_witness_after_stale_row_mutation()
  {
     reset_indexed_session_sql_store();
@@ -6967,6 +7060,186 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_is_witn
     assert!(
         !explain.contains("row_check_required"),
         "witness-backed secondary covering EXPLAIN EXECUTION should not report row_check_required: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_building_index_reverts_to_row_check_required()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_460_u128, "alice", 10_u64),
+        (9_461, "bob", 20),
+        (9_462, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL building-state witness fixture insert should succeed");
+    }
+    mark_indexed_session_sql_index_building();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("building-index secondary covering EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "building indexes must fail closed back to row-check-required even when the synchronized witness bits were previously set: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated"),
+        "building indexes must not expose witness_validated covering authority: {explain}",
+    );
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<IndexedSessionSqlEntity>(
+            &session,
+            "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("building-index secondary covering query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Ulid(Ulid::from_u128(9_460)),
+                Value::Text("alice".to_string()),
+            ],
+            vec![
+                Value::Ulid(Ulid::from_u128(9_461)),
+                Value::Text("bob".to_string()),
+            ],
+        ],
+        "building-index fallback should preserve the same ordered query output",
+    );
+    assert!(
+        metrics.row_presence_probe_count > 0,
+        "building-index fallback should restore authoritative row probes",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_valid_index_restores_witness_validated_after_temporary_invalid_state()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_465_u128, "alice", 10_u64),
+        (9_466, "bob", 20),
+        (9_467, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL valid-state witness fixture insert should succeed");
+    }
+    mark_indexed_session_sql_index_building();
+    restore_indexed_session_sql_covering_authority_after_valid_transition();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("valid-index secondary covering EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+        "valid indexes should restore the synchronized witness-backed route once the narrower authority witness is re-established: {explain}",
+    );
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<IndexedSessionSqlEntity>(
+            &session,
+            "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("valid-index secondary covering query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![
+            vec![
+                Value::Ulid(Ulid::from_u128(9_465)),
+                Value::Text("alice".to_string()),
+            ],
+            vec![
+                Value::Ulid(Ulid::from_u128(9_466)),
+                Value::Text("bob".to_string()),
+            ],
+        ],
+        "valid-index witness restoration should preserve the same ordered query output",
+    );
+    assert_eq!(metrics.row_presence_probe_count, 0);
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_name_projection_dropping_index_reverts_to_row_check_required()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_470_u128, "alice", 10_u64),
+        (9_471, "bob", 20),
+        (9_472, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL dropping-state stale witness fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_470);
+    mark_indexed_session_sql_index_dropping();
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+    )
+    .expect(
+        "dropping-index stale secondary-order name projection EXPLAIN EXECUTION should execute",
+    );
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+        "dropping indexes must fail closed back to row-check-required instead of keeping the stale storage witness route: {explain}",
+    );
+    assert!(
+        !explain.contains("storage_existence_witness"),
+        "dropping indexes must not keep probe-free stale-row authority: {explain}",
+    );
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<IndexedSessionSqlEntity>(
+            &session,
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+        )
+        .expect("dropping-index stale secondary-order covering query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![Value::Text("bob".to_string())]],
+        "dropping-index fallback should preserve the same guarded stale-row output",
+    );
+    assert!(
+        metrics.row_presence_probe_count > 0,
+        "dropping-index fallback should restore authoritative row probes",
     );
 }
 

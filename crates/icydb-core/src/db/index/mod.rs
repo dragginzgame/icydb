@@ -43,4 +43,4 @@ pub(in crate::db) use range::{
     raw_keys_for_component_prefix_with_kind, raw_keys_for_encoded_prefix,
 };
 pub(in crate::db) use scan::SingleComponentCoveringCollector;
-pub use store::IndexStore;
+pub use store::{IndexState, IndexStore};

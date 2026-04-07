@@ -49,6 +49,24 @@ pub(in crate::db::executor) const fn covering_requires_row_presence_check()
     CoveringExistingRowMode::RequiresRowPresenceCheck
 }
 
+// Probe-free covering contracts may only execute against one `Valid` index.
+// Route selection already enforces this, so the shared kernel keeps one debug
+// assertion here to catch any future route/runtime authority mismatch early.
+fn debug_assert_probe_free_covering_uses_valid_index(
+    store: StoreHandle,
+    existing_row_mode: CoveringExistingRowMode,
+) {
+    #[cfg(debug_assertions)]
+    {
+        if !existing_row_mode.requires_row_presence_check() {
+            debug_assert!(
+                store.index_is_valid(),
+                "probe-free covering execution requires a Valid index because Building/Dropping indexes must fail closed",
+            );
+        }
+    }
+}
+
 ///
 /// SingleComponentCoveringProjectionOutcome
 ///
@@ -447,6 +465,8 @@ fn collect_single_component_covering_projection_for_index_bounds<T, F>(
 where
     F: FnMut(crate::value::StorageKey, &[u8]) -> Result<Option<T>, InternalError>,
 {
+    debug_assert_probe_free_covering_uses_valid_index(request.store, request.existing_row_mode);
+
     request.store.with_data(|data| {
         request.store.with_index(|index_store| {
             let mut unsupported_component = false;
@@ -498,6 +518,8 @@ pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
 where
     F: FnMut(CoveringComponentValues) -> Result<Option<T>, InternalError>,
 {
+    debug_assert_probe_free_covering_uses_valid_index(store, existing_row_mode);
+
     store.with_data(|data| {
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
         for (data_key, existence_witness, components) in raw_pairs {
@@ -547,6 +569,8 @@ pub(in crate::db::executor) fn map_covering_membership_pairs<T, F>(
 where
     F: FnMut(&DataKey) -> Result<T, InternalError>,
 {
+    debug_assert_probe_free_covering_uses_valid_index(store, existing_row_mode);
+
     store.with_data(|data| {
         let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
         for (data_key, existence_witness) in raw_pairs {

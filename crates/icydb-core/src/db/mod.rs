@@ -85,7 +85,7 @@ pub use executor::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 pub use identity::{EntityName, IndexName};
-pub use index::IndexStore;
+pub use index::{IndexState, IndexStore};
 pub use migration::{
     MigrationCursor, MigrationPlan, MigrationRowOp, MigrationRunOutcome, MigrationRunState,
     MigrationStep,
@@ -225,6 +225,19 @@ impl<C: CanisterKind> Db<C> {
         self.with_store_registry(|registry| {
             for (_, handle) in registry.iter() {
                 handle.mark_secondary_existence_witness_authoritative();
+            }
+        });
+    }
+
+    /// Mark every registered index store as fully rebuilt and query-visible.
+    ///
+    /// Validity is one additive gate on top of the narrower covering
+    /// authority witnesses. Recovery restores validity only after rebuild and
+    /// post-recovery integrity validation complete successfully.
+    pub(in crate::db) fn mark_all_registered_index_stores_valid(&self) {
+        self.with_store_registry(|registry| {
+            for (_, handle) in registry.iter() {
+                handle.mark_index_valid();
             }
         });
     }
