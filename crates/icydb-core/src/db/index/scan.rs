@@ -17,7 +17,7 @@ use crate::{
             record_row_check_index_membership_single_key_entry,
         },
         index::{
-            IndexKey,
+            IndexEntryExistenceWitness, IndexKey,
             entry::RawIndexEntry,
             envelope_is_empty,
             key::RawIndexKey,
@@ -47,6 +47,7 @@ pub(in crate::db) trait SingleComponentCoveringCollector<T> {
     fn push(
         &mut self,
         storage_key: StorageKey,
+        existence_witness: IndexEntryExistenceWitness,
         component: &[u8],
         out: &mut Vec<T>,
     ) -> Result<(), InternalError>;
@@ -646,13 +647,18 @@ impl IndexStore {
         // Phase 2: stream single-key entries directly into the caller-owned
         // collector so narrow covering-read paths can skip intermediate tuple
         // staging.
-        if let Some(storage_key) = value
-            .decode_single_key()
+        if let Some(membership) = value
+            .decode_single_membership()
             .map_err(InternalError::index_entry_decode_failed)?
         {
             record_row_check_index_membership_single_key_entry();
             record_row_check_index_membership_key_decoded();
-            collector.push(storage_key, component, out)?;
+            collector.push(
+                membership.storage_key(),
+                membership.existence_witness(),
+                component,
+                out,
+            )?;
             *scanned = scanned.saturating_add(1);
             if *scanned == limit {
                 return Ok(true);
@@ -667,12 +673,12 @@ impl IndexStore {
         let mut halted = false;
         let mut decoded_keys = 0usize;
         record_row_check_index_membership_multi_key_entry();
-        let mut storage_keys = value
-            .iter_keys()
+        let mut memberships = value
+            .iter_memberships()
             .map_err(InternalError::index_entry_decode_failed)?;
 
-        for storage_key in &mut storage_keys {
-            let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
+        for membership in &mut memberships {
+            let membership = membership.map_err(InternalError::index_entry_decode_failed)?;
             decoded_keys = decoded_keys.saturating_add(1);
             record_row_check_index_membership_key_decoded();
 
@@ -680,7 +686,12 @@ impl IndexStore {
                 continue;
             }
 
-            collector.push(storage_key, component, out)?;
+            collector.push(
+                membership.storage_key(),
+                membership.existence_witness(),
+                component,
+                out,
+            )?;
             *scanned = scanned.saturating_add(1);
             if *scanned == limit {
                 halted = true;

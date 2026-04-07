@@ -217,6 +217,18 @@ impl<C: CanisterKind> Db<C> {
         });
     }
 
+    /// Mark every registered store pair as synchronized for the explicit
+    /// storage-owned secondary existence-witness contract.
+    pub(in crate::db) fn mark_all_registered_stores_secondary_existence_witness_authoritative(
+        &self,
+    ) {
+        self.with_store_registry(|registry| {
+            for (_, handle) in registry.iter() {
+                handle.mark_secondary_existence_witness_authoritative();
+            }
+        });
+    }
+
     /// Build one storage diagnostics report for registered stores/entities.
     pub(crate) fn storage_report(
         &self,

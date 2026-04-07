@@ -493,72 +493,64 @@ fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
 // the secondary `name` index entry so covering-read parity can exercise stale
 // secondary-key behavior.
 fn remove_indexed_session_sql_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<IndexedSessionSqlEntity>(Ulid::from_u128(id))
-        .expect("indexed SQL fixture data key should build")
-        .to_raw()
-        .expect("indexed SQL fixture data key should encode");
+    let removed = crate::db::debug_remove_entity_row_data_only::<
+        SessionSqlCanister,
+        IndexedSessionSqlEntity,
+    >(&indexed_sql_session(), &Ulid::from_u128(id))
+    .expect("indexed SQL fixture data-only removal should succeed");
 
-    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
-        let removed = store.borrow_mut().remove(&raw_key);
-        assert!(
-            removed.is_some(),
-            "expected indexed SQL fixture row to exist before data-only removal",
-        );
-    });
+    assert!(
+        removed,
+        "expected indexed SQL fixture row to exist before data-only removal",
+    );
 }
 
 // Remove one filtered indexed SQL fixture row from the primary store while
 // preserving the filtered secondary index entry so witness-backed composite
 // covering routes can validate stale-key fallback.
 fn remove_filtered_indexed_session_sql_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<FilteredIndexedSessionSqlEntity>(Ulid::from_u128(id))
-        .expect("filtered indexed SQL fixture data key should build")
-        .to_raw()
-        .expect("filtered indexed SQL fixture data key should encode");
+    let removed = crate::db::debug_remove_entity_row_data_only::<
+        SessionSqlCanister,
+        FilteredIndexedSessionSqlEntity,
+    >(&indexed_sql_session(), &Ulid::from_u128(id))
+    .expect("filtered indexed SQL fixture data-only removal should succeed");
 
-    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
-        let removed = store.borrow_mut().remove(&raw_key);
-        assert!(
-            removed.is_some(),
-            "expected filtered indexed SQL fixture row to exist before data-only removal",
-        );
-    });
+    assert!(
+        removed,
+        "expected filtered indexed SQL fixture row to exist before data-only removal",
+    );
 }
 
 // Remove one composite indexed SQL fixture row from the primary store while
 // preserving the secondary `(code, serial)` index entry so multi-component
 // covering projections can validate stale-key parity.
 fn remove_composite_indexed_session_sql_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<CompositeIndexedSessionSqlEntity>(Ulid::from_u128(id))
-        .expect("composite indexed SQL fixture data key should build")
-        .to_raw()
-        .expect("composite indexed SQL fixture data key should encode");
+    let removed = crate::db::debug_remove_entity_row_data_only::<
+        SessionSqlCanister,
+        CompositeIndexedSessionSqlEntity,
+    >(&indexed_sql_session(), &Ulid::from_u128(id))
+    .expect("composite indexed SQL fixture data-only removal should succeed");
 
-    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
-        let removed = store.borrow_mut().remove(&raw_key);
-        assert!(
-            removed.is_some(),
-            "expected composite indexed SQL fixture row to exist before data-only removal",
-        );
-    });
+    assert!(
+        removed,
+        "expected composite indexed SQL fixture row to exist before data-only removal",
+    );
 }
 
 // Remove one expression indexed SQL fixture row from the primary store while
 // preserving the `LOWER(name)` secondary index entry so store-backed witness
 // routes can validate stale-key fallback.
 fn remove_expression_indexed_session_sql_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<ExpressionIndexedSessionSqlEntity>(Ulid::from_u128(id))
-        .expect("expression indexed SQL fixture data key should build")
-        .to_raw()
-        .expect("expression indexed SQL fixture data key should encode");
+    let removed = crate::db::debug_remove_entity_row_data_only::<
+        SessionSqlCanister,
+        ExpressionIndexedSessionSqlEntity,
+    >(&indexed_sql_session(), &Ulid::from_u128(id))
+    .expect("expression indexed SQL fixture data-only removal should succeed");
 
-    INDEXED_SESSION_SQL_DATA_STORE.with(|store| {
-        let removed = store.borrow_mut().remove(&raw_key);
-        assert!(
-            removed.is_some(),
-            "expected expression indexed SQL fixture row to exist before data-only removal",
-        );
-    });
+    assert!(
+        removed,
+        "expected expression indexed SQL fixture row to exist before data-only removal",
+    );
 }
 
 #[test]
@@ -6358,12 +6350,212 @@ fn execute_sql_projection_index_coverable_secondary_order_field_stale_path_repor
     assert_eq!(metrics.index_membership_keys_decoded, 2);
     assert_eq!(metrics.row_check_covering_candidates_seen, 2);
     assert_eq!(metrics.row_check_rows_emitted, 1);
-    assert_eq!(metrics.row_presence_probe_count, 2);
-    assert_eq!(metrics.row_presence_probe_hits, 1);
-    assert_eq!(metrics.row_presence_probe_misses, 1);
-    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 2);
+    assert_eq!(metrics.row_presence_probe_count, 0);
+    assert_eq!(metrics.row_presence_probe_hits, 0);
+    assert_eq!(metrics.row_presence_probe_misses, 0);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
     assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
-    assert_eq!(metrics.row_presence_key_to_raw_encodes, 2);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 0);
+}
+
+#[test]
+fn execute_sql_projection_index_coverable_secondary_order_pk_projection_stale_path_reports_row_check_metrics()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_104_u128, "alice", 10_u64),
+        (9_105, "bob", 20),
+        (9_106, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order PK metrics fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_104);
+
+    let (projected_rows, metrics) =
+        dispatch_projection_rows_with_row_check_metrics::<IndexedSessionSqlEntity>(
+            &session,
+            "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("stale secondary-order PK-plus-name covering projection query should execute");
+
+    assert_eq!(
+        projected_rows,
+        vec![vec![
+            Value::Ulid(Ulid::from_u128(9_105)),
+            Value::Text("bob".to_string()),
+        ]],
+        "stale secondary-order PK-plus-name covering projection should consume scan budget on the stale leading key before emitting the first live row",
+    );
+    assert_eq!(metrics.index_entries_scanned, 2);
+    assert_eq!(metrics.index_membership_single_key_entries, 2);
+    assert_eq!(metrics.index_membership_multi_key_entries, 0);
+    assert_eq!(metrics.index_membership_keys_decoded, 2);
+    assert_eq!(metrics.row_check_covering_candidates_seen, 2);
+    assert_eq!(metrics.row_check_rows_emitted, 1);
+    assert_eq!(metrics.row_presence_probe_count, 0);
+    assert_eq!(metrics.row_presence_probe_hits, 0);
+    assert_eq!(metrics.row_presence_probe_misses, 0);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 0);
+    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 0);
+}
+
+#[test]
+fn session_explain_execution_secondary_covering_name_projection_remains_conservative_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_104_u128, "alice", 10_u64),
+        (9_105, "bob", 20),
+        (9_106, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_104);
+
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+        )
+        .expect("stale secondary-order name projection query should lower")
+        .explain_execution()
+        .expect("stale secondary-order name projection explain_execution should succeed");
+
+    assert_eq!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .and_then(|node| node.node_properties().get("existing_row_mode")),
+        Some(&Value::Text("row_check_required".to_string())),
+        "generic stale secondary-order name projection explain_execution should stay conservative",
+    );
+}
+
+#[test]
+fn session_explain_execution_secondary_covering_pk_plus_name_projection_remains_conservative_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_107_u128, "alice", 10_u64),
+        (9_108, "bob", 20),
+        (9_109, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order PK fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_107);
+
+    let descriptor = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect("stale secondary-order PK-plus-name projection query should lower")
+        .explain_execution()
+        .expect("stale secondary-order PK-plus-name projection explain_execution should succeed");
+
+    assert_eq!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::CoveringRead)
+            .and_then(|node| node.node_properties().get("existing_row_mode")),
+        Some(&Value::Text("row_check_required".to_string())),
+        "generic stale secondary-order PK-plus-name projection explain_execution should stay conservative",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_name_projection_uses_storage_existence_witness_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_107_u128, "alice", 10_u64),
+        (9_108, "bob", 20),
+        (9_109, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_107);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+    )
+    .expect("stale secondary-order name projection EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "stale secondary-order name projection EXPLAIN EXECUTION should promote to the storage-owned existence witness route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "stale secondary-order name projection EXPLAIN EXECUTION should not report row_check_required once the storage witness is authoritative: {explain}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_covering_pk_plus_name_projection_uses_storage_existence_witness_after_stale_row_mutation()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_110_u128, "alice", 10_u64),
+        (9_111, "bob", 20),
+        (9_112, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL stale secondary-order PK fixture insert should succeed");
+    }
+    remove_indexed_session_sql_row_data(9_110);
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT id, name FROM IndexedSessionSqlEntity ORDER BY name ASC, id ASC LIMIT 2",
+    )
+    .expect("stale secondary-order PK-plus-name projection EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("CoveringRead")
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "stale secondary-order PK-plus-name projection EXPLAIN EXECUTION should promote to the storage-owned existence witness route: {explain}",
+    );
+    assert!(
+        !explain.contains("row_check_required"),
+        "stale secondary-order PK-plus-name projection EXPLAIN EXECUTION should not report row_check_required once the storage witness is authoritative: {explain}",
+    );
 }
 
 #[test]
@@ -6505,12 +6697,12 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_order_field_reverts
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
-        "stale-row mutation should drop secondary covering EXPLAIN EXECUTION back to row-check mode: {explain}",
+            && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+        "stale-row mutation should promote secondary covering EXPLAIN EXECUTION to the storage-owned existence witness route: {explain}",
     );
     assert!(
         !explain.contains("witness_validated"),
-        "stale-row mutation should invalidate the witness-backed route: {explain}",
+        "stale-row mutation should invalidate the synchronized witness-backed route: {explain}",
     );
 }
 

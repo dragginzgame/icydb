@@ -21,11 +21,16 @@ use thiserror::Error as ThisError;
 ///
 
 const INDEX_ENTRY_LEN_BYTES: usize = 4;
+const INDEX_ENTRY_MEMBER_WITNESS_BYTES: usize = 1;
+const INDEX_ENTRY_MEMBER_SIZE_USIZE: usize =
+    StorageKey::STORED_SIZE_USIZE + INDEX_ENTRY_MEMBER_WITNESS_BYTES;
+const INDEX_ENTRY_WITNESS_PRESENT: u8 = 0;
+const INDEX_ENTRY_WITNESS_MISSING: u8 = 1;
 pub(crate) const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
 
 #[expect(clippy::cast_possible_truncation)]
 pub(crate) const MAX_INDEX_ENTRY_BYTES: u32 =
-    (INDEX_ENTRY_LEN_BYTES + (MAX_INDEX_ENTRY_KEYS * StorageKey::STORED_SIZE_USIZE)) as u32;
+    (INDEX_ENTRY_LEN_BYTES + (MAX_INDEX_ENTRY_KEYS * INDEX_ENTRY_MEMBER_SIZE_USIZE)) as u32;
 
 ///
 /// IndexEntryCorruption
@@ -47,6 +52,9 @@ pub(crate) enum IndexEntryCorruption {
 
     #[error("index entry contains invalid key bytes")]
     InvalidKey,
+
+    #[error("index entry contains invalid existence witness")]
+    InvalidWitness,
 
     #[error("index entry contains duplicate key")]
     DuplicateKey,
@@ -122,6 +130,70 @@ pub(crate) struct IndexEntry {
     ids: BTreeSet<StorageKey>,
 }
 
+///
+/// IndexEntryExistenceWitness
+///
+/// Narrow storage-owned row-existence witness carried per raw index-entry
+/// membership. `Present` is the normal encoded state; `Missing` exists so the
+/// stale single-component prototype can preserve the secondary entry while
+/// still exposing one explicit storage-level missing-row witness.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum IndexEntryExistenceWitness {
+    Present,
+    Missing,
+}
+
+impl IndexEntryExistenceWitness {
+    const fn to_stored_byte(self) -> u8 {
+        match self {
+            Self::Present => INDEX_ENTRY_WITNESS_PRESENT,
+            Self::Missing => INDEX_ENTRY_WITNESS_MISSING,
+        }
+    }
+
+    const fn try_from_stored_byte(byte: u8) -> Result<Self, IndexEntryCorruption> {
+        match byte {
+            INDEX_ENTRY_WITNESS_PRESENT => Ok(Self::Present),
+            INDEX_ENTRY_WITNESS_MISSING => Ok(Self::Missing),
+            _ => Err(IndexEntryCorruption::InvalidWitness),
+        }
+    }
+}
+
+///
+/// IndexEntryMembership
+///
+/// One decoded raw index-entry membership plus its storage-owned existence
+/// witness.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct IndexEntryMembership {
+    storage_key: StorageKey,
+    existence_witness: IndexEntryExistenceWitness,
+}
+
+impl IndexEntryMembership {
+    const fn new(storage_key: StorageKey, existence_witness: IndexEntryExistenceWitness) -> Self {
+        Self {
+            storage_key,
+            existence_witness,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn storage_key(self) -> StorageKey {
+        self.storage_key
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn existence_witness(self) -> IndexEntryExistenceWitness {
+        self.existence_witness
+    }
+}
+
 impl IndexEntry {
     #[must_use]
     pub(crate) fn new(id: StorageKey) -> Self {
@@ -173,6 +245,18 @@ pub(crate) struct RawIndexEntry(Vec<u8>);
 ///
 
 pub(in crate::db) struct RawIndexEntryKeyIter<'a> {
+    inner: RawIndexEntryMembershipIter<'a>,
+}
+
+///
+/// RawIndexEntryMembershipIter
+///
+/// RawIndexEntryMembershipIter validates and streams one raw index-entry
+/// membership set, including the storage-owned existence witness for each
+/// decoded storage key.
+///
+
+pub(in crate::db) struct RawIndexEntryMembershipIter<'a> {
     bytes: &'a [u8],
     declared_count: usize,
     offset: usize,
@@ -191,7 +275,7 @@ impl RawIndexEntry {
         }
 
         let mut out =
-            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * StorageKey::STORED_SIZE_USIZE);
+            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * INDEX_ENTRY_MEMBER_SIZE_USIZE);
 
         let count_u32 =
             u32::try_from(count).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys: count })?;
@@ -199,6 +283,7 @@ impl RawIndexEntry {
 
         for id in &entry.ids {
             out.extend_from_slice(&id.to_bytes()?);
+            out.push(IndexEntryExistenceWitness::Present.to_stored_byte());
         }
 
         Ok(Self(out))
@@ -243,7 +328,7 @@ impl RawIndexEntry {
 
         // Phase 2: encode canonical length-prefixed payload.
         let mut out =
-            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * StorageKey::STORED_SIZE_USIZE);
+            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * INDEX_ENTRY_MEMBER_SIZE_USIZE);
 
         let count_u32 =
             u32::try_from(count).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys: count })?;
@@ -251,6 +336,7 @@ impl RawIndexEntry {
 
         for sk in keys {
             out.extend_from_slice(&sk.to_bytes()?);
+            out.push(IndexEntryExistenceWitness::Present.to_stored_byte());
         }
 
         Ok(Self(out))
@@ -271,15 +357,26 @@ impl RawIndexEntry {
     // Decode one single-key entry without allocating the full membership
     // vector when the frame declares exactly one storage key.
     pub(crate) fn decode_single_key(&self) -> Result<Option<StorageKey>, IndexEntryCorruption> {
+        Ok(self
+            .decode_single_membership()?
+            .map(IndexEntryMembership::storage_key))
+    }
+
+    // Decode one single-key entry plus its storage-owned existence witness
+    // without allocating the full membership vector when the frame declares
+    // exactly one storage key.
+    pub(in crate::db) fn decode_single_membership(
+        &self,
+    ) -> Result<Option<IndexEntryMembership>, IndexEntryCorruption> {
         let count = self.validate_frame()?;
         if count != 1 {
             return Ok(None);
         }
 
         let bytes = self.0.as_slice();
-        let key = decode_stored_key_at_offset(bytes, INDEX_ENTRY_LEN_BYTES)?;
+        let membership = decode_membership_at_offset(bytes, INDEX_ENTRY_LEN_BYTES)?;
 
-        Ok(Some(key))
+        Ok(Some(membership))
     }
 
     // Stream the validated storage-key membership set without first allocating
@@ -287,9 +384,43 @@ impl RawIndexEntry {
     pub(in crate::db) fn iter_keys(
         &self,
     ) -> Result<RawIndexEntryKeyIter<'_>, IndexEntryCorruption> {
+        Ok(RawIndexEntryKeyIter {
+            inner: self.iter_memberships()?,
+        })
+    }
+
+    // Stream the validated storage-key membership set, including the
+    // storage-owned existence witness for each member.
+    pub(in crate::db) fn iter_memberships(
+        &self,
+    ) -> Result<RawIndexEntryMembershipIter<'_>, IndexEntryCorruption> {
         let count = self.validate_frame()?;
 
-        Ok(RawIndexEntryKeyIter::new(self.0.as_slice(), count))
+        Ok(RawIndexEntryMembershipIter::new(self.0.as_slice(), count))
+    }
+
+    // Mark one encoded membership as missing while preserving the containing
+    // secondary entry itself.
+    pub(in crate::db) fn mark_key_missing(
+        &mut self,
+        storage_key: StorageKey,
+    ) -> Result<bool, IndexEntryCorruption> {
+        let count = self.validate_frame()?;
+        let mut offset = INDEX_ENTRY_LEN_BYTES;
+
+        for _ in 0..count {
+            let membership = decode_membership_at_offset(self.0.as_slice(), offset)?;
+            if membership.storage_key() == storage_key {
+                let witness_offset = offset + StorageKey::STORED_SIZE_USIZE;
+                self.0[witness_offset] = IndexEntryExistenceWitness::Missing.to_stored_byte();
+
+                return Ok(true);
+            }
+
+            offset += INDEX_ENTRY_MEMBER_SIZE_USIZE;
+        }
+
+        Ok(false)
     }
 
     // Decode the canonical storage-key payload while validating the raw entry
@@ -329,7 +460,7 @@ impl RawIndexEntry {
 
         let expected = INDEX_ENTRY_LEN_BYTES
             + count
-                .checked_mul(StorageKey::STORED_SIZE_USIZE)
+                .checked_mul(INDEX_ENTRY_MEMBER_SIZE_USIZE)
                 .ok_or(IndexEntryCorruption::LengthMismatch)?;
 
         if bytes.len() != expected {
@@ -351,7 +482,7 @@ impl RawIndexEntry {
     }
 }
 
-impl<'a> RawIndexEntryKeyIter<'a> {
+impl<'a> RawIndexEntryMembershipIter<'a> {
     // Build one validated storage-key iterator over one canonical raw entry.
     const fn new(bytes: &'a [u8], declared_count: usize) -> Self {
         Self {
@@ -369,36 +500,69 @@ impl<'a> RawIndexEntryKeyIter<'a> {
     }
 }
 
+impl RawIndexEntryKeyIter<'_> {
+    #[must_use]
+    pub(in crate::db) const fn declared_count(&self) -> usize {
+        self.inner.declared_count()
+    }
+}
+
 impl Iterator for RawIndexEntryKeyIter<'_> {
     type Item = Result<StorageKey, IndexEntryCorruption>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|membership| membership.map(IndexEntryMembership::storage_key))
+    }
+}
+
+impl Iterator for RawIndexEntryMembershipIter<'_> {
+    type Item = Result<IndexEntryMembership, IndexEntryCorruption>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
             return None;
         }
 
-        let key = match decode_stored_key_at_offset(self.bytes, self.offset) {
-            Ok(key) => key,
+        let membership = match decode_membership_at_offset(self.bytes, self.offset) {
+            Ok(membership) => membership,
             Err(err) => {
                 self.remaining = 0;
                 return Some(Err(err));
             }
         };
 
-        self.offset += StorageKey::STORED_SIZE_USIZE;
+        self.offset += INDEX_ENTRY_MEMBER_SIZE_USIZE;
         self.remaining -= 1;
 
-        if !self.seen.insert(key) {
+        if !self.seen.insert(membership.storage_key()) {
             self.remaining = 0;
             return Some(Err(IndexEntryCorruption::DuplicateKey));
         }
 
-        Some(Ok(key))
+        Some(Ok(membership))
     }
 }
 
 // Decode one fixed-width stored key segment from one validated index-entry
 // payload offset.
+fn decode_membership_at_offset(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<IndexEntryMembership, IndexEntryCorruption> {
+    let key = decode_stored_key_at_offset(bytes, offset)?;
+    let witness = bytes
+        .get(offset + StorageKey::STORED_SIZE_USIZE)
+        .copied()
+        .ok_or(IndexEntryCorruption::InvalidWitness)?;
+
+    Ok(IndexEntryMembership::new(
+        key,
+        IndexEntryExistenceWitness::try_from_stored_byte(witness)?,
+    ))
+}
+
 fn decode_stored_key_at_offset(
     bytes: &[u8],
     offset: usize,
@@ -445,8 +609,8 @@ impl Storable for RawIndexEntry {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS,
-        RawIndexEntry,
+        IndexEntryCorruption, IndexEntryEncodeError, IndexEntryExistenceWitness,
+        MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS, RawIndexEntry,
     };
     use crate::{
         db::data::StorageKey,
@@ -506,6 +670,43 @@ mod tests {
         assert!(
             iter.next().is_none(),
             "iterator should exhaust after two keys"
+        );
+    }
+
+    #[test]
+    fn raw_index_entry_decode_single_membership_recovers_present_witness() {
+        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(9)]).expect("encode index entry");
+        let membership = raw
+            .decode_single_membership()
+            .expect("decode single membership")
+            .expect("single-key entry should decode");
+
+        assert_eq!(membership.storage_key(), StorageKey::Int(9));
+        assert_eq!(
+            membership.existence_witness(),
+            IndexEntryExistenceWitness::Present
+        );
+    }
+
+    #[test]
+    fn raw_index_entry_mark_key_missing_preserves_entry_and_flips_witness() {
+        let mut raw =
+            RawIndexEntry::try_from_keys([StorageKey::Int(9)]).expect("encode index entry");
+
+        assert!(
+            raw.mark_key_missing(StorageKey::Int(9))
+                .expect("mark key missing"),
+            "encoded membership should be found",
+        );
+
+        let membership = raw
+            .decode_single_membership()
+            .expect("decode single membership")
+            .expect("single-key entry should decode");
+        assert_eq!(membership.storage_key(), StorageKey::Int(9));
+        assert_eq!(
+            membership.existence_witness(),
+            IndexEntryExistenceWitness::Missing
         );
     }
 

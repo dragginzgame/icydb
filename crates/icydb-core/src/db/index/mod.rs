@@ -13,7 +13,9 @@ mod range;
 mod scan;
 mod store;
 
-pub(in crate::db) use entry::{IndexEntry, IndexEntryCorruption, RawIndexEntry};
+pub(in crate::db) use entry::{
+    IndexEntry, IndexEntryCorruption, IndexEntryExistenceWitness, RawIndexEntry,
+};
 pub(in crate::db) use envelope::{
     KeyEnvelope, continuation_advanced, envelope_is_empty, key_within_envelope,
     resume_bounds_from_refs, validate_index_scan_continuation_advancement,

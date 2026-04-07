@@ -102,6 +102,21 @@ impl StoreHandle {
         self.with_index_mut(IndexStore::mark_secondary_covering_authoritative);
     }
 
+    /// Return whether this store pair currently carries one explicit
+    /// storage-owned secondary existence witness contract.
+    #[must_use]
+    pub(in crate::db) fn secondary_existence_witness_authoritative(&self) -> bool {
+        self.with_data(DataStore::secondary_existence_witness_authoritative)
+            && self.with_index(IndexStore::secondary_existence_witness_authoritative)
+    }
+
+    /// Mark this row/index store pair as synchronized for one explicit
+    /// storage-owned secondary existence witness contract.
+    pub(in crate::db) fn mark_secondary_existence_witness_authoritative(&self) {
+        self.with_data_mut(DataStore::mark_secondary_existence_witness_authoritative);
+        self.with_index_mut(IndexStore::mark_secondary_existence_witness_authoritative);
+    }
+
     /// Return the raw row-store accessor.
     #[must_use]
     pub const fn data_store(&self) -> &'static LocalKey<RefCell<DataStore>> {

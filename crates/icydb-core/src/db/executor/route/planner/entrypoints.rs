@@ -17,6 +17,7 @@ use crate::{
                 derive_load_terminal_fast_path_contract_for_model_plan,
                 pk_order_stream_fast_path_shape_supported_for_model,
                 promote_load_terminal_fast_path_with_secondary_authority_witness,
+                promote_load_terminal_fast_path_with_storage_existence_witness,
             },
         },
         query::{
@@ -91,6 +92,11 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_
     promote_load_terminal_fast_path_with_secondary_authority_witness(
         store,
         model,
+        plan,
+        &mut route_plan.load_terminal_fast_path,
+    );
+    promote_load_terminal_fast_path_with_storage_existence_witness(
+        store,
         plan,
         &mut route_plan.load_terminal_fast_path,
     );

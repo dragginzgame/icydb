@@ -676,6 +676,74 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_customer_secondary_covering_name_only_stale_explain_matches_typed_surface()
+     {
+        reload_default_fixtures_with_customer_name_stale();
+
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT name FROM Customer ORDER BY name ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale Customer name-only covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_secondary_covering_name_only_stale_explain_reports_storage_existence_witness_route()
+     {
+        reload_default_fixtures_with_customer_name_stale();
+
+        let explain =
+            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT name FROM Customer ORDER BY name ASC LIMIT 2");
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"name\")])"),
+            "stale Customer name-only covering explain should stay on the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            "stale Customer name-only covering explain should report the storage-owned existence witness mode: {explain}",
+        );
+        assert!(
+            !explain.contains("row_check_required"),
+            "stale Customer name-only covering explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_secondary_covering_pk_plus_name_stale_explain_matches_typed_surface()
+     {
+        reload_default_fixtures_with_customer_name_stale();
+
+        assert_dispatch_matches_typed(
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep stale Customer PK-plus-name covering EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_customer_secondary_covering_pk_plus_name_stale_explain_reports_storage_existence_witness_route()
+     {
+        reload_default_fixtures_with_customer_name_stale();
+
+        let explain =
+            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2");
+
+        assert!(
+            explain.contains("cov_read_route=Text(\"covering_read\")")
+                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
+            "stale Customer PK-plus-name covering explain should stay on the covering-read route: {explain}",
+        );
+        assert!(
+            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
+            "stale Customer PK-plus-name covering explain should report the storage-owned existence witness mode: {explain}",
+        );
+        assert!(
+            !explain.contains("row_check_required"),
+            "stale Customer PK-plus-name covering explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_customer_secondary_covering_equality_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
@@ -3246,23 +3314,23 @@ mod tests {
         );
         assert_eq!(
             generated_metrics.row_presence_probe_count,
-            2,
-            "generated stale Customer name-order perf sample should execute one authoritative probe per decoded secondary candidate",
+            0,
+            "generated stale Customer name-order perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_hits,
-            1,
-            "generated stale Customer name-order perf sample should find exactly one live row in the scanned window",
+            0,
+            "generated stale Customer name-order perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_misses,
-            1,
-            "generated stale Customer name-order perf sample should report the missing leading base row",
+            0,
+            "generated stale Customer name-order perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_borrowed_data_store_count,
-            2,
-            "generated stale Customer name-order perf sample should keep stale-row checks on the borrowed data-store authority boundary",
+            0,
+            "generated stale Customer name-order perf sample should no longer route stale-row checks through the borrowed data-store helper",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_store_handle_count,
@@ -3271,8 +3339,8 @@ mod tests {
         );
         assert_eq!(
             generated_metrics.row_presence_key_to_raw_encodes,
-            2,
-            "generated stale Customer name-order perf sample should encode one authoritative row key per candidate",
+            0,
+            "generated stale Customer name-order perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
         );
         assert_eq!(
             generated_metrics.row_check_rows_emitted,
@@ -3282,6 +3350,97 @@ mod tests {
         assert_eq!(
             generated_metrics, typed_metrics,
             "generated and typed stale Customer name-order perf samples should keep row_check metrics in parity",
+        );
+    }
+
+    #[test]
+    fn customer_name_order_pk_projection_stale_perf_surface_reports_row_check_metrics_in_parity() {
+        let sql = "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2";
+        reload_default_fixtures_with_customer_name_stale();
+        let generated = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::GeneratedDispatch,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect("generated stale PK-plus-name sql perf sample should succeed");
+        let typed = sample_sql_surface(SqlPerfRequest {
+            surface: SqlPerfSurface::TypedDispatchCustomer,
+            sql: sql.to_string(),
+            cursor_token: None,
+            repeat_count: 1,
+        })
+        .expect("typed stale PK-plus-name sql perf sample should succeed");
+
+        assert!(
+            generated.outcome.success,
+            "generated stale Customer PK-plus-name order perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale Customer PK-plus-name order perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale Customer PK-plus-name order perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale Customer PK-plus-name order perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale Customer PK-plus-name order perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale Customer PK-plus-name order perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen,
+            2,
+            "generated stale Customer PK-plus-name order perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count,
+            0,
+            "generated stale Customer PK-plus-name order perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits,
+            0,
+            "generated stale Customer PK-plus-name order perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses,
+            0,
+            "generated stale Customer PK-plus-name order perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count,
+            0,
+            "generated stale Customer PK-plus-name order perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count,
+            0,
+            "generated stale Customer PK-plus-name order perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes,
+            0,
+            "generated stale Customer PK-plus-name order perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted,
+            1,
+            "generated stale Customer PK-plus-name order perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale Customer PK-plus-name order perf samples should keep row_check metrics in parity",
         );
     }
 }

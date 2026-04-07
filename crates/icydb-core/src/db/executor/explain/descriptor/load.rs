@@ -439,6 +439,7 @@ const fn covering_existing_row_mode_label(
     match existing_row_mode {
         CoveringExistingRowMode::ProvenByPlanner => "planner_proven",
         CoveringExistingRowMode::WitnessValidated => "witness_validated",
+        CoveringExistingRowMode::StorageExistenceWitness => "storage_existence_witness",
         CoveringExistingRowMode::RequiresRowPresenceCheck => "row_check_required",
     }
 }

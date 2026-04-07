@@ -117,6 +117,7 @@ pub(in crate::db) struct CoveringReadPlan {
 pub(in crate::db) enum CoveringExistingRowMode {
     ProvenByPlanner,
     WitnessValidated,
+    StorageExistenceWitness,
     RequiresRowPresenceCheck,
 }
 
@@ -126,6 +127,13 @@ impl CoveringExistingRowMode {
     #[must_use]
     pub(in crate::db) const fn requires_row_presence_check(self) -> bool {
         matches!(self, Self::RequiresRowPresenceCheck)
+    }
+
+    /// Return whether execution consumes one explicit storage-owned existence
+    /// witness instead of probing the row store directly.
+    #[must_use]
+    pub(in crate::db) const fn uses_storage_existence_witness(self) -> bool {
+        matches!(self, Self::StorageExistenceWitness)
     }
 }
 

@@ -3,7 +3,13 @@
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
-use crate::db::index::{entry::RawIndexEntry, key::RawIndexKey};
+use crate::{
+    db::{
+        data::StorageKey,
+        index::{entry::RawIndexEntry, key::RawIndexKey},
+    },
+    error::InternalError,
+};
 
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 
@@ -19,6 +25,7 @@ pub struct IndexStore {
     pub(super) map: BTreeMap<RawIndexKey, RawIndexEntry, VirtualMemory<DefaultMemoryImpl>>,
     generation: u64,
     secondary_covering_authoritative: bool,
+    secondary_existence_witness_authoritative: bool,
 }
 
 impl IndexStore {
@@ -28,6 +35,7 @@ impl IndexStore {
             map: BTreeMap::init(memory),
             generation: 0,
             secondary_covering_authoritative: false,
+            secondary_existence_witness_authoritative: false,
         }
     }
 
@@ -62,6 +70,7 @@ impl IndexStore {
         let previous = self.map.insert(key, entry);
         self.bump_generation();
         self.invalidate_secondary_covering_authority();
+        self.invalidate_secondary_existence_witness_authority();
         previous
     }
 
@@ -69,6 +78,7 @@ impl IndexStore {
         let previous = self.map.remove(key);
         self.bump_generation();
         self.invalidate_secondary_covering_authority();
+        self.invalidate_secondary_existence_witness_authority();
         previous
     }
 
@@ -76,6 +86,7 @@ impl IndexStore {
         self.map.clear();
         self.bump_generation();
         self.invalidate_secondary_covering_authority();
+        self.invalidate_secondary_existence_witness_authority();
     }
 
     /// Return whether this secondary-index store currently participates in a
@@ -89,6 +100,52 @@ impl IndexStore {
     /// store after successful commit or recovery.
     pub(in crate::db) const fn mark_secondary_covering_authoritative(&mut self) {
         self.secondary_covering_authoritative = true;
+    }
+
+    /// Return whether this secondary-index store currently carries explicit
+    /// per-entry row-existence witness state.
+    #[must_use]
+    pub(in crate::db) const fn secondary_existence_witness_authoritative(&self) -> bool {
+        self.secondary_existence_witness_authoritative
+    }
+
+    /// Mark this secondary-index store as synchronized with one explicit
+    /// storage-owned existence witness contract.
+    pub(in crate::db) const fn mark_secondary_existence_witness_authoritative(&mut self) {
+        self.secondary_existence_witness_authoritative = true;
+    }
+
+    /// Mark one storage key as missing anywhere it still appears inside this
+    /// secondary index store, while preserving the surrounding entry itself.
+    pub(in crate::db) fn mark_memberships_missing_for_storage_key(
+        &mut self,
+        storage_key: StorageKey,
+    ) -> Result<usize, InternalError> {
+        let mut entries = Vec::new();
+
+        for entry in self.map.iter() {
+            entries.push(entry.into_pair());
+        }
+
+        let mut marked = 0usize;
+
+        for (raw_key, mut raw_entry) in entries {
+            if raw_entry
+                .mark_key_missing(storage_key)
+                .map_err(InternalError::index_entry_decode_failed)?
+            {
+                self.map.insert(raw_key, raw_entry);
+                marked = marked.saturating_add(1);
+            }
+        }
+
+        if marked > 0 {
+            self.bump_generation();
+            self.invalidate_secondary_covering_authority();
+            self.invalidate_secondary_existence_witness_authority();
+        }
+
+        Ok(marked)
     }
 
     /// Sum of bytes used by all stored index entries.
@@ -105,5 +162,9 @@ impl IndexStore {
 
     const fn invalidate_secondary_covering_authority(&mut self) {
         self.secondary_covering_authoritative = false;
+    }
+
+    const fn invalidate_secondary_existence_witness_authority(&mut self) {
+        self.secondary_existence_witness_authoritative = false;
     }
 }

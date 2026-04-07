@@ -18,6 +18,7 @@ use crate::{
     },
     model::entity::EntityModel,
 };
+use std::ops::Bound;
 ///
 /// BytesTerminalFastPathContract
 ///
@@ -72,7 +73,7 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 ///
 /// Route-owned classifier for the explicit secondary witness-backed covering
 /// cohorts.
-/// Each variant names one admitted single-field family so widening stays
+/// Each variant names one admitted covering family so widening stays
 /// centralized in one owner instead of growing more structural booleans.
 ///
 
@@ -176,14 +177,87 @@ pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_au
     covering.existing_row_mode = CoveringExistingRowMode::WitnessValidated;
 }
 
+// Promote one narrow stale-fallback secondary covering cohort onto an
+// explicit storage-owned existence witness when the synchronized pair witness
+// is unavailable but the storage witness is authoritative.
+pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_storage_existence_witness(
+    store: StoreHandle,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
+) {
+    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
+        return;
+    };
+    if store.secondary_covering_authoritative()
+        || !store.secondary_existence_witness_authoritative()
+        || !secondary_storage_existence_witness_covering_eligible(plan, covering)
+    {
+        return;
+    }
+
+    covering.existing_row_mode = CoveringExistingRowMode::StorageExistenceWitness;
+}
+
 // Return whether the structural plan still carries a residual predicate.
 fn plan_has_predicate(plan: &AccessPlannedQuery) -> bool {
     plan.has_residual_predicate()
 }
 
-// Return whether the structural plan clears both residual-predicate and DISTINCT gates.
-fn plan_has_no_predicate_or_distinct(plan: &AccessPlannedQuery) -> bool {
-    !plan_has_predicate(plan) && !plan.scalar_plan().distinct
+// Return whether the structural plan clears the DISTINCT gate.
+const fn plan_has_no_distinct(plan: &AccessPlannedQuery) -> bool {
+    !plan.scalar_plan().distinct
+}
+
+// Return whether the current covering route matches the kept explicit
+// storage-owned existence-witness prototype: one stale order-only secondary
+// route that projects the first index component and may additionally project
+// the primary key.
+fn secondary_storage_existence_witness_covering_eligible(
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
+) -> bool {
+    if !plan_has_no_distinct(plan)
+        || plan_has_predicate(plan)
+        || covering.existing_row_mode != CoveringExistingRowMode::RequiresRowPresenceCheck
+        || !matches!(
+            covering.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        )
+        || covering.fields.len() > 2
+    {
+        return false;
+    }
+
+    let eligible_access_shape = matches!(
+        plan.access.as_index_prefix_path(),
+        Some((index, prefix_values)) if index.fields().len() == 1 && prefix_values.is_empty()
+    ) || matches!(
+        plan.access.as_index_range_path(),
+        Some((index, prefix_values, Bound::Unbounded, Bound::Unbounded))
+            if index.fields().len() == 1 && prefix_values.is_empty()
+    );
+    if !eligible_access_shape {
+        return false;
+    }
+
+    let mut index_component_count = 0usize;
+    let mut primary_key_count = 0usize;
+
+    for field in &covering.fields {
+        match field.source {
+            CoveringReadFieldSource::IndexComponent { component_index: 0 } => {
+                index_component_count = index_component_count.saturating_add(1);
+            }
+            CoveringReadFieldSource::PrimaryKey => {
+                primary_key_count = primary_key_count.saturating_add(1);
+            }
+            _ => return false,
+        }
+    }
+
+    index_component_count == 1
+        && primary_key_count <= 1
+        && covering.fields.len() == index_component_count + primary_key_count
 }
 
 // Return one canonical scan direction for unordered plans or primary-key-only ordering.
@@ -212,7 +286,8 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
     let access_strategy = plan.access.resolve_strategy();
     let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
 
-    (plan_has_no_predicate_or_distinct(plan)
+    (plan_has_no_distinct(plan)
+        && !plan_has_predicate(plan)
         && capabilities.supports_count_terminal_primary_key_cardinality())
     .then_some(CountTerminalFastPathContract::PrimaryKeyCardinality)
     .or_else(|| {
@@ -283,8 +358,8 @@ fn secondary_witness_validated_covering_eligible(
     plan: &AccessPlannedQuery,
     covering: &CoveringReadExecutionPlan,
 ) -> bool {
-    // Phase 1: keep the first witness-backed cohort extremely narrow and
-    // single-field so the authority upgrade stays explicit.
+    // Phase 1: keep the explicit witness-backed cohorts narrow so the
+    // authority upgrade stays explicit.
     if !plan.scalar_plan().mode.is_load()
         || !plan_predicate_is_absent_or_fully_indexable(model, plan)
         || plan.scalar_plan().distinct

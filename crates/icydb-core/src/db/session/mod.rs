@@ -330,10 +330,22 @@ where
     // the helper cannot mutate pre-recovery state.
     let store = session.db.recovered_store(E::Store::PATH)?;
 
-    // Phase 2: remove only the raw row-store entry, leaving index state
-    // untouched so stale-row fallback tests can exercise the fail-closed path.
+    // Phase 2: remove only the raw row-store entry and compute the canonical
+    // storage key that any surviving secondary memberships still point at.
     let data_key = DataKey::try_from_field_value(E::ENTITY_TAG, key)?;
     let raw_key = data_key.to_raw()?;
+    let storage_key = data_key.storage_key();
 
-    Ok(store.with_data_mut(|data| data.remove(&raw_key).is_some()))
+    // Phase 3: preserve the secondary entries but mark any surviving raw
+    // memberships as explicitly missing so storage-owned existence-witness
+    // tests can exercise the stale path without lying about row existence.
+    let removed = store.with_data_mut(|data| data.remove(&raw_key).is_some());
+    if !removed {
+        return Ok(false);
+    }
+
+    store.with_index_mut(|index| index.mark_memberships_missing_for_storage_key(storage_key))?;
+    store.mark_secondary_existence_witness_authoritative();
+
+    Ok(true)
 }

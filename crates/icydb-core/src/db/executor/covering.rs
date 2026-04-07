@@ -13,6 +13,7 @@ use crate::{
             FusedSecondaryCoveringAuthority, read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
+        index::IndexEntryExistenceWitness,
         index::SingleComponentCoveringCollector,
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
@@ -112,6 +113,7 @@ struct SingleComponentCoveringBoundsRequest<'a> {
 
 struct SingleComponentProjectionCollector<'a, 'b, F> {
     covering_authority: Option<FusedSecondaryCoveringAuthority<'a>>,
+    existing_row_mode: CoveringExistingRowMode,
     unsupported_component: &'b mut bool,
     map_decoded: F,
 }
@@ -123,10 +125,16 @@ where
     fn push(
         &mut self,
         storage_key: crate::value::StorageKey,
+        existence_witness: IndexEntryExistenceWitness,
         component: &[u8],
         out: &mut Vec<T>,
     ) -> Result<(), InternalError> {
-        if let Some(authority) = self.covering_authority
+        if self.existing_row_mode.uses_storage_existence_witness() {
+            record_row_check_covering_candidate_seen();
+            if existence_witness == IndexEntryExistenceWitness::Missing {
+                return Ok(());
+            }
+        } else if let Some(authority) = self.covering_authority
             && !authority.admits_storage_key(storage_key)?
         {
             return Ok(());
@@ -137,7 +145,9 @@ where
             return Ok(());
         };
         out.push(projected);
-        if self.covering_authority.is_some() {
+        if self.covering_authority.is_some()
+            || self.existing_row_mode.uses_storage_existence_witness()
+        {
             record_row_check_row_emitted();
         }
 
@@ -390,6 +400,7 @@ where
                         request.entity_tag,
                         request.consistency,
                     )),
+                existing_row_mode: request.existing_row_mode,
                 unsupported_component: &mut unsupported_component,
                 map_decoded: map_component,
             };

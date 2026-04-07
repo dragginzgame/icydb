@@ -1554,6 +1554,71 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_wi
 }
 
 #[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_name_only_covering_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_name_order_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT name FROM Customer ORDER BY name ASC LIMIT 2",
+        )
+        .expect(
+            "query stale Customer name-only covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Customer",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "name",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale Customer name-only covering EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_pk_plus_name_covering_storage_existence_witness_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_name_order_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query stale Customer PK-plus-name covering EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Customer",
+            &[
+                "CoveringRead",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "storage_existence_witness",
+                "id",
+                "name",
+            ],
+            &["row_check_required", "witness_validated"],
+            "stale Customer PK-plus-name covering EXPLAIN EXECUTION should expose the storage-owned existence witness route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_equality_witness_validated_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -7060,28 +7125,28 @@ fn sql_canister_perf_customer_name_order_stale_reports_row_check_metrics_in_pari
             "generated stale Customer name-order perf sample should inspect two secondary candidates before exhausting the requested window",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_count, 2,
-            "generated stale Customer name-order perf sample should execute one authoritative probe per decoded secondary candidate",
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale Customer name-order perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_hits, 1,
-            "generated stale Customer name-order perf sample should find exactly one live row in the scanned window",
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale Customer name-order perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_misses, 1,
-            "generated stale Customer name-order perf sample should report the missing leading base row",
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale Customer name-order perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
         );
         assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count, 2,
-            "generated stale Customer name-order perf sample should keep stale-row checks on the borrowed data-store authority boundary",
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale Customer name-order perf sample should no longer route stale-row checks through the borrowed data-store helper",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_store_handle_count, 0,
             "generated stale Customer name-order perf sample should not bounce stale-row checks through the store-handle helper",
         );
         assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes, 2,
-            "generated stale Customer name-order perf sample should encode one authoritative row key per candidate",
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale Customer name-order perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
         );
         assert_eq!(
             generated_metrics.row_check_rows_emitted, 1,
@@ -7090,6 +7155,98 @@ fn sql_canister_perf_customer_name_order_stale_reports_row_check_metrics_in_pari
         assert_eq!(
             generated_metrics, typed_metrics,
             "generated and typed stale Customer name-order perf samples should keep row_check metrics in parity",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_customer_name_order_pk_projection_stale_reports_row_check_metrics_in_parity() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_name_order_stale(pic, canister_id);
+
+        let sql = "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2".to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomer,
+                sql,
+                cursor_token: None,
+                repeat_count: 1,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale Customer PK-plus-name order perf sample should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale Customer PK-plus-name order perf sample should succeed: {typed:?}",
+        );
+        assert_eq!(
+            generated.outcome.row_count,
+            Some(1),
+            "generated stale Customer PK-plus-name order perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+        assert_eq!(
+            typed.outcome.row_count,
+            Some(1),
+            "typed stale Customer PK-plus-name order perf sample should consume scan budget on the missing leading row before emitting the first live row",
+        );
+
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
+            "generated stale Customer PK-plus-name order perf sample should attach row_check metrics",
+        );
+        let typed_metrics = typed.outcome.row_check_metrics.expect(
+            "typed stale Customer PK-plus-name order perf sample should attach row_check metrics",
+        );
+
+        assert_eq!(
+            generated_metrics.row_check_covering_candidates_seen, 2,
+            "generated stale Customer PK-plus-name order perf sample should inspect two secondary candidates before exhausting the requested window",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_count, 0,
+            "generated stale Customer PK-plus-name order perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_hits, 0,
+            "generated stale Customer PK-plus-name order perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_misses, 0,
+            "generated stale Customer PK-plus-name order perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_borrowed_data_store_count, 0,
+            "generated stale Customer PK-plus-name order perf sample should no longer route stale-row checks through the borrowed data-store helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_probe_store_handle_count, 0,
+            "generated stale Customer PK-plus-name order perf sample should not bounce stale-row checks through the store-handle helper",
+        );
+        assert_eq!(
+            generated_metrics.row_presence_key_to_raw_encodes, 0,
+            "generated stale Customer PK-plus-name order perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
+        );
+        assert_eq!(
+            generated_metrics.row_check_rows_emitted, 1,
+            "generated stale Customer PK-plus-name order perf sample should emit exactly one live row after stale-row filtering",
+        );
+        assert_eq!(
+            generated_metrics, typed_metrics,
+            "generated and typed stale Customer PK-plus-name order perf samples should keep row_check metrics in parity",
         );
     });
 }
@@ -7138,6 +7295,54 @@ fn sql_canister_perf_customer_name_order_stale_probe_reports_samples_as_json() {
                 "typed": typed,
             }))
             .expect("stale Customer name-order perf probe should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+#[ignore = "manual stale-row perf probe for before/after measurement runs"]
+fn sql_canister_perf_customer_name_order_pk_projection_stale_probe_reports_samples_as_json() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_name_order_stale(pic, canister_id);
+        let sql = "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2".to_string();
+        let generated = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::GeneratedDispatch,
+                sql: sql.clone(),
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+        let typed = sql_perf_sample(
+            pic,
+            canister_id,
+            &SqlPerfRequest {
+                surface: SqlPerfSurface::TypedDispatchCustomer,
+                sql,
+                cursor_token: None,
+                repeat_count: 5,
+            },
+        );
+
+        assert!(
+            generated.outcome.success,
+            "generated stale Customer PK-plus-name order perf probe should succeed: {generated:?}",
+        );
+        assert!(
+            typed.outcome.success,
+            "typed stale Customer PK-plus-name order perf probe should succeed: {typed:?}",
+        );
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mode": "stale_customer_name_order_pk_projection",
+                "generated": generated,
+                "typed": typed,
+            }))
+            .expect("stale Customer PK-plus-name order perf probe should serialize to JSON")
         );
     });
 }

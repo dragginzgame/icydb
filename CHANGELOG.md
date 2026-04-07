@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.69.x] 🧭 - 2026-04-07 - True Covering Read Execution
 
+- `0.69.7` adds a narrow storage-level witness for two stale `Customer ORDER BY name` index-backed reads, so those queries keep the same filtered output but skip the extra row-presence probe and run about `5.5%` cheaper on the exact same query.
+- `0.69.6` is a small follow-up to the `0.69.5` test-harness work that keeps the PocketIC SQL integration suite building against the newer `canic-testkit` fixture API, without changing query behavior or the covering-read authority rules.
 - `0.69.5` finishes the current secondary covering authority audit by locking more already-truthful witness-backed SQL routes, instrumenting stale-row checks on the remaining fallback path, and confirming that the next real speed win needs a true storage-level existence witness rather than more executor-side reshuffling.
 - `0.69.4` keeps the current covering-read routes intact, makes narrow row-backed SQL reads about `6%–10%` cheaper by validating every stored field without fully materializing untouched complex fields, and also widens one honest store-backed composite `ORDER BY` covering route so `CustomerOrder ORDER BY priority, status, id` now avoids the extra row check and runs about `7.5%` cheaper on the exact same query.
 - `0.69.3` follows up the `0.69` executor work by fixing generated canister memory registration on the newer `canic-memory` API and by splitting the old mixed demo/test canister layout into clearer `demo`, `test`, and `audit` surfaces, so generated startup keeps working and routine test runs no longer depend on the heavyweight RPG demo canister.
