@@ -26,6 +26,10 @@ use crate::{
             ExecutionPlan, ExecutionPreparation,
             aggregate::AggregateFoldMode,
             aggregate::capability::AggregateFieldExtremaIneligibilityReason,
+            authority::{
+                SecondaryReadAuthorityOwner, classify_secondary_read_existing_row_mode,
+                secondary_read_authority_owner,
+            },
             continuation::{ContinuationMode, ScalarContinuationContext},
             plan_metrics::GroupedPlanMetricsStrategy,
             preparation::slot_map_for_model_plan,
@@ -93,12 +97,19 @@ struct RouteCapabilityEntity {
 
 static ROUTE_CAPABILITY_SCORE_KIND: FieldKind = FieldKind::Uint;
 static ROUTE_CAPABILITY_INDEX_FIELDS: [&str; 1] = ["rank"];
+static ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["rank", "label"];
 static ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "rank_idx",
     RouteCapabilityTestStore::PATH,
     &ROUTE_CAPABILITY_INDEX_FIELDS,
     false,
 )];
+static ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::new(
+    "rank_label_idx",
+    RouteCapabilityTestStore::PATH,
+    &ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS,
+    false,
+);
 
 crate::test_entity_schema! {
     ident = RouteCapabilityEntity,
@@ -289,6 +300,37 @@ fn secondary_order_covering_plan() -> AccessPlannedQuery {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    plan
+}
+
+// Build one explicit composite order-only covering plan used to prove that the
+// widened `0.70.2` classifier now owns the synchronized composite witness
+// family while stale composite siblings remain on the richer profile.
+fn composite_secondary_order_covering_plan(direction: OrderDirection) -> AccessPlannedQuery {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![
+        FieldId::new("id"),
+        FieldId::new("rank"),
+        FieldId::new("label"),
+    ]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), direction),
+            ("label".to_string(), direction),
+            ("id".to_string(), direction),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -949,6 +991,138 @@ fn route_plan_store_witness_prefers_witness_validated_over_storage_existence_wit
         covering.existing_row_mode,
         CoveringExistingRowMode::WitnessValidated,
         "When both witness bits are present, the centralized authority profile must prefer the stronger synchronized pair witness over the narrower stale storage witness",
+    );
+}
+
+#[test]
+fn route_plan_single_component_store_witness_matches_classifier_existing_row_mode() {
+    reset_route_authority_store();
+    let plan = secondary_order_covering_plan();
+    let store = route_authority_store_handle();
+
+    store.mark_secondary_covering_authoritative();
+    let route_plan = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("single-component witness-backed route plan should build");
+    let covering = route_plan
+        .load_terminal_fast_path()
+        .expect("single-component witness-backed route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    let classified_existing_row_mode = classify_secondary_read_existing_row_mode(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        route_plan.load_terminal_fast_path(),
+        store,
+    )
+    .expect("single-component classifier should support the route-owned secondary covering plan");
+
+    assert_eq!(
+        covering.existing_row_mode, classified_existing_row_mode,
+        "single-component covering route promotion must match the centralized classifier existing-row mode exactly",
+    );
+}
+
+#[test]
+fn route_plan_secondary_read_authority_owner_keeps_single_component_and_composite_separate() {
+    let single_component_plan = secondary_order_covering_plan();
+    let composite_plan = composite_secondary_order_covering_plan(OrderDirection::Asc);
+    let store = route_authority_store_handle();
+
+    reset_route_authority_store();
+
+    assert_eq!(
+        secondary_read_authority_owner(
+            RouteCapabilityEntity::MODEL,
+            &single_component_plan,
+            None,
+            store
+        ),
+        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier,
+        "single-component secondary routes should stay on the flat classifier seam",
+    );
+    assert_eq!(
+        secondary_read_authority_owner(
+            RouteCapabilityEntity::MODEL,
+            &composite_plan,
+            derive_load_terminal_fast_path_contract_for_model(
+                RouteCapabilityEntity::MODEL,
+                &composite_plan,
+                true,
+            )
+            .as_ref(),
+            store,
+        ),
+        SecondaryReadAuthorityOwner::RichCoveringProfile,
+        "without the synchronized pair witness bit, composite secondary routes must stay on the richer covering-profile seam",
+    );
+    store.mark_secondary_existence_witness_authoritative();
+    assert_eq!(
+        secondary_read_authority_owner(
+            RouteCapabilityEntity::MODEL,
+            &composite_plan,
+            derive_load_terminal_fast_path_contract_for_model(
+                RouteCapabilityEntity::MODEL,
+                &composite_plan,
+                true,
+            )
+            .as_ref(),
+            store,
+        ),
+        SecondaryReadAuthorityOwner::RichCoveringProfile,
+        "stale composite covering routes must stay profile-owned and must not drift onto the flat classifier from the storage witness alone",
+    );
+
+    store.mark_secondary_covering_authoritative();
+    assert_eq!(
+        secondary_read_authority_owner(
+            RouteCapabilityEntity::MODEL,
+            &composite_plan,
+            derive_load_terminal_fast_path_contract_for_model(
+                RouteCapabilityEntity::MODEL,
+                &composite_plan,
+                true,
+            )
+            .as_ref(),
+            store,
+        ),
+        SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier,
+        "the synchronized composite order-only witness family should move behind the flat classifier once the stronger witness is present",
+    );
+}
+
+#[test]
+fn route_plan_composite_store_witness_matches_classifier_existing_row_mode() {
+    reset_route_authority_store();
+    let plan = composite_secondary_order_covering_plan(OrderDirection::Asc);
+    let store = route_authority_store_handle();
+
+    store.mark_secondary_covering_authoritative();
+    let route_plan = build_initial_execution_route_plan_for_load_with_model_store_witness(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        store,
+    )
+    .expect("composite witness-backed route plan should build");
+    let covering = route_plan
+        .load_terminal_fast_path()
+        .expect("composite witness-backed route should retain a covering-read contract");
+    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
+    let classified_existing_row_mode = classify_secondary_read_existing_row_mode(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        route_plan.load_terminal_fast_path(),
+        store,
+    )
+    .expect("composite witness-backed classifier should support the widened route-owned secondary covering plan");
+
+    assert_eq!(
+        covering.existing_row_mode, classified_existing_row_mode,
+        "composite covering route promotion must match the centralized classifier existing-row mode exactly once the synchronized witness family is admitted",
     );
 }
 

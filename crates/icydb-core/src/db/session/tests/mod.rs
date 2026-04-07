@@ -7237,6 +7237,43 @@ fn store_backed_execution_descriptor_json_secondary_covering_name_projection_sur
 }
 
 #[test]
+fn store_backed_execution_descriptor_json_secondary_covering_composite_order_field_surfaces_witness_authority_metadata()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, code, serial) in [
+        (9_217_u128, "alpha", 2_u64),
+        (9_218, "alpha", 1),
+        (9_219, "beta", 1),
+    ] {
+        session
+            .insert(CompositeIndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                code: code.to_string(),
+                serial,
+                note: format!("note-{code}-{serial}"),
+            })
+            .expect("composite indexed SQL witness descriptor fixture insert should succeed");
+    }
+
+    let descriptor_json = store_backed_execution_descriptor_json_for_sql::<
+        CompositeIndexedSessionSqlEntity,
+    >(
+        &session,
+        "SELECT id, code, serial FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 2",
+    );
+
+    assert!(
+        descriptor_json.contains("\"authority_decision\":\"Text(\\\"witness_validated\\\")\"")
+            && descriptor_json
+                .contains("\"authority_reason\":\"Text(\\\"synchronized_pair_witness\\\")\"")
+            && descriptor_json.contains("\"index_state\":\"Text(\\\"valid\\\")\""),
+        "store-backed composite execution descriptor json should expose the same witness-backed authority classification as EXPLAIN EXECUTION text: {descriptor_json}",
+    );
+}
+
+#[test]
 fn store_backed_execution_descriptor_json_secondary_covering_order_field_building_index_surfaces_index_not_valid_metadata()
  {
     reset_indexed_session_sql_store();
@@ -7267,6 +7304,78 @@ fn store_backed_execution_descriptor_json_secondary_covering_order_field_buildin
             && descriptor_json.contains("\"authority_reason\":\"Text(\\\"index_not_valid\\\")\"")
             && descriptor_json.contains("\"index_state\":\"Text(\\\"building\\\")\""),
         "store-backed execution descriptor json should expose the explicit invalid-index downgrade reason: {descriptor_json}",
+    );
+}
+
+#[test]
+fn execute_sql_dispatch_explain_execution_secondary_non_covering_age_projection_surfaces_probe_required_authority_metadata()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_220_u128, "alice", 10_u64),
+        (9_221, "bob", 20),
+        (9_222, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL non-covering authority fixture insert should succeed");
+    }
+
+    let explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT age FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+    )
+    .expect("non-covering secondary-order age projection EXPLAIN EXECUTION should execute");
+
+    assert!(
+        explain.contains("cov_read_route=Text(\"materialized\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"probe_required\")")
+            && explain.contains("index_state=Text(\"valid\")"),
+        "single-component non-covering secondary-order explain should expose the centralized probe_required authority classification: {explain}",
+    );
+    assert!(
+        !explain.contains("witness_validated") && !explain.contains("storage_existence_witness"),
+        "single-component non-covering secondary-order explain must not surface probe-free authority labels: {explain}",
+    );
+}
+
+#[test]
+fn store_backed_execution_descriptor_json_secondary_non_covering_age_projection_surfaces_probe_required_authority_metadata()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    for (id, name, age) in [
+        (9_223_u128, "alice", 10_u64),
+        (9_224, "bob", 20),
+        (9_225, "carol", 30),
+    ] {
+        session
+            .insert(IndexedSessionSqlEntity {
+                id: Ulid::from_u128(id),
+                name: name.to_string(),
+                age,
+            })
+            .expect("indexed SQL non-covering descriptor fixture insert should succeed");
+    }
+
+    let descriptor_json = store_backed_execution_descriptor_json_for_sql::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT age FROM IndexedSessionSqlEntity ORDER BY name ASC LIMIT 2",
+    );
+
+    assert!(
+        descriptor_json.contains("\"authority_decision\":\"Text(\\\"row_check_required\\\")\"")
+            && descriptor_json.contains("\"authority_reason\":\"Text(\\\"probe_required\\\")\"")
+            && descriptor_json.contains("\"index_state\":\"Text(\\\"valid\\\")\""),
+        "store-backed execution descriptor json should expose the centralized probe_required authority classification for the single-component non-covering route: {descriptor_json}",
     );
 }
 
@@ -7484,7 +7593,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_is_
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized secondary covering equality EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7521,7 +7633,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_des
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized secondary covering equality desc EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7597,7 +7712,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_rev
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop secondary covering equality EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -7635,7 +7753,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_equality_prefix_des
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop secondary covering equality desc EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -7671,7 +7792,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_is_witn
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized secondary covering range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7708,7 +7832,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_desc_is
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized secondary covering desc range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7744,7 +7871,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_order_is_witness_v
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized expression key-only order EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7780,7 +7910,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_order_desc_is_witn
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized descending expression key-only order EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7818,7 +7951,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_order_reverts_afte
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop expression key-only order EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -7856,7 +7992,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_order_desc_reverts
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop descending expression key-only order EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -7894,7 +8033,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized expression key-only strict text-range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7936,7 +8078,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized descending expression key-only strict text-range EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -7977,7 +8122,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop expression key-only strict text-range EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -8020,7 +8168,10 @@ fn execute_sql_dispatch_explain_execution_expression_key_only_strict_text_range_
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop descending expression key-only strict text-range EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -8248,7 +8399,10 @@ fn execute_sql_dispatch_explain_execution_composite_order_only_is_witness_valida
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized composite order-only EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -8285,7 +8439,10 @@ fn execute_sql_dispatch_explain_execution_composite_order_only_desc_is_witness_v
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"witness_validated\")"),
+            && explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            && explain.contains("authority_decision=Text(\"witness_validated\")")
+            && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "store-synchronized descending composite order-only EXPLAIN EXECUTION should expose the witness-backed route: {explain}",
     );
     assert!(
@@ -8325,6 +8482,12 @@ fn execute_sql_dispatch_explain_execution_composite_order_only_reverts_after_sta
         explain.contains("CoveringRead")
             && explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
         "stale-row mutation should promote ascending composite order-only EXPLAIN EXECUTION to the storage-owned existence witness route: {explain}",
+    );
+    assert!(
+        !explain.contains("authority_decision")
+            && !explain.contains("authority_reason")
+            && !explain.contains("index_state"),
+        "stale composite order-only EXPLAIN EXECUTION should stay on the richer profile-owned covering surface instead of inheriting flat classifier labels: {explain}",
     );
     assert!(
         !explain.contains("witness_validated") && !explain.contains("row_check_required"),
@@ -8815,7 +8978,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_reverts
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop secondary covering range EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(
@@ -8853,7 +9019,10 @@ fn execute_sql_dispatch_explain_execution_secondary_covering_range_field_desc_re
 
     assert!(
         explain.contains("CoveringRead")
-            && explain.contains("existing_row_mode=Text(\"row_check_required\")"),
+            && explain.contains("existing_row_mode=Text(\"row_check_required\")")
+            && explain.contains("authority_decision=Text(\"row_check_required\")")
+            && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
+            && explain.contains("index_state=Text(\"valid\")"),
         "stale-row mutation should drop secondary covering desc range EXPLAIN EXECUTION back to row-check mode: {explain}",
     );
     assert!(

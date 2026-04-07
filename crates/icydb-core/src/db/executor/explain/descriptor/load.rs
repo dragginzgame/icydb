@@ -7,7 +7,10 @@ use crate::{
     db::{
         executor::{
             ExecutionPreparation,
-            authority::derive_secondary_covering_authority_profile,
+            authority::{
+                SecondaryReadAuthorityOwner, classify_secondary_read_authority_explain_labels,
+                secondary_read_authority_owner,
+            },
             preparation::slot_map_for_model_plan,
             route::{
                 ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
@@ -137,7 +140,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     }
     annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
     annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
-    annotate_store_backed_covering_authority_node_properties(
+    annotate_store_backed_secondary_authority_node_properties(
         &mut root,
         model,
         plan,
@@ -387,15 +390,21 @@ fn annotate_covering_read_route_node_properties(
         .insert("cov_read_route", Value::from(route_label));
 }
 
-// Surface one store-backed secondary covering authority decision on EXPLAIN so
-// route promotion stays externally inspectable instead of only living in the
+// Surface one store-backed secondary authority decision on EXPLAIN so route
+// promotion stays externally inspectable instead of only living in the
 // centralized authority classifier.
 //
 // `authority_decision` + `authority_reason` together encode the authority
 // classification. This is intentionally flat for now; normalization should
 // happen only once all index-backed execution paths, including aggregates,
-// share the same classification model.
-fn annotate_store_backed_covering_authority_node_properties(
+// share the same classification model. These labels must come from the
+// centralized classifier result, not from route-local reconstruction.
+//
+// Only classifier-owned secondary read families emit this flat authority
+// surface. Richer profile-owned covering routes, such as stale composite
+// storage-witness cohorts, keep their covering-specific `existing_row_mode`
+// without inheriting flat classifier labels by accident.
+fn annotate_store_backed_secondary_authority_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
@@ -405,68 +414,26 @@ fn annotate_store_backed_covering_authority_node_properties(
     let Some(store) = store else {
         return;
     };
-    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
-        return;
-    };
-
-    // Only annotate the secondary covering line here. Primary-store planner
-    // proof is a different authority story and should not be conflated with
-    // the new index-validity gate or stale storage witness work.
-    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
+    if !matches!(
+        secondary_read_authority_owner(model, plan, load_terminal_fast_path, store),
+        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
+            | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
+    ) {
         return;
     }
+    let (authority_decision, authority_reason) = classify_secondary_read_authority_explain_labels(
+        model,
+        plan,
+        load_terminal_fast_path,
+        store,
+    );
 
-    node.node_properties.insert(
-        "authority_decision",
-        Value::from(covering_existing_row_mode_label(covering.existing_row_mode)),
-    );
-    node.node_properties.insert(
-        "authority_reason",
-        Value::from(store_backed_covering_authority_reason_label(
-            model, plan, covering, store,
-        )),
-    );
+    node.node_properties
+        .insert("authority_decision", Value::from(authority_decision));
+    node.node_properties
+        .insert("authority_reason", Value::from(authority_reason));
     node.node_properties
         .insert("index_state", Value::from(store.index_state().as_str()));
-}
-
-// Keep store-backed explain authority reasons local to the load descriptor so
-// the text surface reflects the same route-owned authority contract that
-// picked the existing-row mode.
-//
-// Current reason vocabulary is intentionally narrow:
-// - index_not_valid
-// - synchronized_pair_witness
-// - stale_storage_existence_witness
-// - authoritative_witness_unavailable
-// - probe_required
-fn store_backed_covering_authority_reason_label(
-    model: &'static crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery,
-    covering: &crate::db::query::plan::CoveringReadExecutionPlan,
-    store: StoreHandle,
-) -> &'static str {
-    match covering.existing_row_mode {
-        CoveringExistingRowMode::ProvenByPlanner => "planner_proven",
-        CoveringExistingRowMode::WitnessValidated => "synchronized_pair_witness",
-        CoveringExistingRowMode::StorageExistenceWitness => "stale_storage_existence_witness",
-        CoveringExistingRowMode::RequiresRowPresenceCheck => {
-            let authority_profile =
-                derive_secondary_covering_authority_profile(model, plan, covering);
-            let secondary_covering_supported = authority_profile.supports_witness_validated()
-                || authority_profile.supports_storage_existence_witness();
-
-            if secondary_covering_supported && !store.index_is_valid() {
-                return "index_not_valid";
-            }
-
-            if secondary_covering_supported {
-                return "authoritative_witness_unavailable";
-            }
-
-            "probe_required"
-        }
-    }
 }
 
 // Emit one explicit projection terminal node when the scalar load route stays

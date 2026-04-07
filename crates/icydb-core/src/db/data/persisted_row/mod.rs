@@ -475,7 +475,13 @@ fn decode_slot_value_for_field(
             ScalarSlotValueRef::Null => Ok(Value::Null),
             ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
         },
-        LeafCodec::CborFallback => decode_non_scalar_slot_value(raw_value, field),
+        LeafCodec::CborFallback => {
+            if field.nullable() && is_canonical_nullable_cbor_null_payload(raw_value) {
+                return Ok(Value::Null);
+            }
+
+            decode_non_scalar_slot_value(raw_value, field)
+        }
     }
 }
 
@@ -850,6 +856,10 @@ fn validate_non_scalar_slot_value(
     raw_value: &[u8],
     field: &FieldModel,
 ) -> Result<(), InternalError> {
+    if field.nullable() && is_canonical_nullable_cbor_null_payload(raw_value) {
+        return Ok(());
+    }
+
     let validated = match field.storage_decode() {
         crate::model::field::FieldStorageDecode::ByKind => {
             validate_structural_field_by_kind_bytes(raw_value, field.kind())
@@ -862,6 +872,12 @@ fn validate_non_scalar_slot_value(
     validated.map_err(|err| {
         InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
     })
+}
+
+// Detect the canonical explicit-null payload used for nullable CBOR-backed
+// fields before field-kind-specific structural decode requires a concrete shape.
+fn is_canonical_nullable_cbor_null_payload(raw_value: &[u8]) -> bool {
+    raw_value == [0xF6]
 }
 
 // Validate one runtime value against the persisted field contract before field-
@@ -2049,6 +2065,13 @@ mod tests {
         },
     )];
     static ACCOUNT_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new("owner", FieldKind::Account)];
+    static OPTIONAL_ACCOUNT_FIELD_MODELS: [FieldModel; 1] =
+        [FieldModel::new_with_storage_decode_and_nullability(
+            "from",
+            FieldKind::Account,
+            FieldStorageDecode::ByKind,
+            true,
+        )];
     static REQUIRED_STRUCTURED_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
         "profile",
         FieldKind::Structured { queryable: false },
@@ -2110,6 +2133,13 @@ mod tests {
         "persisted_row_account_field_codec_entity",
         &ACCOUNT_FIELD_MODELS[0],
         &ACCOUNT_FIELD_MODELS,
+        &INDEX_MODELS,
+    );
+    static OPTIONAL_ACCOUNT_MODEL: EntityModel = EntityModel::new(
+        "tests::PersistedRowOptionalAccountFieldCodecEntity",
+        "persisted_row_optional_account_field_codec_entity",
+        &OPTIONAL_ACCOUNT_FIELD_MODELS[0],
+        &OPTIONAL_ACCOUNT_FIELD_MODELS,
         &INDEX_MODELS,
     );
     static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::new(
@@ -2603,6 +2633,36 @@ mod tests {
                 .expect("optional structured slot should decode");
 
         assert_eq!(decoded, Value::Null);
+    }
+
+    #[test]
+    fn decode_slot_value_from_bytes_allows_null_for_optional_account_slots() {
+        let payload = encode_slot_value_from_value(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
+            .expect("optional account slot should allow null");
+        let decoded = decode_slot_value_from_bytes(&OPTIONAL_ACCOUNT_MODEL, 0, payload.as_slice())
+            .expect("optional account slot should decode");
+
+        assert_eq!(decoded, Value::Null);
+    }
+
+    #[test]
+    fn structural_slot_reader_accepts_null_for_optional_account_slots() {
+        let mut writer = SlotBufferWriter::for_model(&OPTIONAL_ACCOUNT_MODEL);
+        let payload = encode_slot_value_from_value(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
+            .expect("optional account slot should allow null");
+        writer
+            .write_slot(0, Some(payload.as_slice()))
+            .expect("write optional account slot");
+        let raw_row = RawRow::try_new(
+            serialize_row_payload(writer.finish().expect("finish slot payload"))
+                .expect("serialize row payload"),
+        )
+        .expect("build raw row");
+
+        let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &OPTIONAL_ACCOUNT_MODEL)
+            .expect("row-open validation should accept null optional account slots");
+
+        assert_eq!(reader.get_value(0).expect("decode slot"), Some(Value::Null));
     }
 
     #[test]

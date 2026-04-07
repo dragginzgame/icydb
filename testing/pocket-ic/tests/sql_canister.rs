@@ -1685,6 +1685,38 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_bu
 }
 
 #[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_non_covering_probe_required_reason()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT age FROM Customer ORDER BY name ASC LIMIT 2",
+        )
+        .expect(
+            "query non-covering Customer secondary-order EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Customer",
+            &[
+                "authority_decision",
+                "row_check_required",
+                "authority_reason",
+                "probe_required",
+                "cov_read_route",
+                "materialized",
+                "index_state",
+                "valid",
+                "age",
+            ],
+            &["witness_validated", "storage_existence_witness"],
+            "non-covering Customer secondary-order EXPLAIN EXECUTION should expose the centralized probe_required authority classification",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_pk_plus_name_covering_storage_existence_witness_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
@@ -1703,10 +1735,16 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_pk_plus_nam
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "storage_existence_witness",
+                "authority_reason",
+                "stale_storage_existence_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "storage_existence_witness",
                 "id",
                 "name",
@@ -1745,7 +1783,13 @@ fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_
                 "priority",
                 "status",
             ],
-            &["row_check_required", "witness_validated"],
+            &[
+                "row_check_required",
+                "witness_validated",
+                "authority_decision",
+                "authority_reason",
+                "index_state",
+            ],
             "stale CustomerOrder composite order-only EXPLAIN EXECUTION should expose the storage-owned existence witness route",
         );
     });
@@ -2073,10 +2117,16 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_eq
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "id",
                 "name",
@@ -2104,16 +2154,60 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_eq
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "id",
                 "name",
             ],
             &["row_check_required"],
             "Customer secondary covering equality desc EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_equality_authoritative_witness_unavailable_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_name_order_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
+        )
+        .expect(
+            "query stale Customer secondary covering equality EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Customer",
+            &[
+                "CoveringRead",
+                "authority_decision",
+                "row_check_required",
+                "authority_reason",
+                "authoritative_witness_unavailable",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "index_state",
+                "valid",
+                "id",
+                "name",
+            ],
+            &["witness_validated", "storage_existence_witness"],
+            "stale Customer secondary covering equality EXPLAIN EXECUTION should expose the authoritative_witness_unavailable downgrade",
         );
     });
 }
@@ -2157,10 +2251,16 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_st
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "id",
                 "name",
@@ -2210,16 +2310,60 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_st
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "id",
                 "name",
             ],
             &["row_check_required"],
             "Customer secondary covering desc range EXPLAIN EXECUTION should expose the witness-backed covering route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_surfaces_user_secondary_covering_strict_range_authoritative_witness_unavailable_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        make_customer_name_order_stale(pic, canister_id);
+
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
+        )
+        .expect(
+            "query stale Customer secondary covering range EXPLAIN EXECUTION should return an Ok payload",
+        );
+        assert_explain_route(
+            payload,
+            "Customer",
+            &[
+                "CoveringRead",
+                "authority_decision",
+                "row_check_required",
+                "authority_reason",
+                "authoritative_witness_unavailable",
+                "cov_read_route",
+                "covering_read",
+                "covering_fields",
+                "existing_row_mode",
+                "index_state",
+                "valid",
+                "id",
+                "name",
+            ],
+            &["witness_validated", "storage_existence_witness"],
+            "stale Customer secondary covering range EXPLAIN EXECUTION should expose the authoritative_witness_unavailable downgrade",
         );
     });
 }
@@ -2475,8 +2619,14 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_o
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "covering_read",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "LOWER(name)",
                 "proj_fields",
@@ -2586,8 +2736,14 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_o
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "covering_read",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "LOWER(name)",
                 "proj_fields",
@@ -2635,8 +2791,14 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_s
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "covering_read",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "LOWER(name)",
                 "proj_fields",
@@ -2684,8 +2846,14 @@ fn sql_canister_query_lane_explain_execution_surfaces_user_expression_key_only_s
             "Customer",
             &[
                 "CoveringRead",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
                 "covering_read",
                 "existing_row_mode",
+                "index_state",
+                "valid",
                 "witness_validated",
                 "LOWER(name)",
                 "proj_fields",
@@ -2830,6 +2998,12 @@ fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
+                "index_state",
+                "valid",
                 "existing_row_mode",
                 "witness_validated",
                 "id",
@@ -2885,6 +3059,12 @@ fn sql_canister_query_lane_explain_execution_surfaces_customer_order_order_only_
                 "cov_read_route",
                 "covering_read",
                 "covering_fields",
+                "authority_decision",
+                "witness_validated",
+                "authority_reason",
+                "synchronized_pair_witness",
+                "index_state",
+                "valid",
                 "existing_row_mode",
                 "witness_validated",
                 "id",

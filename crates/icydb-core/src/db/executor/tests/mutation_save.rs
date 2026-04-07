@@ -36,7 +36,7 @@ use crate::{
     },
     testing::test_memory,
     traits::{EntityKind, EntitySchema, Path},
-    types::{Decimal, Ulid},
+    types::{Account, Decimal, EntityTag, Id, Ulid},
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -326,6 +326,20 @@ fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
     })
 }
 
+fn load_nullable_account_event_entity(id: Ulid) -> Option<NullableAccountEventEntity> {
+    let data_key = DataKey::try_new::<NullableAccountEventEntity>(id)
+        .expect("nullable account event data key should build")
+        .to_raw()
+        .expect("nullable account event data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<NullableAccountEventEntity>()
+                .expect("nullable account event row decode should succeed")
+        })
+    })
+}
+
 ///
 /// MismatchedPkEntity
 ///
@@ -377,6 +391,65 @@ crate::test_entity_schema! {
     indexes = [],
     store = SourceStore,
     canister = TestCanister,
+}
+
+///
+/// NullableAccountEventEntity
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct NullableAccountEventEntity {
+    id: Ulid,
+    from: Option<Account>,
+    to: Option<Account>,
+}
+
+crate::impl_test_entity_markers!(NullableAccountEventEntity);
+
+crate::impl_test_entity_model_storage!(
+    NullableAccountEventEntity,
+    "NullableAccountEventEntity",
+    0,
+    fields = [
+        crate::model::field::FieldModel::new("id", FieldKind::Ulid),
+        crate::model::field::FieldModel::new_with_storage_decode_and_nullability(
+            "from",
+            FieldKind::Account,
+            crate::model::field::FieldStorageDecode::ByKind,
+            true,
+        ),
+        crate::model::field::FieldModel::new_with_storage_decode_and_nullability(
+            "to",
+            FieldKind::Account,
+            crate::model::field::FieldStorageDecode::ByKind,
+            true,
+        )
+    ],
+    indexes = [],
+);
+
+crate::impl_test_entity_runtime_surface!(
+    NullableAccountEventEntity,
+    Ulid,
+    "NullableAccountEventEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for NullableAccountEventEntity {
+    type Store = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for NullableAccountEventEntity {
+    const ENTITY_TAG: EntityTag = crate::testing::NULLABLE_ACCOUNT_EVENT_ENTITY_TAG;
+}
+
+impl crate::traits::EntityValue for NullableAccountEventEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
 }
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
@@ -442,6 +515,15 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         prepare_row_commit_for_entity::<DecimalScaleEntity>,
         prepare_row_commit_for_entity_with_structural_readers::<DecimalScaleEntity>,
         validate_delete_strong_relations_for_source::<DecimalScaleEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        NullableAccountEventEntity::ENTITY_TAG,
+        <NullableAccountEventEntity as crate::traits::EntitySchema>::MODEL,
+        NullableAccountEventEntity::PATH,
+        SourceStore::PATH,
+        prepare_row_commit_for_entity::<NullableAccountEventEntity>,
+        prepare_row_commit_for_entity_with_structural_readers::<NullableAccountEventEntity>,
+        validate_delete_strong_relations_for_source::<NullableAccountEventEntity>,
     ),
 ];
 
@@ -2143,4 +2225,50 @@ fn unique_index_delete_then_insert_same_value_succeeds() {
         replacement_row.is_some(),
         "replacement row should persist with reclaimed unique value"
     );
+}
+
+#[test]
+fn save_executor_insert_allows_nullable_account_event_with_missing_from() {
+    reset_store();
+
+    let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
+    let id = Ulid::from_u128(400);
+    let account = Account::dummy(7);
+    let saved = save
+        .insert(NullableAccountEventEntity {
+            id,
+            from: None,
+            to: Some(account),
+        })
+        .expect("mint-style nullable account event should save");
+
+    assert_eq!(saved.from, None);
+    assert_eq!(saved.to, Some(account));
+
+    let persisted = load_nullable_account_event_entity(id)
+        .expect("mint-style nullable account event should persist");
+    assert_eq!(persisted, saved);
+}
+
+#[test]
+fn save_executor_insert_allows_nullable_account_event_with_missing_to() {
+    reset_store();
+
+    let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
+    let id = Ulid::from_u128(401);
+    let account = Account::dummy(9);
+    let saved = save
+        .insert(NullableAccountEventEntity {
+            id,
+            from: Some(account),
+            to: None,
+        })
+        .expect("burn-style nullable account event should save");
+
+    assert_eq!(saved.from, Some(account));
+    assert_eq!(saved.to, None);
+
+    let persisted = load_nullable_account_event_entity(id)
+        .expect("burn-style nullable account event should persist");
+    assert_eq!(persisted, saved);
 }

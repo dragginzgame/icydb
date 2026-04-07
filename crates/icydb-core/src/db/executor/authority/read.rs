@@ -2,6 +2,7 @@ use crate::{
     db::{
         direction::Direction,
         executor::{ExecutionPreparation, preparation::slot_map_for_model_plan},
+        index::IndexState,
         predicate::IndexPredicateCapability,
         query::plan::{
             AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
@@ -12,6 +13,245 @@ use crate::{
     model::entity::EntityModel,
 };
 use std::ops::Bound;
+
+///
+/// AuthorityDecision
+///
+/// High-level read-authority decision for one store-backed secondary load.
+/// This stays intentionally small in `0.70.2`: either the route may stay
+/// probe free, or it must fail closed back to row checks.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum AuthorityDecision {
+    ProbeFree,
+    RowCheckRequired,
+}
+
+///
+/// AuthorityReason
+///
+/// Stable reason vocabulary paired with `AuthorityDecision`.
+/// These labels intentionally match the external `EXPLAIN` surface so route
+/// selection and inspection stay on one shared classification story.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum AuthorityReason {
+    ProbeRequired,
+    IndexNotValid,
+    SynchronizedPairWitness,
+    StaleStorageExistenceWitness,
+    AuthoritativeWitnessUnavailable,
+}
+
+///
+/// SecondaryReadAuthorityOwner
+///
+/// Explicit ownership split for store-backed secondary read authority.
+/// `0.70.2` keeps the flat classifier on the single-component line, while the
+/// older richer covering profile remains the authority owner for broader
+/// composite/stale covering cohorts until a wider invariant is proven.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum SecondaryReadAuthorityOwner {
+    FlatSingleComponentClassifier,
+    FlatCompositeWitnessValidatedClassifier,
+    RichCoveringProfile,
+}
+
+///
+/// AuthorityContext
+///
+/// Minimal structural context used by the `0.70.2` authority classifier.
+/// This keeps the new decision point small while still preserving the already
+/// shipped witness-backed covering semantics for the single-component line.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct AuthorityContext {
+    index_state: IndexState,
+    is_covering: bool,
+    is_classifier_supported_shape: bool,
+    probe_free_existing_row_mode: Option<CoveringExistingRowMode>,
+}
+
+impl AuthorityContext {
+    // Build one compact authority context from the route-owned structural
+    // inputs already available at the store-backed load boundary.
+    const fn new(
+        index_state: IndexState,
+        is_covering: bool,
+        is_classifier_supported_shape: bool,
+        probe_free_existing_row_mode: Option<CoveringExistingRowMode>,
+    ) -> Self {
+        Self {
+            index_state,
+            is_covering,
+            is_classifier_supported_shape,
+            probe_free_existing_row_mode,
+        }
+    }
+}
+
+// Return the preserved authority classification for one already-resolved
+// probe-free covering mode.
+const fn probe_free_mode_authority_classification(
+    existing_row_mode: CoveringExistingRowMode,
+) -> Option<(AuthorityDecision, AuthorityReason)> {
+    match existing_row_mode {
+        CoveringExistingRowMode::WitnessValidated => Some((
+            AuthorityDecision::ProbeFree,
+            AuthorityReason::SynchronizedPairWitness,
+        )),
+        CoveringExistingRowMode::StorageExistenceWitness => Some((
+            AuthorityDecision::ProbeFree,
+            AuthorityReason::StaleStorageExistenceWitness,
+        )),
+        _ => None,
+    }
+}
+
+// Return one already-promoted probe-free covering mode when the route has
+// resolved it before the centralized classifier runs.
+const fn preserved_probe_free_existing_row_mode(
+    existing_row_mode: CoveringExistingRowMode,
+) -> Option<CoveringExistingRowMode> {
+    match existing_row_mode {
+        CoveringExistingRowMode::WitnessValidated
+        | CoveringExistingRowMode::StorageExistenceWitness => Some(existing_row_mode),
+        _ => None,
+    }
+}
+
+// Return the stable external label for one centralized authority reason.
+pub(in crate::db::executor) const fn authority_reason_label(
+    reason: AuthorityReason,
+) -> &'static str {
+    match reason {
+        AuthorityReason::ProbeRequired => "probe_required",
+        AuthorityReason::IndexNotValid => "index_not_valid",
+        AuthorityReason::SynchronizedPairWitness => "synchronized_pair_witness",
+        AuthorityReason::StaleStorageExistenceWitness => "stale_storage_existence_witness",
+        AuthorityReason::AuthoritativeWitnessUnavailable => "authoritative_witness_unavailable",
+    }
+}
+
+// Return the stable external decision label for one centralized authority
+// classification while keeping the current flat `EXPLAIN` vocabulary intact.
+pub(in crate::db::executor) const fn authority_decision_label(
+    decision: AuthorityDecision,
+    reason: AuthorityReason,
+) -> &'static str {
+    match (decision, reason) {
+        (AuthorityDecision::ProbeFree, AuthorityReason::SynchronizedPairWitness) => {
+            "witness_validated"
+        }
+        (AuthorityDecision::ProbeFree, AuthorityReason::StaleStorageExistenceWitness) => {
+            "storage_existence_witness"
+        }
+        _ => "row_check_required",
+    }
+}
+
+// Return whether one structural access path still runs on a single-component
+// secondary index.
+fn secondary_access_is_single_component(plan: &AccessPlannedQuery) -> bool {
+    match plan.access.as_index_prefix_path() {
+        Some((index, _)) => index.fields().len() == 1,
+        None => match plan.access.as_index_range_path() {
+            Some((index, _, _, _)) => index.fields().len() == 1,
+            None => false,
+        },
+    }
+}
+
+// Return whether one covering contract matches the narrow composite
+// witness-validated family that `0.70.2` can state cleanly without the richer
+// stale witness structure.
+fn secondary_classifier_owns_composite_witness_validated_family(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+) -> bool {
+    let Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(covering)) =
+        load_terminal_fast_path
+    else {
+        return false;
+    };
+
+    secondary_witness_validated_covering_cohort(model, plan, covering)
+        == Some(SecondaryWitnessValidatedCoveringCohort::CompositeOrderOnly)
+}
+
+// Return which authority mechanism owns one concrete store-backed secondary
+// read. `0.70.2` now admits one explicit composite synchronized-witness family
+// into the flat classifier, while stale composite families remain profile-owned.
+pub(in crate::db::executor) fn secondary_read_authority_owner(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+    store: StoreHandle,
+) -> SecondaryReadAuthorityOwner {
+    if secondary_access_is_single_component(plan) {
+        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
+    } else if store.secondary_covering_authoritative()
+        && secondary_classifier_owns_composite_witness_validated_family(
+            model,
+            plan,
+            load_terminal_fast_path,
+        )
+    {
+        SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
+    } else {
+        SecondaryReadAuthorityOwner::RichCoveringProfile
+    }
+}
+
+// Classify one compact secondary-read authority context. The current `0.70.2`
+// rule is intentionally narrow:
+// - non-covering or non-single-component routes stay on row checks
+// - invalid indexes fail closed
+// - only the already-shipped witness-backed covering modes become probe free
+pub(in crate::db::executor) const fn classify_authority(
+    context: AuthorityContext,
+) -> (AuthorityDecision, AuthorityReason) {
+    // The classifier is monotonic: once the route already carries an explicit
+    // probe-free mode, classification must preserve that mode instead of
+    // downgrading it through a second structural pass.
+    if let Some(probe_free_existing_row_mode) = context.probe_free_existing_row_mode
+        && let Some(classification) =
+            probe_free_mode_authority_classification(probe_free_existing_row_mode)
+    {
+        return classification;
+    }
+
+    if !context.is_covering || !context.is_classifier_supported_shape {
+        return (
+            AuthorityDecision::RowCheckRequired,
+            AuthorityReason::ProbeRequired,
+        );
+    }
+
+    if !matches!(context.index_state, IndexState::Valid) {
+        return (
+            AuthorityDecision::RowCheckRequired,
+            AuthorityReason::IndexNotValid,
+        );
+    }
+
+    match context.probe_free_existing_row_mode {
+        Some(CoveringExistingRowMode::WitnessValidated) => (
+            AuthorityDecision::ProbeFree,
+            AuthorityReason::SynchronizedPairWitness,
+        ),
+        Some(CoveringExistingRowMode::StorageExistenceWitness) => (
+            AuthorityDecision::ProbeFree,
+            AuthorityReason::StaleStorageExistenceWitness,
+        ),
+        _ => (
+            AuthorityDecision::RowCheckRequired,
+            AuthorityReason::AuthoritativeWitnessUnavailable,
+        ),
+    }
+}
 
 // Classify one explicit secondary witness-backed cohort. These cohorts are
 // already shipped, so widening stays evidence-backed instead of rediscovering
@@ -177,6 +417,140 @@ impl SecondaryCoveringAuthorityProfile {
     }
 }
 
+// Resolve one already-admitted probe-free covering mode for a concrete store
+// pair, if any, without widening the existing authority cohorts.
+fn secondary_covering_probe_free_mode_for_store(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
+    store: StoreHandle,
+) -> Option<CoveringExistingRowMode> {
+    derive_secondary_covering_authority_profile(model, plan, covering)
+        .promoted_existing_row_mode_for_store(store)
+}
+
+// Resolve the probe-free mode for the one explicit composite synchronized
+// witness family now owned by the flat classifier. This stays narrow on
+// purpose: stale composite storage-witness cohorts remain profile-owned.
+fn composite_witness_validated_probe_free_mode_for_store(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+    store: StoreHandle,
+) -> Option<CoveringExistingRowMode> {
+    let Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(covering)) =
+        load_terminal_fast_path
+    else {
+        return None;
+    };
+
+    preserved_probe_free_existing_row_mode(covering.existing_row_mode).or_else(|| {
+        (store.index_is_valid()
+            && store.secondary_covering_authoritative()
+            && secondary_classifier_owns_composite_witness_validated_family(
+                model,
+                plan,
+                load_terminal_fast_path,
+            ))
+        .then_some(CoveringExistingRowMode::WitnessValidated)
+    })
+}
+
+// Classify one store-backed secondary load through the centralized `0.70.2`
+// authority decision point.
+pub(in crate::db::executor) fn classify_secondary_read_authority(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+    store: StoreHandle,
+) -> (AuthorityDecision, AuthorityReason) {
+    let authority_owner =
+        secondary_read_authority_owner(model, plan, load_terminal_fast_path, store);
+    let probe_free_existing_row_mode = match authority_owner {
+        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier => {
+            match load_terminal_fast_path {
+                Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(
+                    covering,
+                )) => preserved_probe_free_existing_row_mode(covering.existing_row_mode).or_else(
+                    || secondary_covering_probe_free_mode_for_store(model, plan, covering, store),
+                ),
+                None => None,
+            }
+        }
+        SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier => {
+            composite_witness_validated_probe_free_mode_for_store(
+                model,
+                plan,
+                load_terminal_fast_path,
+                store,
+            )
+        }
+        SecondaryReadAuthorityOwner::RichCoveringProfile => None,
+    };
+    let context = AuthorityContext::new(
+        store.index_state(),
+        matches!(
+            load_terminal_fast_path,
+            Some(crate::db::executor::route::LoadTerminalFastPathContract::CoveringRead(_))
+        ),
+        !matches!(
+            authority_owner,
+            SecondaryReadAuthorityOwner::RichCoveringProfile
+        ),
+        probe_free_existing_row_mode,
+    );
+
+    classify_authority(context)
+}
+
+// Return the canonical covering existing-row mode for one single-component
+// secondary classifier result. Route promotion should consume this mapping
+// instead of reconstructing probe-free modes from local decision checks.
+pub(in crate::db::executor) fn classify_secondary_read_existing_row_mode(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+    store: StoreHandle,
+) -> Option<CoveringExistingRowMode> {
+    if !matches!(
+        secondary_read_authority_owner(model, plan, load_terminal_fast_path, store),
+        SecondaryReadAuthorityOwner::FlatSingleComponentClassifier
+            | SecondaryReadAuthorityOwner::FlatCompositeWitnessValidatedClassifier
+    ) {
+        return None;
+    }
+
+    let (decision, reason) =
+        classify_secondary_read_authority(model, plan, load_terminal_fast_path, store);
+
+    Some(match (decision, reason) {
+        (AuthorityDecision::ProbeFree, AuthorityReason::SynchronizedPairWitness) => {
+            CoveringExistingRowMode::WitnessValidated
+        }
+        (AuthorityDecision::ProbeFree, AuthorityReason::StaleStorageExistenceWitness) => {
+            CoveringExistingRowMode::StorageExistenceWitness
+        }
+        _ => CoveringExistingRowMode::RequiresRowPresenceCheck,
+    })
+}
+
+// Return the canonical flat EXPLAIN labels for one store-backed secondary read
+// classification. `EXPLAIN` must consume this classifier output directly
+// instead of reconstructing authority labels from route-local flags.
+pub(in crate::db::executor) fn classify_secondary_read_authority_explain_labels(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&crate::db::executor::route::LoadTerminalFastPathContract>,
+    store: StoreHandle,
+) -> (&'static str, &'static str) {
+    let (decision, reason) =
+        classify_secondary_read_authority(model, plan, load_terminal_fast_path, store);
+
+    (
+        authority_decision_label(decision, reason),
+        authority_reason_label(reason),
+    )
+}
 // Derive one centralized route-owned authority profile from the structural
 // plan plus planner-owned covering contract. This is intentionally
 // conservative and only returns the explicit cohorts already kept in `0.69`.
@@ -447,5 +821,76 @@ fn storage_existence_witness_index_field_count(plan: &AccessPlannedQuery) -> Opt
             Some((index, [], Bound::Unbounded, Bound::Unbounded)) => Some(index.fields().len()),
             _ => None,
         },
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::{
+        executor::authority::read::{
+            AuthorityContext, AuthorityDecision, AuthorityReason, classify_authority,
+        },
+        index::IndexState,
+        query::plan::CoveringExistingRowMode,
+    };
+
+    #[test]
+    fn classify_authority_preserves_witness_validated_probe_free_mode() {
+        let context = AuthorityContext::new(
+            IndexState::Valid,
+            true,
+            true,
+            Some(CoveringExistingRowMode::WitnessValidated),
+        );
+
+        assert_eq!(
+            classify_authority(context),
+            (
+                AuthorityDecision::ProbeFree,
+                AuthorityReason::SynchronizedPairWitness,
+            ),
+            "the centralized classifier must preserve an already-promoted witness_validated mode",
+        );
+    }
+
+    #[test]
+    fn classify_authority_preserves_storage_existence_witness_probe_free_mode() {
+        let context = AuthorityContext::new(
+            IndexState::Valid,
+            true,
+            true,
+            Some(CoveringExistingRowMode::StorageExistenceWitness),
+        );
+
+        assert_eq!(
+            classify_authority(context),
+            (
+                AuthorityDecision::ProbeFree,
+                AuthorityReason::StaleStorageExistenceWitness,
+            ),
+            "the centralized classifier must preserve an already-promoted storage_existence_witness mode",
+        );
+    }
+
+    #[test]
+    fn classify_authority_never_downgrades_an_already_probe_free_mode() {
+        for existing_row_mode in [
+            CoveringExistingRowMode::WitnessValidated,
+            CoveringExistingRowMode::StorageExistenceWitness,
+        ] {
+            let context =
+                AuthorityContext::new(IndexState::Valid, true, true, Some(existing_row_mode));
+            let (decision, _) = classify_authority(context);
+
+            assert_ne!(
+                decision,
+                AuthorityDecision::RowCheckRequired,
+                "the centralized classifier must never downgrade an already probe-free route",
+            );
+        }
     }
 }
