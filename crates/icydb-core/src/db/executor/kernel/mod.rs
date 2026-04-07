@@ -147,6 +147,7 @@ impl ExecutionKernel {
                     predicate_slots: inputs.execution_preparation().compiled_predicate(),
                     validate_projection: inputs.validate_projection(),
                     retain_slot_rows: inputs.retain_slot_rows(),
+                    prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
                 },
             )?
         else {
@@ -235,6 +236,8 @@ impl ExecutionKernel {
                 predicate_slots: inputs.execution_preparation().compiled_predicate(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
+                slot_only_required_slots: inputs.slot_only_required_slots(),
+                prefer_rendered_projection_rows: inputs.prefer_rendered_projection_rows(),
                 key_stream: resolved.key_stream_mut(),
             })?
         {
@@ -251,6 +254,7 @@ impl ExecutionKernel {
                 load_order_route_contract: route_plan.load_order_route_contract(),
                 validate_projection: inputs.validate_projection(),
                 retain_slot_rows: inputs.retain_slot_rows(),
+                slot_only_required_slots: inputs.slot_only_required_slots(),
                 cursor_emission: if inputs.emit_cursor() {
                     crate::db::executor::pipeline::contracts::CursorEmissionMode::Emit
                 } else {

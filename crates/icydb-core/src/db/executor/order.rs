@@ -10,6 +10,7 @@ use crate::{
         query::plan::{ExpressionOrderTerm, OrderDirection, OrderSpec},
         scalar_expr::derive_expression_order_value,
     },
+    error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
@@ -111,6 +112,34 @@ pub(in crate::db::executor) fn resolve_structural_order(
         .collect();
 
     ResolvedOrder { fields }
+}
+
+/// Mark every structural slot that one ORDER BY contract needs at runtime.
+pub(in crate::db::executor) fn mark_structural_order_slots(
+    model: &EntityModel,
+    order: &OrderSpec,
+    required_slots: &mut [bool],
+) -> Result<(), InternalError> {
+    // Phase 1: resolve each order term onto the canonical structural slot
+    // source and reject unknown field references up front.
+    for (field, _) in &order.fields {
+        match ResolvedOrderValueSource::from_field_name(model, field) {
+            ResolvedOrderValueSource::Missing => {
+                return Err(InternalError::query_invalid_logical_plan(format!(
+                    "order expression references unknown field '{field}'",
+                )));
+            }
+            ResolvedOrderValueSource::DirectField(slot)
+            | ResolvedOrderValueSource::ExpressionLower(slot)
+            | ResolvedOrderValueSource::ExpressionUpper(slot) => {
+                if let Some(required) = required_slots.get_mut(slot) {
+                    *required = true;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Apply canonical in-memory ordering with an optional bounded top-k window.

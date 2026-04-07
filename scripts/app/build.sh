@@ -3,9 +3,13 @@
 # don't allow errors
 set -e
 
-# Set up environment
-source "$(dirname "$0")/../env.sh"
-source "$(dirname "$0")/../env/cargo-local.sh"
+# Resolve the repo and scripts roots locally so this entrypoint does not rely
+# on a shared env shim.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
+SCRIPTS="$ROOT/scripts"
+
+export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 cd "$SCRIPTS"
 
 # Check if required arguments were provided

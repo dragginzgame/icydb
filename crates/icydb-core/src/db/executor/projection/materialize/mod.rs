@@ -11,7 +11,7 @@ use crate::{
         Expr, ProjectionField, ProjectionSpec, projection_field_direct_field_name,
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
 #[cfg(all(feature = "sql", test))]
@@ -29,8 +29,16 @@ use crate::db::executor::projection::{
     },
     grouped::GroupedRowView,
 };
+#[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
+pub(in crate::db::executor) use structural::record_sql_projection_full_row_decode_materialization;
+#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+pub use structural::{
+    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
 #[cfg(feature = "sql")]
-pub(in crate::db) use structural::execute_sql_projection_rows_for_canister;
+pub(in crate::db) use structural::{
+    execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
+};
 
 ///
 /// PreparedProjectionPlan
@@ -109,7 +117,7 @@ pub(in crate::db::executor) fn direct_projection_field_slots(
         match field {
             ProjectionField::Scalar { .. } => {
                 let field_name = projection_field_direct_field_name(field)?;
-                let slot = crate::model::entity::resolve_field_slot(model, field_name)?;
+                let slot = resolve_field_slot(model, field_name)?;
 
                 // The direct slot-copy path moves values out of retained slot
                 // rows with `Option::take()`, so it is valid only when each
@@ -131,6 +139,60 @@ pub(in crate::db::executor) fn direct_projection_field_slots(
     }
 
     Some(field_slots)
+}
+
+/// Mark every structural field slot referenced by one projection spec.
+///
+/// This helper keeps retained-slot SQL materialization explicit: callers can
+/// compute the exact slot set needed for projection validation/materialization
+/// without widening back to full row-slot images.
+pub(in crate::db::executor) fn mark_projection_referenced_slots(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+    required_slots: &mut [bool],
+) -> Result<(), InternalError> {
+    // Phase 1: walk each projection expression and resolve every referenced
+    // field leaf into the canonical model slot set.
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                mark_projection_expr_referenced_slots(model, expr, required_slots)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Mark every field leaf referenced by one projection expression.
+fn mark_projection_expr_referenced_slots(
+    model: &'static EntityModel,
+    expr: &Expr,
+    required_slots: &mut [bool],
+) -> Result<(), InternalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let slot = resolve_field_slot(model, field_name).ok_or_else(|| {
+                InternalError::query_invalid_logical_plan(format!(
+                    "projection expression references unknown field '{field_name}'",
+                ))
+            })?;
+            if let Some(required) = required_slots.get_mut(slot) {
+                *required = true;
+            }
+        }
+        Expr::Literal(_) | Expr::Aggregate(_) => {}
+        Expr::Unary { expr, .. } | Expr::Alias { expr, .. } => {
+            mark_projection_expr_referenced_slots(model, expr.as_ref(), required_slots)?;
+        }
+        Expr::Binary { left, right, .. } => {
+            mark_projection_expr_referenced_slots(model, left.as_ref(), required_slots)?;
+            mark_projection_expr_referenced_slots(model, right.as_ref(), required_slots)?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(all(feature = "sql", test))]

@@ -454,26 +454,37 @@ impl IndexStore {
             return Ok(false);
         }
 
-        // Phase 3: decode multi-key entry payload and push bounded data keys.
-        let storage_keys = value
-            .decode_keys()
+        // Phase 3: stream multi-key entry payloads without first allocating
+        // a membership vector, but still validate the full entry before
+        // returning to the caller.
+        let mut halted = false;
+        let mut decoded_keys = 0usize;
+        let mut storage_keys = value
+            .iter_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
 
-        if index.is_unique() && storage_keys.len() != 1 {
-            return Err(InternalError::unique_index_entry_single_key_required());
-        }
+        for storage_key in &mut storage_keys {
+            let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
+            decoded_keys = decoded_keys.saturating_add(1);
 
-        for storage_key in storage_keys {
+            if halted {
+                continue;
+            }
+
             out.push(DataKey::new(entity, storage_key));
 
             if let Some(limit) = limit
                 && out.len() == limit
             {
-                return Ok(true);
+                halted = true;
             }
         }
 
-        Ok(false)
+        if index.is_unique() && decoded_keys != 1 {
+            return Err(InternalError::unique_index_entry_single_key_required());
+        }
+
+        Ok(halted)
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -527,27 +538,37 @@ impl IndexStore {
             return Ok(false);
         }
 
-        // Phase 3: decode multi-key entry payload and push bounded
-        // `(data_key, components)`.
-        let storage_keys = value
-            .decode_keys()
+        // Phase 3: stream multi-key entry payloads without first allocating
+        // a membership vector, but still validate the full entry before
+        // returning to the caller.
+        let mut halted = false;
+        let mut decoded_keys = 0usize;
+        let mut storage_keys = value
+            .iter_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
 
-        if index.is_unique() && storage_keys.len() != 1 {
-            return Err(InternalError::unique_index_entry_single_key_required());
-        }
+        for storage_key in &mut storage_keys {
+            let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
+            decoded_keys = decoded_keys.saturating_add(1);
 
-        for storage_key in storage_keys {
+            if halted {
+                continue;
+            }
+
             out.push((DataKey::new(entity, storage_key), components.clone()));
 
             if let Some(limit) = limit
                 && out.len() == limit
             {
-                return Ok(true);
+                halted = true;
             }
         }
 
-        Ok(false)
+        if index.is_unique() && decoded_keys != 1 {
+            return Err(InternalError::unique_index_entry_single_key_required());
+        }
+
+        Ok(halted)
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -620,24 +641,34 @@ impl IndexStore {
         }
 
         // Phase 3: preserve the existing multi-key semantics while still
-        // streaming directly into the caller-owned collector.
-        let storage_keys = value
-            .decode_keys()
+        // streaming directly into the caller-owned collector and validating
+        // the full entry before returning.
+        let mut halted = false;
+        let mut decoded_keys = 0usize;
+        let mut storage_keys = value
+            .iter_keys()
             .map_err(InternalError::index_entry_decode_failed)?;
 
-        if index.is_unique() && storage_keys.len() != 1 {
-            return Err(InternalError::unique_index_entry_single_key_required());
-        }
+        for storage_key in &mut storage_keys {
+            let storage_key = storage_key.map_err(InternalError::index_entry_decode_failed)?;
+            decoded_keys = decoded_keys.saturating_add(1);
 
-        for storage_key in storage_keys {
+            if halted {
+                continue;
+            }
+
             collector.push(storage_key, component, out)?;
             *scanned = scanned.saturating_add(1);
             if *scanned == limit {
-                return Ok(true);
+                halted = true;
             }
         }
 
-        Ok(false)
+        if index.is_unique() && decoded_keys != 1 {
+            return Err(InternalError::unique_index_entry_single_key_required());
+        }
+
+        Ok(halted)
     }
 }
 
@@ -653,6 +684,7 @@ mod tests {
             data::{DataKey, StorageKey},
             index::{RawIndexEntry, RawIndexKey},
         },
+        error::ErrorClass,
         model::index::IndexModel,
         traits::Storable,
         types::EntityTag,
@@ -689,5 +721,32 @@ mod tests {
 
         assert!(halted, "bounded single-row scan should stop at the limit");
         assert_eq!(out, vec![DataKey::new(entity, StorageKey::Uint(11))]);
+    }
+
+    #[test]
+    fn decode_index_entry_and_push_limit_still_validates_full_multi_key_entry() {
+        let entity = EntityTag::new(7);
+        let raw_key = RawIndexKey::from_bytes(Cow::Owned(vec![0xFF]));
+        let duplicate = StorageKey::Uint(11);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&duplicate.to_bytes().expect("encode first key"));
+        bytes.extend_from_slice(&duplicate.to_bytes().expect("encode second key"));
+        let raw_entry = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        let mut out = Vec::new();
+
+        let err = IndexStore::decode_index_entry_and_push(
+            entity,
+            &TEST_SCAN_INDEX,
+            &raw_key,
+            &raw_entry,
+            &mut out,
+            Some(1),
+            "test scan",
+            None,
+        )
+        .expect_err("bounded multi-key scan must still reject duplicate membership corruption");
+
+        assert_eq!(err.class(), ErrorClass::Corruption);
     }
 }

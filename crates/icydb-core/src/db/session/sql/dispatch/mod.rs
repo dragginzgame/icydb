@@ -9,7 +9,10 @@ mod lowered;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
-        executor::{EntityAuthority, execute_sql_projection_rows_for_canister},
+        executor::{
+            EntityAuthority, execute_sql_projection_rows_for_canister,
+            execute_sql_projection_text_rows_for_canister,
+        },
         identifiers_tail_match,
         query::intent::StructuralQuery,
         session::sql::{
@@ -196,6 +199,40 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows, row_count) = projected.into_parts();
 
         Ok(SqlProjectionPayload::new(columns, rows, row_count))
+    }
+
+    // Execute one structural SQL load query and return render-ready text rows
+    // for the dispatch lane when the terminal short path can prove them
+    // directly.
+    fn execute_structural_sql_projection_text(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<SqlDispatchResult, QueryError> {
+        // Phase 1: build the structural access plan once and reuse its
+        // projection contract for both labels and text-row materialization.
+        let plan = query.build_plan()?;
+        let projection = plan.projection_spec(authority.model());
+        let columns = projection_labels_from_projection_spec(&projection);
+
+        // Phase 2: execute the shared structural load path with the already
+        // derived projection semantics while preferring rendered SQL rows.
+        let projected = execute_sql_projection_text_rows_for_canister(
+            &self.db,
+            self.debug,
+            authority.model(),
+            projection,
+            authority,
+            plan,
+        )
+        .map_err(QueryError::execute)?;
+        let (rows, row_count) = projected.into_parts();
+
+        Ok(SqlDispatchResult::ProjectionText {
+            columns,
+            rows,
+            row_count,
+        })
     }
 
     // Execute one typed SQL delete query while keeping the row payload on the

@@ -135,6 +135,11 @@ impl PredicateProgram {
         executable_predicate_references_only_slots(&self.executable, covered_slots)
     }
 
+    /// Mark every structural slot referenced by this executable predicate.
+    pub(in crate::db) fn mark_referenced_slots(&self, required_slots: &mut [bool]) {
+        mark_executable_predicate_referenced_slots(&self.executable, required_slots);
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn uses_scalar_program(&self) -> bool {
@@ -258,6 +263,46 @@ fn executable_predicate_references_only_slots(
         | ExecutablePredicate::IsNotEmpty { field_slot }
         | ExecutablePredicate::TextContains { field_slot, .. }
         | ExecutablePredicate::TextContainsCi { field_slot, .. } => slot_is_covered(*field_slot),
+    }
+}
+
+// Mark every slot referenced by the canonical executable predicate tree.
+fn mark_executable_predicate_referenced_slots(
+    predicate: &ExecutablePredicate,
+    required_slots: &mut [bool],
+) {
+    match predicate {
+        ExecutablePredicate::True | ExecutablePredicate::False => {}
+        ExecutablePredicate::And(children) | ExecutablePredicate::Or(children) => {
+            for child in children {
+                mark_executable_predicate_referenced_slots(child, required_slots);
+            }
+        }
+        ExecutablePredicate::Not(child) => {
+            mark_executable_predicate_referenced_slots(child.as_ref(), required_slots);
+        }
+        ExecutablePredicate::Compare(compare) => {
+            mark_predicate_slot(compare.field_slot, required_slots);
+        }
+        ExecutablePredicate::IsNull { field_slot }
+        | ExecutablePredicate::IsNotNull { field_slot }
+        | ExecutablePredicate::IsMissing { field_slot }
+        | ExecutablePredicate::IsEmpty { field_slot }
+        | ExecutablePredicate::IsNotEmpty { field_slot }
+        | ExecutablePredicate::TextContains { field_slot, .. }
+        | ExecutablePredicate::TextContainsCi { field_slot, .. } => {
+            mark_predicate_slot(*field_slot, required_slots);
+        }
+    }
+}
+
+// Mark one resolved predicate slot when it exists inside the current model
+// field span.
+fn mark_predicate_slot(slot: Option<usize>, required_slots: &mut [bool]) {
+    if let Some(slot) = slot
+        && let Some(required) = required_slots.get_mut(slot)
+    {
+        *required = true;
     }
 }
 

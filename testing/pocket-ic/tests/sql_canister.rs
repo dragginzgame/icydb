@@ -445,6 +445,29 @@ struct SqlPerfOutcome {
     error_kind: Option<String>,
     error_origin: Option<String>,
     error_message: Option<String>,
+    structural_read_metrics: Option<SqlPerfStructuralReadMetrics>,
+    projection_materialization_metrics: Option<SqlPerfProjectionMaterializationMetrics>,
+}
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfStructuralReadMetrics {
+    rows_opened: u64,
+    declared_slots_validated: u64,
+    validated_non_scalar_slots: u64,
+    materialized_non_scalar_slots: u64,
+    rows_without_lazy_non_scalar_materializations: u64,
+}
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
+struct SqlPerfProjectionMaterializationMetrics {
+    projected_rows_path_hits: u64,
+    slot_rows_path_hits: u64,
+    data_rows_path_hits: u64,
+    data_rows_scalar_fallback_hits: u64,
+    data_rows_generic_fallback_hits: u64,
+    data_rows_projected_slot_accesses: u64,
+    data_rows_non_projected_slot_accesses: u64,
+    full_row_decode_materializations: u64,
 }
 
 //

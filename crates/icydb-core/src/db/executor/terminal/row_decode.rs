@@ -3,13 +3,15 @@
 //! Does not own: typed response reconstruction or access-path iteration policy.
 //! Boundary: scalar runtime row production consumes this structural decode contract.
 
+#[cfg(any(test, feature = "structural-read-metrics"))]
+use crate::db::executor::projection::record_sql_projection_full_row_decode_materialization;
 #[cfg(test)]
 use crate::model::field::EnumVariantModel;
 #[cfg(test)]
 use crate::types::Ulid;
 use crate::{
     db::{
-        data::{DataRow, RawRow, StorageKey, StructuralSlotReader},
+        data::{CanonicalSlotReader, DataRow, RawRow, StorageKey, StructuralSlotReader},
         executor::terminal::page::KernelRow,
     },
     error::InternalError,
@@ -59,8 +61,12 @@ pub(in crate::db::executor) struct RowDecoder {
     decode_slots: RowDecodeSlotsFn,
 }
 
-type RowDecodeSlotsFn =
-    fn(&RowLayout, StorageKey, &RawRow) -> Result<Vec<Option<Value>>, InternalError>;
+type RowDecodeSlotsFn = fn(
+    &RowLayout,
+    StorageKey,
+    &RawRow,
+    Option<&[usize]>,
+) -> Result<Vec<Option<Value>>, InternalError>;
 
 impl RowDecoder {
     /// Build the canonical structural row decoder used by scalar execution.
@@ -88,8 +94,9 @@ impl RowDecoder {
         layout: &RowLayout,
         expected_key: StorageKey,
         row: &RawRow,
+        required_slots: Option<&[usize]>,
     ) -> Result<Vec<Option<Value>>, InternalError> {
-        (self.decode_slots)(layout, expected_key, row)
+        (self.decode_slots)(layout, expected_key, row, required_slots)
     }
 }
 
@@ -99,7 +106,7 @@ fn decode_kernel_row_structural(
     layout: &RowLayout,
     data_row: DataRow,
 ) -> Result<KernelRow, InternalError> {
-    let slots = decode_structural_slots(layout, data_row.0.storage_key(), &data_row.1)?;
+    let slots = decode_structural_slots(layout, data_row.0.storage_key(), &data_row.1, None)?;
 
     Ok(KernelRow::new(data_row, slots))
 }
@@ -110,6 +117,7 @@ fn decode_structural_slots(
     layout: &RowLayout,
     expected_key: StorageKey,
     row: &RawRow,
+    required_slots: Option<&[usize]>,
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: build the canonical structural slot reader once so hot row
     // decode can reuse the existing persisted-row validation boundary instead
@@ -121,10 +129,33 @@ fn decode_structural_slots(
     // primary-key slots from cached scalar refs or raw field bytes.
     reader.validate_storage_key_value(expected_key)?;
 
-    // Phase 3: consume the already-decoded slot cache into one stable
-    // field-count-sized row image.
-    let slots = reader.into_decoded_values()?;
-    debug_assert_eq!(slots.len(), layout.field_count);
+    // Phase 3: keep the existing full-image decode for generic callers, but
+    // let retained-slot SQL paths materialize only the slots their compiled
+    // plan will actually touch.
+    if let Some(required_slots) = required_slots {
+        decode_required_structural_slots(reader, layout, required_slots)
+    } else {
+        #[cfg(any(test, feature = "structural-read-metrics"))]
+        record_sql_projection_full_row_decode_materialization();
+        let slots = reader.into_decoded_values()?;
+        debug_assert_eq!(slots.len(), layout.field_count);
+
+        Ok(slots)
+    }
+}
+
+// Materialize only the caller-declared slot subset while preserving the
+// canonical row-open validation boundary already enforced by the reader.
+fn decode_required_structural_slots(
+    reader: StructuralSlotReader<'_>,
+    layout: &RowLayout,
+    required_slots: &[usize],
+) -> Result<Vec<Option<Value>>, InternalError> {
+    let mut slots = vec![None; layout.field_count];
+
+    for &slot in required_slots {
+        slots[slot] = Some(reader.required_value_by_contract(slot)?);
+    }
 
     Ok(slots)
 }
@@ -145,7 +176,7 @@ fn decode_row_fields<'a>(
 mod tests {
     use super::*;
     use crate::{
-        db::data::decode_structural_field_by_kind_bytes,
+        db::data::{decode_structural_field_by_kind_bytes, with_structural_read_metrics},
         error::{ErrorClass, ErrorOrigin},
         model::field::{FieldKind, FieldStorageDecode},
         serialize::serialize,
@@ -205,6 +236,32 @@ mod tests {
             .expect("structural row decode should succeed")
     }
 
+    fn decode_test_row_with_metrics(
+        entity: &RowDecodeEntity,
+    ) -> (KernelRow, crate::db::data::StructuralReadMetrics) {
+        with_structural_read_metrics(|| decode_test_row(entity))
+    }
+
+    fn decode_required_test_slots_with_metrics(
+        entity: &RowDecodeEntity,
+        required_slots: &[usize],
+    ) -> (Vec<Option<Value>>, crate::db::data::StructuralReadMetrics) {
+        let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+            .expect("test key construction should succeed");
+        let row = RawRow::from_entity(entity).expect("test row serialization should succeed");
+
+        with_structural_read_metrics(|| {
+            RowDecoder::structural()
+                .decode_slots(
+                    &RowLayout::from_model(RowDecodeEntity::MODEL),
+                    key.storage_key(),
+                    &row,
+                    Some(required_slots),
+                )
+                .expect("selective slot decode should succeed")
+        })
+    }
+
     fn to_cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
         serde_cbor::to_vec(value).expect("test fixture should serialize into CBOR bytes")
     }
@@ -229,6 +286,59 @@ mod tests {
             ])),
         );
         assert_eq!(row.slot(3), Some(Value::Blob(vec![0x10, 0x20, 0x30])));
+    }
+
+    #[test]
+    fn structural_row_decoder_metrics_report_full_non_scalar_materialization() {
+        let entity = RowDecodeEntity {
+            id: Ulid::from_u128(17),
+            title: "alpha".to_string(),
+            tags: vec!["one".to_string(), "two".to_string()],
+            portrait: Blob::from(vec![0x10, 0x20, 0x30]),
+        };
+        let (_row, metrics) = decode_test_row_with_metrics(&entity);
+
+        assert_eq!(metrics.rows_opened, 1);
+        assert_eq!(metrics.declared_slots_validated, 4);
+        assert_eq!(
+            metrics.validated_non_scalar_slots, 1,
+            "full row decode should validate the list field at row-open",
+        );
+        assert_eq!(
+            metrics.materialized_non_scalar_slots, 1,
+            "full row decode should materialize the list field when building the kernel row",
+        );
+        assert_eq!(
+            metrics.rows_without_lazy_non_scalar_materializations, 0,
+            "full row decode should not count as a zero-materialization row",
+        );
+    }
+
+    #[test]
+    fn selective_slot_decode_can_skip_unused_non_scalar_materialization() {
+        let entity = RowDecodeEntity {
+            id: Ulid::from_u128(23),
+            title: "alpha".to_string(),
+            tags: vec!["one".to_string(), "two".to_string()],
+            portrait: Blob::from(vec![0x10, 0x20, 0x30]),
+        };
+        let (slots, metrics) = decode_required_test_slots_with_metrics(&entity, &[0, 1]);
+
+        assert_eq!(slots[0], Some(Value::Ulid(entity.id)));
+        assert_eq!(slots[1], Some(Value::Text(entity.title)));
+        assert_eq!(slots[2], None);
+        assert_eq!(slots[3], None);
+        assert_eq!(metrics.rows_opened, 1);
+        assert_eq!(metrics.declared_slots_validated, 4);
+        assert_eq!(
+            metrics.validated_non_scalar_slots, 1,
+            "selective slot decode must still validate the list field at row-open",
+        );
+        assert_eq!(
+            metrics.materialized_non_scalar_slots, 0,
+            "selective slot decode should leave untouched non-scalar fields lazy",
+        );
+        assert_eq!(metrics.rows_without_lazy_non_scalar_materializations, 1);
     }
 
     #[test]

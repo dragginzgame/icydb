@@ -60,6 +60,9 @@ pub use data::{
     encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
     encode_persisted_slot_payload,
 };
+#[cfg(feature = "structural-read-metrics")]
+#[doc(hidden)]
+pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals, StorageReport,
@@ -67,6 +70,11 @@ pub use diagnostics::{
 #[doc(hidden)]
 pub use executor::EntityAuthority;
 pub use executor::MutationMode;
+#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[doc(hidden)]
+pub use executor::{
+    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use migration::{

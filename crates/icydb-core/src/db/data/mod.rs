@@ -39,6 +39,7 @@ pub use store::DataStore;
 pub(in crate::db) use structural_field::{
     decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
     decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+    validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
 };
 pub(in crate::db) use structural_row::{
     StructuralRowDecodeError, StructuralRowFieldBytes, decode_structural_row_cbor,
@@ -58,3 +59,7 @@ macro_rules! impl_scalar_only_test_slot_reader_get_value {
 
 #[cfg(test)]
 pub(crate) use impl_scalar_only_test_slot_reader_get_value;
+#[cfg(feature = "structural-read-metrics")]
+pub use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};
+#[cfg(all(test, not(feature = "structural-read-metrics")))]
+pub(crate) use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};

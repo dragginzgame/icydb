@@ -31,11 +31,13 @@ pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use scalar::execute_initial_scalar_rows_for_canister;
 pub(in crate::db::executor) use scalar::{
     PreparedScalarMaterializedBoundary, PreparedScalarRouteRuntime,
     execute_prepared_scalar_route_runtime, execute_prepared_scalar_rows_for_canister,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use scalar::{
+    execute_initial_scalar_rows_for_canister, execute_initial_scalar_text_rows_for_canister,
 };
 
 // Resolve one load-entry cursor contract without depending on typed entity

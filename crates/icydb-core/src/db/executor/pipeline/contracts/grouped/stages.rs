@@ -140,9 +140,9 @@ impl StructuralGroupedRowRuntime {
     // Decode one persisted data row straight into the structural slot view
     // consumed by grouped fold/runtime stages without building a full kernel row.
     fn row_view_from_data_row(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
-        let slots = self
-            .row_decoder
-            .decode_slots(&self.row_layout, key.storage_key(), &row)?;
+        let slots =
+            self.row_decoder
+                .decode_slots(&self.row_layout, key.storage_key(), &row, None)?;
 
         Ok(RowView::new(slots))
     }

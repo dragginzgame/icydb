@@ -23,8 +23,8 @@ use crate::{
 pub(in crate::db::executor) use execution::{
     CoveringComponentScanState, CursorEmissionMode, DirectCoveringScanMaterializationRequest,
     ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntime, ExecutionRuntimeAdapter,
-    MaterializedExecutionAttempt, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-    RuntimePageMaterializationRequest, StructuralCursorPage,
+    MaterializedExecutionAttempt, ProjectionMaterializationMode, ResolvedExecutionKeyStream,
+    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest, StructuralCursorPage,
 };
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,

@@ -54,10 +54,12 @@ pub(in crate::db::executor) use continuation::{
 pub(in crate::db::executor) use covering::{
     CoveringProjectionComponentRows, SingleComponentCoveringProjectionOutcome,
     SingleComponentCoveringScanRequest,
+    collect_single_component_covering_projection_from_lowered_specs,
     collect_single_component_covering_projection_values_from_lowered_specs,
     covering_projection_scan_direction, covering_requires_row_presence_check,
     decode_covering_projection_pairs, decode_single_covering_projection_pairs,
-    reorder_covering_projection_pairs, resolve_covering_projection_component_from_lowered_specs,
+    map_covering_projection_pairs, reorder_covering_projection_pairs,
+    resolve_covering_projection_component_from_lowered_specs,
     resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;
@@ -77,14 +79,21 @@ pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, compare_orderable_row_with_boundary,
-    resolve_structural_order,
+    mark_structural_order_slots, resolve_structural_order,
 };
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{GroupedCursorPage, PageCursor};
 pub(in crate::db::executor) use plan_validate::validate_executor_plan_for_authority;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
+pub(in crate::db::executor) use projection::mark_projection_referenced_slots;
+#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+pub use projection::{
+    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
 #[cfg(feature = "sql")]
-pub(in crate::db) use projection::execute_sql_projection_rows_for_canister;
+pub(in crate::db) use projection::{
+    execute_sql_projection_rows_for_canister, execute_sql_projection_text_rows_for_canister,
+};
 pub(in crate::db) use runtime_context::*;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{

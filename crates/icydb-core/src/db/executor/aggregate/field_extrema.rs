@@ -20,7 +20,9 @@ use crate::{
                 },
             },
             drive_key_stream_with_control_flow,
-            pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter},
+            pipeline::contracts::{
+                ExecutionInputs, ExecutionRuntimeAdapter, ProjectionMaterializationMode,
+            },
             plan_metrics::record_rows_scanned_for_path,
             preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
@@ -267,6 +269,7 @@ impl ExecutionKernel {
             slot_map_for_model_plan(prepared.authority.model(), &prepared.logical_plan),
         );
         let execution_inputs = ExecutionInputs::new(
+            prepared.authority.model(),
             &runtime,
             &prepared.logical_plan,
             AccessStreamBindings {
@@ -275,10 +278,9 @@ impl ExecutionKernel {
                 continuation: AccessScanContinuationInput::new(None, spec.direction),
             },
             &execution_preparation,
+            ProjectionMaterializationMode::SharedValidation,
             true,
-            false,
-            true,
-        );
+        )?;
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
             route_plan,

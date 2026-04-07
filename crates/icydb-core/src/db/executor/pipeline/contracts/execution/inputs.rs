@@ -10,6 +10,7 @@ use crate::value::Value;
 type StructuralSqlProjectionRows = (
     Option<Vec<Vec<Option<Value>>>>,
     Option<Vec<Vec<Value>>>,
+    Option<Vec<Vec<String>>>,
     Vec<DataRow>,
 );
 
@@ -22,6 +23,8 @@ use crate::{
         executor::{
             AccessStreamBindings, ExecutionKernel, ExecutionPreparation, ExecutorError,
             OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
+            mark_projection_referenced_slots, mark_structural_order_slots,
+            route::access_order_satisfied_by_route_contract_for_model,
             route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             terminal::{
                 RowDecoder, RowLayout,
@@ -118,6 +121,7 @@ unsafe fn structural_scalar_read_kernel_row(
     payload_mode: KernelRowPayloadMode,
     predicate_preapplied: bool,
     predicate_slots: Option<&PredicateProgram>,
+    required_slots: Option<&[usize]>,
 ) -> Result<Option<crate::db::executor::terminal::page::KernelRow>, InternalError> {
     let state = unsafe { &mut *state.cast::<ScalarRowRuntimeState>() };
     let Some(row) = state.read_row(consistency, key)? else {
@@ -129,10 +133,12 @@ unsafe fn structural_scalar_read_kernel_row(
             state.row_decoder.decode(&state.row_layout, data_row)?
         }
         KernelRowPayloadMode::SlotsOnly => {
-            let slots =
-                state
-                    .row_decoder
-                    .decode_slots(&state.row_layout, key.storage_key(), &row)?;
+            let slots = state.row_decoder.decode_slots(
+                &state.row_layout,
+                key.storage_key(),
+                &row,
+                required_slots,
+            )?;
 
             crate::db::executor::terminal::page::KernelRow::new_slot_only(slots)
         }
@@ -175,6 +181,8 @@ pub(in crate::db::executor) struct StructuralCursorPage {
     slot_rows: Option<Vec<Vec<Option<Value>>>>,
     #[cfg(feature = "sql")]
     projected_rows: Option<Vec<Vec<Value>>>,
+    #[cfg(feature = "sql")]
+    rendered_projected_rows: Option<Vec<Vec<String>>>,
     next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
 }
 
@@ -192,6 +200,8 @@ impl StructuralCursorPage {
             slot_rows: None,
             #[cfg(feature = "sql")]
             projected_rows: None,
+            #[cfg(feature = "sql")]
+            rendered_projected_rows: None,
             next_cursor,
         }
     }
@@ -210,6 +220,7 @@ impl StructuralCursorPage {
             row_count,
             slot_rows: Some(slot_rows),
             projected_rows: None,
+            rendered_projected_rows: None,
             next_cursor,
         }
     }
@@ -227,6 +238,25 @@ impl StructuralCursorPage {
             row_count,
             slot_rows: None,
             projected_rows: Some(projected_rows),
+            rendered_projected_rows: None,
+            next_cursor,
+        }
+    }
+
+    /// Build one structural scalar page from already-rendered SQL text rows.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::executor) const fn new_with_rendered_projected_rows(
+        rendered_projected_rows: Vec<Vec<String>>,
+        row_count: usize,
+        next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
+    ) -> Self {
+        Self {
+            data_rows: Vec::new(),
+            row_count,
+            slot_rows: None,
+            projected_rows: None,
+            rendered_projected_rows: Some(rendered_projected_rows),
             next_cursor,
         }
     }
@@ -247,7 +277,12 @@ impl StructuralCursorPage {
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::executor) fn into_sql_parts(self) -> StructuralSqlProjectionRows {
-        (self.slot_rows, self.projected_rows, self.data_rows)
+        (
+            self.slot_rows,
+            self.projected_rows,
+            self.rendered_projected_rows,
+            self.data_rows,
+        )
     }
 
     /// Consume one structural scalar page into rows plus cursor state.
@@ -286,6 +321,55 @@ impl CursorEmissionMode {
 }
 
 ///
+/// ProjectionMaterializationMode
+///
+/// ProjectionMaterializationMode keeps projection-retention behavior explicit
+/// at the structural execution boundary instead of scattering multiple
+/// interdependent bool flags across kernel/runtime contracts.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum ProjectionMaterializationMode {
+    SharedValidation,
+    SqlImmediateMaterialization,
+    SqlImmediateRenderedDispatch,
+}
+
+impl ProjectionMaterializationMode {
+    /// Return whether this execution attempt still requires the shared
+    /// projection-validation pass before surface-owned materialization.
+    #[must_use]
+    pub(in crate::db::executor) const fn validate_projection(self) -> bool {
+        matches!(self, Self::SharedValidation)
+    }
+
+    /// Return whether this execution attempt should retain decoded slot rows
+    /// for an immediate SQL projection materialization step.
+    #[must_use]
+    pub(in crate::db::executor) const fn retain_slot_rows(self) -> bool {
+        matches!(
+            self,
+            Self::SqlImmediateMaterialization | Self::SqlImmediateRenderedDispatch
+        )
+    }
+
+    /// Return whether this execution attempt should prefer already-rendered
+    /// SQL projection rows over `Value` materialization when a terminal short
+    /// path can prove them directly.
+    #[must_use]
+    pub(in crate::db::executor) const fn prefer_rendered_projection_rows(self) -> bool {
+        matches!(self, Self::SqlImmediateRenderedDispatch)
+    }
+
+    /// Return whether this execution attempt should assemble one outward
+    /// continuation cursor from the materialized structural page.
+    #[must_use]
+    pub(in crate::db::executor) const fn emit_cursor(self) -> bool {
+        matches!(self, Self::SharedValidation)
+    }
+}
+
+///
 /// RuntimePageMaterializationRequest
 ///
 /// Generic-free page materialization envelope consumed through the executor
@@ -300,6 +384,7 @@ pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
@@ -325,6 +410,8 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
+    pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
 }
 
@@ -345,6 +432,7 @@ pub(in crate::db::executor) struct DirectCoveringScanMaterializationRequest<'a> 
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) prefer_rendered_projection_rows: bool,
 }
 
 ///
@@ -708,6 +796,7 @@ impl ExecutionRuntime for ExecutionRuntimeAdapter<'_, '_> {
                 load_order_route_contract: request.load_order_route_contract,
                 validate_projection: request.validate_projection,
                 retain_slot_rows: request.retain_slot_rows,
+                slot_only_required_slots: request.slot_only_required_slots,
                 cursor_emission: request.cursor_emission,
                 consistency: request.consistency,
                 continuation: request.continuation,
@@ -730,32 +819,38 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     plan: &'a AccessPlannedQuery,
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
-    validate_projection: bool,
-    retain_slot_rows: bool,
+    projection_materialization: ProjectionMaterializationMode,
+    slot_only_required_slots: Option<Vec<usize>>,
     emit_cursor: bool,
 }
 
 impl<'a> ExecutionInputs<'a> {
     /// Construct one scalar execution-input projection payload.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(
+    pub(in crate::db::executor) fn new(
+        model: &'static EntityModel,
         runtime: &'a dyn ExecutionRuntime,
         plan: &'a AccessPlannedQuery,
         stream_bindings: AccessStreamBindings<'a>,
         execution_preparation: &'a ExecutionPreparation,
-        validate_projection: bool,
-        retain_slot_rows: bool,
+        projection_materialization: ProjectionMaterializationMode,
         emit_cursor: bool,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        let slot_only_required_slots = compile_slot_only_required_slots(
+            model,
+            plan,
+            execution_preparation.compiled_predicate(),
+            projection_materialization,
+        )?;
+
+        Ok(Self {
             runtime,
             plan,
             stream_bindings,
             execution_preparation,
-            validate_projection,
-            retain_slot_rows,
+            projection_materialization,
+            slot_only_required_slots,
             emit_cursor,
-        }
+        })
     }
 
     /// Borrow the resolved runtime adapter for this execution attempt.
@@ -786,14 +881,30 @@ impl<'a> ExecutionInputs<'a> {
     /// projection-validation pass before surface-owned materialization.
     #[must_use]
     pub(in crate::db::executor) const fn validate_projection(&self) -> bool {
-        self.validate_projection
+        self.projection_materialization.validate_projection()
     }
 
     /// Return whether this execution attempt should retain decoded slot rows
     /// for an immediate SQL projection materialization step.
     #[must_use]
     pub(in crate::db::executor) const fn retain_slot_rows(&self) -> bool {
-        self.retain_slot_rows
+        self.projection_materialization.retain_slot_rows()
+    }
+
+    /// Borrow the precomputed retained-slot layout for cursorless SQL
+    /// materialization when this execution shape keeps slot rows.
+    #[must_use]
+    pub(in crate::db::executor) fn slot_only_required_slots(&self) -> Option<&[usize]> {
+        self.slot_only_required_slots.as_deref()
+    }
+
+    /// Return whether this execution attempt should prefer already-rendered
+    /// SQL projection rows over `Value` materialization when a terminal short
+    /// path can prove them directly.
+    #[must_use]
+    pub(in crate::db::executor) const fn prefer_rendered_projection_rows(&self) -> bool {
+        self.projection_materialization
+            .prefer_rendered_projection_rows()
     }
 
     /// Return whether this execution attempt should assemble one outward
@@ -808,4 +919,48 @@ impl<'a> ExecutionInputs<'a> {
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(self.plan)
     }
+}
+
+// Compile the canonical retained-slot layout once per execution shape so
+// cursorless SQL row collectors do not rebuild projection/predicate/order
+// reachability ad hoc at each materialization boundary.
+fn compile_slot_only_required_slots(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    compiled_predicate: Option<&PredicateProgram>,
+    projection_materialization: ProjectionMaterializationMode,
+) -> Result<Option<Vec<usize>>, InternalError> {
+    if !projection_materialization.retain_slot_rows() {
+        return Ok(None);
+    }
+
+    let mut required_slots = vec![false; model.fields().len()];
+
+    // Phase 1: projection materialization always owns one stable slot set for
+    // retained-slot SQL rows, even when final projection happens later.
+    mark_projection_referenced_slots(model, &plan.projection_spec(model), &mut required_slots)?;
+
+    // Phase 2: residual predicate filtering still runs on retained slot rows
+    // before the outer SQL materializer consumes them.
+    if plan.has_residual_predicate()
+        && let Some(predicate_program) = compiled_predicate
+    {
+        predicate_program.mark_referenced_slots(&mut required_slots);
+    }
+
+    // Phase 3: post-access in-memory ordering only needs extra slots when the
+    // chosen route does not already satisfy the visible order contract.
+    if let Some(order) = plan.scalar_plan().order.as_ref()
+        && !access_order_satisfied_by_route_contract_for_model(model, plan)
+    {
+        mark_structural_order_slots(model, order, &mut required_slots)?;
+    }
+
+    Ok(Some(
+        required_slots
+            .into_iter()
+            .enumerate()
+            .filter_map(|(slot, required)| required.then_some(slot))
+            .collect(),
+    ))
 }

@@ -261,6 +261,14 @@ impl<C: CanisterKind> DbSession<C> {
 
                 SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(entity_name, rows))
             }
+            core::db::SqlDispatchResult::ProjectionText {
+                columns,
+                rows,
+                row_count,
+            } => SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
+                entity_name,
+                SqlProjectionRows::new(columns, rows, row_count),
+            )),
             core::db::SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
                 entity: entity_name,
                 explain,

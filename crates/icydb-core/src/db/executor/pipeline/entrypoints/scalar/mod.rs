@@ -6,6 +6,7 @@
 mod hints;
 mod surface;
 
+use crate::model::entity::EntityModel;
 use crate::{
     db::{
         Db,
@@ -20,7 +21,8 @@ use crate::{
             ScalarRouteContinuationInvariantProjection, StoreResolver, TraversalRuntime,
             pipeline::contracts::{
                 CoveringComponentScanState, ExecutionInputs, ExecutionOutcomeMetrics,
-                ExecutionRuntime, ExecutionRuntimeAdapter, LoadExecutor, StructuralCursorPage,
+                ExecutionRuntime, ExecutionRuntimeAdapter, LoadExecutor,
+                ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -39,27 +41,7 @@ use crate::{
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
 
-// Keep SQL-only projection preservation decisions explicit without adding more
-// free-floating bool flags to the shared scalar runtime bundles.
-#[derive(Clone, Copy)]
-enum ScalarProjectionRuntimeMode {
-    SharedValidation,
-    SqlImmediateMaterialization,
-}
-
-impl ScalarProjectionRuntimeMode {
-    const fn validate_projection(self) -> bool {
-        matches!(self, Self::SharedValidation)
-    }
-
-    const fn retain_slot_rows(self) -> bool {
-        matches!(self, Self::SqlImmediateMaterialization)
-    }
-
-    const fn emit_cursor(self) -> bool {
-        matches!(self, Self::SharedValidation)
-    }
-}
+type ScalarProjectionRuntimeMode = ProjectionMaterializationMode;
 
 ///
 /// ScalarExecutionStage
@@ -72,6 +54,7 @@ impl ScalarProjectionRuntimeMode {
 ///
 
 struct ScalarExecutionStage<'a> {
+    model: &'static EntityModel,
     runtime: &'a dyn ExecutionRuntime,
     plan: &'a AccessPlannedQuery,
     execution_preparation: ExecutionPreparation,
@@ -204,6 +187,7 @@ fn execute_scalar_execution_stage(
     stage: ScalarExecutionStage<'_>,
 ) -> Result<ScalarPathExecution, InternalError> {
     let ScalarExecutionStage {
+        model,
         runtime,
         plan,
         execution_preparation,
@@ -246,6 +230,7 @@ fn execute_scalar_execution_stage(
     // Phase 3: build canonical execution inputs and materialize the scalar route.
     let continuation_bindings = resolved_continuation.bindings(direction);
     let execution_inputs = ExecutionInputs::new(
+        model,
         runtime,
         plan,
         AccessStreamBindings {
@@ -254,10 +239,9 @@ fn execute_scalar_execution_stage(
             continuation: resolved_continuation.access_scan_input(direction),
         },
         &execution_preparation,
-        projection_runtime_mode.validate_projection(),
-        projection_runtime_mode.retain_slot_rows(),
+        projection_runtime_mode,
         projection_runtime_mode.emit_cursor(),
-    );
+    )?;
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
         &execution_inputs,
@@ -309,6 +293,7 @@ fn execute_prepared_scalar_path_execution(
     );
 
     execute_scalar_execution_stage(ScalarExecutionStage {
+        model: authority.model(),
         runtime: &runtime,
         plan: &plan,
         execution_preparation,
@@ -519,6 +504,67 @@ where
     Ok(page)
 }
 
+/// Execute one initial scalar rows path directly into render-ready SQL rows
+/// when the cursorless terminal short path can prove them without generic
+/// `Value` materialization.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn execute_initial_scalar_text_rows_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> Result<StructuralCursorPage, InternalError>
+where
+    C: CanisterKind,
+{
+    let continuation_contract = plan
+        .continuation_contract(authority.entity_path())
+        .ok_or_else(|| {
+            ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
+        })?;
+    let index_prefix_specs =
+        crate::db::access::lower_index_prefix_specs(authority.entity_tag(), &plan.access).map_err(
+            |_| ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error(),
+        )?;
+    let index_range_specs =
+        crate::db::access::lower_index_range_specs(authority.entity_tag(), &plan.access).map_err(
+            |_| ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error(),
+        )?;
+
+    // Phase 1: resolve structural store authority once at the canister
+    // boundary.
+    validate_executor_plan_for_authority(authority, &plan)?;
+    let store = db.recovered_store(authority.store_path())?;
+    let route_plan =
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model_store_witness(
+            authority.model(),
+            &plan,
+            None,
+            store,
+        )?;
+
+    // Phase 2: execute the shared scalar runtime on the fixed initial
+    // continuation contract while allowing terminal-owned rendered SQL rows.
+    let prepared = PreparedScalarRouteRuntime {
+        store,
+        authority,
+        plan,
+        route_plan,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation: ContinuationEngine::resolve_scalar_context(
+            PlannedCursor::none(),
+            continuation_contract.continuation_signature(),
+        ),
+        unpaged_rows_mode: true,
+        projection_runtime_mode: ScalarProjectionRuntimeMode::SqlImmediateRenderedDispatch,
+        debug,
+    };
+    let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
+
+    Ok(page)
+}
+
 // Execute one fully materialized scalar rows path from already-resolved typed
 // boundary inputs without re-entering the generic `execute(plan)` wrapper.
 fn execute_scalar_materialized_rows_boundary<E>(
@@ -573,6 +619,7 @@ where
         mut trace,
         execution_time_micros,
     } = execute_scalar_execution_stage(ScalarExecutionStage {
+        model: authority.model(),
         runtime: &runtime,
         plan: &logical_plan,
         execution_preparation,

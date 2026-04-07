@@ -11,6 +11,7 @@ authors = { workspace = true }
 [features]
 default = ["sql"]
 sql = ["icydb-core/sql"]
+structural-read-metrics = ["icydb-core/structural-read-metrics"]
 
 [dependencies]
 candid = { workspace = true }

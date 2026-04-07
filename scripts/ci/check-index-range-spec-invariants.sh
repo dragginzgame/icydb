@@ -59,7 +59,7 @@ status=0
 
 if ! command -v rg >/dev/null 2>&1; then
   echo "[ERROR] ripgrep (rg) is required for index-range spec invariant checks." >&2
-  echo "[ERROR] Install it via 'make install-dev' or scripts/env/install.sh." >&2
+  echo "[ERROR] Install it via 'make install-dev' or 'make install-env'." >&2
   exit 1
 fi
 

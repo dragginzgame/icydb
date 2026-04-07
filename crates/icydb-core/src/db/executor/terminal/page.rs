@@ -52,7 +52,7 @@ impl KernelRow {
 
     /// Build one structural kernel row that retains only decoded slot values.
     #[must_use]
-    pub(in crate::db) const fn new_slot_only(slots: Vec<Option<Value>>) -> Self {
+    pub(in crate::db::executor) const fn new_slot_only(slots: Vec<Option<Value>>) -> Self {
         Self {
             data_row: None,
             slots,
@@ -84,13 +84,14 @@ impl KernelRow {
 
     #[cfg(feature = "sql")]
     pub(in crate::db) fn into_parts(self) -> Result<(DataRow, Vec<Option<Value>>), InternalError> {
-        let data_row = self.data_row.ok_or_else(|| {
+        let Self { data_row, slots } = self;
+        let data_row = data_row.ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "slot-only kernel row reached delete row materialization path",
             )
         })?;
 
-        Ok((data_row, self.slots))
+        Ok((data_row, slots))
     }
 }
 
@@ -121,6 +122,7 @@ type ScalarRowReadKernelRowFn = unsafe fn(
     KernelRowPayloadMode,
     bool,
     Option<&PredicateProgram>,
+    Option<&[usize]>,
 ) -> Result<Option<KernelRow>, InternalError>;
 
 ///
@@ -177,6 +179,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
         payload_mode: KernelRowPayloadMode,
         predicate_preapplied: bool,
         predicate_slots: Option<&PredicateProgram>,
+        required_slots: Option<&[usize]>,
     ) -> Result<Option<KernelRow>, InternalError> {
         // SAFETY: `state` was allocated by `new`, the vtable matches the
         // erased state type, and the handle has unique mutable access.
@@ -188,6 +191,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
                 payload_mode,
                 predicate_preapplied,
                 predicate_slots,
+                required_slots,
             )
         }
     }
@@ -220,6 +224,7 @@ pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
+    pub(in crate::db::executor) slot_only_required_slots: Option<&'a [usize]>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
@@ -239,6 +244,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         load_order_route_contract,
         validate_projection,
         retain_slot_rows,
+        slot_only_required_slots,
         cursor_emission,
         consistency,
         continuation,
@@ -248,7 +254,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     } else {
         KernelRowPayloadMode::FullRow
     };
-
     let predicate_preapplied = plan.has_residual_predicate();
     if predicate_preapplied && predicate_slots.is_none() {
         return Err(InternalError::scalar_page_predicate_slots_required());
@@ -263,6 +268,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
         payload_mode,
         predicate_slots,
         predicate_preapplied,
+        slot_only_required_slots,
         continuation,
         row_runtime,
     })?;
@@ -495,6 +501,7 @@ struct ScalarPageKernelRequest<'a, 'r> {
     payload_mode: KernelRowPayloadMode,
     predicate_slots: Option<&'a PredicateProgram>,
     predicate_preapplied: bool,
+    slot_only_required_slots: Option<&'a [usize]>,
     continuation: ScalarContinuationBindings<'a>,
     row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
@@ -510,6 +517,7 @@ fn execute_scalar_page_kernel_dyn(
         payload_mode,
         predicate_slots,
         predicate_preapplied,
+        slot_only_required_slots,
         continuation,
         row_runtime,
     } = request;
@@ -529,6 +537,7 @@ fn execute_scalar_page_kernel_dyn(
             payload_mode,
             predicate_slots,
             predicate_preapplied,
+            slot_only_required_slots,
             row_runtime,
         )
     } else {
@@ -538,6 +547,7 @@ fn execute_scalar_page_kernel_dyn(
             payload_mode,
             predicate_slots,
             predicate_preapplied,
+            slot_only_required_slots,
             row_runtime,
         )
     }
@@ -549,6 +559,7 @@ fn scan_rows_into_kernel(
     payload_mode: KernelRowPayloadMode,
     predicate_slots: Option<&PredicateProgram>,
     predicate_preapplied: bool,
+    slot_only_required_slots: Option<&[usize]>,
     row_runtime: &mut ScalarRowRuntimeHandle<'_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
@@ -562,6 +573,7 @@ fn scan_rows_into_kernel(
             payload_mode,
             predicate_preapplied,
             predicate_slots,
+            slot_only_required_slots,
         )?
         else {
             continue;

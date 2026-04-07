@@ -13,13 +13,34 @@ type CoveringSlotRows = (Vec<Vec<Option<Value>>>, usize);
 #[cfg(feature = "sql")]
 type CoveringProjectedRows = (Vec<Vec<Value>>, usize);
 #[cfg(feature = "sql")]
+type CoveringProjectedTextRows = (Vec<Vec<String>>, usize);
+#[cfg(feature = "sql")]
 type CoveringComponentSlotGroup = (usize, Vec<usize>);
 #[cfg(feature = "sql")]
 type DecodedCoveringComponentRows = Vec<(DataKey, Vec<Value>)>;
 #[cfg(feature = "sql")]
+type RenderedCoveringComponentRows = Vec<(DataKey, Vec<String>)>;
+#[cfg(feature = "sql")]
 type CoveringSlotRowPairs = Vec<(DataKey, Vec<Option<Value>>)>;
 #[cfg(feature = "sql")]
 type CoveringProjectedRowPairs = Vec<(DataKey, Vec<Value>)>;
+#[cfg(feature = "sql")]
+type CoveringProjectedTextRowPairs = Vec<(DataKey, Vec<String>)>;
+
+#[cfg(feature = "sql")]
+const SQL_COVERING_BOOL_PAYLOAD_LEN: usize = 1;
+#[cfg(feature = "sql")]
+const SQL_COVERING_U64_PAYLOAD_LEN: usize = 8;
+#[cfg(feature = "sql")]
+const SQL_COVERING_ULID_PAYLOAD_LEN: usize = 16;
+#[cfg(feature = "sql")]
+const SQL_COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
+#[cfg(feature = "sql")]
+const SQL_COVERING_TEXT_TERMINATOR: u8 = 0x00;
+#[cfg(feature = "sql")]
+const SQL_COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
+#[cfg(feature = "sql")]
+const SQL_COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 
 ///
 /// SqlCoveringMaterializationContext
@@ -38,6 +59,7 @@ struct SqlCoveringMaterializationContext<'a> {
     load_terminal_fast_path: Option<&'a LoadTerminalFastPathContract>,
     scan_budget_hint: Option<usize>,
     predicate_slots: Option<&'a PredicateProgram>,
+    prefer_rendered_projection_rows: bool,
 }
 
 ///
@@ -77,9 +99,11 @@ use crate::{
             BudgetedOrderedKeyStream, CoveringProjectionComponentRows, ExecutionKernel,
             OrderedKeyStream, ScalarContinuationBindings, SingleComponentCoveringProjectionOutcome,
             SingleComponentCoveringScanRequest,
+            collect_single_component_covering_projection_from_lowered_specs,
             collect_single_component_covering_projection_values_from_lowered_specs,
             covering_projection_scan_direction, decode_covering_projection_pairs,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
+            map_covering_projection_pairs,
             pipeline::contracts::{
                 CoveringComponentScanState, DirectCoveringScanMaterializationRequest,
                 RowCollectorMaterializationRequest,
@@ -133,6 +157,7 @@ impl ExecutionKernel {
                 predicate_slots,
                 validate_projection,
                 retain_slot_rows,
+                prefer_rendered_projection_rows,
             } = request;
 
             let sql_covering_context = SqlCoveringMaterializationContext {
@@ -143,6 +168,7 @@ impl ExecutionKernel {
                 load_terminal_fast_path,
                 scan_budget_hint,
                 predicate_slots,
+                prefer_rendered_projection_rows,
             };
 
             return try_materialize_cursorless_sql_covering_scan_without_key_stream(
@@ -201,6 +227,7 @@ impl ExecutionKernel {
             key_stream,
             row_runtime,
             predicate_slots,
+            slot_only_required_slots,
         } = request;
 
         // Phase 1: initialize row staging and read-consistency policy.
@@ -229,6 +256,7 @@ impl ExecutionKernel {
                     payload_mode,
                     predicate_preapplied,
                     predicate_slots,
+                    slot_only_required_slots,
                 )?
                 else {
                     continue;
@@ -247,6 +275,7 @@ impl ExecutionKernel {
                     payload_mode,
                     predicate_preapplied,
                     predicate_slots,
+                    slot_only_required_slots,
                 )?
                 else {
                     continue;
@@ -290,6 +319,8 @@ impl ExecutionKernel {
             predicate_slots,
             validate_projection,
             retain_slot_rows,
+            slot_only_required_slots,
+            prefer_rendered_projection_rows,
             key_stream,
         } = request;
 
@@ -313,6 +344,7 @@ impl ExecutionKernel {
             load_terminal_fast_path,
             scan_budget_hint,
             predicate_slots,
+            prefer_rendered_projection_rows,
         };
 
         #[cfg(feature = "sql")]
@@ -343,6 +375,7 @@ impl ExecutionKernel {
             key_stream,
             row_runtime,
             predicate_slots,
+            slot_only_required_slots,
         })?;
         if retain_slot_rows && !cursorless_sql_page_window_is_redundant(plan, rows.len()) {
             apply_cursorless_sql_page_window(plan, &mut rows);
@@ -431,6 +464,23 @@ fn try_materialize_cursorless_sql_covering_scan_short_path(
     )>,
     InternalError,
 > {
+    if context.prefer_rendered_projection_rows
+        && let Some((mut projected_rows, keys_scanned)) =
+            try_materialize_sql_route_covering_projected_text_rows(context)?
+    {
+        if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
+            apply_cursorless_sql_page_window(context.plan, &mut projected_rows);
+        }
+        let post_access_rows = projected_rows.len();
+        let page = crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_rendered_projected_rows(
+            projected_rows,
+            post_access_rows,
+            None,
+        );
+
+        return Ok(Some((page, keys_scanned, post_access_rows)));
+    }
+
     if let Some((mut projected_rows, keys_scanned)) =
         try_materialize_sql_route_covering_projected_rows(context)?
     {
@@ -491,6 +541,23 @@ fn try_materialize_cursorless_sql_key_stream_short_path(
     )>,
     InternalError,
 > {
+    if context.prefer_rendered_projection_rows
+        && let Some((mut projected_rows, keys_scanned)) =
+            try_materialize_sql_projected_text_rows(context, key_stream)?
+    {
+        if !cursorless_sql_page_window_is_redundant(context.plan, projected_rows.len()) {
+            apply_cursorless_sql_page_window(context.plan, &mut projected_rows);
+        }
+        let post_access_rows = projected_rows.len();
+        let page = crate::db::executor::pipeline::contracts::StructuralCursorPage::new_with_rendered_projected_rows(
+            projected_rows,
+            post_access_rows,
+            None,
+        );
+
+        return Ok(Some((page, keys_scanned, post_access_rows)));
+    }
+
     if let Some((mut projected_rows, keys_scanned)) =
         try_materialize_sql_projected_rows(context, key_stream)?
     {
@@ -556,6 +623,7 @@ pub(in crate::db::executor::pipeline::operators::terminal) struct RowCollectorSt
     key_stream: &'a mut dyn OrderedKeyStream,
     row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
     predicate_slots: Option<&'a PredicateProgram>,
+    slot_only_required_slots: Option<&'a [usize]>,
 }
 
 // Return the number of kept rows the cursorless structural SQL short path
@@ -646,6 +714,25 @@ fn apply_cursorless_sql_page_window<T>(plan: &AccessPlannedQuery, rows: &mut Vec
 // Attempt one SQL-only direct projected-row materialization path when the
 // route-owned covering contract already determines every output value and the
 // query owes no residual predicate evaluation.
+fn try_materialize_sql_projected_text_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+    key_stream: &mut dyn OrderedKeyStream,
+) -> Result<Option<CoveringProjectedTextRows>, InternalError> {
+    if context.plan.has_residual_predicate() {
+        return Ok(None);
+    }
+
+    if let Some(projected_rows) = try_materialize_sql_route_covering_projected_text_rows(context)? {
+        return Ok(Some(projected_rows));
+    }
+
+    try_materialize_sql_route_constant_projected_text_rows(context, key_stream)
+}
+
+#[cfg(feature = "sql")]
+// Attempt one SQL-only direct projected-row materialization path when the
+// route-owned covering contract already determines every output value and the
+// query owes no residual predicate evaluation.
 fn try_materialize_sql_projected_rows(
     context: &SqlCoveringMaterializationContext<'_>,
     key_stream: &mut dyn OrderedKeyStream,
@@ -659,6 +746,75 @@ fn try_materialize_sql_projected_rows(
     }
 
     try_materialize_sql_route_constant_projected_rows(context, key_stream)
+}
+
+#[cfg(feature = "sql")]
+// Attempt one route-owned covering-read projected-row materialization path
+// that renders final SQL text cells directly from the planner-owned covering
+// contract.
+fn try_materialize_sql_route_covering_projected_text_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+) -> Result<Option<CoveringProjectedTextRows>, InternalError> {
+    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+        context.load_terminal_fast_path
+    else {
+        return Ok(None);
+    };
+    let Some(scan_state) = context.covering_component_scan else {
+        return Ok(None);
+    };
+    let projection = context.plan.projection_spec(context.model);
+    let Some(projection_field_slots) = direct_projection_field_slots(context.model, &projection)
+    else {
+        return Ok(None);
+    };
+
+    if let Some(projected_rows) = try_materialize_sql_route_single_component_projected_text_rows(
+        context,
+        covering,
+        projection_field_slots.as_slice(),
+    )? {
+        return Ok(Some(projected_rows));
+    }
+
+    let Some(layout) = sql_route_covering_slot_layout(context.model, covering, None)? else {
+        return Ok(None);
+    };
+    let Some(projected_field_sources) = sql_route_direct_projected_field_sources(
+        covering,
+        projection_field_slots.as_slice(),
+        layout.component_slots.as_slice(),
+    )?
+    else {
+        return Ok(None);
+    };
+    let Some((rendered_rows, keys_scanned)) = sql_route_covering_component_text_rows(
+        context.plan,
+        context.store,
+        scan_state,
+        covering,
+        context.scan_budget_hint,
+        layout.component_slots.as_slice(),
+    )?
+    else {
+        return Ok(None);
+    };
+
+    // Phase 1: materialize already-rendered SQL rows directly from the
+    // planner-owned covering contract instead of staging `Value` rows.
+    let mut rows = sql_route_covering_projected_text_rows_from_rendered(
+        &projected_field_sources,
+        rendered_rows,
+    )?;
+
+    // Phase 2: preserve the existing covering order contract exactly as the
+    // value-row path does.
+    reorder_covering_projection_pairs(covering.order_contract, rows.as_mut_slice());
+
+    Ok(Some((
+        rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
+        keys_scanned,
+    )))
 }
 
 #[cfg(feature = "sql")]
@@ -832,6 +988,72 @@ fn try_materialize_sql_route_covering_projected_rows(
 #[cfg(feature = "sql")]
 // Attempt one route-owned direct projected-row path when every projected value
 // comes from the authoritative primary key or a bound access constant.
+fn try_materialize_sql_route_constant_projected_text_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+    key_stream: &mut dyn OrderedKeyStream,
+) -> Result<Option<CoveringProjectedTextRows>, InternalError> {
+    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) =
+        context.load_terminal_fast_path
+    else {
+        return Ok(None);
+    };
+    let projection = context.plan.projection_spec(context.model);
+    let Some(projection_field_slots) = direct_projection_field_slots(context.model, &projection)
+    else {
+        return Ok(None);
+    };
+    let Some(projected_field_sources) =
+        sql_route_constant_projected_field_sources(covering, projection_field_slots.as_slice())
+    else {
+        return Ok(None);
+    };
+
+    let consistency = row_read_consistency_for_plan(context.plan);
+    let row_check_required = sql_route_covering_row_check_required(context.load_terminal_fast_path);
+    let mut rows = Vec::with_capacity(
+        exact_output_key_count_hint(key_stream, context.scan_budget_hint).unwrap_or(0),
+    );
+    let mut keys_scanned = 0usize;
+
+    if let Some(scan_budget) = context.scan_budget_hint
+        && !key_stream_budget_is_redundant(key_stream, scan_budget)
+    {
+        let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
+        while let Some(key) = budgeted.next_key()? {
+            keys_scanned = keys_scanned.saturating_add(1);
+            if row_check_required
+                && !read_row_presence_with_consistency_from_store(context.store, &key, consistency)?
+            {
+                continue;
+            }
+
+            rows.push(sql_project_text_row_from_constant_covering_sources(
+                projected_field_sources.as_slice(),
+                &key.storage_key(),
+            )?);
+        }
+    } else {
+        while let Some(key) = key_stream.next_key()? {
+            keys_scanned = keys_scanned.saturating_add(1);
+            if row_check_required
+                && !read_row_presence_with_consistency_from_store(context.store, &key, consistency)?
+            {
+                continue;
+            }
+
+            rows.push(sql_project_text_row_from_constant_covering_sources(
+                projected_field_sources.as_slice(),
+                &key.storage_key(),
+            )?);
+        }
+    }
+
+    Ok(Some((rows, keys_scanned)))
+}
+
+#[cfg(feature = "sql")]
+// Attempt one route-owned direct projected-row path when every projected value
+// comes from the authoritative primary key or a bound access constant.
 fn try_materialize_sql_route_constant_projected_rows(
     context: &SqlCoveringMaterializationContext<'_>,
     key_stream: &mut dyn OrderedKeyStream,
@@ -893,6 +1115,60 @@ fn try_materialize_sql_route_constant_projected_rows(
     }
 
     Ok(Some((rows, keys_scanned)))
+}
+
+#[cfg(feature = "sql")]
+// Attempt one traversal-order direct projected-row path for single-component
+// secondary covering reads.
+fn try_materialize_sql_route_single_component_projected_text_rows(
+    context: &SqlCoveringMaterializationContext<'_>,
+    covering: &CoveringReadExecutionPlan,
+    projection_field_slots: &[(String, usize)],
+) -> Result<Option<CoveringProjectedTextRows>, InternalError> {
+    let Some(scan_state) = context.covering_component_scan else {
+        return Ok(None);
+    };
+    let Some((component_index, projected_field_sources)) =
+        sql_route_single_component_projected_field_sources(covering, projection_field_slots)
+    else {
+        return Ok(None);
+    };
+
+    let consistency = row_read_consistency_for_plan(context.plan);
+    let projected_rows = collect_single_component_covering_projection_from_lowered_specs(
+        SingleComponentCoveringScanRequest {
+            store: context.store,
+            entity_tag: scan_state.entity_tag,
+            index_prefix_specs: scan_state.index_prefix_specs,
+            index_range_specs: scan_state.index_range_specs,
+            direction: covering_projection_scan_direction(covering.order_contract),
+            limit: covering_component_scan_budget_hint(
+                covering.order_contract,
+                context.scan_budget_hint,
+            )
+            .unwrap_or(usize::MAX),
+            component_index,
+            consistency,
+            existing_row_mode: covering.existing_row_mode,
+        },
+        |storage_key, component| {
+            let Some(rendered_component) = render_sql_covering_component_text(component)? else {
+                return Ok(None);
+            };
+
+            Ok(Some(sql_project_text_row_from_single_covering_component(
+                projected_field_sources.as_slice(),
+                storage_key,
+                rendered_component.as_str(),
+            )?))
+        },
+    )?;
+    let SingleComponentCoveringProjectionOutcome::Supported(projected_rows) = projected_rows else {
+        return Ok(None);
+    };
+    let keys_scanned = projected_rows.len();
+
+    Ok(Some((projected_rows, keys_scanned)))
 }
 
 #[cfg(feature = "sql")]
@@ -1194,6 +1470,48 @@ fn sql_route_constant_projected_field_sources(
 #[cfg(feature = "sql")]
 // Scan and decode one route-owned covering component stream under the
 // existing-row contract while preserving the planner-owned traversal order.
+fn sql_route_covering_component_text_rows(
+    plan: &AccessPlannedQuery,
+    store: StoreHandle,
+    scan_state: CoveringComponentScanState<'_>,
+    covering: &CoveringReadExecutionPlan,
+    scan_budget_hint: Option<usize>,
+    component_slots: &[CoveringComponentSlotGroup],
+) -> Result<Option<(RenderedCoveringComponentRows, usize)>, InternalError> {
+    let scan_direction = covering_projection_scan_direction(covering.order_contract);
+    let effective_scan_budget_hint =
+        covering_component_scan_budget_hint(covering.order_contract, scan_budget_hint);
+    let component_indices = component_slots
+        .iter()
+        .map(|(component_index, _)| *component_index)
+        .collect::<Vec<_>>();
+
+    let raw_pairs: CoveringProjectionComponentRows =
+        resolve_covering_projection_components_from_lowered_specs(
+            scan_state.entity_tag,
+            scan_state.index_prefix_specs,
+            scan_state.index_range_specs,
+            scan_direction,
+            effective_scan_budget_hint.unwrap_or(usize::MAX),
+            component_indices.as_slice(),
+            |_| Ok(store),
+        )?;
+    let keys_scanned = raw_pairs.len();
+    let consistency = row_read_consistency_for_plan(plan);
+    let rendered_rows = map_covering_projection_pairs(
+        raw_pairs,
+        store,
+        consistency,
+        covering.existing_row_mode,
+        render_sql_covering_projection_components,
+    )?;
+
+    Ok(rendered_rows.map(|rows| (rows, keys_scanned)))
+}
+
+#[cfg(feature = "sql")]
+// Scan and decode one route-owned covering component stream under the
+// existing-row contract while preserving the planner-owned traversal order.
 fn sql_route_covering_component_rows(
     plan: &AccessPlannedQuery,
     store: StoreHandle,
@@ -1331,6 +1649,47 @@ fn sql_route_covering_projected_rows_from_decoded(
 }
 
 #[cfg(feature = "sql")]
+// Materialize final projected SQL rows directly from one rendered covering
+// component stream when the SQL projection is already a direct unique field
+// list.
+fn sql_route_covering_projected_text_rows_from_rendered(
+    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    rendered_rows: RenderedCoveringComponentRows,
+) -> Result<CoveringProjectedTextRowPairs, InternalError> {
+    let mut rows = Vec::with_capacity(rendered_rows.len());
+
+    for (data_key, component_values) in rendered_rows {
+        let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+
+        for projected_source in projected_field_sources {
+            let value = match projected_source {
+                SqlDirectProjectedFieldSource::PrimaryKey => {
+                    render_sql_primary_key_text(&data_key.storage_key())
+                }
+                SqlDirectProjectedFieldSource::Constant(value) => {
+                    render_sql_direct_constant_text(value)?
+                }
+                SqlDirectProjectedFieldSource::IndexComponent {
+                    decoded_component_index,
+                } => component_values
+                    .get(*decoded_component_index)
+                    .cloned()
+                    .ok_or_else(|| {
+                        InternalError::query_executor_invariant(
+                            "covering-read SQL projected-row text path rendered fewer components than the direct projection contract requires",
+                        )
+                    })?,
+            };
+            projected_row.push(value);
+        }
+
+        rows.push((data_key, projected_row));
+    }
+
+    Ok(rows)
+}
+
+#[cfg(feature = "sql")]
 // Project one SQL row directly from the authoritative primary key plus any
 // bound covering constants.
 fn sql_project_row_from_constant_covering_sources(
@@ -1346,6 +1705,33 @@ fn sql_project_row_from_constant_covering_sources(
             SqlDirectProjectedFieldSource::IndexComponent { .. } => {
                 return Err(InternalError::query_executor_invariant(
                     "constant projected-row path must not reference decoded index components",
+                ));
+            }
+        };
+        projected_row.push(value);
+    }
+
+    Ok(projected_row)
+}
+
+#[cfg(feature = "sql")]
+// Project one SQL row directly into rendered text from the authoritative
+// primary key plus any bound covering constants.
+fn sql_project_text_row_from_constant_covering_sources(
+    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    storage_key: &StorageKey,
+) -> Result<Vec<String>, InternalError> {
+    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+
+    for projected_source in projected_field_sources {
+        let value = match projected_source {
+            SqlDirectProjectedFieldSource::PrimaryKey => render_sql_primary_key_text(storage_key),
+            SqlDirectProjectedFieldSource::Constant(value) => {
+                render_sql_direct_constant_text(value)?
+            }
+            SqlDirectProjectedFieldSource::IndexComponent { .. } => {
+                return Err(InternalError::query_executor_invariant(
+                    "constant projected-row text path must not reference decoded index components",
                 ));
             }
         };
@@ -1379,6 +1765,40 @@ fn sql_project_row_from_single_covering_component(
                 }
 
                 decoded_component.clone()
+            }
+        };
+        projected_row.push(value);
+    }
+
+    Ok(projected_row)
+}
+
+#[cfg(feature = "sql")]
+// Project one SQL row directly into rendered text from a single covering
+// component plus the authoritative primary key.
+fn sql_project_text_row_from_single_covering_component(
+    projected_field_sources: &[SqlDirectProjectedFieldSource],
+    storage_key: StorageKey,
+    rendered_component: &str,
+) -> Result<Vec<String>, InternalError> {
+    let mut projected_row = Vec::with_capacity(projected_field_sources.len());
+
+    for projected_source in projected_field_sources {
+        let value = match projected_source {
+            SqlDirectProjectedFieldSource::PrimaryKey => render_sql_primary_key_text(&storage_key),
+            SqlDirectProjectedFieldSource::Constant(value) => {
+                render_sql_direct_constant_text(value)?
+            }
+            SqlDirectProjectedFieldSource::IndexComponent {
+                decoded_component_index,
+            } => {
+                if *decoded_component_index != 0 {
+                    return Err(InternalError::query_executor_invariant(
+                        "single-component projected-row text path must only reference decoded component zero",
+                    ));
+                }
+
+                rendered_component.to_string()
             }
         };
         projected_row.push(value);
@@ -1491,6 +1911,153 @@ fn sql_constant_covering_slot_row_template(
     }
 
     Some((slot_template, primary_key_slot))
+}
+
+#[cfg(feature = "sql")]
+fn render_sql_covering_projection_components(
+    components: Vec<Vec<u8>>,
+) -> Result<Option<Vec<String>>, InternalError> {
+    let mut rendered = Vec::with_capacity(components.len());
+    for component in components {
+        let Some(value) = render_sql_covering_component_text(component.as_slice())? else {
+            return Ok(None);
+        };
+        rendered.push(value);
+    }
+
+    Ok(Some(rendered))
+}
+
+#[cfg(feature = "sql")]
+fn render_sql_covering_component_text(component: &[u8]) -> Result<Option<String>, InternalError> {
+    let Some((&tag, payload)) = component.split_first() else {
+        return Err(InternalError::bytes_covering_component_payload_empty());
+    };
+
+    if tag == crate::value::ValueTag::Bool.to_u8() {
+        let Some(value) = payload.first() else {
+            return Err(InternalError::bytes_covering_bool_payload_truncated());
+        };
+        if payload.len() != SQL_COVERING_BOOL_PAYLOAD_LEN {
+            return Err(InternalError::bytes_covering_component_payload_invalid_length("bool"));
+        }
+
+        return match *value {
+            0 => Ok(Some(false.to_string())),
+            1 => Ok(Some(true.to_string())),
+            _ => Err(InternalError::bytes_covering_bool_payload_invalid_value()),
+        };
+    }
+    if tag == crate::value::ValueTag::Int.to_u8() {
+        if payload.len() != SQL_COVERING_U64_PAYLOAD_LEN {
+            return Err(InternalError::bytes_covering_component_payload_invalid_length("int"));
+        }
+
+        let mut bytes = [0u8; SQL_COVERING_U64_PAYLOAD_LEN];
+        bytes.copy_from_slice(payload);
+        let biased = u64::from_be_bytes(bytes);
+        let unsigned = biased ^ SQL_COVERING_I64_SIGN_BIT_BIAS;
+        let value = i64::from_be_bytes(unsigned.to_be_bytes());
+
+        return Ok(Some(value.to_string()));
+    }
+    if tag == crate::value::ValueTag::Uint.to_u8() {
+        if payload.len() != SQL_COVERING_U64_PAYLOAD_LEN {
+            return Err(InternalError::bytes_covering_component_payload_invalid_length("uint"));
+        }
+
+        let mut bytes = [0u8; SQL_COVERING_U64_PAYLOAD_LEN];
+        bytes.copy_from_slice(payload);
+
+        return Ok(Some(u64::from_be_bytes(bytes).to_string()));
+    }
+    if tag == crate::value::ValueTag::Text.to_u8() {
+        let mut bytes = Vec::new();
+        let mut i = 0usize;
+
+        while i < payload.len() {
+            let byte = payload[i];
+            if byte != SQL_COVERING_TEXT_ESCAPE_PREFIX {
+                bytes.push(byte);
+                i = i.saturating_add(1);
+                continue;
+            }
+
+            let Some(next) = payload.get(i.saturating_add(1)).copied() else {
+                return Err(InternalError::bytes_covering_text_payload_invalid_terminator());
+            };
+            match next {
+                SQL_COVERING_TEXT_TERMINATOR => {
+                    i = i.saturating_add(2);
+                    if i != payload.len() {
+                        return Err(InternalError::bytes_covering_text_payload_trailing_bytes());
+                    }
+
+                    let text = String::from_utf8(bytes)
+                        .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
+
+                    return Ok(Some(text));
+                }
+                SQL_COVERING_TEXT_ESCAPED_ZERO => {
+                    bytes.push(0);
+                    i = i.saturating_add(2);
+                }
+                _ => {
+                    return Err(InternalError::bytes_covering_text_payload_invalid_escape_byte());
+                }
+            }
+        }
+
+        return Err(InternalError::bytes_covering_text_payload_missing_terminator());
+    }
+    if tag == crate::value::ValueTag::Ulid.to_u8() {
+        if payload.len() != SQL_COVERING_ULID_PAYLOAD_LEN {
+            return Err(InternalError::bytes_covering_component_payload_invalid_length("ulid"));
+        }
+
+        let mut bytes = [0u8; SQL_COVERING_ULID_PAYLOAD_LEN];
+        bytes.copy_from_slice(payload);
+
+        return Ok(Some(crate::types::Ulid::from_bytes(bytes).to_string()));
+    }
+    if tag == crate::value::ValueTag::Unit.to_u8() {
+        return Ok(Some("()".to_string()));
+    }
+
+    Ok(None)
+}
+
+#[cfg(feature = "sql")]
+fn render_sql_primary_key_text(storage_key: &StorageKey) -> String {
+    match storage_key {
+        StorageKey::Account(value) => value.to_string(),
+        StorageKey::Int(value) => value.to_string(),
+        StorageKey::Principal(value) => value.to_string(),
+        StorageKey::Subaccount(value) => value.to_string(),
+        StorageKey::Timestamp(value) => value.as_millis().to_string(),
+        StorageKey::Uint(value) => value.to_string(),
+        StorageKey::Ulid(value) => value.to_string(),
+        StorageKey::Unit => "()".to_string(),
+    }
+}
+
+#[cfg(feature = "sql")]
+fn render_sql_direct_constant_text(value: &Value) -> Result<String, InternalError> {
+    match value {
+        Value::Account(value) => Ok(value.to_string()),
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::Int(value) => Ok(value.to_string()),
+        Value::Principal(value) => Ok(value.to_string()),
+        Value::Subaccount(value) => Ok(value.to_string()),
+        Value::Text(value) => Ok(value.clone()),
+        Value::Timestamp(value) => Ok(value.as_millis().to_string()),
+        Value::Uint(value) => Ok(value.to_string()),
+        Value::Ulid(value) => Ok(value.to_string()),
+        Value::Unit => Ok("()".to_string()),
+        _ => Err(InternalError::query_executor_invariant(
+            "rendered SQL direct projected-row path requires one canonically renderable constant value",
+        )),
+    }
 }
 
 ///

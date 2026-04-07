@@ -22,8 +22,16 @@ pub use icydb_core::db::{
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, QueryTracePlan,
     StorageReport, TraceExecutionStrategy,
 };
+#[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
+#[doc(hidden)]
+pub use icydb_core::db::{
+    SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
+};
 #[cfg(feature = "sql")]
 pub use icydb_core::db::{SqlStatementRoute, identifiers_tail_match};
+#[cfg(feature = "structural-read-metrics")]
+#[doc(hidden)]
+pub use icydb_core::db::{StructuralReadMetrics, with_structural_read_metrics};
 pub use response::{
     PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
 };

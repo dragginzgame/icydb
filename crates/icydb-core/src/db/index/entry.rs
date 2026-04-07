@@ -165,6 +165,21 @@ impl IndexEntry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RawIndexEntry(Vec<u8>);
 
+///
+/// RawIndexEntryKeyIter
+///
+/// RawIndexEntryKeyIter validates and streams one raw index-entry membership
+/// set without first materializing a temporary `Vec<StorageKey>`.
+///
+
+pub(in crate::db) struct RawIndexEntryKeyIter<'a> {
+    bytes: &'a [u8],
+    declared_count: usize,
+    offset: usize,
+    remaining: usize,
+    seen: BTreeSet<StorageKey>,
+}
+
 impl RawIndexEntry {
     pub(crate) fn try_from_entry(entry: &IndexEntry) -> Result<Self, IndexEntryEncodeError> {
         // `IndexEntry` already owns the canonical sorted-unique membership set,
@@ -242,7 +257,15 @@ impl RawIndexEntry {
     }
 
     pub(crate) fn decode_keys(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
-        self.decode_keys_checked()
+        let mut keys = Vec::new();
+        let mut iter = self.iter_keys()?;
+        keys.reserve(iter.declared_count());
+
+        for key in &mut iter {
+            keys.push(key?);
+        }
+
+        Ok(keys)
     }
 
     // Decode one single-key entry without allocating the full membership
@@ -254,48 +277,25 @@ impl RawIndexEntry {
         }
 
         let bytes = self.0.as_slice();
-        let start = INDEX_ENTRY_LEN_BYTES;
-        let end = start + StorageKey::STORED_SIZE_USIZE;
-        let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes[start..end])
-            .try_into()
-            .map_err(|_| IndexEntryCorruption::InvalidKey)?;
-        let key = StorageKey::try_from_stored_bytes(key_bytes)
-            .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+        let key = decode_stored_key_at_offset(bytes, INDEX_ENTRY_LEN_BYTES)?;
 
         Ok(Some(key))
+    }
+
+    // Stream the validated storage-key membership set without first allocating
+    // a temporary vector for multi-key scan callers.
+    pub(in crate::db) fn iter_keys(
+        &self,
+    ) -> Result<RawIndexEntryKeyIter<'_>, IndexEntryCorruption> {
+        let count = self.validate_frame()?;
+
+        Ok(RawIndexEntryKeyIter::new(self.0.as_slice(), count))
     }
 
     // Decode the canonical storage-key payload while validating the raw entry
     // shape and duplicate-key invariants in the same pass.
     fn decode_keys_checked(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
-        // Phase 1: validate frame shape before any key decode.
-        let count = self.validate_frame()?;
-
-        let bytes = self.0.as_slice();
-
-        let mut keys = Vec::with_capacity(count);
-        let mut unique = BTreeSet::new();
-        let mut offset = INDEX_ENTRY_LEN_BYTES;
-
-        // Phase 2: decode each fixed-width storage key segment and reject
-        // duplicate memberships before any planner or commit path consumes it.
-        for _ in 0..count {
-            let end = offset + StorageKey::STORED_SIZE_USIZE;
-            let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes[offset..end])
-                .try_into()
-                .map_err(|_| IndexEntryCorruption::InvalidKey)?;
-            let sk = StorageKey::try_from_stored_bytes(key_bytes)
-                .map_err(|_| IndexEntryCorruption::InvalidKey)?;
-
-            if !unique.insert(sk) {
-                return Err(IndexEntryCorruption::DuplicateKey);
-            }
-
-            keys.push(sk);
-            offset = end;
-        }
-
-        Ok(keys)
+        self.decode_keys()
     }
 
     /// Validate the raw index entry structure without binding to an entity.
@@ -349,6 +349,66 @@ impl RawIndexEntry {
     pub(crate) const fn len(&self) -> usize {
         self.0.len()
     }
+}
+
+impl<'a> RawIndexEntryKeyIter<'a> {
+    // Build one validated storage-key iterator over one canonical raw entry.
+    const fn new(bytes: &'a [u8], declared_count: usize) -> Self {
+        Self {
+            bytes,
+            declared_count,
+            offset: INDEX_ENTRY_LEN_BYTES,
+            remaining: declared_count,
+            seen: BTreeSet::new(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn declared_count(&self) -> usize {
+        self.declared_count
+    }
+}
+
+impl Iterator for RawIndexEntryKeyIter<'_> {
+    type Item = Result<StorageKey, IndexEntryCorruption>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let key = match decode_stored_key_at_offset(self.bytes, self.offset) {
+            Ok(key) => key,
+            Err(err) => {
+                self.remaining = 0;
+                return Some(Err(err));
+            }
+        };
+
+        self.offset += StorageKey::STORED_SIZE_USIZE;
+        self.remaining -= 1;
+
+        if !self.seen.insert(key) {
+            self.remaining = 0;
+            return Some(Err(IndexEntryCorruption::DuplicateKey));
+        }
+
+        Some(Ok(key))
+    }
+}
+
+// Decode one fixed-width stored key segment from one validated index-entry
+// payload offset.
+fn decode_stored_key_at_offset(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<StorageKey, IndexEntryCorruption> {
+    let end = offset + StorageKey::STORED_SIZE_USIZE;
+    let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes[offset..end])
+        .try_into()
+        .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+
+    StorageKey::try_from_stored_bytes(key_bytes).map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
 impl TryFrom<&IndexEntry> for RawIndexEntry {
@@ -429,6 +489,27 @@ mod tests {
     }
 
     #[test]
+    fn raw_index_entry_iter_keys_streams_multi_key_entries_without_vector_staging() {
+        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(3), StorageKey::Uint(4)])
+            .expect("encode index entry");
+        let mut iter = raw.iter_keys().expect("build key iterator");
+
+        assert_eq!(iter.declared_count(), 2);
+        assert_eq!(
+            iter.next().expect("first key").expect("decode key"),
+            StorageKey::Int(3)
+        );
+        assert_eq!(
+            iter.next().expect("second key").expect("decode key"),
+            StorageKey::Uint(4)
+        );
+        assert!(
+            iter.next().is_none(),
+            "iterator should exhaust after two keys"
+        );
+    }
+
+    #[test]
     fn raw_index_entry_roundtrip_via_bytes() {
         let keys = vec![StorageKey::Int(9), StorageKey::Uint(10)];
 
@@ -501,6 +582,28 @@ mod tests {
             raw.decode_keys(),
             Err(IndexEntryCorruption::DuplicateKey)
         ));
+    }
+
+    #[test]
+    fn raw_index_entry_iter_keys_rejects_duplicate_keys() {
+        let key = StorageKey::Int(1);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        let mut iter = raw.iter_keys().expect("build key iterator");
+
+        assert_eq!(iter.next().expect("first item").expect("decode key"), key);
+        assert!(matches!(
+            iter.next(),
+            Some(Err(IndexEntryCorruption::DuplicateKey))
+        ));
+        assert!(
+            iter.next().is_none(),
+            "iterator should stop after duplicate corruption"
+        );
     }
 
     #[test]

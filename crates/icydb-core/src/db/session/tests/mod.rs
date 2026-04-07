@@ -739,7 +739,8 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     match session.execute_sql_dispatch::<E>(sql)? {
-        SqlDispatchResult::Projection { columns, .. } => Ok(columns),
+        SqlDispatchResult::Projection { columns, .. }
+        | SqlDispatchResult::ProjectionText { columns, .. } => Ok(columns),
         SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
@@ -759,6 +760,9 @@ where
 {
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Projection { rows, .. } => Ok(rows),
+        SqlDispatchResult::ProjectionText { .. } => Err(unsupported_sql_dispatch_query_error(
+            "projection row dispatch only supports value-row SQL projection payloads",
+        )),
         SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
@@ -779,6 +783,7 @@ where
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Explain(explain) => Ok(explain),
         SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -798,6 +803,7 @@ where
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::Describe(description) => Ok(description),
         SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::ShowIndexes(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -817,6 +823,7 @@ where
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
         SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowColumns(_)
@@ -836,6 +843,7 @@ where
     match session.execute_sql_dispatch::<E>(sql)? {
         SqlDispatchResult::ShowColumns(columns) => Ok(columns),
         SqlDispatchResult::Projection { .. }
+        | SqlDispatchResult::ProjectionText { .. }
         | SqlDispatchResult::Explain(_)
         | SqlDispatchResult::Describe(_)
         | SqlDispatchResult::ShowIndexes(_)

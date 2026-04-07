@@ -75,6 +75,19 @@ pub struct Customer {}
 pub struct CustomerAccount {}
 
 ///
+/// CustomerOrderProfile
+///
+/// Technical structured order profile used to keep one value-backed
+/// non-scalar field on the broad sql_parity order fixture.
+///
+
+#[record(fields(
+    field(ident = "summary", value(item(prim = "Text")), default = "String::new"),
+    field(ident = "bucket", value(item(prim = "Nat16")), default = 0u16)
+))]
+pub struct CustomerOrderProfile {}
+
+///
 /// CustomerOrder
 ///
 /// Technical order fixture that carries the text-prefix and composite-order SQL
@@ -90,7 +103,9 @@ pub struct CustomerAccount {}
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "name", value(item(prim = "Text"))),
         field(ident = "priority", value(item(prim = "Nat16"))),
-        field(ident = "status", value(item(prim = "Text")))
+        field(ident = "status", value(item(prim = "Text"))),
+        field(ident = "labels", value(many, item(prim = "Text"))),
+        field(ident = "profile", value(item(is = "CustomerOrderProfile")))
     )
 )]
 pub struct CustomerOrder {}

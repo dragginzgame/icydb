@@ -1,13 +1,28 @@
 .PHONY: help version tags patch minor major release \
-        test build check clippy fmt fmt-check clean install-dev \
+        test build check clippy fmt fmt-check clean install-dev install-env update-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
-        check-architecture-text-scan-invariants check-invariants
+        check-architecture-text-scan-invariants check-invariants \
+        print-cargo-home print-cargo-target-dir
+
+# Resolve the repo root from this Makefile so scripts can query these values
+# via `make -C "$$ROOT"` and share a single source of truth.
+ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
-CARGO_WORK_ENV := CARGO_HOME="$(CURDIR)/.cache/cargo/icydb" CARGO_TARGET_DIR="$(CURDIR)/target/icydb"
+CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
+CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
+CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
+
+# Print repo-local cargo paths for standalone shell scripts that need Makefile-
+# owned defaults without duplicating the path definitions.
+print-cargo-home:
+	@printf '%s\n' "$(CARGO_WORK_HOME)"
+
+print-cargo-target-dir:
+	@printf '%s\n' "$(CARGO_WORK_TARGET_DIR)"
 
 # Check for clean git state
 ensure-clean:
@@ -21,8 +36,10 @@ help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "Setup / Installation:"
+	@echo "  install-env      Bootstrap a fresh Ubuntu development environment"
 	@echo "  install-all      Install both dev and canister dependencies"
 	@echo "  install-dev      Install Rust development dependencies"
+	@echo "  update-dev       Update Rust, cargo tools, lockfile, and dfxvm"
 	@echo "  install-canister-deps  Install Wasm target + candid tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
@@ -61,6 +78,37 @@ help:
 # Installing
 #
 
+# Bootstrap a fresh Ubuntu development environment
+install-env:
+	sudo apt -y update && sudo apt -y upgrade
+	sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep
+	sudo apt -y install speedtest-cli fdupes tree cloc
+	sudo apt -y install valgrind
+	sudo apt -y install binaryen wabt
+	sudo apt -y install jq
+	sudo apt -y install linux-tools-common linux-tools-generic linux-headers-generic
+	sudo apt -y autoremove
+	sudo ntpdate ntp.ubuntu.com || true
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+	PATH="$$HOME/.cargo/bin:$$PATH" rustup toolchain install beta
+	PATH="$$HOME/.cargo/bin:$$PATH" rustup toolchain install nightly
+	PATH="$$HOME/.cargo/bin:$$PATH" rustup target add wasm32-unknown-unknown
+	sh -ci "$$(curl -fsSL https://internetcomputer.org/install.sh)"
+	mkdir -p "$$HOME/bin"
+	wget -O "$$HOME/bin/didc" https://github.com/dfinity/candid/releases/download/2025-12-18/didc-linux64
+	chmod +x "$$HOME/bin/didc"
+	cd "$(ROOT_DIR)" && \
+		wget -O idl2json_cli-x86_64-unknown-linux-musl.tar.gz https://github.com/dfinity/idl2json/releases/download/v0.10.1/idl2json_cli-x86_64-unknown-linux-musl.tar.gz && \
+		tar -xzf idl2json_cli-x86_64-unknown-linux-musl.tar.gz && \
+		rm -f idl2json_cli-x86_64-unknown-linux-musl.tar.gz && \
+		mv -f ./idl2json "$$HOME/bin/idl2json" && \
+		chmod +x "$$HOME/bin/idl2json" && \
+		mv -f ./yaml2candid "$$HOME/bin/yaml2candid" && \
+		chmod +x "$$HOME/bin/yaml2candid"
+	wget -O "$$HOME/bin/quill" https://github.com/dfinity/quill/releases/download/v0.5.4/quill-linux-x86_64
+	chmod +x "$$HOME/bin/quill"
+	PATH="$$HOME/.cargo/bin:$$HOME/bin:$$HOME/.local/share/dfx/bin:$$PATH" $(MAKE) --no-print-directory update-dev
+
 # Install everything (dev + canister deps)
 install-all: install-dev install-canister-deps install-hooks
 	@echo "✅ All development and canister dependencies installed"
@@ -70,6 +118,18 @@ install-dev:
 	cargo install cargo-watch --locked || true
 	cargo install cargo-edit --locked || true
 	cargo install cargo-get cargo-sort cargo-sort-derives ripgrep --locked || true
+
+# Update development tooling and dependencies
+update-dev:
+	rustup update
+	cargo install \
+		cargo-audit cargo-bloat cargo-deny cargo-expand cargo-machete \
+		cargo-llvm-lines cargo-sort cargo-tarpaulin cargo-sort-derives \
+		ripgrep \
+		candid-extractor ic-wasm
+	cargo audit
+	cargo update --verbose
+	dfxvm self update
 
 # Install wasm target + candid tools
 install-canister-deps:

@@ -102,8 +102,9 @@ struct SingleComponentCoveringBoundsRequest<'a> {
 /// SingleComponentProjectionCollector
 ///
 /// Executor-owned collector for the narrow single-component covering fast
-/// path. This keeps stale-row visibility checks and decoded value mapping at
-/// the executor boundary while the index layer only streams raw components.
+/// path. This keeps stale-row visibility checks and caller-owned component
+/// mapping at the executor boundary while the index layer only streams raw
+/// bytes.
 ///
 
 struct SingleComponentProjectionCollector<'a, 'b, F> {
@@ -117,7 +118,7 @@ struct SingleComponentProjectionCollector<'a, 'b, F> {
 
 impl<T, F> SingleComponentCoveringCollector<T> for SingleComponentProjectionCollector<'_, '_, F>
 where
-    F: FnMut(crate::value::StorageKey, &Value) -> Result<T, InternalError>,
+    F: FnMut(crate::value::StorageKey, &[u8]) -> Result<Option<T>, InternalError>,
 {
     fn push(
         &mut self,
@@ -136,11 +137,11 @@ where
             return Ok(());
         }
 
-        let Some(decoded) = decode_covering_projection_component(component)? else {
+        let Some(projected) = (self.map_decoded)(storage_key, component)? else {
             *self.unsupported_component = true;
             return Ok(());
         };
-        out.push((self.map_decoded)(storage_key, &decoded)?);
+        out.push(projected);
 
         Ok(())
     }
@@ -258,20 +259,20 @@ where
 // caller-owned output vector. This lets narrow secondary covering SQL paths
 // stay on the existing `row_check_required` contract without staging an
 // intermediate `(DataKey, component)` vector first.
-pub(in crate::db::executor) fn collect_single_component_covering_projection_values_from_lowered_specs<
+pub(in crate::db::executor) fn collect_single_component_covering_projection_from_lowered_specs<
     T,
     F,
 >(
     request: SingleComponentCoveringScanRequest<'_>,
-    map_decoded: F,
+    map_component: F,
 ) -> Result<SingleComponentCoveringProjectionOutcome<T>, InternalError>
 where
-    F: FnMut(crate::value::StorageKey, &Value) -> Result<T, InternalError>,
+    F: FnMut(crate::value::StorageKey, &[u8]) -> Result<Option<T>, InternalError>,
 {
     let continuation = IndexScanContinuationInput::new(None, request.direction);
 
     if let [spec] = request.index_prefix_specs {
-        return collect_single_component_covering_projection_values_for_index_bounds(
+        return collect_single_component_covering_projection_for_index_bounds(
             SingleComponentCoveringBoundsRequest {
                 store: request.store,
                 entity_tag: request.entity_tag,
@@ -283,7 +284,7 @@ where
                 consistency: request.consistency,
                 existing_row_mode: request.existing_row_mode,
             },
-            map_decoded,
+            map_component,
         );
     }
     if !request.index_prefix_specs.is_empty() {
@@ -293,7 +294,7 @@ where
     }
 
     if let [spec] = request.index_range_specs {
-        return collect_single_component_covering_projection_values_for_index_bounds(
+        return collect_single_component_covering_projection_for_index_bounds(
             SingleComponentCoveringBoundsRequest {
                 store: request.store,
                 entity_tag: request.entity_tag,
@@ -305,7 +306,7 @@ where
                 consistency: request.consistency,
                 existing_row_mode: request.existing_row_mode,
             },
-            map_decoded,
+            map_component,
         );
     }
     if !request.index_range_specs.is_empty() {
@@ -317,6 +318,31 @@ where
     Err(InternalError::query_executor_invariant(
         "covering projection component scans require index-backed access paths",
     ))
+}
+
+// Collect one single-component covering projection stream into caller-owned
+// values after the shared covering boundary has already enforced stale-row
+// visibility checks and raw component ownership.
+pub(in crate::db::executor) fn collect_single_component_covering_projection_values_from_lowered_specs<
+    T,
+    F,
+>(
+    request: SingleComponentCoveringScanRequest<'_>,
+    mut map_decoded: F,
+) -> Result<SingleComponentCoveringProjectionOutcome<T>, InternalError>
+where
+    F: FnMut(crate::value::StorageKey, &Value) -> Result<T, InternalError>,
+{
+    collect_single_component_covering_projection_from_lowered_specs(
+        request,
+        |storage_key, component| {
+            let Some(decoded) = decode_covering_projection_component(component)? else {
+                return Ok(None);
+            };
+
+            Ok(Some(map_decoded(storage_key, &decoded)?))
+        },
+    )
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.
@@ -347,12 +373,12 @@ fn resolve_covering_projection_components_for_index_bounds(
 
 // Resolve one bounded single-component stream from one lowered index-bounds
 // contract.
-fn collect_single_component_covering_projection_values_for_index_bounds<T, F>(
+fn collect_single_component_covering_projection_for_index_bounds<T, F>(
     request: SingleComponentCoveringBoundsRequest<'_>,
-    map_decoded: F,
+    map_component: F,
 ) -> Result<SingleComponentCoveringProjectionOutcome<T>, InternalError>
 where
-    F: FnMut(crate::value::StorageKey, &Value) -> Result<T, InternalError>,
+    F: FnMut(crate::value::StorageKey, &[u8]) -> Result<Option<T>, InternalError>,
 {
     request.store.with_data(|data| {
         request.store.with_index(|index_store| {
@@ -363,7 +389,7 @@ where
                 consistency: request.consistency,
                 existing_row_mode: request.existing_row_mode,
                 unsupported_component: &mut unsupported_component,
-                map_decoded,
+                map_decoded: map_component,
             };
             let projected_values = index_store
                 .scan_single_component_covering_values_in_raw_range_limited(
@@ -384,6 +410,42 @@ where
                 ))
             }
         })
+    })
+}
+
+// Map one raw covering projection stream under the existing-row contract and
+// let the caller decide how the admitted component bytes become terminal
+// payloads.
+pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
+    raw_pairs: CoveringProjectionComponentRows,
+    store: StoreHandle,
+    consistency: MissingRowPolicy,
+    existing_row_mode: CoveringExistingRowMode,
+    mut map_components: F,
+) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+where
+    F: FnMut(CoveringComponentValues) -> Result<Option<T>, InternalError>,
+{
+    store.with_data(|data| {
+        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
+        for (data_key, components) in raw_pairs {
+            if existing_row_mode.requires_row_presence_check()
+                && !read_row_presence_with_consistency_from_data_store(
+                    data,
+                    &data_key,
+                    consistency,
+                )?
+            {
+                continue;
+            }
+
+            let Some(projected) = map_components(components)? else {
+                return Ok(None);
+            };
+            projected_pairs.push((data_key, projected));
+        }
+
+        Ok(Some(projected_pairs))
     })
 }
 
@@ -447,27 +509,19 @@ pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
 where
     F: FnMut(Vec<Value>) -> Result<T, InternalError>,
 {
-    store.with_data(|data| {
-        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        for (data_key, components) in raw_pairs {
-            if existing_row_mode.requires_row_presence_check()
-                && !read_row_presence_with_consistency_from_data_store(
-                    data,
-                    &data_key,
-                    consistency,
-                )?
-            {
-                continue;
-            }
-
+    map_covering_projection_pairs(
+        raw_pairs,
+        store,
+        consistency,
+        existing_row_mode,
+        |components| {
             let Some(decoded) = decode_covering_projection_components(components)? else {
                 return Ok(None);
             };
-            projected_pairs.push((data_key, map_decoded(decoded)?));
-        }
 
-        Ok(Some(projected_pairs))
-    })
+            Ok(Some(map_decoded(decoded)?))
+        },
+    )
 }
 
 // Decode one single-component covering projection stream under the existing-row

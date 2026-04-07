@@ -35,6 +35,7 @@ use crate::{
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntime, GroupedCursorPage, GroupedFoldStage,
                 GroupedRouteStage, GroupedRowRuntime, GroupedStreamStage, PageCursor,
+                ProjectionMaterializationMode,
             },
             plan_metrics::record_grouped_plan_metrics,
         },
@@ -60,6 +61,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
     let execution_preparation =
         ExecutionPreparation::from_runtime_plan(entity_model, route.plan(), slot_map);
     let execution_inputs = ExecutionInputs::new(
+        entity_model,
         runtime,
         route.plan(),
         AccessStreamBindings {
@@ -68,10 +70,9 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
             continuation: AccessScanContinuationInput::new(None, route.direction()),
         },
         &execution_preparation,
+        ProjectionMaterializationMode::SharedValidation,
         true,
-        false,
-        true,
-    );
+    )?;
     record_grouped_plan_metrics(&route.plan().access, route.grouped_plan_metrics_strategy());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(
         &execution_inputs,

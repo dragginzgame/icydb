@@ -5,8 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 OUT_DIR="$ROOT/artifacts/wasm-size"
 PROFILE="${WASM_PROFILE:-wasm-release}"
 SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
-
-source "$ROOT/scripts/env/cargo-local.sh"
+export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 
 if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
     for canister_name in minimal one_simple one_complex ten_simple ten_complex; do

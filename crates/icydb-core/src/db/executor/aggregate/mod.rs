@@ -27,7 +27,10 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation, PreparedAggregatePlan,
-            pipeline::contracts::{ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor},
+            pipeline::contracts::{
+                ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
+                ProjectionMaterializationMode,
+            },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
             route::aggregate_materialized_fold_direction,
             terminal::RowLayout,
@@ -376,6 +379,7 @@ impl ExecutionKernel {
             prepared.authority.model(),
         );
         let execution_inputs = ExecutionInputs::new(
+            prepared.authority.model(),
             &runtime,
             &prepared.logical_plan,
             AccessStreamBindings {
@@ -384,10 +388,9 @@ impl ExecutionKernel {
                 continuation: AccessScanContinuationInput::new(None, descriptor.direction),
             },
             &descriptor.execution_preparation,
+            ProjectionMaterializationMode::SharedValidation,
             true,
-            false,
-            true,
-        );
+        )?;
 
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = Self::resolve_execution_key_stream(

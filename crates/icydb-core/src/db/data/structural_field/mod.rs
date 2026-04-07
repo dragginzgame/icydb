@@ -13,14 +13,16 @@ mod value_storage;
 use crate::{model::field::FieldKind, value::Value};
 use thiserror::Error as ThisError;
 
-use composite::decode_composite_field_by_kind_bytes;
+use composite::{decode_composite_field_by_kind_bytes, validate_composite_field_by_kind_bytes};
 use leaf::decode_leaf_field_by_kind_bytes;
 use scalar::decode_scalar_fast_path_bytes;
 
 pub(in crate::db) use storage_key::{
     decode_relation_target_storage_keys_bytes, decode_storage_key_field_bytes,
 };
-pub(in crate::db) use value_storage::decode_structural_value_storage_bytes;
+pub(in crate::db) use value_storage::{
+    decode_structural_value_storage_bytes, validate_structural_value_storage_bytes,
+};
 
 ///
 /// FieldDecodeError
@@ -65,6 +67,26 @@ pub(in crate::db) fn decode_structural_field_by_kind_bytes(
     }
 
     decode_composite_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Validate one encoded persisted field payload strictly by semantic field
+/// kind without eagerly building the final runtime `Value`.
+pub(in crate::db) fn validate_structural_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<(), FieldDecodeError> {
+    // Keep the validate-only entrypoint aligned with the existing decode lane
+    // ordering so row-open validation and later materialization still share one
+    // field-contract authority.
+    if decode_scalar_fast_path_bytes(raw_bytes, kind)?.is_some() {
+        return Ok(());
+    }
+
+    if decode_leaf_field_by_kind_bytes(raw_bytes, kind)?.is_some() {
+        return Ok(());
+    }
+
+    validate_composite_field_by_kind_bytes(raw_bytes, kind)
 }
 
 ///

@@ -34,6 +34,11 @@ pub enum SqlDispatchResult {
         rows: Vec<Vec<crate::value::Value>>,
         row_count: u32,
     },
+    ProjectionText {
+        columns: Vec<String>,
+        rows: Vec<Vec<String>>,
+        row_count: u32,
+    },
     Explain(String),
     Describe(crate::db::EntitySchemaDescription),
     ShowIndexes(Vec<String>),

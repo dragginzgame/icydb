@@ -7,12 +7,14 @@ use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
     db::{
-        EntityAuthority, PersistedRow, SqlStatementRoute, identifiers_tail_match,
+        EntityAuthority, PersistedRow, SqlProjectionMaterializationMetrics, SqlStatementRoute,
+        StructuralReadMetrics, identifiers_tail_match,
         query::Predicate,
         response::{
             PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
         },
         sql::SqlQueryResult,
+        with_sql_projection_materialization_metrics, with_structural_read_metrics,
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     traits::{EntitySchema, EntityValue},
@@ -97,6 +99,74 @@ pub struct SqlPerfOutcome {
     pub error_kind: Option<String>,
     pub error_origin: Option<String>,
     pub error_message: Option<String>,
+    pub structural_read_metrics: Option<SqlPerfStructuralReadMetrics>,
+    pub projection_materialization_metrics: Option<SqlPerfProjectionMaterializationMetrics>,
+}
+
+//
+// SqlPerfStructuralReadMetrics
+//
+// Compact structural-read metrics mirror attached to one perf outcome.
+// This keeps the canister perf harness focused on the specific row-open
+// validation/materialization counters needed for the current measurement pass.
+//
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfStructuralReadMetrics {
+    pub rows_opened: u64,
+    pub declared_slots_validated: u64,
+    pub validated_non_scalar_slots: u64,
+    pub materialized_non_scalar_slots: u64,
+    pub rows_without_lazy_non_scalar_materializations: u64,
+}
+
+impl From<StructuralReadMetrics> for SqlPerfStructuralReadMetrics {
+    fn from(metrics: StructuralReadMetrics) -> Self {
+        Self {
+            rows_opened: metrics.rows_opened,
+            declared_slots_validated: metrics.declared_slots_validated,
+            validated_non_scalar_slots: metrics.validated_non_scalar_slots,
+            materialized_non_scalar_slots: metrics.materialized_non_scalar_slots,
+            rows_without_lazy_non_scalar_materializations: metrics
+                .rows_without_lazy_non_scalar_materializations,
+        }
+    }
+}
+
+//
+// SqlPerfProjectionMaterializationMetrics
+//
+// Compact row-backed SQL projection metrics mirror attached to one perf
+// outcome.
+// This keeps the current probe focused on which SQL projection path executed
+// and what the `data_rows` fallback actually touched.
+//
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfProjectionMaterializationMetrics {
+    pub projected_rows_path_hits: u64,
+    pub slot_rows_path_hits: u64,
+    pub data_rows_path_hits: u64,
+    pub data_rows_scalar_fallback_hits: u64,
+    pub data_rows_generic_fallback_hits: u64,
+    pub data_rows_projected_slot_accesses: u64,
+    pub data_rows_non_projected_slot_accesses: u64,
+    pub full_row_decode_materializations: u64,
+}
+
+impl From<SqlProjectionMaterializationMetrics> for SqlPerfProjectionMaterializationMetrics {
+    fn from(metrics: SqlProjectionMaterializationMetrics) -> Self {
+        Self {
+            projected_rows_path_hits: metrics.projected_rows_path_hits,
+            slot_rows_path_hits: metrics.slot_rows_path_hits,
+            data_rows_path_hits: metrics.data_rows_path_hits,
+            data_rows_scalar_fallback_hits: metrics.data_rows_scalar_fallback_hits,
+            data_rows_generic_fallback_hits: metrics.data_rows_generic_fallback_hits,
+            data_rows_projected_slot_accesses: metrics.data_rows_projected_slot_accesses,
+            data_rows_non_projected_slot_accesses: metrics.data_rows_non_projected_slot_accesses,
+            full_row_decode_materializations: metrics.full_row_decode_materializations,
+        }
+    }
 }
 
 //
@@ -862,10 +932,32 @@ fn measure_once(
 
 fn measure_surface_call(run: impl FnOnce() -> SqlPerfOutcome) -> (u64, SqlPerfOutcome) {
     let start = read_local_instruction_counter();
-    let outcome = run();
+    let ((outcome, structural_metrics), projection_metrics) =
+        with_sql_projection_materialization_metrics(|| with_structural_read_metrics(run));
     let delta = read_local_instruction_counter().saturating_sub(start);
 
+    let outcome = attach_structural_read_metrics(outcome, structural_metrics);
+    let outcome = attach_projection_materialization_metrics(outcome, projection_metrics);
+
     (delta, outcome)
+}
+
+fn attach_structural_read_metrics(
+    mut outcome: SqlPerfOutcome,
+    metrics: StructuralReadMetrics,
+) -> SqlPerfOutcome {
+    outcome.structural_read_metrics = Some(metrics.into());
+
+    outcome
+}
+
+fn attach_projection_materialization_metrics(
+    mut outcome: SqlPerfOutcome,
+    metrics: SqlProjectionMaterializationMetrics,
+) -> SqlPerfOutcome {
+    outcome.projection_materialization_metrics = Some(metrics.into());
+
+    outcome
 }
 
 // Keep perf outcome counters on the stable `u32` wire type without silently
@@ -890,6 +982,8 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
         },
         SqlQueryResult::Explain { entity, explain } => SqlPerfOutcome {
             success: true,
@@ -905,6 +999,8 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
         },
         SqlQueryResult::Describe(description) => SqlPerfOutcome {
             success: true,
@@ -920,6 +1016,8 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
         },
         SqlQueryResult::ShowIndexes { entity, indexes } => SqlPerfOutcome {
             success: true,
@@ -932,6 +1030,8 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
         },
         SqlQueryResult::ShowColumns { entity, columns } => SqlPerfOutcome {
             success: true,
@@ -944,6 +1044,8 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
         },
         SqlQueryResult::ShowEntities { entities } => SqlPerfOutcome {
             success: true,
@@ -956,6 +1058,8 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             error_kind: None,
             error_origin: None,
             error_message: None,
+            structural_read_metrics: None,
+            projection_materialization_metrics: None,
         },
     }
 }
@@ -972,6 +1076,8 @@ fn outcome_from_response(result: Response<Customer>) -> SqlPerfOutcome {
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -990,6 +1096,8 @@ fn outcome_from_paged_response(result: PagedResponse<Customer>) -> SqlPerfOutcom
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -1008,6 +1116,8 @@ fn outcome_from_grouped_response(result: PagedGroupedResponse) -> SqlPerfOutcome
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -1023,6 +1133,8 @@ fn outcome_from_value(result: Value) -> SqlPerfOutcome {
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -1040,6 +1152,8 @@ fn outcome_from_write_response(result: WriteResponse<Customer>) -> SqlPerfOutcom
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -1055,6 +1169,8 @@ fn outcome_from_write_batch_response(result: WriteBatchResponse<Customer>) -> Sq
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -1070,6 +1186,8 @@ fn outcome_from_delete_count(row_count: u32) -> SqlPerfOutcome {
         error_kind: None,
         error_origin: None,
         error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }
 
@@ -1085,5 +1203,7 @@ fn outcome_from_error(err: Error) -> SqlPerfOutcome {
         error_kind: Some(format!("{:?}", err.kind())),
         error_origin: Some(format!("{:?}", err.origin())),
         error_message: Some(err.message().to_string()),
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
     }
 }

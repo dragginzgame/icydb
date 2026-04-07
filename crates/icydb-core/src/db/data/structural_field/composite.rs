@@ -8,9 +8,11 @@ use crate::db::data::structural_field::cbor::{
 };
 use crate::db::data::structural_field::value_storage::{
     decode_untyped_enum_payload_bytes, normalize_map_entries_or_preserve,
+    validate_structural_value_storage_bytes, validate_untyped_enum_payload_bytes,
 };
 use crate::db::data::structural_field::{
     FieldDecodeError, decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+    validate_structural_field_by_kind_bytes,
 };
 use crate::{
     model::field::{EnumVariantModel, FieldKind, FieldStorageDecode},
@@ -34,6 +36,14 @@ type KindArrayDecodeState = (Vec<Value>, FieldKind);
 ///
 
 type KindMapDecodeState = (Vec<(Value, Value)>, FieldKind, FieldKind);
+
+// Carry the declared item contract while the validate-only list/set walker
+// checks each recursive element without allocating a `Vec<Value>`.
+type KindArrayValidateState = FieldKind;
+
+// Carry the declared key/value contracts while the validate-only map walker
+// checks each recursive entry without allocating a `Vec<(Value, Value)>`.
+type KindMapValidateState = (FieldKind, FieldKind);
 
 // Push one by-kind list item into the decoded runtime value buffer.
 //
@@ -64,6 +74,32 @@ fn push_kind_map_entry(
     ));
 
     Ok(())
+}
+
+// Validate one by-kind list item recursively without pushing it into a decode
+// buffer.
+//
+// Safety:
+// `context` must be a valid `KindArrayValidateState`.
+fn validate_kind_array_item(item_bytes: &[u8], context: *mut ()) -> Result<(), FieldDecodeError> {
+    let kind = unsafe { *context.cast::<KindArrayValidateState>() };
+
+    validate_structural_field_by_kind_bytes(item_bytes, kind)
+}
+
+// Validate one by-kind map entry recursively without allocating decoded
+// runtime keys or values.
+//
+// Safety:
+// `context` must be a valid `KindMapValidateState`.
+fn validate_kind_map_entry(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let (key_kind, value_kind) = unsafe { *context.cast::<KindMapValidateState>() };
+    validate_structural_field_by_kind_bytes(key_bytes, key_kind)?;
+    validate_structural_field_by_kind_bytes(value_bytes, value_kind)
 }
 
 // Decode one list/set field directly from CBOR bytes and recurse only through
@@ -98,6 +134,36 @@ fn decode_map_bytes(
     )?;
 
     Ok(normalize_map_entries_or_preserve(state.0))
+}
+
+// Validate one list/set field directly from CBOR bytes while keeping
+// row-open validation independent from runtime `Value` allocation.
+fn validate_list_bytes(raw_bytes: &[u8], inner: FieldKind) -> Result<(), FieldDecodeError> {
+    let mut state = inner;
+    walk_cbor_array_items(
+        raw_bytes,
+        "expected CBOR array for list/set field",
+        "typed CBOR: trailing bytes after list/set field",
+        (&raw mut state).cast(),
+        validate_kind_array_item,
+    )
+}
+
+// Validate one map field directly from CBOR bytes while keeping row-open
+// validation independent from runtime entry buffers.
+fn validate_map_bytes(
+    raw_bytes: &[u8],
+    key_kind: FieldKind,
+    value_kind: FieldKind,
+) -> Result<(), FieldDecodeError> {
+    let mut state = (key_kind, value_kind);
+    walk_cbor_map_entries(
+        raw_bytes,
+        "expected CBOR map for map field",
+        "typed CBOR: trailing bytes after map field",
+        (&raw mut state).cast(),
+        validate_kind_map_entry,
+    )
 }
 
 // Decode one enum field directly from CBOR bytes using the schema-declared
@@ -142,6 +208,39 @@ fn decode_enum_bytes(
     }
 }
 
+// Validate one enum field directly from CBOR bytes using the schema-declared
+// payload contract when available, but without building the final runtime
+// `Value::Enum`.
+fn validate_enum_bytes(
+    raw_bytes: &[u8],
+    variants: &'static [EnumVariantModel],
+) -> Result<(), FieldDecodeError> {
+    let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
+        raw_bytes,
+        "typed CBOR: truncated CBOR value",
+        "expected text or one-entry CBOR map for enum field",
+        "expected one-entry CBOR map for enum payload variant",
+        "typed CBOR: trailing bytes after enum field",
+    )?;
+
+    let Some(payload_bytes) = payload_bytes else {
+        return Ok(());
+    };
+
+    if let Some(variant_model) = variants.iter().find(|item| item.ident() == variant)
+        && let Some(payload_kind) = variant_model.payload_kind()
+    {
+        return match variant_model.payload_storage_decode() {
+            FieldStorageDecode::ByKind => {
+                validate_structural_field_by_kind_bytes(payload_bytes, *payload_kind)
+            }
+            FieldStorageDecode::Value => validate_structural_value_storage_bytes(payload_bytes),
+        };
+    }
+
+    validate_untyped_enum_payload_bytes(payload_bytes)
+}
+
 /// Decode one recursive composite `ByKind` field payload.
 ///
 /// Composite decode owns all recursive re-entry back into the structural-field
@@ -157,6 +256,45 @@ pub(super) fn decode_composite_field_by_kind_bytes(
         FieldKind::Map { key, value } => decode_map_bytes(raw_bytes, *key, *value),
         FieldKind::Relation { key_kind, .. } => {
             decode_structural_field_by_kind_bytes(raw_bytes, *key_kind)
+        }
+        FieldKind::Account
+        | FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Principal
+        | FieldKind::Structured { .. }
+        | FieldKind::Subaccount
+        | FieldKind::Text
+        | FieldKind::Timestamp
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::UintBig
+        | FieldKind::Ulid
+        | FieldKind::Unit => Err(FieldDecodeError::new(
+            "leaf field unexpectedly routed through composite decode",
+        )),
+    }
+}
+
+/// Validate one recursive composite `ByKind` field payload without eagerly
+/// rebuilding its runtime `Value`.
+pub(super) fn validate_composite_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<(), FieldDecodeError> {
+    match kind {
+        FieldKind::Enum { variants, .. } => validate_enum_bytes(raw_bytes, variants),
+        FieldKind::List(inner) | FieldKind::Set(inner) => validate_list_bytes(raw_bytes, *inner),
+        FieldKind::Map { key, value } => validate_map_bytes(raw_bytes, *key, *value),
+        FieldKind::Relation { key_kind, .. } => {
+            validate_structural_field_by_kind_bytes(raw_bytes, *key_kind)
         }
         FieldKind::Account
         | FieldKind::Blob

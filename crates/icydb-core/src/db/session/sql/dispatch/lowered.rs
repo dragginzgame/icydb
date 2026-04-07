@@ -55,8 +55,16 @@ impl<C: CanisterKind> DbSession<C> {
         select: &LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
-        self.execute_lowered_sql_projection_core(select, authority)
-            .map(SqlProjectionPayload::into_dispatch_result)
+        let structural = apply_lowered_select_shape(
+            crate::db::query::intent::StructuralQuery::new(
+                authority.model(),
+                MissingRowPolicy::Ignore,
+            ),
+            select.clone(),
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+
+        self.execute_structural_sql_projection_text(structural, authority)
     }
 
     // Execute one lowered SQL DELETE command through the shared structural
@@ -128,7 +136,8 @@ impl<C: CanisterKind> DbSession<C> {
                         rows,
                         row_count,
                     } => Ok((columns, rows, row_count)),
-                    SqlDispatchResult::Explain(_)
+                    SqlDispatchResult::ProjectionText { .. }
+                    | SqlDispatchResult::Explain(_)
                     | SqlDispatchResult::Describe(_)
                     | SqlDispatchResult::ShowIndexes(_)
                     | SqlDispatchResult::ShowColumns(_)

@@ -14,7 +14,10 @@ use crate::db::data::structural_field::leaf::{
     decode_principal_value_bytes, decode_subaccount_value_bytes, decode_timestamp_value_bytes,
     decode_uint_big_value_bytes, decode_unit_value_bytes,
 };
-use crate::db::data::structural_field::{FieldDecodeError, decode_structural_field_by_kind_bytes};
+use crate::db::data::structural_field::{
+    FieldDecodeError, decode_structural_field_by_kind_bytes,
+    validate_structural_field_by_kind_bytes,
+};
 use crate::{
     model::field::FieldKind,
     types::{Float64, Int, Nat},
@@ -183,6 +186,75 @@ fn push_untyped_map_entry(
     Ok(())
 }
 
+// Validate one recursively tagged `Value` list item without pushing it into a
+// runtime buffer.
+//
+// Safety:
+// `context` is unused for this callback.
+fn validate_value_array_item(item_bytes: &[u8], _context: *mut ()) -> Result<(), FieldDecodeError> {
+    validate_structural_value_storage_bytes(item_bytes)
+}
+
+// Validate one encoded `Value::Map` entry without allocating decoded key/value
+// pairs.
+//
+// Safety:
+// `context` is unused for this callback.
+fn validate_value_storage_map_entry_item(
+    item_bytes: &[u8],
+    _context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(item_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: truncated value map entry",
+        ));
+    };
+    if major != 4 || argument != 2 {
+        return Err(FieldDecodeError::new(
+            "expected two-item CBOR array for value map entry",
+        ));
+    }
+
+    let key_start = cursor;
+    cursor = skip_cbor_value(item_bytes, cursor)?;
+    let value_start = cursor;
+    cursor = skip_cbor_value(item_bytes, cursor)?;
+    if cursor != item_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: trailing bytes after value map entry",
+        ));
+    }
+
+    validate_structural_value_storage_bytes(&item_bytes[key_start..value_start])?;
+    validate_structural_value_storage_bytes(&item_bytes[value_start..cursor])
+}
+
+// Validate one shallow fallback list item without pushing it into a runtime
+// buffer.
+//
+// Safety:
+// `context` is unused for this callback.
+fn validate_untyped_array_item(
+    item_bytes: &[u8],
+    _context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    validate_untyped_shallow_bytes(item_bytes)
+}
+
+// Validate one shallow fallback map entry without allocating runtime keys or
+// values.
+//
+// Safety:
+// `context` is unused for this callback.
+fn validate_untyped_map_entry(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
+    _context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    validate_untyped_shallow_bytes(key_bytes)?;
+    validate_untyped_shallow_bytes(value_bytes)
+}
+
 // Decode one `FieldStorageDecode::Value` payload directly from the externally
 // tagged `Value` wire shape without routing through serde's recursive enum
 // visitor graph.
@@ -202,6 +274,28 @@ pub(in crate::db) fn decode_structural_value_storage_bytes(
         decode_value_variant_payload(variant, payload_bytes)
     } else {
         decode_unit_value_variant(variant)
+    }
+}
+
+/// Validate one `FieldStorageDecode::Value` payload directly from the
+/// externally tagged `Value` wire shape without eagerly rebuilding the final
+/// runtime `Value`.
+pub(in crate::db) fn validate_structural_value_storage_bytes(
+    raw_bytes: &[u8],
+) -> Result<(), FieldDecodeError> {
+    let (variant, payload_bytes) = parse_tagged_variant_payload_bytes(
+        raw_bytes,
+        "typed CBOR: truncated value payload",
+        "expected text or one-entry CBOR map for value payload",
+        "expected one-entry CBOR map for value payload",
+        "typed CBOR: trailing bytes after value payload",
+    )?;
+    let variant = parse_value_variant_tag(variant)?;
+
+    if let Some(payload_bytes) = payload_bytes {
+        validate_value_variant_payload(variant, payload_bytes)
+    } else {
+        validate_unit_value_variant(variant)
     }
 }
 
@@ -255,6 +349,14 @@ fn decode_unit_value_variant(variant: ValueVariantTag) -> Result<Value, FieldDec
     }
 }
 
+// Validate one unit `Value` variant from the externally tagged wire shape.
+fn validate_unit_value_variant(variant: ValueVariantTag) -> Result<(), FieldDecodeError> {
+    match variant {
+        ValueVariantTag::Null | ValueVariantTag::Unit => Ok(()),
+        _ => Err(FieldDecodeError::new("unsupported unit value variant")),
+    }
+}
+
 // Decode one non-unit `Value` payload variant using the variant's declared
 // runtime contract.
 fn decode_value_variant_payload(
@@ -280,6 +382,33 @@ fn decode_value_variant_payload(
     }
 }
 
+// Validate one non-unit `Value` payload variant using the variant's declared
+// runtime contract without eagerly rebuilding the final `Value`.
+fn validate_value_variant_payload(
+    variant: ValueVariantTag,
+    payload_bytes: &[u8],
+) -> Result<(), FieldDecodeError> {
+    match variant {
+        ValueVariantTag::Account => decode_account_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Date => decode_date_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Decimal => decode_decimal_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Duration => decode_duration_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Enum => validate_value_enum_payload_bytes(payload_bytes),
+        ValueVariantTag::IntBig => decode_int_big_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::List => validate_value_storage_list_bytes(payload_bytes),
+        ValueVariantTag::Map => validate_value_storage_map_bytes(payload_bytes),
+        ValueVariantTag::Null => decode_null_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Principal => decode_principal_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Scalar(kind) => {
+            validate_structural_field_by_kind_bytes(payload_bytes, kind)
+        }
+        ValueVariantTag::Subaccount => decode_subaccount_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Timestamp => decode_timestamp_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::UintBig => decode_uint_big_value_bytes(payload_bytes).map(|_| ()),
+        ValueVariantTag::Unit => decode_unit_value_bytes(payload_bytes).map(|_| ()),
+    }
+}
+
 // Decode one persisted `Value::List` payload recursively from raw element bytes.
 fn decode_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let mut items = Vec::new();
@@ -292,6 +421,18 @@ fn decode_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecod
     )?;
 
     Ok(Value::List(items))
+}
+
+// Validate one persisted `Value::List` payload recursively from raw element
+// bytes without building a `Vec<Value>`.
+fn validate_value_storage_list_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    walk_cbor_array_items(
+        raw_bytes,
+        "expected CBOR array for value list payload",
+        "typed CBOR: trailing bytes after value list payload",
+        std::ptr::null_mut(),
+        validate_value_array_item,
+    )
 }
 
 // Decode one persisted `Value::Map` payload recursively while preserving
@@ -307,6 +448,18 @@ fn decode_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecode
     )?;
 
     Value::from_map(entries).map_err(|err| FieldDecodeError::new(format!("typed CBOR: {err}")))
+}
+
+// Validate one persisted `Value::Map` payload recursively while avoiding a
+// temporary runtime entry buffer.
+fn validate_value_storage_map_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    walk_cbor_array_items(
+        raw_bytes,
+        "expected CBOR array for value map payload",
+        "typed CBOR: trailing bytes after value map payload",
+        std::ptr::null_mut(),
+        validate_value_storage_map_entry_item,
+    )
 }
 
 // Decode one persisted `Value::Enum` payload struct without routing through the
@@ -370,6 +523,61 @@ fn decode_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecod
     Ok(Value::Enum(value))
 }
 
+// Validate one persisted `Value::Enum` payload struct without routing through
+// the generic `Value` deserializer or allocating the final runtime `ValueEnum`.
+fn validate_value_enum_payload_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    let Some((major, argument, mut cursor)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: truncated value enum payload",
+        ));
+    };
+    if major != 5 {
+        return Err(FieldDecodeError::new(
+            "expected CBOR map for value enum payload",
+        ));
+    }
+
+    let entry_count = usize::try_from(argument)
+        .map_err(|_| FieldDecodeError::new("expected bounded CBOR map length"))?;
+    let mut variant = None;
+
+    // Phase 1: validate the known struct fields while preserving serde's
+    // tolerant unknown-field behavior.
+    for _ in 0..entry_count {
+        let field_name_start = cursor;
+        cursor = skip_cbor_value(raw_bytes, cursor)?;
+        let field_name = &raw_bytes[field_name_start..cursor];
+
+        let field_value_start = cursor;
+        cursor = skip_cbor_value(raw_bytes, cursor)?;
+        let field_value = &raw_bytes[field_value_start..cursor];
+
+        match parse_value_enum_field_tag(field_name) {
+            Some(ValueEnumFieldTag::Variant) => {
+                decode_required_text_value_field(field_value)?;
+                variant = Some(());
+            }
+            Some(ValueEnumFieldTag::Path) => {
+                validate_optional_text_value_field(field_value)?;
+            }
+            Some(ValueEnumFieldTag::Payload) => {
+                validate_optional_nested_value_field(field_value)?;
+            }
+            None => {}
+        }
+    }
+
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: trailing bytes after value enum payload",
+        ));
+    }
+
+    variant.ok_or_else(|| FieldDecodeError::new("typed CBOR: missing enum variant field"))?;
+
+    Ok(())
+}
+
 fn decode_required_text_value_field(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new("typed CBOR: missing text field"));
@@ -414,6 +622,11 @@ fn decode_optional_text_value_field(raw_bytes: &[u8]) -> Result<Option<&str>, Fi
     )?))
 }
 
+// Validate one optional text field from the `ValueEnum` payload struct.
+fn validate_optional_text_value_field(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    decode_optional_text_value_field(raw_bytes).map(|_| ())
+}
+
 // Decode one optional nested `Value` field from the `ValueEnum` payload struct.
 fn decode_optional_nested_value_field(raw_bytes: &[u8]) -> Result<Option<Value>, FieldDecodeError> {
     let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
@@ -432,6 +645,27 @@ fn decode_optional_nested_value_field(raw_bytes: &[u8]) -> Result<Option<Value>,
     }
 
     decode_structural_value_storage_bytes(raw_bytes).map(Some)
+}
+
+// Validate one optional nested `Value` field from the `ValueEnum` payload
+// struct without eagerly rebuilding the nested runtime `Value`.
+fn validate_optional_nested_value_field(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    let Some((major, argument, _payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: missing nested value field",
+        ));
+    };
+    let end = skip_cbor_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: trailing bytes after nested value field",
+        ));
+    }
+    if major == 7 && argument == 22 {
+        return Ok(());
+    }
+
+    validate_structural_value_storage_bytes(raw_bytes)
 }
 
 // Decode one untyped scalar payload directly from bytes.
@@ -467,6 +701,16 @@ fn decode_untyped_scalar_bytes(
     Ok(value)
 }
 
+// Validate one untyped scalar payload directly from bytes.
+fn validate_untyped_scalar_bytes(
+    raw_bytes: &[u8],
+    major: u8,
+    argument: u64,
+    payload_start: usize,
+) -> Result<(), FieldDecodeError> {
+    decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start).map(|_| ())
+}
+
 // Decode one untyped list payload one level deep directly from bytes.
 fn decode_untyped_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let mut values = Vec::new();
@@ -479,6 +723,17 @@ fn decode_untyped_list_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError
     )?;
 
     Ok(Value::List(values))
+}
+
+// Validate one untyped list payload one level deep directly from bytes.
+fn validate_untyped_list_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    walk_cbor_array_items(
+        raw_bytes,
+        "expected CBOR array for enum payload array",
+        "typed CBOR: trailing bytes after enum payload array",
+        std::ptr::null_mut(),
+        validate_untyped_array_item,
+    )
 }
 
 // Decode one untyped map payload one level deep directly from bytes.
@@ -495,6 +750,17 @@ fn decode_untyped_map_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError>
     Ok(normalize_map_entries_or_preserve(values))
 }
 
+// Validate one untyped map payload one level deep directly from bytes.
+fn validate_untyped_map_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    walk_cbor_map_entries(
+        raw_bytes,
+        "expected CBOR map for enum payload map",
+        "typed CBOR: trailing bytes after enum payload map",
+        std::ptr::null_mut(),
+        validate_untyped_map_entry,
+    )
+}
+
 // Decode one fallback payload item without rebuilding nested composites.
 fn decode_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
@@ -504,6 +770,49 @@ fn decode_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeEr
     match major {
         0 | 1 | 2 | 3 | 7 => decode_untyped_scalar_bytes(raw_bytes, major, argument, payload_start),
         4 | 5 => Ok(Value::Null),
+        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
+    }
+}
+
+// Validate one fallback payload item without rebuilding nested composites.
+fn validate_untyped_shallow_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
+    };
+    let end = skip_cbor_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "typed CBOR: trailing bytes after enum payload item",
+        ));
+    }
+
+    match major {
+        0 | 1 | 2 | 3 | 7 => {
+            validate_untyped_scalar_bytes(raw_bytes, major, argument, payload_start)
+        }
+        4 | 5 => Ok(()),
+        _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
+    }
+}
+
+// Validate one conservative enum payload directly from bytes.
+//
+// This keeps the fallback shallow: scalar payloads validate directly, and
+// composite payloads validate only one structural level before nested
+// composites degrade to `Null` at runtime.
+pub(super) fn validate_untyped_enum_payload_bytes(
+    raw_bytes: &[u8],
+) -> Result<(), FieldDecodeError> {
+    let Some((major, argument, payload_start)) = parse_tagged_cbor_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new("typed CBOR: truncated CBOR value"));
+    };
+
+    match major {
+        0 | 1 | 2 | 3 | 7 => {
+            validate_untyped_scalar_bytes(raw_bytes, major, argument, payload_start)
+        }
+        4 => validate_untyped_list_bytes(raw_bytes),
+        5 => validate_untyped_map_bytes(raw_bytes),
         _ => Err(FieldDecodeError::new("unsupported enum payload CBOR shape")),
     }
 }
