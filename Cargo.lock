@@ -315,7 +315,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-minimal-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -326,7 +326,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-one-complex-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -337,7 +337,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -348,7 +348,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-ten-complex-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -359,7 +359,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-audit-ten-simple-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -381,7 +381,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-test-sql-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -392,7 +392,7 @@ dependencies = [
  "canic-cdk",
  "icydb",
  "icydb-testing-test-sql-parity-fixtures",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
  "serde",
 ]
 
@@ -754,9 +754,9 @@ dependencies = [
 
 [[package]]
 name = "fastrand"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a043dc74da1e37d6afe657061213aa6f425f855399a11d3463c6ecccc4dfda1f"
+checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ff"
@@ -1473,7 +1473,7 @@ version = "0.69.3"
 dependencies = [
  "candid",
  "icydb",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1482,7 +1482,7 @@ version = "0.69.3"
 dependencies = [
  "candid",
  "icydb",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1491,7 +1491,7 @@ version = "0.69.3"
 dependencies = [
  "candid",
  "icydb",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1500,7 +1500,7 @@ version = "0.69.3"
 dependencies = [
  "candid",
  "icydb",
- "icydb-testing-wasm-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1550,7 +1550,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-wasm-fixtures"
+name = "icydb-testing-wasm-helpers"
 version = "0.69.3"
 dependencies = [
  "icydb",

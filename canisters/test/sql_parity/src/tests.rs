@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn generated_sql_dispatch_surface_is_stable() {
         let actor =
-            icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_from_out_dir!();
+            icydb_testing_wasm_helpers::assert_generated_sql_dispatch_surface_from_out_dir!();
 
         assert!(
             !actor.contains("from_statement_sql"),
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_expression_order_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep Customer expression-order projection parity",
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_expression_order_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep Customer expression-order EXPLAIN parity",
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_expression_order_desc_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression-order projection parity",
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_expression_order_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending Customer expression-order EXPLAIN parity",
@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_projection_matches_expected_rows() {
+    fn generated_sql_dispatch_customer_expression_order_projection_matches_expected_rows() {
         reload_default_fixtures();
 
         let payload = dispatch_result_for_sql(
@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_desc_projection_matches_expected_rows() {
+    fn generated_sql_dispatch_customer_expression_order_desc_projection_matches_expected_rows() {
         reload_default_fixtures();
 
         let payload = dispatch_result_for_sql(
@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_explain_reports_materialized_route() {
+    fn generated_sql_dispatch_customer_expression_order_explain_reports_materialized_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_expression_order_desc_explain_reports_materialized_route() {
+    fn generated_sql_dispatch_customer_expression_order_desc_explain_reports_materialized_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_primary_key_covering_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_primary_key_covering_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep PK-only Customer covering projection parity",
@@ -432,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_primary_key_covering_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_primary_key_covering_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep PK-only Customer covering EXPLAIN parity",
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_primary_key_covering_projection_matches_expected_shape() {
+    fn generated_sql_dispatch_customer_primary_key_covering_projection_matches_expected_shape() {
         reload_default_fixtures();
 
         let payload = dispatch_result_for_sql("SELECT id FROM Customer ORDER BY id ASC LIMIT 1");
@@ -460,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_primary_key_covering_explain_reports_planner_proven_route() {
+    fn generated_sql_dispatch_customer_primary_key_covering_explain_reports_planner_proven_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -480,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_secondary_covering_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering EXPLAIN parity",
@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_explain_reports_witness_validated_route() {
+    fn generated_sql_dispatch_customer_secondary_covering_explain_reports_witness_validated_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -507,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_equality_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_secondary_covering_equality_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary equality covering EXPLAIN parity",
@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_equality_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_equality_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_equality_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_secondary_covering_equality_desc_explain_matches_typed_surface()
     {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_equality_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_equality_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_strict_range_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering range EXPLAIN parity",
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_strict_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -592,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_strict_range_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_user_secondary_covering_strict_range_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -621,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_covering_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_covering_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder covering projection parity",
@@ -629,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_covering_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_covering_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name = 'A-101' ORDER BY id LIMIT 1",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder covering EXPLAIN parity",
@@ -637,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_like_prefix_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering projection parity",
@@ -645,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_like_prefix_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict LIKE prefix covering EXPLAIN parity",
@@ -653,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_like_prefix_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering projection parity",
@@ -661,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_like_prefix_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_like_prefix_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict LIKE prefix covering EXPLAIN parity",
@@ -669,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_direct_starts_with_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_direct_starts_with_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering projection parity",
@@ -677,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_direct_starts_with_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_direct_starts_with_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
@@ -685,7 +685,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_direct_starts_with_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering projection parity",
@@ -693,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_direct_starts_with_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_direct_starts_with_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder direct STARTS_WITH covering EXPLAIN parity",
@@ -701,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_text_range_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_text_range_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering projection parity",
@@ -709,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_text_range_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_text_range_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder strict text-range covering EXPLAIN parity",
@@ -717,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_text_range_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_text_range_desc_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering projection parity",
@@ -725,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_strict_text_range_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_strict_text_range_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder strict text-range covering EXPLAIN parity",
@@ -733,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_equivalent_strict_prefix_forms_match_projection_rows() {
+    fn generated_sql_dispatch_customer_order_equivalent_strict_prefix_forms_match_projection_rows() {
         reload_default_fixtures();
 
         let like = dispatch_result_for_sql(
@@ -757,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_order_equivalent_desc_strict_prefix_forms_match_projection_rows()
     {
         reload_default_fixtures();
 
@@ -782,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_order_only_composite_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_order_only_composite_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder order-only composite covering projection parity",
@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_order_only_composite_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_order_only_composite_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder order-only composite covering EXPLAIN parity",
@@ -798,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_order_only_composite_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_order_order_only_composite_desc_projection_matches_typed_surface()
     {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
@@ -807,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_order_only_composite_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_order_only_composite_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder order-only composite covering EXPLAIN parity",
@@ -815,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder numeric-equality projection parity on uint-backed fields",
@@ -823,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerOrder numeric-equality EXPLAIN parity on uint-backed fields",
@@ -831,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_explain_reports_witness_validated_route() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_explain_reports_witness_validated_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -852,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_desc_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality projection parity on uint-backed fields",
@@ -860,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerOrder numeric-equality EXPLAIN parity on uint-backed fields",
@@ -868,7 +868,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -890,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
@@ -899,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
@@ -908,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -930,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerOrder>(
             "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
@@ -939,7 +939,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerOrder>(
             "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
@@ -948,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_character_numeric_equality_status_strict_text_range_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -970,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_typed_surface() {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered order-only covering projection parity",
@@ -978,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_order_only_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep CustomerAccount filtered order-only covering EXPLAIN parity",
@@ -986,7 +986,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_order_only_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_order_only_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
@@ -995,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_order_only_desc_explain_matches_typed_surface() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_desc_explain_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
             "typed execute_sql_dispatch and sql_dispatch should keep descending CustomerAccount filtered order-only covering EXPLAIN parity",
@@ -1003,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
@@ -1012,7 +1012,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1",
@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
@@ -1030,7 +1030,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1",
@@ -1039,7 +1039,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_equivalent_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_equivalent_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1064,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_equivalent_desc_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1089,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
@@ -1098,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2",
@@ -1107,7 +1107,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
@@ -1116,7 +1116,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2",
@@ -1125,7 +1125,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
@@ -1134,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
@@ -1143,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1165,7 +1165,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1187,7 +1187,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1209,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
@@ -1218,7 +1218,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
@@ -1227,7 +1227,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1249,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_offset_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_offset_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1271,7 +1271,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_order_only_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1280,7 +1280,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_order_only_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1289,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1298,7 +1298,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1307,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1316,7 +1316,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1325,7 +1325,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1334,7 +1334,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1343,7 +1343,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1361,7 +1361,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_desc_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_desc_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1379,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1388,7 +1388,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1397,7 +1397,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1406,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1415,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1435,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1444,7 +1444,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1453,7 +1453,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_order_only_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_desc_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1473,7 +1473,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1482,7 +1482,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1491,7 +1491,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1511,7 +1511,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_direct_starts_with_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1520,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_direct_starts_with_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1529,7 +1529,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_key_only_direct_starts_with_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_direct_starts_with_explain_reports_witness_validated_route()
      {
         reload_default_fixtures();
 
@@ -1549,7 +1549,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1558,7 +1558,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1567,7 +1567,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1576,7 +1576,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1585,7 +1585,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1594,7 +1594,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_explain_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_desc_explain_matches_typed_surface()
      {
         assert_dispatch_matches_typed_as::<CustomerAccount>(
             "EXPLAIN EXECUTION SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1603,7 +1603,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1621,7 +1621,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_desc_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_desc_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1639,7 +1639,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_equivalent_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_equivalent_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1664,7 +1664,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_equivalent_desc_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1689,7 +1689,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1712,7 +1712,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_strict_like_prefix_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_strict_like_prefix_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1735,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1764,7 +1764,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_strict_like_prefix_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1793,7 +1793,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1822,7 +1822,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_order_only_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1851,7 +1851,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_order_only_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1875,7 +1875,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_order_only_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_order_only_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1899,7 +1899,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1923,7 +1923,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_like_prefix_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_like_prefix_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -1947,7 +1947,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_text_range_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_text_range_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -1956,7 +1956,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_strict_text_range_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_expression_strict_text_range_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, handle FROM CustomerAccount WHERE active = true AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -1965,7 +1965,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -1990,7 +1990,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -2015,7 +2015,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -2044,7 +2044,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_order_only_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_order_only_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -2073,7 +2073,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -2102,7 +2102,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_like_prefix_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_like_prefix_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 
@@ -2131,7 +2131,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_text_range_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_text_range_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -2140,7 +2140,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_strict_text_range_desc_projection_matches_typed_surface()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_strict_text_range_desc_projection_matches_typed_surface()
      {
         assert_dispatch_result_matches_typed_as::<CustomerAccount>(
             "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -2149,7 +2149,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -2174,7 +2174,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_projection_rows()
      {
         reload_default_fixtures();
 
@@ -2199,7 +2199,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_order_only_projection_matches_expected_rows() {
+    fn generated_sql_dispatch_customer_account_filtered_order_only_projection_matches_expected_rows() {
         reload_default_fixtures();
 
         let payload = dispatch_result_for_sql(
@@ -2222,7 +2222,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_active_user_filtered_order_only_desc_projection_matches_expected_rows()
+    fn generated_sql_dispatch_customer_account_filtered_order_only_desc_projection_matches_expected_rows()
      {
         reload_default_fixtures();
 

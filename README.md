@@ -83,8 +83,8 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.69.2`
-- Latest tagged release in this repo: `v0.69.2`
+- Workspace version on `main`: `0.69.3`
+- Latest tagged release in this repo: `v0.69.3`
 - Changelog: `CHANGELOG.md`
 - Detailed `0.69.x` notes: `docs/changelog/0.69.md`
 - Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
@@ -93,7 +93,7 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Recent Highlights
 
-- `0.69.3` is a narrow follow-up that fixes generated canister memory registration on the newer `canic-memory` API, so generated `db()` startup stays deterministic without reopening the broader executor work.
+- `0.69.3` fixes generated canister memory registration on the newer `canic-memory` API and finishes the `demo` / `test` / `audit` canister split, so generated `db()` startup stays deterministic and routine test runs no longer depend on the heavyweight RPG demo canister.
 - `0.69.2` keeps the witness-backed covering routes unchanged and cuts about `7%–13%` from several `Character` and `ActiveUser` index-covered SQL reads by letting the shared execution kernel materialize those covering windows directly.
 - `0.69.1` keeps the new covering-read behavior intact while moving generated bootstrap, commit-slot wiring, and facade SQL tests onto the smaller public `canic-memory` API surface.
 - `0.69.0` turns covering reads into a real execution route, proves simple primary-key reads can skip row checks entirely, and adds the first explicit witness-backed secondary cohorts for common `ORDER BY` and filtered composite reads.
@@ -405,7 +405,7 @@ Out of scope and fail-closed by design:
 - `schema/test/sql_parity` — the broad SQL parity test-canister fixture surface.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
-- `testing/wasm-fixtures` — shared generated-surface assertions and helpers for the wasm audit canisters.
+- `testing/wasm-helpers` — shared generated-surface assertions and helpers for the wasm audit canisters.
 - `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
 
 ---
@@ -421,7 +421,7 @@ the schema surface they need.
 - `schema/test/sql_parity` holds the broad SQL parity test-canister fixture surface.
 - `schema/demo/rpg/src/fixtures` holds deterministic RPG fixture datasets shared by demo and test canisters.
 - `schema/audit/minimal`, `schema/audit/one_simple`, `schema/audit/one_complex`, `schema/audit/ten_simple`, and `schema/audit/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
-- `testing/wasm-fixtures` holds shared generated actor / `sql_dispatch` assertions used across those audit canisters.
+- `testing/wasm-helpers` holds shared generated actor / `sql_dispatch` assertions used across those audit canisters.
 
 This split keeps the wasm audit baseline from absorbing unrelated fixture schema
 weight while preserving full-featured fixtures for test harnesses.

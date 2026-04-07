@@ -36,29 +36,29 @@ const MAX_REPEAT_COUNT: u32 = 100;
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlPerfSurface {
     GeneratedDispatch,
-    TypedDispatchUser,
-    TypedDispatchOrder,
-    TypedDispatchActiveUser,
-    TypedQueryFromSqlUserExecute,
-    TypedExecuteSqlUser,
-    TypedInsertUser,
-    TypedInsertManyAtomicUser10,
-    TypedInsertManyAtomicUser100,
-    TypedInsertManyAtomicUser1000,
-    TypedInsertManyNonAtomicUser10,
-    TypedInsertManyNonAtomicUser100,
-    TypedInsertManyNonAtomicUser1000,
-    TypedUpdateUser,
-    FluentDeleteUserOrderIdLimit1Count,
-    FluentDeletePerfUserCount,
-    TypedExecuteSqlGroupedUser,
-    TypedExecuteSqlGroupedUserSecondPage,
-    TypedExecuteSqlAggregateUser,
-    FluentLoadUserOrderIdLimit2,
-    FluentLoadUserNameEqLimit1,
-    FluentPagedUserOrderIdLimit2FirstPage,
-    FluentPagedUserOrderIdLimit2SecondPage,
-    FluentPagedUserOrderIdLimit2InvalidCursor,
+    TypedDispatchCustomer,
+    TypedDispatchCustomerOrder,
+    TypedDispatchCustomerAccount,
+    TypedQueryFromSqlCustomerExecute,
+    TypedExecuteSqlCustomer,
+    TypedInsertCustomer,
+    TypedInsertManyAtomicCustomer10,
+    TypedInsertManyAtomicCustomer100,
+    TypedInsertManyAtomicCustomer1000,
+    TypedInsertManyNonAtomicCustomer10,
+    TypedInsertManyNonAtomicCustomer100,
+    TypedInsertManyNonAtomicCustomer1000,
+    TypedUpdateCustomer,
+    FluentDeleteCustomerByIdLimit1Count,
+    FluentDeletePerfCustomerCount,
+    TypedExecuteSqlGroupedCustomer,
+    TypedExecuteSqlGroupedCustomerSecondPage,
+    TypedExecuteSqlAggregateCustomer,
+    FluentLoadCustomerByIdLimit2,
+    FluentLoadCustomerNameEqLimit1,
+    FluentPagedCustomerByIdLimit2FirstPage,
+    FluentPagedCustomerByIdLimit2SecondPage,
+    FluentPagedCustomerByIdLimit2InvalidCursor,
 }
 
 //
@@ -133,11 +133,11 @@ pub struct SqlPerfSample {
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlPerfAttributionSurface {
     GeneratedDispatch,
-    TypedDispatchUser,
-    TypedDispatchOrder,
-    TypedDispatchActiveUser,
-    TypedGroupedUser,
-    TypedGroupedUserSecondPage,
+    TypedDispatchCustomer,
+    TypedDispatchCustomerOrder,
+    TypedDispatchCustomerAccount,
+    TypedGroupedCustomer,
+    TypedGroupedCustomerSecondPage,
 }
 
 //
@@ -241,28 +241,28 @@ pub fn attribute_sql_surface(
         SqlPerfAttributionSurface::GeneratedDispatch => {
             attribute_generated_dispatch_surface(sql.as_str())
         }
-        SqlPerfAttributionSurface::TypedDispatchUser => {
+        SqlPerfAttributionSurface::TypedDispatchCustomer => {
             attribute_typed_dispatch_surface::<Customer>(
                 sql.as_str(),
-                SqlPerfAttributionSurface::TypedDispatchUser,
+                SqlPerfAttributionSurface::TypedDispatchCustomer,
             )
         }
-        SqlPerfAttributionSurface::TypedDispatchOrder => {
+        SqlPerfAttributionSurface::TypedDispatchCustomerOrder => {
             attribute_typed_dispatch_surface::<CustomerOrder>(
                 sql.as_str(),
-                SqlPerfAttributionSurface::TypedDispatchOrder,
+                SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
             )
         }
-        SqlPerfAttributionSurface::TypedDispatchActiveUser => {
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount => {
             attribute_typed_dispatch_surface::<CustomerAccount>(
                 sql.as_str(),
-                SqlPerfAttributionSurface::TypedDispatchActiveUser,
+                SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
             )
         }
-        SqlPerfAttributionSurface::TypedGroupedUser => {
+        SqlPerfAttributionSurface::TypedGroupedCustomer => {
             attribute_typed_grouped_surface(sql.as_str(), request.cursor_token.as_deref())
         }
-        SqlPerfAttributionSurface::TypedGroupedUserSecondPage => {
+        SqlPerfAttributionSurface::TypedGroupedCustomerSecondPage => {
             attribute_typed_grouped_second_page_surface(sql.as_str())
         }
     }
@@ -553,7 +553,7 @@ fn attribute_typed_grouped_surface(
     let wrapper_local_instructions = total_local_instructions.saturating_sub(attributed_core);
 
     Ok(SqlPerfAttributionSample {
-        surface: SqlPerfAttributionSurface::TypedGroupedUser,
+        surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
         sql: sql.to_string(),
         parse_local_instructions,
         route_local_instructions: 0,
@@ -596,7 +596,7 @@ fn attribute_typed_grouped_second_page_surface(
     let cursor_token = bootstrap_typed_grouped_cursor_token(sql)?;
 
     let mut sample = attribute_typed_grouped_surface(sql, Some(cursor_token.as_str()))?;
-    sample.surface = SqlPerfAttributionSurface::TypedGroupedUserSecondPage;
+    sample.surface = SqlPerfAttributionSurface::TypedGroupedCustomerSecondPage;
 
     Ok(sample)
 }
@@ -642,39 +642,39 @@ fn measure_fluent_paged_second_page() -> (u64, SqlPerfOutcome) {
     (0, outcome)
 }
 
-fn perf_insert_user() -> Customer {
+fn perf_insert_customer() -> Customer {
     Customer {
-        name: "perf-insert-user".to_string(),
+        name: "perf-insert-customer".to_string(),
         age: 29,
         ..Default::default()
     }
 }
 
-fn perf_insert_user_for_batch(batch_size: u32, offset: u32) -> Customer {
+fn perf_insert_customer_for_batch(batch_size: u32, offset: u32) -> Customer {
     let age_offset = i32::try_from(offset % 50).expect("offset modulo 50 must fit in i32");
 
     Customer {
-        name: format!("perf-insert-user-{batch_size}-{offset}"),
+        name: format!("perf-insert-customer-{batch_size}-{offset}"),
         age: 20 + age_offset,
         ..Default::default()
     }
 }
 
-fn perf_insert_user_batch(batch_size: u32) -> Vec<Customer> {
+fn perf_insert_customer_batch(batch_size: u32) -> Vec<Customer> {
     (0..batch_size)
-        .map(|offset| perf_insert_user_for_batch(batch_size, offset))
+        .map(|offset| perf_insert_customer_for_batch(batch_size, offset))
         .collect()
 }
 
-fn perf_update_users() -> (Customer, Customer) {
+fn perf_update_customers() -> (Customer, Customer) {
     let base = Customer {
-        name: "perf-update-before".to_string(),
+        name: "perf-update-customer-before".to_string(),
         age: 33,
         ..Default::default()
     };
     let inserted = base.clone();
     let updated = Customer {
-        name: "perf-update-after".to_string(),
+        name: "perf-update-customer-after".to_string(),
         age: 34,
         ..base
     };
@@ -682,16 +682,16 @@ fn perf_update_users() -> (Customer, Customer) {
     (inserted, updated)
 }
 
-fn perf_delete_user() -> Customer {
+fn perf_delete_customer() -> Customer {
     Customer {
-        name: "perf-delete-user".to_string(),
+        name: "perf-delete-customer".to_string(),
         age: 35,
         ..Default::default()
     }
 }
 
-fn measure_typed_update_user() -> (u64, SqlPerfOutcome) {
-    let (inserted, updated) = perf_update_users();
+fn measure_typed_update_customer() -> (u64, SqlPerfOutcome) {
+    let (inserted, updated) = perf_update_customers();
     let outcome = match db().insert(inserted) {
         Ok(_) => {
             return measure_surface_call(|| {
@@ -705,13 +705,16 @@ fn measure_typed_update_user() -> (u64, SqlPerfOutcome) {
     (0, outcome)
 }
 
-fn measure_fluent_delete_perf_user_count() -> (u64, SqlPerfOutcome) {
-    let inserted = perf_delete_user();
+fn measure_fluent_delete_perf_customer_count() -> (u64, SqlPerfOutcome) {
+    let inserted = perf_delete_customer();
     let outcome = match db().insert(inserted) {
         Ok(_) => {
             return measure_surface_call(|| {
                 db().delete::<Customer>()
-                    .filter(Predicate::eq("name".to_string(), "perf-delete-user".into()))
+                    .filter(Predicate::eq(
+                        "name".to_string(),
+                        "perf-delete-customer".into(),
+                    ))
                     .order_by("id")
                     .limit(1)
                     .execute_count_only()
@@ -724,16 +727,16 @@ fn measure_fluent_delete_perf_user_count() -> (u64, SqlPerfOutcome) {
     (0, outcome)
 }
 
-fn measure_typed_insert_many_atomic_user(batch_size: u32) -> (u64, SqlPerfOutcome) {
+fn measure_typed_insert_many_atomic_customer(batch_size: u32) -> (u64, SqlPerfOutcome) {
     measure_surface_call(|| {
-        db().insert_many_atomic(perf_insert_user_batch(batch_size))
+        db().insert_many_atomic(perf_insert_customer_batch(batch_size))
             .map_or_else(outcome_from_error, outcome_from_write_batch_response)
     })
 }
 
-fn measure_typed_insert_many_non_atomic_user(batch_size: u32) -> (u64, SqlPerfOutcome) {
+fn measure_typed_insert_many_non_atomic_customer(batch_size: u32) -> (u64, SqlPerfOutcome) {
     measure_surface_call(|| {
-        db().insert_many_non_atomic(perf_insert_user_batch(batch_size))
+        db().insert_many_non_atomic(perf_insert_customer_batch(batch_size))
             .map_or_else(outcome_from_error, outcome_from_write_batch_response)
     })
 }
@@ -759,68 +762,76 @@ fn measure_once(
         SqlPerfSurface::GeneratedDispatch => measure_surface_call(|| {
             sql_dispatch::query(sql).map_or_else(outcome_from_error, outcome_from_sql_query_result)
         }),
-        SqlPerfSurface::TypedDispatchUser => measure_typed_dispatch_surface::<Customer>(sql),
-        SqlPerfSurface::TypedDispatchOrder => measure_typed_dispatch_surface::<CustomerOrder>(sql),
-        SqlPerfSurface::TypedDispatchActiveUser => {
+        SqlPerfSurface::TypedDispatchCustomer => measure_typed_dispatch_surface::<Customer>(sql),
+        SqlPerfSurface::TypedDispatchCustomerOrder => {
+            measure_typed_dispatch_surface::<CustomerOrder>(sql)
+        }
+        SqlPerfSurface::TypedDispatchCustomerAccount => {
             measure_typed_dispatch_surface::<CustomerAccount>(sql)
         }
-        SqlPerfSurface::TypedQueryFromSqlUserExecute => measure_surface_call(|| {
+        SqlPerfSurface::TypedQueryFromSqlCustomerExecute => measure_surface_call(|| {
             let session = db();
             session
                 .query_from_sql::<Customer>(sql)
                 .and_then(|query| session.execute_query(&query))
                 .map_or_else(outcome_from_error, outcome_from_response)
         }),
-        SqlPerfSurface::TypedExecuteSqlUser => measure_surface_call(|| {
+        SqlPerfSurface::TypedExecuteSqlCustomer => measure_surface_call(|| {
             db().execute_sql::<Customer>(sql)
                 .map_or_else(outcome_from_error, outcome_from_response)
         }),
-        SqlPerfSurface::TypedInsertUser => measure_surface_call(|| {
-            db().insert(perf_insert_user())
+        SqlPerfSurface::TypedInsertCustomer => measure_surface_call(|| {
+            db().insert(perf_insert_customer())
                 .map_or_else(outcome_from_error, outcome_from_write_response)
         }),
-        SqlPerfSurface::TypedInsertManyAtomicUser10 => measure_typed_insert_many_atomic_user(10),
-        SqlPerfSurface::TypedInsertManyAtomicUser100 => measure_typed_insert_many_atomic_user(100),
-        SqlPerfSurface::TypedInsertManyAtomicUser1000 => {
-            measure_typed_insert_many_atomic_user(1000)
+        SqlPerfSurface::TypedInsertManyAtomicCustomer10 => {
+            measure_typed_insert_many_atomic_customer(10)
         }
-        SqlPerfSurface::TypedInsertManyNonAtomicUser10 => {
-            measure_typed_insert_many_non_atomic_user(10)
+        SqlPerfSurface::TypedInsertManyAtomicCustomer100 => {
+            measure_typed_insert_many_atomic_customer(100)
         }
-        SqlPerfSurface::TypedInsertManyNonAtomicUser100 => {
-            measure_typed_insert_many_non_atomic_user(100)
+        SqlPerfSurface::TypedInsertManyAtomicCustomer1000 => {
+            measure_typed_insert_many_atomic_customer(1000)
         }
-        SqlPerfSurface::TypedInsertManyNonAtomicUser1000 => {
-            measure_typed_insert_many_non_atomic_user(1000)
+        SqlPerfSurface::TypedInsertManyNonAtomicCustomer10 => {
+            measure_typed_insert_many_non_atomic_customer(10)
         }
-        SqlPerfSurface::TypedUpdateUser => measure_typed_update_user(),
-        SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count => measure_surface_call(|| {
+        SqlPerfSurface::TypedInsertManyNonAtomicCustomer100 => {
+            measure_typed_insert_many_non_atomic_customer(100)
+        }
+        SqlPerfSurface::TypedInsertManyNonAtomicCustomer1000 => {
+            measure_typed_insert_many_non_atomic_customer(1000)
+        }
+        SqlPerfSurface::TypedUpdateCustomer => measure_typed_update_customer(),
+        SqlPerfSurface::FluentDeleteCustomerByIdLimit1Count => measure_surface_call(|| {
             db().delete::<Customer>()
                 .order_by("id")
                 .limit(1)
                 .execute_count_only()
                 .map_or_else(outcome_from_error, outcome_from_delete_count)
         }),
-        SqlPerfSurface::FluentDeletePerfUserCount => measure_fluent_delete_perf_user_count(),
-        SqlPerfSurface::TypedExecuteSqlGroupedUser => measure_surface_call(|| {
+        SqlPerfSurface::FluentDeletePerfCustomerCount => {
+            measure_fluent_delete_perf_customer_count()
+        }
+        SqlPerfSurface::TypedExecuteSqlGroupedCustomer => measure_surface_call(|| {
             db().execute_sql_grouped::<Customer>(sql, cursor_token)
                 .map_or_else(outcome_from_error, outcome_from_grouped_response)
         }),
-        SqlPerfSurface::TypedExecuteSqlGroupedUserSecondPage => {
+        SqlPerfSurface::TypedExecuteSqlGroupedCustomerSecondPage => {
             measure_typed_grouped_second_page(sql)
         }
-        SqlPerfSurface::TypedExecuteSqlAggregateUser => measure_surface_call(|| {
+        SqlPerfSurface::TypedExecuteSqlAggregateCustomer => measure_surface_call(|| {
             db().execute_sql_aggregate::<Customer>(sql)
                 .map_or_else(outcome_from_error, outcome_from_value)
         }),
-        SqlPerfSurface::FluentLoadUserOrderIdLimit2 => measure_surface_call(|| {
+        SqlPerfSurface::FluentLoadCustomerByIdLimit2 => measure_surface_call(|| {
             db().load::<Customer>()
                 .order_by("id")
                 .limit(2)
                 .execute()
                 .map_or_else(outcome_from_error, outcome_from_response)
         }),
-        SqlPerfSurface::FluentLoadUserNameEqLimit1 => measure_surface_call(|| {
+        SqlPerfSurface::FluentLoadCustomerNameEqLimit1 => measure_surface_call(|| {
             db().load::<Customer>()
                 .filter(Predicate::eq("name".to_string(), "alice".into()))
                 .order_by("id")
@@ -828,17 +839,17 @@ fn measure_once(
                 .execute()
                 .map_or_else(outcome_from_error, outcome_from_response)
         }),
-        SqlPerfSurface::FluentPagedUserOrderIdLimit2FirstPage => measure_surface_call(|| {
+        SqlPerfSurface::FluentPagedCustomerByIdLimit2FirstPage => measure_surface_call(|| {
             db().load::<Customer>()
                 .order_by("id")
                 .limit(2)
                 .execute_paged()
                 .map_or_else(outcome_from_error, outcome_from_paged_response)
         }),
-        SqlPerfSurface::FluentPagedUserOrderIdLimit2SecondPage => {
+        SqlPerfSurface::FluentPagedCustomerByIdLimit2SecondPage => {
             measure_fluent_paged_second_page()
         }
-        SqlPerfSurface::FluentPagedUserOrderIdLimit2InvalidCursor => measure_surface_call(|| {
+        SqlPerfSurface::FluentPagedCustomerByIdLimit2InvalidCursor => measure_surface_call(|| {
             db().load::<Customer>()
                 .order_by("id")
                 .limit(2)

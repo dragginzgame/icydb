@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn generated_sql_dispatch_surface_is_stable() {
-        icydb_testing_wasm_fixtures::assert_generated_sql_dispatch_surface_from_out_dir!();
+        icydb_testing_wasm_helpers::assert_generated_sql_dispatch_surface_from_out_dir!();
     }
 
     #[test]

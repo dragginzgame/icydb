@@ -353,29 +353,29 @@ fn assert_explain_route(
 #[derive(candid::CandidType, Clone, Copy, Debug, candid::Deserialize, Serialize)]
 enum SqlPerfSurface {
     GeneratedDispatch,
-    TypedDispatchUser,
-    TypedDispatchOrder,
-    TypedDispatchActiveUser,
-    TypedQueryFromSqlUserExecute,
-    TypedExecuteSqlUser,
-    TypedInsertUser,
-    TypedInsertManyAtomicUser10,
-    TypedInsertManyAtomicUser100,
-    TypedInsertManyAtomicUser1000,
-    TypedInsertManyNonAtomicUser10,
-    TypedInsertManyNonAtomicUser100,
-    TypedInsertManyNonAtomicUser1000,
-    TypedUpdateUser,
-    FluentDeleteUserOrderIdLimit1Count,
-    FluentDeletePerfUserCount,
-    TypedExecuteSqlGroupedUser,
-    TypedExecuteSqlGroupedUserSecondPage,
-    TypedExecuteSqlAggregateUser,
-    FluentLoadUserOrderIdLimit2,
-    FluentLoadUserNameEqLimit1,
-    FluentPagedUserOrderIdLimit2FirstPage,
-    FluentPagedUserOrderIdLimit2SecondPage,
-    FluentPagedUserOrderIdLimit2InvalidCursor,
+    TypedDispatchCustomer,
+    TypedDispatchCustomerOrder,
+    TypedDispatchCustomerAccount,
+    TypedQueryFromSqlCustomerExecute,
+    TypedExecuteSqlCustomer,
+    TypedInsertCustomer,
+    TypedInsertManyAtomicCustomer10,
+    TypedInsertManyAtomicCustomer100,
+    TypedInsertManyAtomicCustomer1000,
+    TypedInsertManyNonAtomicCustomer10,
+    TypedInsertManyNonAtomicCustomer100,
+    TypedInsertManyNonAtomicCustomer1000,
+    TypedUpdateCustomer,
+    FluentDeleteCustomerByIdLimit1Count,
+    FluentDeletePerfCustomerCount,
+    TypedExecuteSqlGroupedCustomer,
+    TypedExecuteSqlGroupedCustomerSecondPage,
+    TypedExecuteSqlAggregateCustomer,
+    FluentLoadCustomerByIdLimit2,
+    FluentLoadCustomerNameEqLimit1,
+    FluentPagedCustomerByIdLimit2FirstPage,
+    FluentPagedCustomerByIdLimit2SecondPage,
+    FluentPagedCustomerByIdLimit2InvalidCursor,
 }
 
 //
@@ -388,11 +388,11 @@ enum SqlPerfSurface {
 #[derive(candid::CandidType, Clone, Copy, Debug, candid::Deserialize, Serialize)]
 enum SqlPerfAttributionSurface {
     GeneratedDispatch,
-    TypedDispatchUser,
-    TypedDispatchOrder,
-    TypedDispatchActiveUser,
-    TypedGroupedUser,
-    TypedGroupedUserSecondPage,
+    TypedDispatchCustomer,
+    TypedDispatchCustomerOrder,
+    TypedDispatchCustomerAccount,
+    TypedGroupedCustomer,
+    TypedGroupedCustomerSecondPage,
 }
 
 //
@@ -568,6 +568,7 @@ fn sql_perf_probe_repeat_count() -> u32 {
     })
 }
 
+#[expect(clippy::too_many_lines)]
 fn sql_perf_probe_sample_surface() -> SqlPerfSurface {
     let Some(surface_key) = normalized_perf_probe_surface_key() else {
         return SqlPerfSurface::GeneratedDispatch;
@@ -577,70 +578,114 @@ fn sql_perf_probe_sample_surface() -> SqlPerfSurface {
         "generated" | "generateddispatch" | "generated_dispatch" => {
             SqlPerfSurface::GeneratedDispatch
         }
-        "typeddispatchuser" | "typed_dispatch_user" => SqlPerfSurface::TypedDispatchUser,
-        "typeddispatchorder"
+        "typeddispatchcustomer"
+        | "typed_dispatch_customer"
+        | "typeddispatchuser"
+        | "typed_dispatch_user" => SqlPerfSurface::TypedDispatchCustomer,
+        "typeddispatchcustomerorder"
+        | "typed_dispatch_customer_order"
+        | "typeddispatchorder"
         | "typed_dispatch_order"
-        | "typeddispatchcharacter"
-        | "typed_dispatch_character" => SqlPerfSurface::TypedDispatchOrder,
-        "typeddispatchactiveuser" | "typed_dispatch_active_user" => {
-            SqlPerfSurface::TypedDispatchActiveUser
+        | "typeddispatchcustomer_order" => SqlPerfSurface::TypedDispatchCustomerOrder,
+        "typeddispatchcustomeraccount"
+        | "typed_dispatch_customer_account"
+        | "typeddispatchactiveuser"
+        | "typed_dispatch_active_user" => SqlPerfSurface::TypedDispatchCustomerAccount,
+        "typedqueryfromsqlcustomerexecute"
+        | "typed_query_from_sql_customer_execute"
+        | "typedqueryfromsqluserexecute"
+        | "typed_query_from_sql_user_execute" => SqlPerfSurface::TypedQueryFromSqlCustomerExecute,
+        "typedexecutesqlcustomer"
+        | "typed_execute_sql_customer"
+        | "typedexecutesqluser"
+        | "typed_execute_sql_user" => SqlPerfSurface::TypedExecuteSqlCustomer,
+        "typedinsertcustomer"
+        | "typed_insert_customer"
+        | "typedinsertuser"
+        | "typed_insert_user" => SqlPerfSurface::TypedInsertCustomer,
+        "typedinsertmanyatomiccustomer10"
+        | "typed_insert_many_atomic_customer_10"
+        | "typedinsertmanyatomicuser10"
+        | "typed_insert_many_atomic_user_10" => SqlPerfSurface::TypedInsertManyAtomicCustomer10,
+        "typedinsertmanyatomiccustomer100"
+        | "typed_insert_many_atomic_customer_100"
+        | "typedinsertmanyatomicuser100"
+        | "typed_insert_many_atomic_user_100" => SqlPerfSurface::TypedInsertManyAtomicCustomer100,
+        "typedinsertmanyatomiccustomer1000"
+        | "typed_insert_many_atomic_customer_1000"
+        | "typedinsertmanyatomicuser1000"
+        | "typed_insert_many_atomic_user_1000" => SqlPerfSurface::TypedInsertManyAtomicCustomer1000,
+        "typedinsertmanynonatomiccustomer10"
+        | "typed_insert_many_non_atomic_customer_10"
+        | "typedinsertmanynonatomicuser10"
+        | "typed_insert_many_non_atomic_user_10" => {
+            SqlPerfSurface::TypedInsertManyNonAtomicCustomer10
         }
-        "typedqueryfromsqluserexecute" | "typed_query_from_sql_user_execute" => {
-            SqlPerfSurface::TypedQueryFromSqlUserExecute
+        "typedinsertmanynonatomiccustomer100"
+        | "typed_insert_many_non_atomic_customer_100"
+        | "typedinsertmanynonatomicuser100"
+        | "typed_insert_many_non_atomic_user_100" => {
+            SqlPerfSurface::TypedInsertManyNonAtomicCustomer100
         }
-        "typedexecutesqluser" | "typed_execute_sql_user" => SqlPerfSurface::TypedExecuteSqlUser,
-        "typedinsertuser" | "typed_insert_user" => SqlPerfSurface::TypedInsertUser,
-        "typedinsertmanyatomicuser10" | "typed_insert_many_atomic_user_10" => {
-            SqlPerfSurface::TypedInsertManyAtomicUser10
+        "typedinsertmanynonatomiccustomer1000"
+        | "typed_insert_many_non_atomic_customer_1000"
+        | "typedinsertmanynonatomicuser1000"
+        | "typed_insert_many_non_atomic_user_1000" => {
+            SqlPerfSurface::TypedInsertManyNonAtomicCustomer1000
         }
-        "typedinsertmanyatomicuser100" | "typed_insert_many_atomic_user_100" => {
-            SqlPerfSurface::TypedInsertManyAtomicUser100
+        "typedupdatecustomer"
+        | "typed_update_customer"
+        | "typedupdateuser"
+        | "typed_update_user" => SqlPerfSurface::TypedUpdateCustomer,
+        "fluentdeletecustomerbyidlimit1count"
+        | "fluent_delete_customer_by_id_limit_1_count"
+        | "fluentdeleteuserorderidlimit1count"
+        | "fluent_delete_user_order_id_limit_1_count" => {
+            SqlPerfSurface::FluentDeleteCustomerByIdLimit1Count
         }
-        "typedinsertmanyatomicuser1000" | "typed_insert_many_atomic_user_1000" => {
-            SqlPerfSurface::TypedInsertManyAtomicUser1000
+        "fluentdeleteperfcustomercount"
+        | "fluent_delete_perf_customer_count"
+        | "fluentdeleteperfusercount"
+        | "fluent_delete_perf_user_count" => SqlPerfSurface::FluentDeletePerfCustomerCount,
+        "typedexecutesqlgroupedcustomer"
+        | "typed_execute_sql_grouped_customer"
+        | "typedexecutesqlgroupeduser"
+        | "typed_execute_sql_grouped_user" => SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+        "typedexecutesqlgroupedcustomersecondpage"
+        | "typed_execute_sql_grouped_customer_second_page"
+        | "typedexecutesqlgroupedusersecondpage"
+        | "typed_execute_sql_grouped_user_second_page" => {
+            SqlPerfSurface::TypedExecuteSqlGroupedCustomerSecondPage
         }
-        "typedinsertmanynonatomicuser10" | "typed_insert_many_non_atomic_user_10" => {
-            SqlPerfSurface::TypedInsertManyNonAtomicUser10
-        }
-        "typedinsertmanynonatomicuser100" | "typed_insert_many_non_atomic_user_100" => {
-            SqlPerfSurface::TypedInsertManyNonAtomicUser100
-        }
-        "typedinsertmanynonatomicuser1000" | "typed_insert_many_non_atomic_user_1000" => {
-            SqlPerfSurface::TypedInsertManyNonAtomicUser1000
-        }
-        "typedupdateuser" | "typed_update_user" => SqlPerfSurface::TypedUpdateUser,
-        "fluentdeleteuserorderidlimit1count" | "fluent_delete_user_order_id_limit_1_count" => {
-            SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count
-        }
-        "fluentdeleteperfusercount" | "fluent_delete_perf_user_count" => {
-            SqlPerfSurface::FluentDeletePerfUserCount
-        }
-        "typedexecutesqlgroupeduser" | "typed_execute_sql_grouped_user" => {
-            SqlPerfSurface::TypedExecuteSqlGroupedUser
-        }
-        "typedexecutesqlgroupedusersecondpage" | "typed_execute_sql_grouped_user_second_page" => {
-            SqlPerfSurface::TypedExecuteSqlGroupedUserSecondPage
-        }
-        "typedexecutesqlaggregateuser" | "typed_execute_sql_aggregate_user" => {
-            SqlPerfSurface::TypedExecuteSqlAggregateUser
-        }
-        "fluentloaduserorderidlimit2" | "fluent_load_user_order_id_limit_2" => {
-            SqlPerfSurface::FluentLoadUserOrderIdLimit2
-        }
-        "fluentloadusernameeqlimit1" | "fluent_load_user_name_eq_limit_1" => {
-            SqlPerfSurface::FluentLoadUserNameEqLimit1
-        }
-        "fluentpageduserorderidlimit2firstpage"
+        "typedexecutesqlaggregatecustomer"
+        | "typed_execute_sql_aggregate_customer"
+        | "typedexecutesqlaggregateuser"
+        | "typed_execute_sql_aggregate_user" => SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+        "fluentloadcustomerbyidlimit2"
+        | "fluent_load_customer_by_id_limit_2"
+        | "fluentloaduserorderidlimit2"
+        | "fluent_load_user_order_id_limit_2" => SqlPerfSurface::FluentLoadCustomerByIdLimit2,
+        "fluentloadcustomernameeqlimit1"
+        | "fluent_load_customer_name_eq_limit_1"
+        | "fluentloadusernameeqlimit1"
+        | "fluent_load_user_name_eq_limit_1" => SqlPerfSurface::FluentLoadCustomerNameEqLimit1,
+        "fluentpagedcustomerbyidlimit2firstpage"
+        | "fluent_paged_customer_by_id_limit_2_first_page"
+        | "fluentpageduserorderidlimit2firstpage"
         | "fluent_paged_user_order_id_limit_2_first_page" => {
-            SqlPerfSurface::FluentPagedUserOrderIdLimit2FirstPage
+            SqlPerfSurface::FluentPagedCustomerByIdLimit2FirstPage
         }
-        "fluentpageduserorderidlimit2secondpage"
+        "fluentpagedcustomerbyidlimit2secondpage"
+        | "fluent_paged_customer_by_id_limit_2_second_page"
+        | "fluentpageduserorderidlimit2secondpage"
         | "fluent_paged_user_order_id_limit_2_second_page" => {
-            SqlPerfSurface::FluentPagedUserOrderIdLimit2SecondPage
+            SqlPerfSurface::FluentPagedCustomerByIdLimit2SecondPage
         }
-        "fluentpageduserorderidlimit2invalidcursor"
+        "fluentpagedcustomerbyidlimit2invalidcursor"
+        | "fluent_paged_customer_by_id_limit_2_invalid_cursor"
+        | "fluentpageduserorderidlimit2invalidcursor"
         | "fluent_paged_user_order_id_limit_2_invalid_cursor" => {
-            SqlPerfSurface::FluentPagedUserOrderIdLimit2InvalidCursor
+            SqlPerfSurface::FluentPagedCustomerByIdLimit2InvalidCursor
         }
         _ => panic!(
             "unsupported {SQL_PERF_PROBE_SURFACE_ENV} value '{surface_key}' for sql perf sample probe"
@@ -657,17 +702,28 @@ fn sql_perf_probe_attribution_surface() -> SqlPerfAttributionSurface {
         "generated" | "generateddispatch" | "generated_dispatch" => {
             SqlPerfAttributionSurface::GeneratedDispatch
         }
-        "typeddispatchuser" | "typed_dispatch_user" => SqlPerfAttributionSurface::TypedDispatchUser,
-        "typeddispatchorder"
+        "typeddispatchcustomer"
+        | "typed_dispatch_customer"
+        | "typeddispatchuser"
+        | "typed_dispatch_user" => SqlPerfAttributionSurface::TypedDispatchCustomer,
+        "typeddispatchcustomerorder"
+        | "typed_dispatch_customer_order"
+        | "typeddispatchorder"
         | "typed_dispatch_order"
-        | "typeddispatchcharacter"
-        | "typed_dispatch_character" => SqlPerfAttributionSurface::TypedDispatchOrder,
-        "typeddispatchactiveuser" | "typed_dispatch_active_user" => {
-            SqlPerfAttributionSurface::TypedDispatchActiveUser
-        }
-        "typedgroupeduser" | "typed_grouped_user" => SqlPerfAttributionSurface::TypedGroupedUser,
-        "typedgroupedusersecondpage" | "typed_grouped_user_second_page" => {
-            SqlPerfAttributionSurface::TypedGroupedUserSecondPage
+        | "typeddispatchcustomer_order" => SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
+        "typeddispatchcustomeraccount"
+        | "typed_dispatch_customer_account"
+        | "typeddispatchactiveuser"
+        | "typed_dispatch_active_user" => SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
+        "typedgroupedcustomer"
+        | "typed_grouped_customer"
+        | "typedgroupeduser"
+        | "typed_grouped_user" => SqlPerfAttributionSurface::TypedGroupedCustomer,
+        "typedgroupedcustomersecondpage"
+        | "typed_grouped_customer_second_page"
+        | "typedgroupedusersecondpage"
+        | "typed_grouped_user_second_page" => {
+            SqlPerfAttributionSurface::TypedGroupedCustomerSecondPage
         }
         _ => panic!(
             "unsupported {SQL_PERF_PROBE_SURFACE_ENV} value '{surface_key}' for sql perf attribution probe"
@@ -753,7 +809,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_name_eq_limit1",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         1,
     ),
@@ -761,7 +817,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_full_row_limit2",
         FixtureCanister::SqlParity,
         "SELECT * FROM Customer ORDER BY id LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         2,
     ),
@@ -769,7 +825,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_name_order_name_limit1",
         FixtureCanister::SqlParity,
         "SELECT name FROM Customer ORDER BY name ASC LIMIT 1",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         1,
     ),
@@ -777,7 +833,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_age_order_id_limit1",
         FixtureCanister::SqlParity,
         "SELECT age FROM Customer ORDER BY id ASC LIMIT 1",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         1,
     ),
@@ -785,7 +841,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_primary_key_covering_id_limit1",
         FixtureCanister::SqlParity,
         "SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         1,
     ),
@@ -793,7 +849,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_secondary_covering_name_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         2,
     ),
@@ -801,7 +857,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_secondary_covering_name_limit2_desc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM Customer ORDER BY name DESC, id DESC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         2,
     ),
@@ -809,7 +865,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_secondary_covering_name_strict_range_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         2,
     ),
@@ -817,7 +873,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "user_secondary_covering_name_strict_range_limit2_desc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
         "Customer",
         2,
     ),
@@ -825,7 +881,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "customer_order_order_only_composite_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchOrder,
+        SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -833,7 +889,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "customer_order_order_only_composite_limit2_desc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchOrder,
+        SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -841,7 +897,7 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "customer_order_numeric_equality_priority20_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchOrder,
+        SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -849,55 +905,55 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         "customer_order_numeric_equality_priority20_limit2_desc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchOrder,
+        SqlPerfAttributionSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
     (
-        "active_user_filtered_order_only_name_limit2_asc",
+        "customer_account_filtered_order_only_name_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_order_only_handle_limit2_asc",
+        "customer_account_filtered_composite_expression_order_only_handle_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2_asc",
+        "customer_account_filtered_composite_expression_key_only_order_only_tier_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2_desc",
+        "customer_account_filtered_composite_expression_key_only_order_only_tier_limit2_desc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_strict_range_tier_limit2_asc",
+        "customer_account_filtered_composite_expression_key_only_strict_range_tier_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2_asc",
+        "customer_account_filtered_composite_expression_key_only_direct_starts_with_tier_limit2_asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfAttributionSurface::TypedDispatchActiveUser,
+        SqlPerfAttributionSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
@@ -917,7 +973,7 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_order_only_composite.priority_status_id_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchOrder,
+        SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -925,7 +981,7 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_order_only_composite.priority_status_id_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchOrder,
+        SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -933,7 +989,7 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_numeric_equality.priority_eq20_status_id_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchOrder,
+        SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -941,7 +997,7 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_numeric_equality.priority_eq20_status_id_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchOrder,
+        SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -949,7 +1005,7 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchOrder,
+        SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
@@ -957,87 +1013,87 @@ const NON_USER_ORDERED_COVERING_PERF_CASES: &[(
         "customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchOrder,
+        SqlPerfSurface::TypedDispatchCustomerOrder,
         "CustomerOrder",
         2,
     ),
     (
-        "active_user_filtered_order_only_name_limit2.asc",
+        "customer_account_filtered_order_only_name_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_order_only_name_limit2.desc",
+        "customer_account_filtered_order_only_name_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_order_only_handle_limit2.asc",
+        "customer_account_filtered_composite_order_only_handle_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_order_only_handle_limit2.desc",
+        "customer_account_filtered_composite_order_only_handle_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_order_only_handle_limit2.asc",
+        "customer_account_filtered_composite_expression_order_only_handle_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_order_only_handle_limit2.desc",
+        "customer_account_filtered_composite_expression_order_only_handle_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
+        "customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
+        "customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
+        "customer_account_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
     (
-        "active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
+        "customer_account_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
         FixtureCanister::SqlParity,
         "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
-        SqlPerfSurface::TypedDispatchActiveUser,
+        SqlPerfSurface::TypedDispatchCustomerAccount,
         "CustomerAccount",
         2,
     ),
@@ -1176,19 +1232,19 @@ fn select_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
         ),
         sql_perf_scenario(
             "select.typed.dispatch.user_name_eq_limit.x1",
-            SqlPerfSurface::TypedDispatchUser,
+            SqlPerfSurface::TypedDispatchCustomer,
             sql,
             1,
         ),
         sql_perf_scenario(
             "select.typed.dispatch.user_name_eq_limit.x10",
-            SqlPerfSurface::TypedDispatchUser,
+            SqlPerfSurface::TypedDispatchCustomer,
             sql,
             10,
         ),
         sql_perf_scenario(
             "select.typed.dispatch.user_name_eq_limit.x100",
-            SqlPerfSurface::TypedDispatchUser,
+            SqlPerfSurface::TypedDispatchCustomer,
             sql,
             100,
         ),
@@ -1199,19 +1255,19 @@ fn insert_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         sql_perf_scenario(
             "insert.typed.user_single.x1",
-            SqlPerfSurface::TypedInsertUser,
+            SqlPerfSurface::TypedInsertCustomer,
             "INSERT Customer",
             1,
         ),
         sql_perf_scenario(
             "insert.typed.user_single.x10",
-            SqlPerfSurface::TypedInsertUser,
+            SqlPerfSurface::TypedInsertCustomer,
             "INSERT Customer",
             10,
         ),
         sql_perf_scenario(
             "insert.typed.user_single.x100",
-            SqlPerfSurface::TypedInsertUser,
+            SqlPerfSurface::TypedInsertCustomer,
             "INSERT Customer",
             100,
         ),
@@ -1222,19 +1278,19 @@ fn update_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         sql_perf_scenario(
             "update.typed.user_single.x1",
-            SqlPerfSurface::TypedUpdateUser,
+            SqlPerfSurface::TypedUpdateCustomer,
             "UPDATE Customer",
             1,
         ),
         sql_perf_scenario(
             "update.typed.user_single.x10",
-            SqlPerfSurface::TypedUpdateUser,
+            SqlPerfSurface::TypedUpdateCustomer,
             "UPDATE Customer",
             10,
         ),
         sql_perf_scenario(
             "update.typed.user_single.x100",
-            SqlPerfSurface::TypedUpdateUser,
+            SqlPerfSurface::TypedUpdateCustomer,
             "UPDATE Customer",
             100,
         ),
@@ -1245,19 +1301,19 @@ fn delete_operation_repeat_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         sql_perf_scenario(
             "delete.fluent.user_single.count.x1",
-            SqlPerfSurface::FluentDeletePerfUserCount,
+            SqlPerfSurface::FluentDeletePerfCustomerCount,
             "DELETE PERF Customer COUNT",
             1,
         ),
         sql_perf_scenario(
             "delete.fluent.user_single.count.x10",
-            SqlPerfSurface::FluentDeletePerfUserCount,
+            SqlPerfSurface::FluentDeletePerfCustomerCount,
             "DELETE PERF Customer COUNT",
             10,
         ),
         sql_perf_scenario(
             "delete.fluent.user_single.count.x100",
-            SqlPerfSurface::FluentDeletePerfUserCount,
+            SqlPerfSurface::FluentDeletePerfCustomerCount,
             "DELETE PERF Customer COUNT",
             100,
         ),
@@ -2317,7 +2373,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_customer_order_numeric_equ
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_order_only_covering_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_order_only_covering_projection() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one filtered-index guarded order-only projection so
         // the generated SQL lane reaches the guarded secondary-index route.
@@ -2344,7 +2400,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_order_only_covering_pro
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order_only_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_order_only_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
@@ -2377,7 +2433,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_order_only_desc_covering_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_order_only_desc_covering_projection()
+{
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending filtered-index guarded order-only
         // projection so reverse traversal stays locked in the generated lane.
@@ -2404,7 +2461,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_order_only_desc_coverin
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order_only_desc_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_order_only_desc_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -2437,7 +2494,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_order
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_strict_like_prefix_projection() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one guarded filtered-index strict prefix projection
         // so the generated SQL lane reaches the bounded filtered route.
@@ -2461,7 +2518,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_proj
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_equivalent_strict_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_equivalent_strict_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted guarded strict prefix spellings
@@ -2499,7 +2556,7 @@ fn sql_canister_query_lane_filtered_equivalent_strict_prefix_forms_match_active_
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_strict_like_prefix_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_strict_like_prefix_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
@@ -2533,7 +2590,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_stric
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_desc_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_strict_like_prefix_desc_projection() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded filtered-index strict prefix
         // projection so the generated SQL lane reaches the reverse bounded route.
@@ -2557,7 +2614,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_strict_like_prefix_desc
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_equivalent_desc_strict_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_equivalent_desc_strict_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted descending guarded strict prefix
@@ -2595,7 +2652,7 @@ fn sql_canister_query_lane_filtered_equivalent_desc_strict_prefix_forms_match_ac
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_strict_like_prefix_desc_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_strict_like_prefix_desc_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -2972,7 +3029,8 @@ fn sql_canister_query_lane_supports_strict_like_prefix_desc_predicate() {
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_prefix_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_strict_like_prefix_projection()
+ {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one guarded composite filtered strict-prefix
         // projection so the generated SQL lane reaches the equality-prefix
@@ -3000,7 +3058,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_p
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_composite_equivalent_strict_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_composite_equivalent_strict_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted guarded composite strict prefix
@@ -3038,7 +3096,7 @@ fn sql_canister_query_lane_filtered_composite_equivalent_strict_prefix_forms_mat
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_strict_like_prefix_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_strict_like_prefix_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
@@ -3078,7 +3136,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_prefix_desc_projection()
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_strict_like_prefix_desc_projection()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite filtered
@@ -3107,7 +3165,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_strict_like_p
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_composite_equivalent_desc_strict_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_composite_equivalent_desc_strict_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the three accepted descending guarded composite
@@ -3145,7 +3203,7 @@ fn sql_canister_query_lane_filtered_composite_equivalent_desc_strict_prefix_form
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_strict_like_prefix_desc_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_strict_like_prefix_desc_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -3185,7 +3243,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_order_only_projection() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one guarded composite filtered order-only
         // projection so the generated SQL lane reaches the equality-prefix
@@ -3213,7 +3271,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_pr
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_order_only_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_order_only_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
@@ -3253,7 +3311,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_desc_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_order_only_desc_projection()
+{
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite filtered
         // order-only projection so reverse suffix traversal stays pinned.
@@ -3280,7 +3339,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_de
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_order_only_desc_covering_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_order_only_desc_covering_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -3321,7 +3380,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_desc_offset_projection()
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_order_only_desc_offset_projection()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite filtered offset
@@ -3347,7 +3406,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_order_only_de
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_order_only_desc_offset_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_order_only_desc_offset_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -3388,7 +3447,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_desc_residual_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_desc_residual_projection() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite residual
         // projection so the generated SQL lane proves the `tier, handle` route
@@ -3416,7 +3475,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_desc_residual
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_desc_residual_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_desc_residual_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -3451,7 +3510,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_expression_order_only_projection() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one filtered expression-order CustomerAccount
         // projection so the generated SQL lane proves the guarded
@@ -3479,7 +3538,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_p
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_order_only_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_order_only_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
@@ -3514,7 +3573,8 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_desc_projection() {
+fn sql_canister_query_lane_supports_customer_account_filtered_expression_order_only_desc_projection()
+ {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending filtered expression-order
         // CustomerAccount projection so reverse traversal stays locked in the
@@ -3542,7 +3602,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_expression_order_only_d
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_order_only_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_order_only_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending
@@ -3578,7 +3638,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the accepted guarded expression prefix spellings
@@ -3625,7 +3685,7 @@ fn sql_canister_query_lane_filtered_expression_equivalent_prefix_forms_match_act
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_like_prefix_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_like_prefix_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded filtered
@@ -3660,7 +3720,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_text_range_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_text_range_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -3692,7 +3752,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the accepted descending guarded expression prefix
@@ -3739,7 +3799,7 @@ fn sql_canister_query_lane_filtered_expression_equivalent_desc_prefix_forms_matc
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_like_prefix_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_like_prefix_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending
@@ -3775,7 +3835,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expression_strict_text_range_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_expression_strict_text_range_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -3807,7 +3867,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_expre
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_order_only_projection()
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_order_only_projection()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one guarded composite expression order-only
@@ -3836,7 +3896,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_or
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_order_only_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_order_only_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
@@ -3875,7 +3935,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_key_only_order_only_projection()
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_key_only_order_only_projection()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let rows = query_projection_rows(
@@ -3899,7 +3959,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_ke
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_order_only_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_order_only_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -3937,7 +3997,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_order_only_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_order_only_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -3975,7 +4035,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_key_only_strict_text_range_projection()
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_key_only_strict_text_range_projection()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let rows = query_projection_rows(
@@ -3999,7 +4059,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_ke
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_strict_text_range_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_strict_text_range_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -4071,7 +4131,7 @@ fn sql_canister_query_lane_filtered_composite_expression_key_only_equivalent_dir
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_key_only_direct_starts_with_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_key_only_direct_starts_with_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -4109,7 +4169,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_order_only_desc_projection()
+fn sql_canister_query_lane_supports_customer_account_filtered_composite_expression_order_only_desc_projection()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute one descending guarded composite expression
@@ -4137,7 +4197,7 @@ fn sql_canister_query_lane_supports_active_user_filtered_composite_expression_or
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_order_only_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_order_only_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -4177,7 +4237,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the accepted guarded composite expression prefix
@@ -4224,7 +4284,7 @@ fn sql_canister_query_lane_filtered_composite_expression_equivalent_strict_prefi
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_like_prefix_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_like_prefix_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the guarded composite
@@ -4263,7 +4323,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_text_range_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_text_range_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -4299,7 +4359,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_active_user_projection_rows()
+fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_prefix_forms_match_customer_account_projection_rows()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: execute the accepted descending guarded composite
@@ -4346,7 +4406,7 @@ fn sql_canister_query_lane_filtered_composite_expression_equivalent_desc_strict_
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_like_prefix_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_like_prefix_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: request one execution descriptor for the descending guarded
@@ -4385,7 +4445,7 @@ fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_compo
 }
 
 #[test]
-fn sql_canister_query_lane_explain_execution_surfaces_active_user_filtered_composite_expression_strict_text_range_desc_route()
+fn sql_canister_query_lane_explain_execution_surfaces_customer_account_filtered_composite_expression_strict_text_range_desc_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -5204,7 +5264,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.projection.user_name_eq_limit",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1"
                         .to_string(),
                     cursor_token: None,
@@ -5214,7 +5274,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.projection.user_name_eq_limit.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1"
                         .to_string(),
                     cursor_token: None,
@@ -5233,7 +5293,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.primary_key_covering.user_id_limit1",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id FROM Customer ORDER BY id ASC LIMIT 1".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5284,7 +5344,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.secondary_covering.user_name_order_only_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5294,7 +5354,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.secondary_covering.user_name_order_only_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer ORDER BY name DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5305,7 +5365,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 scenario_key:
                     "typed.dispatch.secondary_covering.user_name_strict_range_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5316,7 +5376,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 scenario_key:
                     "typed.dispatch.secondary_covering.user_name_strict_range_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5326,7 +5386,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.query_from_sql.execute.scalar_limit",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedQueryFromSqlUserExecute,
+                    surface: SqlPerfSurface::TypedQueryFromSqlCustomerExecute,
                     sql: "SELECT * FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5335,7 +5395,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql.scalar_limit",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlCustomer,
                     sql: "SELECT * FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5383,7 +5443,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_grouped.user_age_count",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
                     sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10"
                         .to_string(),
                     cursor_token: None,
@@ -5393,7 +5453,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_grouped.user_age_count.having_empty",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
                     sql:
                         "SELECT age, COUNT(*) FROM Customer GROUP BY age HAVING COUNT(*) > 1000 ORDER BY age ASC LIMIT 10"
                             .to_string(),
@@ -5404,7 +5464,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_grouped.user_age_count.limit2.first_page",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
                     sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5414,7 +5474,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_grouped.user_age_count.limit2.second_page",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUserSecondPage,
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomerSecondPage,
                     sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5424,7 +5484,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_grouped.user_age_count.invalid_cursor",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlGroupedUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
                     sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2"
                         .to_string(),
                     cursor_token: Some("zz".to_string()),
@@ -5434,7 +5494,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_count",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT COUNT(*) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5443,7 +5503,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_count_age",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT COUNT(age) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5452,7 +5512,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_min_age",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT MIN(age) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5461,7 +5521,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_max_age",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT MAX(age) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5470,7 +5530,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_sum_age",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT SUM(age) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5479,7 +5539,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_avg_age",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedExecuteSqlAggregateUser,
+                    surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
                     sql: "SELECT AVG(age) FROM Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5488,7 +5548,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert.user_single",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertUser,
+                    surface: SqlPerfSurface::TypedInsertCustomer,
                     sql: "INSERT Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5497,7 +5557,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert_many_atomic.user_10",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertManyAtomicUser10,
+                    surface: SqlPerfSurface::TypedInsertManyAtomicCustomer10,
                     sql: "INSERT MANY Customer ATOMIC x10".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5506,7 +5566,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert_many_atomic.user_100",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertManyAtomicUser100,
+                    surface: SqlPerfSurface::TypedInsertManyAtomicCustomer100,
                     sql: "INSERT MANY Customer ATOMIC x100".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5515,7 +5575,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert_many_atomic.user_1000",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertManyAtomicUser1000,
+                    surface: SqlPerfSurface::TypedInsertManyAtomicCustomer1000,
                     sql: "INSERT MANY Customer ATOMIC x1000".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5524,7 +5584,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert_many_non_atomic.user_10",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertManyNonAtomicUser10,
+                    surface: SqlPerfSurface::TypedInsertManyNonAtomicCustomer10,
                     sql: "INSERT MANY Customer NON_ATOMIC x10".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5533,7 +5593,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert_many_non_atomic.user_100",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertManyNonAtomicUser100,
+                    surface: SqlPerfSurface::TypedInsertManyNonAtomicCustomer100,
                     sql: "INSERT MANY Customer NON_ATOMIC x100".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5542,7 +5602,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.insert_many_non_atomic.user_1000",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedInsertManyNonAtomicUser1000,
+                    surface: SqlPerfSurface::TypedInsertManyNonAtomicCustomer1000,
                     sql: "INSERT MANY Customer NON_ATOMIC x1000".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5551,7 +5611,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.update.user_single",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedUpdateUser,
+                    surface: SqlPerfSurface::TypedUpdateCustomer,
                     sql: "UPDATE Customer".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5560,7 +5620,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "fluent.delete.user_order_id_limit1.count",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::FluentDeleteUserOrderIdLimit1Count,
+                    surface: SqlPerfSurface::FluentDeleteCustomerByIdLimit1Count,
                     sql: "DELETE FROM Customer ORDER BY id LIMIT 1".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -5655,7 +5715,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.computed_projection.lower_name_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -5664,7 +5724,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.predicate.starts_with_name_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5674,7 +5734,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.predicate.lower_starts_with_name_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5684,7 +5744,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.predicate.upper_starts_with_name_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5694,7 +5754,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.predicate.upper_strict_range_name_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5704,7 +5764,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.predicate.lower_strict_range_name_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -5712,7 +5772,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.active_user_filtered_order_only_name_limit2.asc",
+                scenario_key: "generated.dispatch.customer_account_filtered_order_only_name_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
@@ -5722,7 +5782,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.active_user_filtered_order_only_name_limit2.desc",
+                scenario_key: "generated.dispatch.customer_account_filtered_order_only_name_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
@@ -5732,7 +5792,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.active_user_filtered_strict_like_name_limit1.asc",
+                scenario_key: "generated.dispatch.customer_account_filtered_strict_like_name_limit1.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1"
@@ -5743,7 +5803,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_direct_starts_with_name_limit1.asc",
+                    "generated.dispatch.customer_account_filtered_direct_starts_with_name_limit1.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1"
@@ -5753,7 +5813,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.active_user_filtered_strict_range_name_limit1.asc",
+                scenario_key: "generated.dispatch.customer_account_filtered_strict_range_name_limit1.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1"
@@ -5763,7 +5823,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.active_user_filtered_strict_like_name_limit1.desc",
+                scenario_key: "generated.dispatch.customer_account_filtered_strict_like_name_limit1.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1"
@@ -5774,7 +5834,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_direct_starts_with_name_limit1.desc",
+                    "generated.dispatch.customer_account_filtered_direct_starts_with_name_limit1.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1"
@@ -5784,7 +5844,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "generated.dispatch.active_user_filtered_strict_range_name_limit1.desc",
+                scenario_key: "generated.dispatch.customer_account_filtered_strict_range_name_limit1.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1"
@@ -5795,7 +5855,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_order_only_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_order_only_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2"
@@ -5806,7 +5866,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_strict_like_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_strict_like_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2"
@@ -5817,7 +5877,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_direct_starts_with_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_direct_starts_with_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2"
@@ -5828,7 +5888,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_strict_range_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_strict_range_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2"
@@ -5839,7 +5899,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_order_only_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_order_only_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2"
@@ -5850,7 +5910,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_strict_like_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_strict_like_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2"
@@ -5861,7 +5921,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_direct_starts_with_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_direct_starts_with_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2"
@@ -5872,7 +5932,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_strict_range_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_strict_range_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2"
@@ -5883,7 +5943,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_order_only_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5894,7 +5954,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5905,7 +5965,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
@@ -5916,7 +5976,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5927,7 +5987,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5938,7 +5998,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_strict_like_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_strict_like_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5949,7 +6009,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5960,7 +6020,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.asc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.asc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
@@ -5971,7 +6031,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_order_only_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
@@ -5982,7 +6042,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_strict_like_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_strict_like_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
@@ -5993,7 +6053,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
@@ -6004,7 +6064,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "generated.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.desc",
+                    "generated.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.desc",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
@@ -6014,9 +6074,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "typed.dispatch.active_user_filtered_order_only_name_limit2.asc",
+                scenario_key: "typed.dispatch.customer_account_filtered_order_only_name_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6024,9 +6084,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
-                scenario_key: "typed.dispatch.active_user_filtered_order_only_name_limit2.desc",
+                scenario_key: "typed.dispatch.customer_account_filtered_order_only_name_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6035,9 +6095,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_order_only_handle_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_order_only_handle_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6046,9 +6106,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_order_only_handle_limit2.desc",
+                    "typed.dispatch.customer_account_filtered_composite_order_only_handle_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6057,9 +6117,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_order_only_handle_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6068,9 +6128,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6079,9 +6139,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6090,9 +6150,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_key_only_strict_range_tier_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6101,9 +6161,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6112,9 +6172,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6123,9 +6183,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.asc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6134,9 +6194,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_order_only_handle_limit2.desc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6145,9 +6205,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_direct_starts_with_handle_limit2.desc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6156,9 +6216,9 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             },
             SqlPerfScenario {
                 scenario_key:
-                    "typed.dispatch.active_user_filtered_composite_expression_strict_range_handle_limit2.desc",
+                    "typed.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchActiveUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomerAccount,
                     sql: "SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6248,7 +6308,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.user_expression_order.lower_name_id_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6258,7 +6318,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.user_expression_order.lower_name_id_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6334,7 +6394,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.customer_order_order_only_composite.priority_status_id_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchOrder,
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6344,7 +6404,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.customer_order_order_only_composite.priority_status_id_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchOrder,
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6355,7 +6415,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 scenario_key:
                     "typed.dispatch.customer_order_numeric_equality.priority_eq20_status_id_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchOrder,
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6366,7 +6426,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 scenario_key:
                     "typed.dispatch.customer_order_numeric_equality.priority_eq20_status_id_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchOrder,
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6377,7 +6437,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 scenario_key:
                     "typed.dispatch.customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.asc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchOrder,
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6388,7 +6448,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 scenario_key:
                     "typed.dispatch.customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.desc",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchOrder,
+                    surface: SqlPerfSurface::TypedDispatchCustomerOrder,
                     sql: "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2"
                         .to_string(),
                     cursor_token: None,
@@ -6398,7 +6458,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "fluent.load.user_order_id_limit2",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::FluentLoadUserOrderIdLimit2,
+                    surface: SqlPerfSurface::FluentLoadCustomerByIdLimit2,
                     sql: "SELECT * FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -6407,7 +6467,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "fluent.load.user_name_eq_limit1",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::FluentLoadUserNameEqLimit1,
+                    surface: SqlPerfSurface::FluentLoadCustomerNameEqLimit1,
                     sql: "SELECT * FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -6416,7 +6476,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "fluent.paged.user_order_id_limit2.first_page",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::FluentPagedUserOrderIdLimit2FirstPage,
+                    surface: SqlPerfSurface::FluentPagedCustomerByIdLimit2FirstPage,
                     sql: "SELECT * FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -6425,7 +6485,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "fluent.paged.user_order_id_limit2.second_page",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::FluentPagedUserOrderIdLimit2SecondPage,
+                    surface: SqlPerfSurface::FluentPagedCustomerByIdLimit2SecondPage,
                     sql: "SELECT * FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
@@ -6434,7 +6494,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "fluent.paged.user_order_id_limit2.invalid_cursor",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::FluentPagedUserOrderIdLimit2InvalidCursor,
+                    surface: SqlPerfSurface::FluentPagedCustomerByIdLimit2InvalidCursor,
                     sql: "SELECT * FROM Customer ORDER BY id LIMIT 2".to_string(),
                     cursor_token: Some("zz".to_string()),
                     repeat_count: 5,
@@ -6461,7 +6521,7 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
             SqlPerfScenario {
                 scenario_key: "typed.dispatch.delete",
                 request: SqlPerfRequest {
-                    surface: SqlPerfSurface::TypedDispatchUser,
+                    surface: SqlPerfSurface::TypedDispatchCustomer,
                     sql: "DELETE FROM Customer ORDER BY id LIMIT 1".to_string(),
                     cursor_token: None,
                     repeat_count: 1,
@@ -6978,7 +7038,7 @@ fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_bounded_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
@@ -7035,7 +7095,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_reports_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_desc_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
@@ -7092,7 +7152,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_rep
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
@@ -7149,7 +7209,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_desc_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_desc_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
@@ -7206,7 +7266,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
@@ -7263,7 +7323,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_desc_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_desc_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
@@ -7320,7 +7380,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the guarded
@@ -7377,7 +7437,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_desc_reports_positive_instruction_samples()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_reports_positive_instruction_samples()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: sample the generated query surface for the descending
@@ -7900,7 +7960,7 @@ fn sql_canister_perf_generated_dispatch_customer_order_numeric_equality_bounded_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
@@ -7919,7 +7979,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribut
         // Phase 2: assert the generated dispatch attribution keeps positive
         // stage accounting on the guarded filtered-index route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_order_only",
+            "generated.customer_account_filtered_order_only",
             &sample,
             true,
         );
@@ -7937,7 +7997,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_attribut
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_order_only_desc_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
@@ -7956,7 +8016,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_att
         // Phase 2: assert the descending generated dispatch attribution keeps
         // positive stage accounting on the reverse guarded filtered-index route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_order_only_desc",
+            "generated.customer_account_filtered_order_only_desc",
             &sample,
             true,
         );
@@ -7974,7 +8034,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_order_only_desc_att
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
@@ -7993,7 +8053,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
         // Phase 2: assert the generated dispatch attribution keeps positive
         // stage accounting on the ordered composite filtered route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_composite_order_only",
+            "generated.customer_account_filtered_composite_order_only",
             &sample,
             true,
         );
@@ -8011,7 +8071,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_only_desc_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_order_only_desc_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
@@ -8030,7 +8090,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
         // Phase 2: assert the descending generated dispatch attribution keeps
         // positive stage accounting on the reverse composite route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_composite_order_only_desc",
+            "generated.customer_account_filtered_composite_order_only_desc",
             &sample,
             true,
         );
@@ -8048,7 +8108,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_order_onl
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
@@ -8067,7 +8127,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
         // Phase 2: assert the generated dispatch attribution keeps positive
         // stage accounting on the bounded filtered route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_strict_like_prefix",
+            "generated.customer_account_filtered_strict_like_prefix",
             &sample,
             true,
         );
@@ -8085,7 +8145,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_desc_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_strict_like_prefix_desc_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
@@ -8104,7 +8164,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
         // Phase 2: assert the descending generated dispatch attribution keeps
         // positive stage accounting on the reverse bounded filtered route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_strict_like_prefix_desc",
+            "generated.customer_account_filtered_strict_like_prefix_desc",
             &sample,
             true,
         );
@@ -8122,7 +8182,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_strict_like_prefix_
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the guarded
@@ -8141,7 +8201,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
         // Phase 2: assert the generated dispatch attribution keeps positive
         // stage accounting on the bounded composite filtered route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_composite_strict_like_prefix",
+            "generated.customer_account_filtered_composite_strict_like_prefix",
             &sample,
             true,
         );
@@ -8159,7 +8219,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
 }
 
 #[test]
-fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_like_prefix_desc_attribution_reports_positive_stages()
+fn sql_canister_perf_generated_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_attribution_reports_positive_stages()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         // Phase 1: attribute the generated query surface for the descending
@@ -8178,7 +8238,7 @@ fn sql_canister_perf_generated_dispatch_active_user_filtered_composite_strict_li
         // Phase 2: assert the descending generated dispatch attribution keeps
         // positive stage accounting on the reverse bounded composite route.
         assert_positive_scalar_attribution_sample(
-            "generated.active_user_filtered_composite_strict_like_prefix_desc",
+            "generated.customer_account_filtered_composite_strict_like_prefix_desc",
             &sample,
             true,
         );
@@ -8352,7 +8412,7 @@ fn sql_canister_perf_grouped_phase_attribution_reports_positive_stages() {
             pic,
             canister_id,
             &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::TypedGroupedUser,
+                surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
                 sql: sql.to_string(),
                 cursor_token: None,
             },
@@ -8409,7 +8469,7 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
             pic,
             canister_id,
             &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::TypedGroupedUser,
+                surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
                 sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10"
                     .to_string(),
                 cursor_token: None,
@@ -8424,7 +8484,7 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
             pic,
             canister_id,
             &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::TypedGroupedUser,
+                surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
                 sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2"
                     .to_string(),
                 cursor_token: None,
@@ -8439,7 +8499,7 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
             pic,
             canister_id,
             &SqlPerfAttributionRequest {
-                surface: SqlPerfAttributionSurface::TypedGroupedUserSecondPage,
+                surface: SqlPerfAttributionSurface::TypedGroupedCustomerSecondPage,
                 sql: "SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2"
                     .to_string(),
                 cursor_token: None,

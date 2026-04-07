@@ -12,10 +12,10 @@
 * `canisters/audit/one_complex`: One-entity complex SQL audit harness.
 * `canisters/audit/ten_simple`: Ten-entity simple SQL audit harness.
 * `canisters/audit/ten_complex`: Ten-entity complex SQL audit harness.
-* `canisters/demo/rpg`: Broad SQL RPG demo canister harness used for onboarding and integration flows.
-* `canisters/test/sql_parity`: Broad SQL parity/explain test canister harness.
+* `canisters/demo/rpg`: Character-only RPG demo/perf canister harness.
+* `canisters/test/sql_parity`: Broad SQL parity/explain/perf test canister harness.
 * `canisters/test/sql`: Lightweight SQL smoke-test canister harness.
-* `schema/demo/rpg`: Demo canister schema fixtures.
+* `schema/demo/rpg`: Character-only RPG demo schema fixtures and seed data.
 * `schema/test/sql_parity`: Broad SQL parity test-canister schema fixtures.
 * `schema/audit/minimal`: Minimal schema fixtures for lightweight wasm auditing.
 * `schema/audit/one_simple`: One-entity simple SQL audit schema fixtures.

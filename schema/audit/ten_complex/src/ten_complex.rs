@@ -1,5 +1,5 @@
 use icydb::design::prelude::*;
-use icydb_testing_wasm_fixtures::{define_complex_audit_entities, define_complex_audit_types};
+use icydb_testing_wasm_helpers::{define_complex_audit_entities, define_complex_audit_types};
 
 ///
 /// TenComplexCanister

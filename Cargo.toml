@@ -27,7 +27,7 @@ members = [
     "schema/test/sql_parity",
     "testing/macro-tests",
     "testing/pocket-ic",
-    "testing/wasm-fixtures",
+    "testing/wasm-helpers",
 ]
 resolver = "2"
 
@@ -66,7 +66,7 @@ icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-test-sql-parity-fixtures = { path = "schema/test/sql_parity" }
-icydb-testing-wasm-fixtures = { path = "testing/wasm-fixtures" }
+icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
 icydb-utils = { path = "crates/icydb-utils", version = "0.69.3" }
 num-bigint = "0.4"
 proc-macro2 = "1.0"

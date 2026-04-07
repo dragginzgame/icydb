@@ -1,5 +1,6 @@
 //!
-//! Broad SQL RPG demo canister used by local demos and integration harnesses.
+//! Character-only RPG demo canister used by local demos and demo-local perf
+//! probes.
 //!
 
 #[cfg(feature = "sql")]

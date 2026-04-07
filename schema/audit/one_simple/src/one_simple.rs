@@ -1,5 +1,5 @@
 use icydb::design::prelude::*;
-use icydb_testing_wasm_fixtures::define_simple_audit_entities;
+use icydb_testing_wasm_helpers::define_simple_audit_entities;
 
 ///
 /// OneSimpleCanister

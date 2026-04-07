@@ -9,7 +9,7 @@ description = "Ten-entity simple schema fixture crate for wasm SQL auditing"
 [dependencies]
 candid = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
-icydb-testing-wasm-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 
 [lints]
 workspace = true

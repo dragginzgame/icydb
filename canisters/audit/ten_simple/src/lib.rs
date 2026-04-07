@@ -19,6 +19,6 @@ fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 }
 
 #[cfg(all(test, feature = "sql"))]
-icydb_testing_wasm_fixtures::define_generated_sql_dispatch_surface_stability_test!();
+icydb_testing_wasm_helpers::define_generated_sql_dispatch_surface_stability_test!();
 
 canic_cdk::export_candid!();
