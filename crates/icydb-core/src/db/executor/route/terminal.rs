@@ -227,45 +227,46 @@ fn secondary_storage_existence_witness_covering_eligible(
     // explicitly before the broader order-only shape checks. This keeps the
     // storage witness policy concrete: one constant equality prefix, one
     // suffix component, and one primary key in ascending suffix order only.
-    if let Some((index, prefix_values)) = plan.access.as_index_prefix_path() {
-        if index.fields().len() == 2 && prefix_values.len() == 1 {
-            let mut component_zero_count = 0usize;
-            let mut component_one_count = 0usize;
-            let mut constant_count = 0usize;
-            let mut primary_key_count = 0usize;
+    if let Some((index, prefix_values)) = plan.access.as_index_prefix_path()
+        && index.fields().len() == 2
+        && prefix_values.len() == 1
+    {
+        let mut component_zero_count = 0usize;
+        let mut component_one_count = 0usize;
+        let mut constant_count = 0usize;
+        let mut primary_key_count = 0usize;
 
-            for field in &covering.fields {
-                match field.source {
-                    CoveringReadFieldSource::IndexComponent { component_index: 0 } => {
-                        component_zero_count = component_zero_count.saturating_add(1);
-                    }
-                    CoveringReadFieldSource::IndexComponent { component_index: 1 } => {
-                        component_one_count = component_one_count.saturating_add(1);
-                    }
-                    CoveringReadFieldSource::IndexComponent { component_index: _ } => {
-                        return false;
-                    }
-                    CoveringReadFieldSource::Constant(_) => {
-                        constant_count = constant_count.saturating_add(1);
-                    }
-                    CoveringReadFieldSource::PrimaryKey => {
-                        primary_key_count = primary_key_count.saturating_add(1);
-                    }
+        for field in &covering.fields {
+            match field.source {
+                CoveringReadFieldSource::IndexComponent { component_index: 0 } => {
+                    component_zero_count = component_zero_count.saturating_add(1);
+                }
+                CoveringReadFieldSource::IndexComponent { component_index: 1 } => {
+                    component_one_count = component_one_count.saturating_add(1);
+                }
+                CoveringReadFieldSource::IndexComponent { component_index: _ } => {
+                    return false;
+                }
+                CoveringReadFieldSource::Constant(_) => {
+                    constant_count = constant_count.saturating_add(1);
+                }
+                CoveringReadFieldSource::PrimaryKey => {
+                    primary_key_count = primary_key_count.saturating_add(1);
                 }
             }
-
-            return matches!(
-                covering.order_contract,
-                CoveringProjectionOrder::IndexOrder(Direction::Asc)
-            ) && component_zero_count == 0
-                && component_one_count == 1
-                && constant_count == 1
-                && primary_key_count == 1
-                && covering.fields.len()
-                    == component_one_count
-                        .saturating_add(constant_count)
-                        .saturating_add(primary_key_count);
         }
+
+        return matches!(
+            covering.order_contract,
+            CoveringProjectionOrder::IndexOrder(Direction::Asc)
+        ) && component_zero_count == 0
+            && component_one_count == 1
+            && constant_count == 1
+            && primary_key_count == 1
+            && covering.fields.len()
+                == component_one_count
+                    .saturating_add(constant_count)
+                    .saturating_add(primary_key_count);
     }
 
     // Phase 2: keep the existing pure order-only storage-witness families
