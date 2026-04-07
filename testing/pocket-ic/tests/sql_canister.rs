@@ -6951,14 +6951,13 @@ fn sql_canister_perf_customer_name_order_keeps_row_check_metrics_zero_in_parity(
             "typed Customer name-order perf sample should return the requested window",
         );
 
-        let generated_metrics =
-            generated.outcome.row_check_metrics.clone().expect(
-                "generated Customer name-order perf sample should attach row_check metrics",
-            );
+        let generated_metrics = generated
+            .outcome
+            .row_check_metrics
+            .expect("generated Customer name-order perf sample should attach row_check metrics");
         let typed_metrics = typed
             .outcome
             .row_check_metrics
-            .clone()
             .expect("typed Customer name-order perf sample should attach row_check metrics");
 
         assert_eq!(

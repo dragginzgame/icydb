@@ -216,15 +216,18 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
     }
 }
 
+#[cfg(any(test, feature = "structural-read-metrics"))]
 pub(in crate::db) fn record_row_check_index_entry_scanned() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.index_entries_scanned = metrics.index_entries_scanned.saturating_add(1);
     });
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+pub(in crate::db) const fn record_row_check_index_entry_scanned() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.index_membership_single_key_entries = metrics
             .index_membership_single_key_entries
@@ -232,40 +235,54 @@ pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
     });
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+pub(in crate::db) const fn record_row_check_index_membership_single_key_entry() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 pub(in crate::db) fn record_row_check_index_membership_multi_key_entry() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.index_membership_multi_key_entries =
             metrics.index_membership_multi_key_entries.saturating_add(1);
     });
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+pub(in crate::db) const fn record_row_check_index_membership_multi_key_entry() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 pub(in crate::db) fn record_row_check_index_membership_key_decoded() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.index_membership_keys_decoded =
             metrics.index_membership_keys_decoded.saturating_add(1);
     });
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+pub(in crate::db) const fn record_row_check_index_membership_key_decoded() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 pub(in crate::db) fn record_row_check_covering_candidate_seen() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.row_check_covering_candidates_seen =
             metrics.row_check_covering_candidates_seen.saturating_add(1);
     });
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+pub(in crate::db) const fn record_row_check_covering_candidate_seen() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 pub(in crate::db) fn record_row_check_row_emitted() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.row_check_rows_emitted = metrics.row_check_rows_emitted.saturating_add(1);
     });
 }
 
-#[allow(unused_variables)]
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+pub(in crate::db) const fn record_row_check_row_emitted() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| match source {
         RowPresenceProbeSource::BorrowedDataStore => {
             metrics.row_presence_probe_borrowed_data_store_count = metrics
@@ -280,17 +297,22 @@ fn record_row_presence_probe_source(source: RowPresenceProbeSource) {
     });
 }
 
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+const fn record_row_presence_probe_source(_source: RowPresenceProbeSource) {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 fn record_row_presence_key_to_raw_encode() {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.row_presence_key_to_raw_encodes =
             metrics.row_presence_key_to_raw_encodes.saturating_add(1);
     });
 }
 
-#[allow(unused_variables)]
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+const fn record_row_presence_key_to_raw_encode() {}
+
+#[cfg(any(test, feature = "structural-read-metrics"))]
 fn record_row_presence_probe_result(row_exists: bool) {
-    #[cfg(any(test, feature = "structural-read-metrics"))]
     update_row_check_metrics(|metrics| {
         metrics.row_presence_probe_count = metrics.row_presence_probe_count.saturating_add(1);
         if row_exists {
@@ -300,6 +322,9 @@ fn record_row_presence_probe_result(row_exists: bool) {
         }
     });
 }
+
+#[cfg(not(any(test, feature = "structural-read-metrics")))]
+const fn record_row_presence_probe_result(_row_exists: bool) {}
 
 ///
 /// with_row_check_metrics
