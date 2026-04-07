@@ -7046,13 +7046,13 @@ fn sql_canister_perf_customer_name_order_stale_reports_row_check_metrics_in_pari
             "typed stale Customer name-order perf sample should consume scan budget on the missing leading row before emitting the first live row",
         );
 
-        let generated_metrics = generated.outcome.row_check_metrics.clone().expect(
+        let generated_metrics = generated.outcome.row_check_metrics.expect(
             "generated stale Customer name-order perf sample should attach row_check metrics",
         );
-        let typed_metrics =
-            typed.outcome.row_check_metrics.clone().expect(
-                "typed stale Customer name-order perf sample should attach row_check metrics",
-            );
+        let typed_metrics = typed
+            .outcome
+            .row_check_metrics
+            .expect("typed stale Customer name-order perf sample should attach row_check metrics");
 
         assert_eq!(
             generated_metrics.row_check_covering_candidates_seen, 2,
