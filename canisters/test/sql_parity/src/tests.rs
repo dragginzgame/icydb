@@ -3721,6 +3721,196 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_planner_choice_range_desc_explain_json_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerChoice range deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_desc_explain_json_prefers_order_compatible_index(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexRange",
+            "PlannerChoice|tier|label|handle",
+            "descending PlannerChoice range EXPLAIN JSON should lock the order-compatible range index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerChoice|tier|label|alpha\""),
+            "descending PlannerChoice range EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible range index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_json_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice equality-prefix suffix-order deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_json_prefers_order_compatible_index(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexPrefix",
+            "PlannerChoice|tier|label|handle",
+            "PlannerChoice equality-prefix suffix-order EXPLAIN JSON should lock the order-compatible composite prefix index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerChoice|tier|label|alpha\""),
+            "PlannerChoice equality-prefix suffix-order EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible composite prefix index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_json_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerChoice equality-prefix suffix-order deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_json_prefers_order_compatible_index(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexPrefix",
+            "PlannerChoice|tier|label|handle",
+            "descending PlannerChoice equality-prefix suffix-order EXPLAIN JSON should lock the order-compatible composite prefix index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerChoice|tier|label|alpha\""),
+            "descending PlannerChoice equality-prefix suffix-order EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible composite prefix index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied"),
+            "PlannerChoice equality-prefix suffix-order EXPLAIN EXECUTION should expose the bounded chosen prefix route: {explain}",
+        );
+        assert!(
+            !explain.contains("IndexRangeLimitPushdown"),
+            "PlannerChoice equality-prefix suffix-order EXPLAIN EXECUTION should not claim index-range limit pushdown on an index-prefix route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_explain_execution_reports_materialized_order_fallback(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("scan_dir=Text(\"desc\")"),
+            "descending PlannerChoice equality-prefix suffix-order EXPLAIN EXECUTION should expose the chosen prefix route plus materialized order fallback: {explain}",
+        );
+        assert!(
+            !explain.contains("IndexRangeLimitPushdown"),
+            "descending PlannerChoice equality-prefix suffix-order EXPLAIN EXECUTION should not claim index-range limit pushdown on an index-prefix route: {explain}",
+        );
+        assert!(
+            !explain.contains("TopNSeek"),
+            "descending PlannerChoice equality-prefix suffix-order EXPLAIN EXECUTION should stay off the ascending prefix Top-N seek shape: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByAccessSatisfied"),
+            "descending PlannerChoice equality-prefix suffix-order EXPLAIN EXECUTION should not claim access-satisfied ordering once it materializes sort order: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("OrderByAccessSatisfied"),
+            "PlannerChoice range EXPLAIN EXECUTION should expose the bounded ordered range route on the chosen composite index: {explain}",
+        );
+        assert!(
+            !explain.contains("TopNSeek"),
+            "PlannerChoice range EXPLAIN EXECUTION should keep the range lane off the prefix-only Top-N seek shape: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_desc_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("scan_dir=Text(\"desc\")"),
+            "descending PlannerChoice range EXPLAIN EXECUTION should expose the bounded ordered range route on the chosen composite index: {explain}",
+        );
+        assert!(
+            !explain.contains("TopNSeek"),
+            "descending PlannerChoice range EXPLAIN EXECUTION should keep the range lane off the prefix-only Top-N seek shape: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_planner_choice_order_only_explain_json_matches_typed_surface() {
         assert_dispatch_matches_typed_as::<PlannerChoice>(
             "EXPLAIN JSON SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2",
@@ -3746,6 +3936,107 @@ mod tests {
         assert!(
             !explain.contains("\"name\":\"PlannerChoice|beta\""),
             "PlannerChoice order-only EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible fallback index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<PlannerPrefixChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerPrefixChoice composite order-only deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_prefers_order_compatible_index(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexRange",
+            "PlannerPrefixChoice|tier|handle",
+            "PlannerPrefixChoice composite order-only EXPLAIN JSON should lock the order-compatible fallback index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerPrefixChoice|tier|label\""),
+            "PlannerPrefixChoice composite order-only EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible fallback index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_json_matches_typed_surface(
+    ) {
+        assert_dispatch_matches_typed_as::<PlannerPrefixChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerPrefixChoice composite order-only deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_json_prefers_order_compatible_index(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexRange",
+            "PlannerPrefixChoice|tier|handle",
+            "descending PlannerPrefixChoice composite order-only EXPLAIN JSON should lock the order-compatible fallback index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerPrefixChoice|tier|label\""),
+            "descending PlannerPrefixChoice composite order-only EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible fallback index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerPrefixChoice|tier|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied"),
+            "PlannerPrefixChoice composite order-only EXPLAIN EXECUTION should expose the bounded chosen index-range route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerPrefixChoice|tier|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("scan_dir=Text(\"desc\")"),
+            "descending PlannerPrefixChoice composite order-only EXPLAIN EXECUTION should expose the bounded chosen index-range route: {explain}",
         );
     }
 

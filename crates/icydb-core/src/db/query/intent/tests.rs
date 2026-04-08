@@ -1939,6 +1939,141 @@ fn explain_execution_verbose_range_choice_prefers_order_compatible_index_when_ra
 }
 
 #[test]
+fn explain_execution_verbose_range_choice_desc_prefers_order_compatible_index_when_rank_ties() {
+    let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Uint(10),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by_desc("score")
+        .order_by_desc("label")
+        .order_by_desc("id")
+        .explain_execution_verbose()
+        .expect("descending deterministic range explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
+        "descending verbose explain must project the planner-selected order-compatible range index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "descending planner-choice explain must report the canonical order-compatibility tie-break when range rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "descending verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_equality_prefix_suffix_order_prefers_order_compatible_index_when_rank_ties()
+ {
+    let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Uint(20),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("deterministic equality-prefix suffix-order explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
+        "verbose explain must project the planner-selected order-compatible equality-prefix suffix-order index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "planner-choice explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_equality_prefix_suffix_order_desc_prefers_order_compatible_index_when_rank_ties()
+ {
+    let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Uint(20),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by_desc("label")
+        .order_by_desc("id")
+        .explain_execution_verbose()
+        .expect("descending deterministic equality-prefix suffix-order explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
+        "descending verbose explain must project the planner-selected order-compatible equality-prefix suffix-order index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "descending planner-choice explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "descending verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
 fn explain_execution_verbose_order_only_choice_prefers_order_compatible_index_when_rank_ties() {
     let verbose = Query::<PlanOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore)
         .order_by("alpha")
@@ -1965,6 +2100,70 @@ fn explain_execution_verbose_order_only_choice_prefers_order_compatible_index_wh
                 rejections.contains("index:a_beta_idx=order_compatible_preferred")
             }),
         "verbose explain must report the lexicographically earlier but order-incompatible fallback index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_composite_order_only_choice_prefers_order_compatible_index_when_rank_ties()
+ {
+    let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("tier")
+        .order_by("handle")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("deterministic composite order-only explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
+        "verbose explain must project the planner-selected order-compatible composite fallback index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "planner-choice explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
+            }),
+        "verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_composite_order_only_choice_desc_prefers_order_compatible_index_when_rank_ties()
+ {
+    let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("tier")
+        .order_by_desc("handle")
+        .order_by_desc("id")
+        .explain_execution_verbose()
+        .expect("descending deterministic composite order-only explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
+        "descending verbose explain must project the planner-selected order-compatible composite fallback index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "descending planner-choice explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
+            }),
+        "descending verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
     );
 }
 

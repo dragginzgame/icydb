@@ -1003,6 +1003,150 @@ fn session_fluent_verbose_range_choice_prefers_order_compatible_index_when_rank_
 }
 
 #[test]
+fn session_fluent_verbose_range_choice_desc_prefers_order_compatible_index_when_rank_ties() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Uint(10),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by_desc("score")
+        .order_by_desc("label")
+        .order_by_desc("id")
+        .explain_execution_verbose()
+        .expect("session descending deterministic range verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
+        "session descending verbose explain must project the session-visible order-compatible range index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session descending verbose explain must report the canonical order-compatibility tie-break when range rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "session descending verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_equality_prefix_suffix_order_prefers_order_compatible_index_when_rank_ties()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Uint(20),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("session deterministic equality-prefix suffix-order verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
+        "session fluent verbose explain must project the session-visible order-compatible equality-prefix suffix-order index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session fluent verbose explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "session fluent verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_equality_prefix_suffix_order_desc_prefers_order_compatible_index_when_rank_ties()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Uint(20),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by_desc("label")
+        .order_by_desc("id")
+        .explain_execution_verbose()
+        .expect("session descending deterministic equality-prefix suffix-order verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexPrefix(z_tier_score_label_idx)".to_string()),
+        "session descending verbose explain must project the session-visible order-compatible equality-prefix suffix-order index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session descending verbose explain must report the canonical order-compatibility tie-break when equality-prefix suffix-order rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "session descending verbose explain must report the lexicographically earlier but order-incompatible equality-prefix suffix-order index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
 fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_rank_ties() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -1032,6 +1176,506 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
                 rejections.contains("index:a_beta_idx=order_compatible_preferred")
             }),
         "session fluent verbose explain must report the lexicographically earlier but order-incompatible fallback index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_composite_order_only_choice_prefers_order_compatible_index_when_rank_ties()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicChoiceEntity>()
+        .order_by("tier")
+        .order_by("handle")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("session deterministic composite order-only verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
+        "session fluent verbose explain must project the session-visible order-compatible composite fallback index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session fluent verbose explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
+            }),
+        "session fluent verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_composite_order_only_choice_desc_prefers_order_compatible_index_when_rank_ties()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicChoiceEntity>()
+        .order_by_desc("tier")
+        .order_by_desc("handle")
+        .order_by_desc("id")
+        .explain_execution_verbose()
+        .expect(
+            "session descending deterministic composite order-only verbose explain should build",
+        );
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_handle_idx)".to_string()),
+        "session descending verbose explain must project the session-visible order-compatible composite fallback index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session descending verbose explain must report the canonical order-compatibility tie-break when composite order-only ranking ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
+            }),
+        "session descending verbose explain must report the lexicographically earlier but order-incompatible composite fallback index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_explain_execution_equality_prefix_suffix_order_uses_top_n_seek_on_chosen_prefix_route() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Uint(20),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("label")
+        .order_by("id")
+        .limit(2)
+        .explain_execution()
+        .expect(
+            "session deterministic equality-prefix suffix-order explain_execution should build",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "equality-prefix suffix-order roots should stay on the chosen index-prefix route",
+    );
+    assert!(
+        descriptor.access_strategy().is_some_and(
+            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "z_tier_score_label_idx")
+        ),
+        "equality-prefix suffix-order roots should expose the chosen order-compatible composite index",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "equality-prefix suffix-order roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        "equality-prefix suffix-order roots should derive Top-N seek for bounded ordered windows",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_none(),
+        "equality-prefix suffix-order prefix routes must not pretend to be index-range limit-pushdown shapes",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "equality-prefix suffix-order roots should keep access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_equality_prefix_suffix_order_desc_materializes_order_on_chosen_prefix_route()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Uint(20),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by_desc("label")
+        .order_by_desc("id")
+        .limit(2)
+        .explain_execution()
+        .expect(
+            "session descending deterministic equality-prefix suffix-order explain_execution should build",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "descending equality-prefix suffix-order roots should stay on the chosen index-prefix route",
+    );
+    assert!(
+        descriptor.access_strategy().is_some_and(
+            |access| matches!(access, ExplainAccessPath::IndexPrefix { name, .. } if *name == "z_tier_score_label_idx")
+        ),
+        "descending equality-prefix suffix-order roots should expose the chosen order-compatible composite index",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("scan_dir"),
+        Some(&Value::Text("desc".to_string())),
+        "descending equality-prefix suffix-order roots should expose the descending scan direction",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending equality-prefix suffix-order roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_some(),
+        "descending equality-prefix suffix-order roots should fail closed to a materialized order stage on the chosen prefix route",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_none(),
+        "descending equality-prefix suffix-order prefix routes must not pretend to be index-range limit-pushdown shapes",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_none(),
+        "descending equality-prefix suffix-order roots should stay off the ascending prefix Top-N seek shape",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_none(),
+        "descending equality-prefix suffix-order roots should not claim access-satisfied ordering once they materialize sort order",
+    );
+}
+
+#[test]
+fn session_explain_execution_range_choice_uses_bounded_index_range_hints() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Uint(10),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("score")
+        .order_by("label")
+        .order_by("id")
+        .limit(2)
+        .explain_execution()
+        .expect("session deterministic range explain_execution should build");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "range-choice roots should stay on the chosen index-range route",
+    );
+    assert!(
+        descriptor
+            .access_strategy()
+            .is_some_and(
+                |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_score_label_idx")
+            ),
+        "range-choice roots should expose the chosen order-compatible range index",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "range-choice roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "range-choice roots should derive bounded index-range limit pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_none(),
+        "range-choice roots should stay off the prefix-only Top-N seek shape",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "range-choice roots should keep access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_range_choice_desc_uses_bounded_index_range_hints() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Uint(10),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by_desc("score")
+        .order_by_desc("label")
+        .order_by_desc("id")
+        .limit(2)
+        .explain_execution()
+        .expect("session descending deterministic range explain_execution should build");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending range-choice roots should stay on the chosen index-range route",
+    );
+    assert!(
+        descriptor
+            .access_strategy()
+            .is_some_and(
+                |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_score_label_idx")
+            ),
+        "descending range-choice roots should expose the chosen order-compatible range index",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("scan_dir"),
+        Some(&Value::Text("desc".to_string())),
+        "descending range-choice roots should expose the descending scan direction",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending range-choice roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "descending range-choice roots should derive bounded index-range limit pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_none(),
+        "descending range-choice roots should stay off the prefix-only Top-N seek shape",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending range-choice roots should keep access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_composite_order_only_choice_uses_bounded_index_range_hints() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionDeterministicChoiceEntity>()
+        .order_by("tier")
+        .order_by("handle")
+        .order_by("id")
+        .limit(2)
+        .explain_execution()
+        .expect("session deterministic composite order-only explain_execution should build");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "composite order-only roots should stay on the chosen index-range fallback route",
+    );
+    assert!(
+        descriptor
+            .access_strategy()
+            .is_some_and(
+                |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_handle_idx")
+            ),
+        "composite order-only roots should expose the chosen order-compatible fallback index",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "composite order-only roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "composite order-only roots should derive bounded index-range limit pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        "composite order-only roots should also derive Top-N seek for bounded ordered windows",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "composite order-only roots should keep access-satisfied ordering",
+    );
+}
+
+#[test]
+fn session_explain_execution_composite_order_only_choice_desc_uses_bounded_index_range_hints() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionDeterministicChoiceEntity>()
+        .order_by_desc("tier")
+        .order_by_desc("handle")
+        .order_by_desc("id")
+        .limit(2)
+        .explain_execution()
+        .expect(
+            "session descending deterministic composite order-only explain_execution should build",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending composite order-only roots should stay on the chosen index-range fallback route",
+    );
+    assert!(
+        descriptor
+            .access_strategy()
+            .is_some_and(
+                |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_tier_handle_idx")
+            ),
+        "descending composite order-only roots should expose the chosen order-compatible fallback index",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("scan_dir"),
+        Some(&Value::Text("desc".to_string())),
+        "descending composite order-only roots should expose the descending scan direction",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending composite order-only roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "descending composite order-only roots should derive bounded index-range limit pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        "descending composite order-only roots should also derive Top-N seek for bounded ordered windows",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending composite order-only roots should keep access-satisfied ordering",
     );
 }
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.72.x] 🎯 - 2026-04-08 - Deterministic Planning & Index Exploitation
 
 - `0.72.0` makes single-entity read planning choose between competing visible indexes with one stable ranking order, and locks that choice across planner tests, session explain, generated SQL parity, and PocketIC without changing index-visibility rules or reintroducing runtime correctness checks.
+- `0.72.1` extends that deterministic-planning line to admitted composite ordered-read cohorts, locking both ascending and descending choice across planner/session/SQL surfaces and making the desc equality-prefix lane fail closed to materialized ordering instead of pretending it keeps the ascending fast path.
 
 See detailed breakdown:
 [docs/changelog/0.72.md](docs/changelog/0.72.md)

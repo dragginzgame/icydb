@@ -5796,6 +5796,192 @@ fn sql_canister_query_lane_explain_json_planner_range_choice_prefers_order_compa
 }
 
 #[test]
+fn sql_canister_query_lane_explain_json_planner_range_choice_desc_prefers_order_compatible_index() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+        )
+        .expect("planner descending range-choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"name\":\"PlannerChoice|tier|label|handle\"",
+            ],
+            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            "planner descending range-choice JSON explain should lock the order-compatible range index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_planner_equality_prefix_suffix_order_choice_prefers_order_compatible_index()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner equality-prefix suffix-order choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexPrefix\"",
+                "\"name\":\"PlannerChoice|tier|label|handle\"",
+            ],
+            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            "planner equality-prefix suffix-order choice JSON explain should lock the order-compatible composite prefix index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_planner_equality_prefix_suffix_order_choice_desc_prefers_order_compatible_index()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+        )
+        .expect("planner descending equality-prefix suffix-order choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexPrefix\"",
+                "\"name\":\"PlannerChoice|tier|label|handle\"",
+            ],
+            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            "planner descending equality-prefix suffix-order choice JSON explain should lock the order-compatible composite prefix index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner equality-prefix suffix-order EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexPrefixScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+            ],
+            &["IndexRangeLimitPushdown"],
+            "planner equality-prefix suffix-order EXPLAIN EXECUTION should expose the bounded chosen prefix route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_desc_reports_materialized_order_fallback()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2",
+        )
+        .expect("planner descending equality-prefix suffix-order EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexPrefixScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "OrderByMaterializedSort",
+                "scan_dir=Text(\"desc\")",
+            ],
+            &[
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+            ],
+            "planner descending equality-prefix suffix-order EXPLAIN EXECUTION should expose the chosen prefix route plus materialized order fallback",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_range_choice_reports_bounded_ordered_route() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner range-choice EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "OrderByAccessSatisfied",
+            ],
+            &["TopNSeek"],
+            "planner range-choice EXPLAIN EXECUTION should expose the bounded ordered range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_range_choice_desc_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2",
+        )
+        .expect("planner descending range-choice EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "OrderByAccessSatisfied",
+                "scan_dir=Text(\"desc\")",
+            ],
+            &["TopNSeek"],
+            "planner descending range-choice EXPLAIN EXECUTION should expose the bounded ordered range route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_explain_json_planner_order_only_choice_prefers_order_compatible_index() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -5815,6 +6001,113 @@ fn sql_canister_query_lane_explain_json_planner_order_only_choice_prefers_order_
             ],
             &["\"name\":\"PlannerChoice|beta\""],
             "planner order-only choice JSON explain should lock the order-compatible fallback index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_planner_composite_order_only_choice_prefers_order_compatible_index()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner composite order-only choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"name\":\"PlannerPrefixChoice|tier|handle\"",
+            ],
+            &["\"name\":\"PlannerPrefixChoice|tier|label\""],
+            "planner composite order-only choice JSON explain should lock the order-compatible fallback index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_planner_composite_order_only_choice_desc_prefers_order_compatible_index()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+        )
+        .expect("planner descending composite order-only choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"name\":\"PlannerPrefixChoice|tier|handle\"",
+            ],
+            &["\"name\":\"PlannerPrefixChoice|tier|label\""],
+            "planner descending composite order-only choice JSON explain should lock the order-compatible fallback index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner composite order-only EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerPrefixChoice|tier|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+            ],
+            &[],
+            "planner composite order-only EXPLAIN EXECUTION should expose the bounded chosen index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_desc_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2",
+        )
+        .expect("planner descending composite order-only EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerPrefixChoice|tier|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "scan_dir=Text(\"desc\")",
+            ],
+            &[],
+            "planner descending composite order-only EXPLAIN EXECUTION should expose the bounded ordered fallback route",
         );
     });
 }
