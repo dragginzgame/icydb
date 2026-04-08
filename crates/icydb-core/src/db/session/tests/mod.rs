@@ -775,6 +775,7 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
 
 #[test]
 fn fluent_load_explain_execution_surface_adapters_are_available() {
+    reset_session_sql_store();
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
@@ -5374,8 +5375,8 @@ fn session_explain_execution_filtered_composite_expression_key_only_strict_text_
     // expression route.
     seed_filtered_expression_indexed_session_sql_entities(&session);
 
-    // Phase 2: require query-builder explain to stay conservative while still
-    // surfacing the covering-read route for the narrower `(id, tier)` projection.
+    // Phase 2: require the session-backed query-builder explain to reuse the
+    // planner-proven covering-read route for the narrower `(id, tier)` projection.
     let descriptor = session
         .query_from_sql::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
@@ -5426,8 +5427,8 @@ fn session_explain_execution_filtered_composite_expression_key_only_strict_text_
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "query-builder filtered composite expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "session-backed filtered composite expression key-only strict text-range explain should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -5449,8 +5450,8 @@ fn session_explain_execution_filtered_composite_expression_key_only_strict_text_
     // sibling stays on the same honest filtered composite covering family.
     seed_filtered_expression_indexed_session_sql_entities(&session);
 
-    // Phase 2: require query-builder explain to stay conservative while still
-    // surfacing the reverse covering-read route for the narrower projection.
+    // Phase 2: require the session-backed query-builder explain to reuse the
+    // planner-proven reverse covering-read route for the narrower projection.
     let descriptor = session
         .query_from_sql::<FilteredIndexedSessionSqlEntity>(
             "SELECT id, tier FROM FilteredIndexedSessionSqlEntity WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2",
@@ -5505,8 +5506,8 @@ fn session_explain_execution_filtered_composite_expression_key_only_strict_text_
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "descending query-builder filtered composite expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "descending session-backed filtered composite expression key-only strict text-range explain should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -5564,8 +5565,8 @@ fn session_explain_execution_order_only_composite_covering_query_uses_index_rang
             .expect("order-only composite explain tree should emit a covering-read node");
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "query-builder order-only composite covering nodes should stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "session-backed order-only composite covering nodes should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -5629,8 +5630,8 @@ fn session_explain_execution_order_only_composite_desc_covering_query_uses_index
             );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "descending query-builder order-only composite covering nodes should stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "descending session-backed order-only composite covering nodes should inherit the planner-proven covering mode",
     );
     assert_eq!(
         descriptor.node_properties().get("cov_read_route"),
@@ -5987,8 +5988,8 @@ fn session_explain_execution_order_only_expression_key_only_query_uses_covering_
         ],
     );
 
-    // Phase 2: require query-builder explain to stay conservative while still
-    // surfacing the covering-read route for the `id`-only projection.
+    // Phase 2: require the session-backed query-builder explain to reuse the
+    // planner-proven covering-read route for the `id`-only projection.
     let descriptor = session
         .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
             "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
@@ -6022,8 +6023,8 @@ fn session_explain_execution_order_only_expression_key_only_query_uses_covering_
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "query-builder expression key-only order explain must stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "session-backed expression key-only order explain should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -6052,8 +6053,8 @@ fn session_explain_execution_order_only_expression_key_only_desc_query_uses_cove
         ],
     );
 
-    // Phase 2: require query-builder explain to surface the covering route
-    // while still staying conservative on existing-row authority.
+    // Phase 2: require the session-backed query-builder explain to surface the
+    // covering route and the planner-proven existing-row mode.
     let descriptor = session
         .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
             "SELECT id FROM ExpressionIndexedSessionSqlEntity ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
@@ -6089,8 +6090,8 @@ fn session_explain_execution_order_only_expression_key_only_desc_query_uses_cove
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "descending query-builder expression key-only order explain must stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "descending session-backed expression key-only order explain should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -6121,8 +6122,8 @@ fn session_explain_execution_expression_key_only_strict_text_range_query_uses_co
         ],
     );
 
-    // Phase 2: require query-builder explain to stay conservative while still
-    // surfacing the covering-read route for the bounded `id`-only projection.
+    // Phase 2: require the session-backed query-builder explain to reuse the
+    // planner-proven covering-read route for the bounded `id`-only projection.
     let descriptor = session
         .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
             "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) ASC, id ASC LIMIT 2",
@@ -6158,8 +6159,8 @@ fn session_explain_execution_expression_key_only_strict_text_range_query_uses_co
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "query-builder expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "session-backed expression key-only strict text-range explain should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -6189,8 +6190,8 @@ fn session_explain_execution_expression_key_only_strict_text_range_desc_query_us
         ],
     );
 
-    // Phase 2: require query-builder explain to surface the covering route
-    // while still staying conservative on existing-row authority.
+    // Phase 2: require the session-backed query-builder explain to surface the
+    // covering route and the planner-proven existing-row mode.
     let descriptor = session
         .query_from_sql::<ExpressionIndexedSessionSqlEntity>(
             "SELECT id FROM ExpressionIndexedSessionSqlEntity WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY LOWER(name) DESC, id DESC LIMIT 2",
@@ -6230,8 +6231,8 @@ fn session_explain_execution_expression_key_only_strict_text_range_desc_query_us
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "descending query-builder expression key-only strict text-range explain must stay conservative without store-backed witness promotion",
+        Some(&Value::Text("planner_proven".to_string())),
+        "descending session-backed expression key-only strict text-range explain should inherit the planner-proven covering mode",
     );
     assert!(
         explain_execution_find_first_node(
@@ -11861,8 +11862,8 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
     );
     assert_eq!(
         projection_node.node_properties().get("existing_row_mode"),
-        Some(&Value::Text("row_check_required".to_string())),
-        "projection node should expose the planner-owned existing-row mode explicitly",
+        Some(&Value::Text("planner_proven".to_string())),
+        "projection node should expose the planner-proven existing-row mode explicitly",
     );
 }
 
