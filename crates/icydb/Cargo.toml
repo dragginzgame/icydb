@@ -20,7 +20,7 @@ canic-memory = { workspace = true }
 ctor = { workspace = true }
 derive_more = { workspace = true }
 icydb-build = { workspace = true }
-icydb-core = { path = "../icydb-core", version = "0.71.0", default-features = false }
+icydb-core = { path = "../icydb-core", version = "0.71.1", default-features = false }
 icydb-derive = { workspace = true }
 icydb-schema = { workspace = true }
 icydb-schema-derive = { workspace = true }
