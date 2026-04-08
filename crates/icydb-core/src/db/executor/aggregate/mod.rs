@@ -23,10 +23,9 @@ use crate::db::executor::aggregate::field::{
 use crate::{
     db::{
         data::DataRow,
-        direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
-            ExecutionPreparation, PreparedAggregatePlan,
+            PreparedAggregatePlan,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
                 ProjectionMaterializationMode,
@@ -55,8 +54,10 @@ pub(in crate::db::executor) use contracts::{
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateExecutionState,
     PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
-    PreparedCoveringDistinctStrategy, PreparedScalarNumericBoundary,
-    PreparedScalarNumericExecutionState, PreparedScalarNumericOp, PreparedScalarNumericStrategy,
+    PreparedCoveringDistinctStrategy, PreparedFieldOrderSensitiveTerminalOp,
+    PreparedOrderSensitiveTerminalBoundary, PreparedOrderSensitiveTerminalExecutionState,
+    PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary,
+    PreparedScalarNumericExecutionState, PreparedScalarNumericOp, PreparedScalarNumericPayload,
     PreparedScalarProjectionBoundary, PreparedScalarProjectionExecutionState,
     PreparedScalarProjectionOp, PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary,
     PreparedScalarTerminalExecutionState, PreparedScalarTerminalOp, PreparedScalarTerminalStrategy,
@@ -65,101 +66,6 @@ pub(in crate::db::executor) use execution::{
 pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
 pub(in crate::db) use projection::ScalarProjectionBoundaryRequest;
 pub(in crate::db) use terminals::ScalarTerminalBoundaryRequest;
-
-///
-/// AggregateReducerDispatch
-///
-/// AggregateReducerDispatch maps one aggregate descriptor to one kernel-owned
-/// reducer execution adapter. This keeps orchestration declarative and avoids
-/// re-deriving execution-mode semantics at call sites.
-///
-
-enum AggregateReducerDispatch<'a> {
-    Materialized {
-        aggregate: &'a AggregateExpr,
-    },
-    FieldExtremaStreaming {
-        kind: AggregateKind,
-        target_field: &'a str,
-        direction: Direction,
-        route_plan: &'a crate::db::executor::ExecutionPlan,
-    },
-    StreamingFold,
-}
-
-///
-/// AggregateReducerSelection
-///
-/// AggregateReducerSelection carries either a completed aggregate output or a
-/// prepared execution state that must continue through canonical streaming fold
-/// execution.
-///
-
-#[expect(clippy::large_enum_variant)]
-enum AggregateReducerSelection<'ctx> {
-    Completed(ScalarAggregateOutput),
-    Streaming(PreparedAggregateExecutionState<'ctx>),
-}
-
-impl<'a> AggregateReducerDispatch<'a> {
-    // Derive one reducer adapter from a validated aggregate descriptor.
-    fn from_descriptor(descriptor: &'a AggregateExecutionDescriptor) -> Self {
-        if descriptor.route_plan.shape().is_materialized() {
-            return Self::Materialized {
-                aggregate: &descriptor.aggregate,
-            };
-        }
-        if let Some(target_field) = descriptor.aggregate.target_field() {
-            return Self::FieldExtremaStreaming {
-                kind: descriptor.aggregate.kind(),
-                target_field,
-                direction: descriptor.direction,
-                route_plan: &descriptor.route_plan,
-            };
-        }
-
-        Self::StreamingFold
-    }
-
-    // Execute eager reducers immediately, or defer to canonical streaming fold.
-    fn execute_or_stream<'ctx, E>(
-        self,
-        executor: &LoadExecutor<E>,
-        descriptor: AggregateExecutionDescriptor,
-        prepared: PreparedAggregateStreamingInputs<'ctx>,
-    ) -> Result<AggregateReducerSelection<'ctx>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        match self {
-            Self::Materialized { aggregate } => Ok(AggregateReducerSelection::Completed(
-                ExecutionKernel::execute_materialized_aggregate_spec(
-                    executor, prepared, aggregate,
-                )?,
-            )),
-            Self::FieldExtremaStreaming {
-                kind,
-                target_field,
-                direction,
-                route_plan,
-            } => Ok(AggregateReducerSelection::Completed(
-                ExecutionKernel::execute_field_target_extrema_aggregate(
-                    &prepared,
-                    kind,
-                    target_field,
-                    direction,
-                    route_plan,
-                )?,
-            )),
-            Self::StreamingFold => Ok(AggregateReducerSelection::Streaming(
-                PreparedAggregateExecutionState {
-                    descriptor,
-                    prepared,
-                },
-            )),
-        }
-    }
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -183,16 +89,6 @@ impl ExecutionKernel {
         prepared: PreparedAggregateStreamingInputs<'_>,
         aggregate: AggregateExpr,
     ) -> PreparedAggregateExecutionState<'_> {
-        let slot_map = crate::db::executor::preparation::resolved_index_slots_for_access_path(
-            prepared.authority.model(),
-            prepared.logical_plan.access.resolve_strategy().executable(),
-        );
-        let execution_preparation = ExecutionPreparation::from_plan(
-            prepared.authority.model(),
-            &prepared.logical_plan,
-            slot_map,
-        );
-
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
         let route_plan =
@@ -200,7 +96,7 @@ impl ExecutionKernel {
                 prepared.authority.model(),
                 &prepared.logical_plan,
                 aggregate.clone(),
-                &execution_preparation,
+                &prepared.execution_preparation,
             );
         let direction = route_plan.direction();
 
@@ -209,7 +105,6 @@ impl ExecutionKernel {
                 aggregate,
                 direction,
                 route_plan,
-                execution_preparation,
             },
             prepared,
         }
@@ -224,14 +119,12 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let authority = plan.authority();
-        // Direction and specs must be read before consuming `ExecutablePlan`.
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let execution_preparation = plan.execution_preparation();
 
-        // Move into logical plan form once so aggregate paths keep setup
-        // structural after the typed executor boundary.
-        let logical_plan = plan.into_plan();
+        // Move the prepared aggregate plan into one structural runtime payload
+        // once so aggregate execution does not clone lowered index specs.
+        let (authority, logical_plan, index_prefix_specs, index_range_specs) =
+            plan.into_streaming_parts()?;
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan_for_authority(authority, &logical_plan)?;
@@ -244,6 +137,7 @@ impl ExecutionKernel {
             authority,
             store,
             logical_plan,
+            execution_preparation,
             index_prefix_specs,
             index_range_specs,
         })
@@ -326,21 +220,28 @@ impl ExecutionKernel {
         let descriptor = state.descriptor;
         let prepared = state.prepared;
 
-        // Kernel-owned reducer adapter selection. Eager reducers return
-        // immediately; streaming reducers continue through canonical key-stream
-        // execution using the already-prepared aggregate stage.
-        let state = match AggregateReducerDispatch::from_descriptor(&descriptor).execute_or_stream(
-            executor,
-            descriptor.clone(),
-            prepared,
-        )? {
-            AggregateReducerSelection::Completed(aggregate_output) => return Ok(aggregate_output),
-            AggregateReducerSelection::Streaming(state) => state,
-        };
-        let PreparedAggregateExecutionState {
-            descriptor,
-            prepared,
-        } = state;
+        // Phase 1: let eager reducers consume their owned descriptor directly
+        // so aggregate execution does not clone descriptor state just to
+        // decide whether it can skip canonical streaming fold execution.
+        if descriptor.route_plan.shape().is_materialized() {
+            return Self::execute_materialized_aggregate_spec(
+                executor,
+                prepared,
+                &descriptor.aggregate,
+            );
+        }
+        if let Some(target_field) = descriptor.aggregate.target_field() {
+            return Self::execute_field_target_extrema_aggregate(
+                &prepared,
+                kind,
+                target_field,
+                descriptor.direction,
+                &descriptor.route_plan,
+            );
+        }
+
+        // Phase 2: continue through the canonical aggregate streaming fold
+        // with the original prepared descriptor and prepared aggregate inputs.
         let fold_mode = descriptor.route_plan.aggregate_fold_mode;
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
 
@@ -351,7 +252,7 @@ impl ExecutionKernel {
             route_plan: &descriptor.route_plan,
             index_prefix_specs: prepared.index_prefix_specs.as_slice(),
             index_range_specs: prepared.index_range_specs.as_slice(),
-            index_predicate_program: descriptor.execution_preparation.strict_mode(),
+            index_predicate_program: prepared.execution_preparation.strict_mode(),
             direction: descriptor.direction,
             physical_fetch_hint,
             kind,
@@ -387,7 +288,7 @@ impl ExecutionKernel {
                 index_range_specs: prepared.index_range_specs.as_slice(),
                 continuation: AccessScanContinuationInput::new(None, descriptor.direction),
             },
-            &descriptor.execution_preparation,
+            &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             true,
         )?;

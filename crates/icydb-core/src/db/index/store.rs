@@ -18,15 +18,15 @@ use serde::Deserialize;
 //
 // IndexState
 //
-// Explicit lifecycle validity state for one index store.
-// Validity matters because probe-free covering authority only makes sense once
+// Explicit lifecycle visibility state for one index store.
+// Visibility matters because planner-visible indexes must already be complete:
 // the index contents are fully built and query-visible for reads.
 //
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 pub enum IndexState {
     Building,
     #[default]
-    Valid,
+    Ready,
     Dropping,
 }
 
@@ -36,7 +36,7 @@ impl IndexState {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Building => "building",
-            Self::Valid => "valid",
+            Self::Ready => "ready",
             Self::Dropping => "dropping",
         }
     }
@@ -62,9 +62,9 @@ impl IndexStore {
         Self {
             map: BTreeMap::init(memory),
             generation: 0,
-            // Existing stores default to Valid until one explicit build/drop
+            // Existing stores default to Ready until one explicit build/drop
             // lifecycle is introduced.
-            state: IndexState::Valid,
+            state: IndexState::Ready,
         }
     }
 
@@ -103,10 +103,9 @@ impl IndexStore {
         self.state = IndexState::Building;
     }
 
-    /// Mark this index store as fully built and eligible for later authority
-    /// use once lifecycle management makes it planner-visible again.
-    pub(in crate::db) const fn mark_valid(&mut self) {
-        self.state = IndexState::Valid;
+    /// Mark this index store as fully built and planner-visible again.
+    pub(in crate::db) const fn mark_ready(&mut self) {
+        self.state = IndexState::Ready;
     }
 
     /// Mark this index store as dropping and therefore not planner-visible.

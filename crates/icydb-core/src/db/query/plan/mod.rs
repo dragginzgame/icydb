@@ -27,6 +27,8 @@ mod semantics;
 mod tests;
 pub(crate) mod validate;
 
+use crate::model::index::IndexModel;
+
 pub(in crate::db) use access_choice::{
     AccessChoiceExplainSnapshot, project_access_choice_explain_snapshot_with_indexes,
 };
@@ -107,3 +109,38 @@ pub(crate) use validate::{
 };
 #[cfg(test)]
 pub(crate) use validate::{PlanPolicyError, PlanUserError};
+
+///
+/// VisibleIndexes
+///
+/// Planner-bound index slice that has already passed runtime visibility
+/// gating at the session boundary, or one schema-owned detached slice for
+/// tooling/tests that intentionally do not carry runtime store context.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db) struct VisibleIndexes<'a> {
+    indexes: &'a [&'static IndexModel],
+}
+
+impl<'a> VisibleIndexes<'a> {
+    #[must_use]
+    pub(in crate::db) const fn none() -> Self {
+        Self { indexes: &[] }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
+        Self { indexes }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
+        Self { indexes }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn as_slice(&self) -> &'a [&'static IndexModel] {
+        self.indexes
+    }
+}

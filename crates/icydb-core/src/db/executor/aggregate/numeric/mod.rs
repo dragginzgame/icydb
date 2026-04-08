@@ -18,8 +18,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionKernel, ExecutionPreparation, KeyStreamLoopControl, PreparedAggregatePlan,
-            TraversalRuntime,
+            ExecutionKernel, KeyStreamLoopControl, PreparedAggregatePlan, TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_numeric_field_decimal_with_slot_reader,
@@ -27,12 +26,12 @@ use crate::{
             },
             aggregate::{
                 PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
-                PreparedScalarNumericBoundary, PreparedScalarNumericExecutionState,
-                PreparedScalarNumericOp, PreparedScalarNumericStrategy,
+                PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary,
+                PreparedScalarNumericExecutionState, PreparedScalarNumericOp,
+                PreparedScalarNumericPayload,
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
-            preparation::resolved_index_slots_for_access_path,
             terminal::{RowDecoder, RowLayout},
         },
         numeric::{add_decimal_terms, average_decimal_terms},
@@ -99,50 +98,14 @@ where
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericExecutionState<'_>, InternalError> {
-        let target_field_name = target_field.field().to_string();
-        let authority = plan.authority();
-        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(
-            authority.model(),
-            &target_field,
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
-        let op = request.prepared_op();
+        // Phase 1: resolve the plan-free numeric boundary exactly once.
+        let boundary =
+            Self::resolve_prepared_scalar_numeric_boundary(&plan, &target_field, request)?;
 
-        if request.requires_global_distinct() {
-            let boundary = PreparedScalarNumericBoundary {
-                target_field_name,
-                field_slot,
-                op,
-                strategy: PreparedScalarNumericStrategy::GlobalDistinctGrouped,
-            };
-            let route = self.prepare_global_distinct_grouped_route(
-                plan,
-                op.aggregate_kind(),
-                &boundary.target_field_name,
-            )?;
+        // Phase 2: derive the execution payload family from the prepared boundary.
+        let payload = self.prepare_scalar_numeric_payload(plan, &boundary, request)?;
 
-            return Ok(PreparedScalarNumericExecutionState::GlobalDistinct {
-                boundary,
-                route: Box::new(route),
-            });
-        }
-
-        let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
-        let strategy = if Self::streaming_numeric_field_aggregate_eligible(&prepared) {
-            PreparedScalarNumericStrategy::Streaming
-        } else {
-            PreparedScalarNumericStrategy::Materialized
-        };
-
-        Ok(PreparedScalarNumericExecutionState::Aggregate {
-            boundary: PreparedScalarNumericBoundary {
-                target_field_name,
-                field_slot,
-                op,
-                strategy,
-            },
-            prepared: Box::new(prepared),
-        })
+        Ok(PreparedScalarNumericExecutionState { boundary, payload })
     }
 
     // Execute one prepared numeric aggregate contract without re-deriving
@@ -151,15 +114,17 @@ where
         &self,
         prepared_state: PreparedScalarNumericExecutionState<'_>,
     ) -> Result<Option<Decimal>, InternalError> {
-        match prepared_state {
-            PreparedScalarNumericExecutionState::Aggregate { boundary, prepared } => {
+        let PreparedScalarNumericExecutionState { boundary, payload } = prepared_state;
+
+        match payload {
+            PreparedScalarNumericPayload::Aggregate { strategy, prepared } => {
                 let prepared = *prepared;
                 if prepared.window_is_provably_empty() {
                     return Ok(None);
                 }
 
-                match boundary.strategy {
-                    PreparedScalarNumericStrategy::Streaming => {
+                match strategy {
+                    PreparedScalarNumericAggregateStrategy::Streaming => {
                         Self::aggregate_numeric_field_from_streaming(
                             prepared.into_core(),
                             &boundary.target_field_name,
@@ -167,7 +132,7 @@ where
                             boundary.op,
                         )
                     }
-                    PreparedScalarNumericStrategy::Materialized => {
+                    PreparedScalarNumericAggregateStrategy::Materialized => {
                         let row_layout = RowLayout::from_model(prepared.authority.model());
                         let page = self.execute_scalar_materialized_page_stage(prepared)?;
                         let (rows, _) = page.into_parts();
@@ -180,12 +145,9 @@ where
                             boundary.op,
                         )
                     }
-                    PreparedScalarNumericStrategy::GlobalDistinctGrouped => {
-                        Err(boundary.direct_execution_global_distinct_required())
-                    }
                 }
             }
-            PreparedScalarNumericExecutionState::GlobalDistinct { boundary, route } => {
+            PreparedScalarNumericPayload::GlobalDistinct { route } => {
                 let value = self.execute_prepared_global_distinct_grouped_aggregate(*route)?;
 
                 decode_global_distinct_numeric_output(value, boundary.op)
@@ -290,18 +252,11 @@ where
             authority,
             store,
             logical_plan,
+            execution_preparation,
             index_prefix_specs,
             index_range_specs,
             ..
         } = prepared;
-        let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
-            authority.model(),
-            &logical_plan,
-            resolved_index_slots_for_access_path(
-                authority.model(),
-                logical_plan.access.resolve_strategy().executable(),
-            ),
-        );
         let continuation = RefCell::new(ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
         ));
@@ -379,6 +334,61 @@ where
             LoopAction::Emit => KeyStreamLoopControl::Emit,
             LoopAction::Stop => KeyStreamLoopControl::Stop,
         }
+    }
+
+    // Resolve the plan-free numeric boundary once from the typed request and
+    // planner field slot so both aggregate and global-DISTINCT payloads share
+    // the same field/op contract.
+    fn resolve_prepared_scalar_numeric_boundary(
+        plan: &PreparedAggregatePlan,
+        target_field: &PlannedFieldSlot,
+        request: ScalarNumericFieldBoundaryRequest,
+    ) -> Result<PreparedScalarNumericBoundary, InternalError> {
+        let authority = plan.authority();
+        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot_with_model(
+            authority.model(),
+            target_field,
+        )
+        .map_err(AggregateFieldValueError::into_internal_error)?;
+
+        Ok(PreparedScalarNumericBoundary {
+            target_field_name: target_field.field().to_string(),
+            field_slot,
+            op: request.prepared_op(),
+        })
+    }
+
+    // Lower the already-resolved numeric boundary into the concrete execution
+    // payload family without rebuilding field/op metadata in each branch.
+    fn prepare_scalar_numeric_payload(
+        &self,
+        plan: PreparedAggregatePlan,
+        boundary: &PreparedScalarNumericBoundary,
+        request: ScalarNumericFieldBoundaryRequest,
+    ) -> Result<PreparedScalarNumericPayload<'_>, InternalError> {
+        if request.requires_global_distinct() {
+            let route = self.prepare_global_distinct_grouped_route(
+                plan,
+                boundary.op.aggregate_kind(),
+                &boundary.target_field_name,
+            )?;
+
+            return Ok(PreparedScalarNumericPayload::GlobalDistinct {
+                route: Box::new(route),
+            });
+        }
+
+        let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
+        let strategy = if Self::streaming_numeric_field_aggregate_eligible(&prepared) {
+            PreparedScalarNumericAggregateStrategy::Streaming
+        } else {
+            PreparedScalarNumericAggregateStrategy::Materialized
+        };
+
+        Ok(PreparedScalarNumericPayload::Aggregate {
+            strategy,
+            prepared: Box::new(prepared),
+        })
     }
 }
 

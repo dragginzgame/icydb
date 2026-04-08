@@ -8,11 +8,10 @@ use crate::{
         DbSession, MissingRowPolicy, PersistedRow, QueryError,
         executor::{ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest},
         query::plan::AggregateKind,
-        session::sql::explain::resolve_sql_aggregate_target_slot,
         session::sql::surface::sql_statement_route_from_statement,
         session::sql::{SqlParsedStatement, SqlStatementRoute},
         sql::lowering::{
-            SqlGlobalAggregateTerminal, compile_sql_global_aggregate_command_from_prepared,
+            TypedSqlGlobalAggregateTerminal, compile_sql_global_aggregate_command_from_prepared,
             is_sql_global_aggregate_statement, prepare_sql_statement,
         },
         sql::parser::{SqlStatement, parse_sql},
@@ -134,7 +133,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Then dispatch each accepted terminal onto the existing load/query
         // boundaries instead of reopening aggregate execution ownership here.
         match command.terminal() {
-            SqlGlobalAggregateTerminal::CountRows => self
+            TypedSqlGlobalAggregateTerminal::CountRows => self
                 .execute_load_query_with(command.query(), |load, plan| {
                     load.execute_scalar_terminal_request(
                         plan,
@@ -143,67 +142,52 @@ impl<C: CanisterKind> DbSession<C> {
                     .into_count()
                 })
                 .map(|count| Value::Uint(u64::from(count))),
-            SqlGlobalAggregateTerminal::CountField(field) => {
-                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
-
-                self.execute_load_query_with(command.query(), |load, plan| {
+            TypedSqlGlobalAggregateTerminal::CountField(target_slot) => self
+                .execute_load_query_with(command.query(), |load, plan| {
                     load.execute_scalar_projection_boundary(
                         plan,
-                        target_slot,
+                        target_slot.clone(),
                         ScalarProjectionBoundaryRequest::CountNonNull,
                     )?
                     .into_count()
                 })
-                .map(|count| Value::Uint(u64::from(count)))
-            }
-            SqlGlobalAggregateTerminal::SumField(field) => {
-                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
-
-                self.execute_load_query_with(command.query(), |load, plan| {
+                .map(|count| Value::Uint(u64::from(count))),
+            TypedSqlGlobalAggregateTerminal::SumField(target_slot) => self
+                .execute_load_query_with(command.query(), |load, plan| {
                     load.execute_numeric_field_boundary(
                         plan,
-                        target_slot,
+                        target_slot.clone(),
                         ScalarNumericFieldBoundaryRequest::Sum,
                     )
                 })
-                .map(|value| value.map_or(Value::Null, Value::Decimal))
-            }
-            SqlGlobalAggregateTerminal::AvgField(field) => {
-                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
-
-                self.execute_load_query_with(command.query(), |load, plan| {
+                .map(|value| value.map_or(Value::Null, Value::Decimal)),
+            TypedSqlGlobalAggregateTerminal::AvgField(target_slot) => self
+                .execute_load_query_with(command.query(), |load, plan| {
                     load.execute_numeric_field_boundary(
                         plan,
-                        target_slot,
+                        target_slot.clone(),
                         ScalarNumericFieldBoundaryRequest::Avg,
                     )
                 })
-                .map(|value| value.map_or(Value::Null, Value::Decimal))
-            }
-            SqlGlobalAggregateTerminal::MinField(field) => {
-                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
-
-                self.execute_load_query_with(command.query(), |load, plan| {
+                .map(|value| value.map_or(Value::Null, Value::Decimal)),
+            TypedSqlGlobalAggregateTerminal::MinField(target_slot) => self
+                .execute_load_query_with(command.query(), |load, plan| {
                     load.execute_scalar_extrema_value_boundary(
                         plan,
-                        target_slot,
+                        target_slot.clone(),
                         AggregateKind::Min,
                     )
                 })
-                .map(|value| value.unwrap_or(Value::Null))
-            }
-            SqlGlobalAggregateTerminal::MaxField(field) => {
-                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
-
-                self.execute_load_query_with(command.query(), |load, plan| {
+                .map(|value| value.unwrap_or(Value::Null)),
+            TypedSqlGlobalAggregateTerminal::MaxField(target_slot) => self
+                .execute_load_query_with(command.query(), |load, plan| {
                     load.execute_scalar_extrema_value_boundary(
                         plan,
-                        target_slot,
+                        target_slot.clone(),
                         AggregateKind::Max,
                     )
                 })
-                .map(|value| value.unwrap_or(Value::Null))
-            }
+                .map(|value| value.unwrap_or(Value::Null)),
         }
     }
 }

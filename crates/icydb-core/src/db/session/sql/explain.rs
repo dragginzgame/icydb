@@ -26,21 +26,12 @@ use crate::{
 };
 
 // Resolve one aggregate target field through planner slot contracts before
-// aggregate terminal execution.
+// aggregate explain descriptor assembly.
 fn resolve_sql_aggregate_target_slot_with_model(
     model: &'static EntityModel,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {
     resolve_aggregate_target_field_slot(model, field)
-}
-
-pub(in crate::db::session::sql) fn resolve_sql_aggregate_target_slot<E>(
-    field: &str,
-) -> Result<FieldSlot, QueryError>
-where
-    E: crate::traits::EntityKind,
-{
-    resolve_sql_aggregate_target_slot_with_model(E::MODEL, field)
 }
 
 // Convert one lowered global SQL aggregate terminal into aggregate expression

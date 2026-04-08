@@ -22,12 +22,12 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-                CoveringReadFieldSource, project_access_choice_explain_snapshot_with_indexes,
+                CoveringReadFieldSource, VisibleIndexes,
+                project_access_choice_explain_snapshot_with_indexes,
             },
         },
     },
     error::InternalError,
-    model::index::IndexModel,
     value::Value,
 };
 use std::borrow::Cow;
@@ -45,7 +45,7 @@ use crate::db::executor::explain::descriptor::shared::{
 };
 
 // Assemble one canonical scalar load execution descriptor tree through one
-// model-owned authority path.
+// schema/model-owned explain boundary.
 #[inline(never)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
@@ -53,7 +53,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
     assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
         model,
-        model.indexes(),
+        &VisibleIndexes::schema_owned(model.indexes()),
         plan,
     )
 }
@@ -61,7 +61,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
 #[inline(never)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    visible_indexes: &VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
@@ -80,7 +80,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_and_visi
 // caller-supplied route plan.
 fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    visible_indexes: &VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
 ) -> ExplainExecutionNodeDescriptor {
@@ -102,7 +102,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let access_choice = project_access_choice_explain_snapshot_with_indexes(
         model,
-        visible_indexes,
+        visible_indexes.as_slice(),
         plan,
         &access_strategy,
     );
@@ -213,21 +213,21 @@ fn load_modifier_execution_nodes(
 }
 
 // Assemble canonical verbose diagnostics for one scalar load route through one
-// model-owned authority path.
+// schema/model-owned explain boundary.
 pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
     assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
         model,
-        model.indexes(),
+        &VisibleIndexes::schema_owned(model.indexes()),
         plan,
     )
 }
 
 pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    visible_indexes: &VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
@@ -246,11 +246,11 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_
 // caller-supplied route plan.
 fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    visible_indexes: &VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
 ) -> Vec<String> {
-    // Phase 1: build canonical route authority inputs for load mode.
+    // Phase 1: build canonical route/planner inputs for load mode.
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
@@ -269,7 +269,7 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let access_choice = project_access_choice_explain_snapshot_with_indexes(
         model,
-        visible_indexes,
+        visible_indexes.as_slice(),
         plan,
         &access_strategy,
     );

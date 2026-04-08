@@ -22,6 +22,7 @@ use crate::{
         cursor::{decode_optional_cursor_token, decode_optional_grouped_cursor_token},
         data::DataKey,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
+        query::plan::VisibleIndexes,
         schema::{
             describe_entity_model, show_indexes_for_model,
             show_indexes_for_model_with_runtime_state,
@@ -30,7 +31,6 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsSink, with_metrics_sink},
     model::entity::EntityModel,
-    model::index::IndexModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
@@ -214,7 +214,7 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This model-only helper is schema-owned and intentionally does not
     /// attach runtime lifecycle state because it does not carry store
-    /// placement authority.
+    /// placement context.
     #[must_use]
     pub fn show_indexes_for_model(&self, model: &'static EntityModel) -> Vec<String> {
         show_indexes_for_model(model)
@@ -273,20 +273,22 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         store_path: &str,
         model: &'static EntityModel,
-    ) -> Result<Vec<&'static IndexModel>, QueryError> {
+    ) -> Result<VisibleIndexes<'static>, QueryError> {
         // Phase 1: resolve the recovered store state once at the session
         // boundary so query/executor planning does not reopen lifecycle checks.
         let store = self
             .db
             .recovered_store(store_path)
             .map_err(QueryError::execute)?;
-        if store.index_state() != IndexState::Valid {
-            return Ok(Vec::new());
+        let state = store.index_state();
+        if state != IndexState::Ready {
+            return Ok(VisibleIndexes::none());
         }
+        debug_assert_eq!(state, IndexState::Ready);
 
         // Phase 2: planner-visible indexes are exactly the model-owned index
         // declarations once the recovered store is query-visible.
-        Ok(model.indexes().to_vec())
+        Ok(VisibleIndexes::planner_visible(model.indexes()))
     }
 
     /// Return one structured schema description for the entity.
@@ -405,7 +407,7 @@ where
 /// Mark one recovered store index with one explicit lifecycle state.
 ///
 /// This hidden helper exists for test fixtures that need to force one index
-/// out of the `Valid` state while keeping all other authority machinery
+/// out of the `Ready` state while keeping all other lifecycle plumbing
 /// unchanged.
 #[doc(hidden)]
 pub fn debug_mark_store_index_state<C>(
@@ -421,11 +423,10 @@ where
     let store = session.db.recovered_store(store_path)?;
 
     // Phase 2: apply the explicit lifecycle state directly to the index half
-    // of the store pair. Covering authority bits remain untouched so tests
-    // can observe the `Valid` gate fail closed in isolation.
+    // of the store pair so tests can observe the `Ready` gate in isolation.
     match state {
         IndexState::Building => store.mark_index_building(),
-        IndexState::Valid => store.mark_index_valid(),
+        IndexState::Ready => store.mark_index_ready(),
         IndexState::Dropping => store.mark_index_dropping(),
     }
 

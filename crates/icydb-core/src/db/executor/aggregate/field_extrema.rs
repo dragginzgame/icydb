@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
-            ExecutionPreparation, KeyStreamLoopControl,
+            KeyStreamLoopControl,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, ScalarAggregateOutput,
                 field::{
@@ -24,7 +24,6 @@ use crate::{
                 ExecutionInputs, ExecutionRuntimeAdapter, ProjectionMaterializationMode,
             },
             plan_metrics::record_rows_scanned_for_path,
-            preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
             route::aggregate_extrema_direction,
             terminal::{RowDecoder, RowLayout},
@@ -263,11 +262,6 @@ impl ExecutionKernel {
             prepared.store,
             prepared.authority.model(),
         );
-        let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
-            prepared.authority.model(),
-            &prepared.logical_plan,
-            slot_map_for_model_plan(prepared.authority.model(), &prepared.logical_plan),
-        );
         let execution_inputs = ExecutionInputs::new(
             prepared.authority.model(),
             &runtime,
@@ -277,7 +271,7 @@ impl ExecutionKernel {
                 index_range_specs: prepared.index_range_specs.as_slice(),
                 continuation: AccessScanContinuationInput::new(None, spec.direction),
             },
-            &execution_preparation,
+            &prepared.execution_preparation,
             ProjectionMaterializationMode::SharedValidation,
             true,
         )?;

@@ -153,7 +153,7 @@ fn restore_index_store_snapshots(snapshots: Vec<IndexStoreSnapshot>) {
 
             match snapshot.state {
                 IndexState::Building => index_store.mark_building(),
-                IndexState::Valid => index_store.mark_valid(),
+                IndexState::Ready => index_store.mark_ready(),
                 IndexState::Dropping => index_store.mark_dropping(),
             }
         });

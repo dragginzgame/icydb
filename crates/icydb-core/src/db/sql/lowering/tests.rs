@@ -14,7 +14,7 @@ use crate::{
         },
         sql::{
             lowering::{
-                SqlCommand, SqlGlobalAggregateTerminal, SqlLoweringError, compile_sql_command,
+                SqlCommand, SqlLoweringError, TypedSqlGlobalAggregateTerminal, compile_sql_command,
                 compile_sql_global_aggregate_command,
             },
             parser::{SqlExplainMode, SqlParseError},
@@ -506,7 +506,10 @@ fn compile_sql_command_explain_global_aggregate_lowers_to_dedicated_command() {
 
     assert_eq!(mode, SqlExplainMode::Plan);
     assert!(
-        matches!(command.terminal(), SqlGlobalAggregateTerminal::CountRows),
+        matches!(
+            command.terminal(),
+            TypedSqlGlobalAggregateTerminal::CountRows
+        ),
         "global aggregate EXPLAIN should preserve aggregate terminal lowering",
     );
 }
@@ -1289,7 +1292,10 @@ fn compile_sql_global_aggregate_command_count_star_lowers() {
     .expect("global aggregate count SQL should lower");
 
     assert!(
-        matches!(command.terminal(), SqlGlobalAggregateTerminal::CountRows),
+        matches!(
+            command.terminal(),
+            TypedSqlGlobalAggregateTerminal::CountRows
+        ),
         "COUNT(*) should lower to global count terminal",
     );
     assert!(
@@ -1329,37 +1335,37 @@ fn compile_sql_global_aggregate_command_count_sum_avg_min_max_lower() {
     assert!(
         matches!(
             count_by_command.terminal(),
-            SqlGlobalAggregateTerminal::CountField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::CountField(field) if field.field() == "age"
         ),
-        "COUNT(field) should preserve field target in lowered terminal",
+        "COUNT(field) should resolve the target field slot in the typed lowered terminal",
     );
     assert!(
         matches!(
             sum_command.terminal(),
-            SqlGlobalAggregateTerminal::SumField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
         ),
-        "SUM(field) should preserve field target in lowered terminal",
+        "SUM(field) should resolve the target field slot in the typed lowered terminal",
     );
     assert!(
         matches!(
             avg_command.terminal(),
-            SqlGlobalAggregateTerminal::AvgField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::AvgField(field) if field.field() == "age"
         ),
-        "AVG(field) should preserve field target in lowered terminal",
+        "AVG(field) should resolve the target field slot in the typed lowered terminal",
     );
     assert!(
         matches!(
             min_command.terminal(),
-            SqlGlobalAggregateTerminal::MinField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::MinField(field) if field.field() == "age"
         ),
-        "MIN(field) should preserve field target in lowered terminal",
+        "MIN(field) should resolve the target field slot in the typed lowered terminal",
     );
     assert!(
         matches!(
             max_command.terminal(),
-            SqlGlobalAggregateTerminal::MaxField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::MaxField(field) if field.field() == "age"
         ),
-        "MAX(field) should preserve field target in lowered terminal",
+        "MAX(field) should resolve the target field slot in the typed lowered terminal",
     );
 }
 
@@ -1374,9 +1380,9 @@ fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_te
     assert!(
         matches!(
             command.terminal(),
-            SqlGlobalAggregateTerminal::SumField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
         ),
-        "qualified aggregate target fields should normalize to canonical unqualified field names",
+        "qualified aggregate target fields should normalize to canonical unqualified target slots",
     );
 }
 
@@ -1448,9 +1454,9 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
     assert!(
         matches!(
             sql_command.terminal(),
-            SqlGlobalAggregateTerminal::SumField(field) if field == "age"
+            TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
         ),
-        "global aggregate SQL SUM terminal should preserve canonical target field",
+        "global aggregate SQL SUM terminal should preserve the canonical target slot",
     );
     let sql_compiled = sql_command
         .query()

@@ -15,16 +15,16 @@ use crate::{
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, build_logical_plan, fold_constant_predicate,
-                is_limit_zero_load_window, logical_query_from_logical_inputs,
-                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
-                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
-                validate_query_semantics,
+                LogicalPlan, OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
+                fold_constant_predicate, is_limit_zero_load_window,
+                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
+                predicate_is_constant_false, resolve_group_field_slot,
+                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{entity::EntityModel, field::FieldKind},
     traits::FieldValue,
     value::Value,
 };
@@ -272,7 +272,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     pub(in crate::db::query::intent) fn build_plan_model(
         &self,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        self.build_plan_model_with_indexes(self.model.indexes())
+        self.build_plan_model_with_indexes(&VisibleIndexes::schema_owned(self.model.indexes()))
     }
 
     /// Build a model-level logical plan using one explicit planner-visible
@@ -280,7 +280,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     #[inline(never)]
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
@@ -301,7 +301,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         } else {
             plan_query_access(
                 self.model,
-                visible_indexes,
+                visible_indexes.as_slice(),
                 &schema_info,
                 normalized_predicate.as_ref(),
                 access_inputs.order(),

@@ -434,11 +434,6 @@ impl PreparedAggregatePlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn logical_plan(&self) -> &AccessPlannedQuery {
-        self.core.plan()
-    }
-
-    #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation {
         ExecutionPreparation::from_plan(
             self.authority.model(),
@@ -447,16 +442,33 @@ impl PreparedAggregatePlan {
         )
     }
 
-    pub(in crate::db::executor) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        self.core.index_prefix_specs()
-    }
+    pub(in crate::db::executor) fn into_streaming_parts(
+        self,
+    ) -> Result<
+        (
+            EntityAuthority,
+            AccessPlannedQuery,
+            Vec<LoweredIndexPrefixSpec>,
+            Vec<LoweredIndexRangeSpec>,
+        ),
+        InternalError,
+    > {
+        let Self { authority, core } = self;
+        if core.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+        if core.index_range_spec_invalid {
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
+        }
 
-    pub(in crate::db::executor) fn index_range_specs(
-        &self,
-    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        self.core.index_range_specs()
+        Ok((
+            authority,
+            core.plan,
+            core.index_prefix_specs,
+            core.index_range_specs,
+        ))
     }
 
     /// Re-shape one prepared aggregate plan into one grouped prepared load plan
@@ -467,11 +479,6 @@ impl PreparedAggregatePlan {
         group: GroupSpec,
     ) -> PreparedLoadPlan {
         PreparedLoadPlan::from_plan(self.authority, self.core.into_inner().into_grouped(group))
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) fn into_plan(self) -> AccessPlannedQuery {
-        self.core.into_inner()
     }
 }
 

@@ -211,10 +211,10 @@ impl<C: CanisterKind> Db<C> {
     ///
     /// Recovery restores visibility only after rebuild and post-recovery
     /// integrity validation complete successfully.
-    pub(in crate::db) fn mark_all_registered_index_stores_valid(&self) {
+    pub(in crate::db) fn mark_all_registered_index_stores_ready(&self) {
         self.with_store_registry(|registry| {
             for (_, handle) in registry.iter() {
-                handle.mark_index_valid();
+                handle.mark_index_ready();
             }
         });
     }

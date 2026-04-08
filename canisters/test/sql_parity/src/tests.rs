@@ -3345,10 +3345,90 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_filtered_global_aggregate_explain_respects_customer_index_visibility()
+    {
+        let sql = "EXPLAIN SELECT COUNT(*) FROM Customer WHERE name = 'alice'";
+
+        reload_default_fixtures();
+        assert_dispatch_result_matches_typed(
+            sql,
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered aggregate EXPLAIN parity while the Customer index is ready",
+        );
+        let ready_explain = dispatch_explain_for_sql(sql);
+        assert!(
+            explain_access_line(&ready_explain).contains("IndexPrefix"),
+            "ready filtered aggregate EXPLAIN should keep the planner-visible Customer name index: {ready_explain}",
+        );
+        assert!(
+            !ready_explain.contains("FullScan"),
+            "ready filtered aggregate EXPLAIN should stay off the full-scan fallback: {ready_explain}",
+        );
+
+        reload_default_fixtures_with_customer_index_building();
+        assert_dispatch_result_matches_typed(
+            sql,
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered aggregate EXPLAIN parity after the Customer index becomes building",
+        );
+        let building_explain = dispatch_explain_for_sql(sql);
+        assert!(
+            explain_access_line(&building_explain).contains("FullScan"),
+            "building filtered aggregate EXPLAIN should fall back to FullScan once the Customer index is planner-invisible: {building_explain}",
+        );
+        assert!(
+            !building_explain.contains("IndexPrefix"),
+            "building filtered aggregate EXPLAIN should not keep the hidden Customer name index in planner output: {building_explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_global_aggregate_explain_execution_matches_typed_surface() {
         assert_dispatch_result_matches_typed(
             "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer",
             "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_filtered_global_aggregate_explain_execution_respects_customer_index_visibility()
+    {
+        let sql = "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer WHERE name = 'alice'";
+
+        reload_default_fixtures();
+        assert_dispatch_result_matches_typed(
+            sql,
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered aggregate EXPLAIN EXECUTION parity while the Customer index is ready",
+        );
+        let ready_explain = dispatch_explain_for_sql(sql);
+        assert!(
+            ready_explain.contains("AggregateCount execution_mode=")
+                && ready_explain.contains("access=IndexPrefix"),
+            "ready filtered aggregate EXPLAIN EXECUTION should keep the planner-visible Customer name index: {ready_explain}",
+        );
+        assert!(
+            !ready_explain.contains("access=FullScan")
+                && !ready_explain.contains("authority_decision")
+                && !ready_explain.contains("authority_reason")
+                && !ready_explain.contains("index_state"),
+            "ready filtered aggregate EXPLAIN EXECUTION should stay off the fallback and the removed secondary-read label surface: {ready_explain}",
+        );
+
+        reload_default_fixtures_with_customer_index_building();
+        assert_dispatch_result_matches_typed(
+            sql,
+            "typed execute_sql_dispatch and sql_dispatch should keep filtered aggregate EXPLAIN EXECUTION parity after the Customer index becomes building",
+        );
+        let building_explain = dispatch_explain_for_sql(sql);
+        assert!(
+            building_explain.contains("AggregateCount execution_mode=")
+                && building_explain.contains("access=FullScan"),
+            "building filtered aggregate EXPLAIN EXECUTION should fall back to FullScan once the Customer index is planner-invisible: {building_explain}",
+        );
+        assert!(
+            !building_explain.contains("access=IndexPrefix")
+                && !building_explain.contains("authority_decision")
+                && !building_explain.contains("authority_reason")
+                && !building_explain.contains("index_state"),
+            "building filtered aggregate EXPLAIN EXECUTION should not keep the hidden Customer name index or any removed secondary-read labels: {building_explain}",
         );
     }
 

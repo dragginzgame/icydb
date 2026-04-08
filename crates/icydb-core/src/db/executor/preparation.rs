@@ -157,54 +157,6 @@ impl ExecutionPreparation {
         }
     }
 
-    /// Build the strict-only execution preparation needed by aggregate routes
-    /// that may push one residual predicate into index traversal.
-    ///
-    /// This path keeps only the compiled predicate plus the strict
-    /// all-or-none index predicate program. Aggregate key-stream helpers do
-    /// not consume explain capability snapshots, so they do not need the
-    /// heavier full preparation bundle.
-    #[must_use]
-    pub(in crate::db::executor) fn from_strict_runtime_plan(
-        model: &'static EntityModel,
-        plan: &AccessPlannedQuery,
-        slot_map: Option<Vec<usize>>,
-    ) -> Self {
-        let effective_predicate = plan.execution_preparation_predicate();
-        let compiled_predicate = effective_predicate
-            .as_ref()
-            .map(|predicate| PredicateProgram::compile_with_model(model, predicate));
-        let compile_targets = index_compile_targets_for_model_plan(model, plan);
-        let strict_mode = match (
-            compiled_predicate.as_ref(),
-            compile_targets.as_deref(),
-            slot_map.as_deref(),
-        ) {
-            (Some(compiled_predicate), Some(compile_targets), _) => {
-                compile_index_program_for_targets(
-                    compiled_predicate.executable(),
-                    compile_targets,
-                    IndexCompilePolicy::StrictAllOrNone,
-                )
-            }
-            (Some(compiled_predicate), None, Some(slot_map)) => compile_index_program(
-                compiled_predicate.executable(),
-                slot_map,
-                IndexCompilePolicy::StrictAllOrNone,
-            ),
-            (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
-        };
-
-        Self {
-            compiled_predicate,
-            compile_targets,
-            conservative_mode: None,
-            predicate_capability_profile: None,
-            slot_map,
-            strict_mode,
-        }
-    }
-
     #[must_use]
     pub(in crate::db::executor) const fn compiled_predicate(&self) -> Option<&PredicateProgram> {
         self.compiled_predicate.as_ref()

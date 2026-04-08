@@ -16,7 +16,7 @@ use crate::{
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
             intent::{Query, QueryError, StructuralQuery},
-            plan::ExpressionOrderTerm,
+            plan::{ExpressionOrderTerm, FieldSlot, resolve_aggregate_target_field_slot},
         },
         sql::identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
@@ -156,6 +156,24 @@ pub(crate) enum SqlGlobalAggregateTerminal {
 }
 
 ///
+/// TypedSqlGlobalAggregateTerminal
+///
+/// TypedSqlGlobalAggregateTerminal is the typed global aggregate contract used
+/// after entity binding resolves one concrete model.
+/// Field-target variants carry a resolved planner field slot so typed SQL
+/// aggregate execution does not re-resolve the same field name before dispatch.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TypedSqlGlobalAggregateTerminal {
+    CountRows,
+    CountField(FieldSlot),
+    SumField(FieldSlot),
+    AvgField(FieldSlot),
+    MinField(FieldSlot),
+    MaxField(FieldSlot),
+}
+
+///
 /// LoweredSqlGlobalAggregateCommand
 ///
 /// Generic-free global aggregate command shape prepared before typed query
@@ -194,7 +212,7 @@ enum LoweredSqlAggregateShape {
 #[derive(Debug)]
 pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
-    terminal: SqlGlobalAggregateTerminal,
+    terminal: TypedSqlGlobalAggregateTerminal,
 }
 
 impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
@@ -206,7 +224,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 
     /// Borrow the lowered aggregate terminal.
     #[must_use]
-    pub(crate) const fn terminal(&self) -> &SqlGlobalAggregateTerminal {
+    pub(crate) const fn terminal(&self) -> &TypedSqlGlobalAggregateTerminal {
         &self.terminal
     }
 }
@@ -437,7 +455,7 @@ pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
         LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } => {
             Ok(SqlCommand::ExplainGlobalAggregate {
                 mode,
-                command: bind_lowered_sql_global_aggregate_command::<E>(command, consistency),
+                command: bind_lowered_sql_global_aggregate_command::<E>(command, consistency)?,
             })
         }
         LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
@@ -480,10 +498,37 @@ pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
-    Ok(bind_lowered_sql_global_aggregate_command::<E>(
+    bind_lowered_sql_global_aggregate_command::<E>(
         lower_global_aggregate_select_shape(statement)?,
         consistency,
-    ))
+    )
+}
+
+fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
+    terminal: SqlGlobalAggregateTerminal,
+) -> Result<TypedSqlGlobalAggregateTerminal, SqlLoweringError> {
+    let resolve_target_slot = |field: &str| {
+        resolve_aggregate_target_field_slot(E::MODEL, field).map_err(SqlLoweringError::from)
+    };
+
+    match terminal {
+        SqlGlobalAggregateTerminal::CountRows => Ok(TypedSqlGlobalAggregateTerminal::CountRows),
+        SqlGlobalAggregateTerminal::CountField(field) => Ok(
+            TypedSqlGlobalAggregateTerminal::CountField(resolve_target_slot(field.as_str())?),
+        ),
+        SqlGlobalAggregateTerminal::SumField(field) => Ok(
+            TypedSqlGlobalAggregateTerminal::SumField(resolve_target_slot(field.as_str())?),
+        ),
+        SqlGlobalAggregateTerminal::AvgField(field) => Ok(
+            TypedSqlGlobalAggregateTerminal::AvgField(resolve_target_slot(field.as_str())?),
+        ),
+        SqlGlobalAggregateTerminal::MinField(field) => Ok(
+            TypedSqlGlobalAggregateTerminal::MinField(resolve_target_slot(field.as_str())?),
+        ),
+        SqlGlobalAggregateTerminal::MaxField(field) => Ok(
+            TypedSqlGlobalAggregateTerminal::MaxField(resolve_target_slot(field.as_str())?),
+        ),
+    }
 }
 
 #[inline(never)]
@@ -1176,14 +1221,16 @@ pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(
 fn bind_lowered_sql_global_aggregate_command<E: EntityKind>(
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
-) -> SqlGlobalAggregateCommand<E> {
-    SqlGlobalAggregateCommand {
+) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
+    let terminal = bind_lowered_sql_global_aggregate_terminal::<E>(lowered.terminal)?;
+
+    Ok(SqlGlobalAggregateCommand {
         query: Query::from_inner(apply_lowered_base_query_shape(
             StructuralQuery::new(E::MODEL, consistency),
             lowered.query,
         )),
-        terminal: lowered.terminal,
-    }
+        terminal,
+    })
 }
 
 fn bind_lowered_sql_global_aggregate_command_structural(

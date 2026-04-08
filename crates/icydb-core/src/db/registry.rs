@@ -1,5 +1,5 @@
 //! Module: db::registry
-//! Responsibility: thread-local store registry lifecycle and lookup authority.
+//! Responsibility: thread-local store registry lifecycle and lookup boundary.
 //! Does not own: store encode/decode semantics or query/executor planning behavior.
 //! Boundary: manages registry state for named data/index stores and typed registry errors.
 
@@ -101,9 +101,9 @@ impl StoreHandle {
         self.with_index_mut(IndexStore::mark_building);
     }
 
-    /// Mark the bound index store as Valid.
-    pub(in crate::db) fn mark_index_valid(&self) {
-        self.with_index_mut(IndexStore::mark_valid);
+    /// Mark the bound index store as Ready.
+    pub(in crate::db) fn mark_index_ready(&self) {
+        self.with_index_mut(IndexStore::mark_ready);
     }
 
     /// Mark the bound index store as Dropping.

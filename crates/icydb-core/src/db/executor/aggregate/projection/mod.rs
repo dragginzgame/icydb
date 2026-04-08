@@ -16,8 +16,8 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, CoveringProjectionComponentRows,
-            ExecutableAccess, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            KeyStreamLoopControl, PreparedAggregatePlan, TraversalRuntime,
+            ExecutableAccess, ExecutablePlan, ExecutionKernel, KeyStreamLoopControl,
+            PreparedAggregatePlan, TraversalRuntime,
             aggregate::{
                 AggregateKind, PreparedAggregateStreamingInputs, PreparedCoveringDistinctStrategy,
                 PreparedScalarProjectionExecutionState, PreparedScalarProjectionOp,
@@ -40,7 +40,6 @@ use crate::{
             group::GroupKeySet,
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
-            preparation::resolved_index_slots_for_access_path,
             reorder_covering_projection_pairs,
             resolve_covering_projection_component_from_lowered_specs,
             terminal::{RowDecoder, RowLayout},
@@ -586,18 +585,11 @@ where
             authority,
             store,
             logical_plan,
+            execution_preparation,
             index_prefix_specs,
             index_range_specs,
             ..
         } = prepared;
-        let execution_preparation = ExecutionPreparation::from_strict_runtime_plan(
-            authority.model(),
-            &logical_plan,
-            resolved_index_slots_for_access_path(
-                authority.model(),
-                logical_plan.access.resolve_strategy().executable(),
-            ),
-        );
         let continuation = RefCell::new(ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
         ));

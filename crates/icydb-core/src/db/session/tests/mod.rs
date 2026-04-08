@@ -20,7 +20,9 @@ use crate::{
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor_with_model},
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::explain::{ExplainExecutionNodeDescriptor, ExplainExecutionNodeType},
+        query::explain::{
+            ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+        },
         query::intent::StructuralQuery,
         query::plan::{
             AggregateKind,
@@ -475,7 +477,7 @@ fn reset_session_sql_store() {
     SESSION_SQL_INDEX_STORE.with(|store| {
         let mut store = store.borrow_mut();
         store.clear();
-        store.mark_valid();
+        store.mark_ready();
     });
 }
 
@@ -490,7 +492,7 @@ fn reset_indexed_session_sql_store() {
     INDEXED_SESSION_SQL_INDEX_STORE.with(|store| {
         let mut store = store.borrow_mut();
         store.clear();
-        store.mark_valid();
+        store.mark_ready();
     });
 }
 
@@ -540,14 +542,14 @@ fn session_show_indexes_reports_primary_and_secondary_indexes() {
 
     assert_eq!(
         session.show_indexes::<SessionSqlEntity>(),
-        vec!["PRIMARY KEY (id) [state=valid]".to_string()],
+        vec!["PRIMARY KEY (id) [state=ready]".to_string()],
         "entities without secondary indexes should only report primary key metadata",
     );
     assert_eq!(
         indexed_session.show_indexes::<IndexedSessionSqlEntity>(),
         vec![
-            "PRIMARY KEY (id) [state=valid]".to_string(),
-            "INDEX name (name) [state=valid]".to_string(),
+            "PRIMARY KEY (id) [state=ready]".to_string(),
+            "INDEX name (name) [state=ready]".to_string(),
         ],
         "entities with one secondary index should report both primary and index rows",
     );
@@ -563,12 +565,12 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
             &session,
             "SHOW INDEXES IndexedSessionSqlEntity",
         )
-        .expect("SHOW INDEXES should succeed for valid index"),
+        .expect("SHOW INDEXES should succeed for ready index"),
         vec![
-            "PRIMARY KEY (id) [state=valid]".to_string(),
-            "INDEX name (name) [state=valid]".to_string(),
+            "PRIMARY KEY (id) [state=ready]".to_string(),
+            "INDEX name (name) [state=ready]".to_string(),
         ],
-        "SHOW INDEXES should expose the default valid lifecycle state on the runtime metadata surface",
+        "SHOW INDEXES should expose the default ready lifecycle state on the runtime metadata surface",
     );
 
     mark_indexed_session_sql_index_building();
@@ -8613,6 +8615,114 @@ fn session_sql_global_aggregate_explain_execution_stays_off_secondary_authority_
 }
 
 #[test]
+fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secondary_indexes_from_planner_visibility()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("Sam", 30), ("Sasha", 24), ("Soren", 18), ("Mira", 40)],
+    );
+    let sql = "EXPLAIN EXECUTION SELECT COUNT(*) FROM IndexedSessionSqlEntity WHERE name = 'Sam'";
+
+    let ready_explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("filtered aggregate EXPLAIN EXECUTION should succeed while the index is ready");
+    assert!(
+        ready_explain.contains("AggregateCount execution_mode=")
+            && ready_explain.contains("access=IndexPrefix"),
+        "ready filtered aggregate EXPLAIN EXECUTION should keep the planner-visible name index: {ready_explain}",
+    );
+    assert!(
+        !ready_explain.contains("access=FullScan")
+            && !ready_explain.contains("authority_decision")
+            && !ready_explain.contains("authority_reason")
+            && !ready_explain.contains("index_state"),
+        "ready filtered aggregate EXPLAIN EXECUTION should stay off both the full-scan fallback and the removed secondary-read label surface: {ready_explain}",
+    );
+
+    mark_indexed_session_sql_index_building();
+
+    let building_explain = dispatch_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("filtered aggregate EXPLAIN EXECUTION should still succeed once the shared index becomes building");
+    assert!(
+        building_explain.contains("AggregateCount execution_mode=")
+            && building_explain.contains("access=FullScan"),
+        "building filtered aggregate EXPLAIN EXECUTION should fall back to FullScan once the name index becomes planner-invisible: {building_explain}",
+    );
+    assert!(
+        !building_explain.contains("access=IndexPrefix")
+            && !building_explain.contains("authority_decision")
+            && !building_explain.contains("authority_reason")
+            && !building_explain.contains("index_state"),
+        "building filtered aggregate EXPLAIN EXECUTION should not keep the hidden index or any removed secondary-read labels: {building_explain}",
+    );
+}
+
+#[test]
+fn session_aggregate_exists_explain_hides_non_ready_secondary_indexes_from_planner_visibility() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_session_explain_entities(
+        &session,
+        &[
+            (9_461, 7, 10),
+            (9_462, 7, 20),
+            (9_463, 7, 30),
+            (9_464, 8, 99),
+        ],
+    );
+    let load_window = || {
+        session
+            .load::<SessionExplainEntity>()
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::from(7u64),
+                CoercionId::Strict,
+            )))
+            .order_by("rank")
+            .order_by("id")
+    };
+
+    let ready_plan = load_window()
+        .explain_exists()
+        .expect("indexed aggregate exists explain should succeed while the index is ready");
+    assert!(
+        matches!(
+            ready_plan.query().access(),
+            ExplainAccessPath::IndexPrefix { name, .. } if *name == "group_rank"
+        ),
+        "ready aggregate exists planning should keep the composite secondary index visible",
+    );
+    assert_eq!(
+        ready_plan.execution().access_strategy(),
+        ready_plan.query().access(),
+        "ready aggregate exists execution should inherit the planner-owned access path",
+    );
+
+    mark_indexed_session_sql_index_building();
+
+    let building_plan = load_window().explain_exists().expect(
+        "aggregate exists explain should still succeed when the shared index becomes building",
+    );
+    assert!(
+        matches!(building_plan.query().access(), ExplainAccessPath::FullScan),
+        "non-ready aggregate exists planning must hide the secondary index instead of planning a downgraded shortcut",
+    );
+    assert_eq!(
+        building_plan.execution().access_strategy(),
+        building_plan.query().access(),
+        "non-ready aggregate exists execution should inherit the fallback planner path",
+    );
+    assert!(
+        load_window()
+            .exists()
+            .expect("aggregate exists should still execute after planner visibility fallback"),
+        "planner visibility fallback must preserve aggregate exists correctness",
+    );
+}
+
+#[test]
 fn session_aggregate_terminal_explain_first_last_preserve_order_shape_parity() {
     reset_session_sql_store();
     let session = sql_session();
@@ -9460,6 +9570,48 @@ fn session_explain_execution_hides_non_ready_secondary_indexes_from_planner_visi
         rows[0].entity_ref().age,
         30,
         "planner visibility fallback must preserve the projected entity payload",
+    );
+}
+
+#[test]
+fn session_planning_hides_non_ready_secondary_indexes_from_access_selection() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("Sam", 30), ("Sasha", 24), ("Soren", 18), ("Mira", 40)],
+    );
+
+    let query = Query::<IndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("Sam".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("name")
+        .order_by("id")
+        .limit(1);
+
+    mark_indexed_session_sql_index_building();
+
+    let visible_indexes = session
+        .visible_indexes_for_store_model(
+            IndexedSessionSqlStore::PATH,
+            <IndexedSessionSqlEntity as crate::traits::EntitySchema>::MODEL,
+        )
+        .expect("non-ready store should still resolve planner-visible index slice");
+    assert!(
+        visible_indexes.as_slice().is_empty(),
+        "planner boundary must hide non-ready secondary indexes before access selection",
+    );
+
+    let compiled = query
+        .plan_with_visible_indexes(&visible_indexes)
+        .expect("planning with no visible secondary indexes should still succeed");
+    assert!(
+        matches!(compiled.explain().access(), ExplainAccessPath::FullScan),
+        "planner output must fall back to FullScan once the secondary index is no longer ready",
     );
 }
 

@@ -2931,6 +2931,35 @@ fn sql_canister_query_lane_supports_global_aggregate_explain() {
 }
 
 #[test]
+fn sql_canister_query_lane_filtered_global_aggregate_explain_respects_customer_index_visibility() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "EXPLAIN SELECT COUNT(*) FROM Customer WHERE name = 'alice'";
+
+        let ready_payload = query_result(pic, canister_id, sql)
+            .expect("query filtered global aggregate EXPLAIN should return an Ok payload while the Customer index is ready");
+        assert_explain_route(
+            ready_payload,
+            "Customer",
+            &["access=IndexPrefix"],
+            &["access=FullScan"],
+            "ready filtered global aggregate EXPLAIN should keep the planner-visible Customer name index",
+        );
+
+        mark_customer_index_building(pic, canister_id);
+
+        let building_payload = query_result(pic, canister_id, sql)
+            .expect("query filtered global aggregate EXPLAIN should return an Ok payload after the Customer index becomes building");
+        assert_explain_route(
+            building_payload,
+            "Customer",
+            &["access=FullScan"],
+            &["access=IndexPrefix"],
+            "building filtered global aggregate EXPLAIN should fall back once the Customer name index becomes planner-invisible",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_supports_global_aggregate_explain_execution() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -2946,6 +2975,46 @@ fn sql_canister_query_lane_supports_global_aggregate_explain_execution() {
             &["AggregateCount execution_mode=", "node_id=0"],
             &[],
             "global aggregate EXPLAIN EXECUTION should expose the aggregate terminal descriptor",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_filtered_global_aggregate_explain_execution_respects_customer_index_visibility()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let sql = "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer WHERE name = 'alice'";
+
+        let ready_payload = query_result(pic, canister_id, sql)
+            .expect("query filtered global aggregate EXPLAIN EXECUTION should return an Ok payload while the Customer index is ready");
+        assert_explain_route(
+            ready_payload,
+            "Customer",
+            &["AggregateCount execution_mode=", "access=IndexPrefix"],
+            &[
+                "access=FullScan",
+                "authority_decision",
+                "authority_reason",
+                "index_state",
+            ],
+            "ready filtered global aggregate EXPLAIN EXECUTION should keep the planner-visible Customer name index and stay off the removed secondary-read label surface",
+        );
+
+        mark_customer_index_building(pic, canister_id);
+
+        let building_payload = query_result(pic, canister_id, sql)
+            .expect("query filtered global aggregate EXPLAIN EXECUTION should return an Ok payload after the Customer index becomes building");
+        assert_explain_route(
+            building_payload,
+            "Customer",
+            &["AggregateCount execution_mode=", "access=FullScan"],
+            &[
+                "access=IndexPrefix",
+                "authority_decision",
+                "authority_reason",
+                "index_state",
+            ],
+            "building filtered global aggregate EXPLAIN EXECUTION should fall back once the Customer name index becomes planner-invisible and should stay off the removed secondary-read label surface",
         );
     });
 }
@@ -9526,8 +9595,8 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
                     "SHOW INDEXES payload should include at least the primary-key row",
                 );
                 assert!(
-                    indexes.iter().all(|index| index.contains("[state=valid]")),
-                    "SHOW INDEXES payload should surface the current valid index lifecycle state for the default metadata fixture",
+                    indexes.iter().all(|index| index.contains("[state=ready]")),
+                    "SHOW INDEXES payload should surface the current ready index lifecycle state for the default metadata fixture",
                 );
             }
             other => panic!("query SHOW INDEXES should return ShowIndexes payload, got {other:?}"),

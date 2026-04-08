@@ -72,7 +72,6 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
     pub(in crate::db::executor) aggregate: AggregateExpr,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_plan: ExecutionPlan,
-    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
 }
 
 ///
@@ -101,6 +100,7 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
+    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
 }
@@ -119,6 +119,7 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputsCore {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
+    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
 }
@@ -201,6 +202,7 @@ impl PreparedAggregateStreamingInputs<'_> {
             authority: self.authority,
             store: self.store,
             logical_plan: self.logical_plan,
+            execution_preparation: self.execution_preparation,
             index_prefix_specs: self.index_prefix_specs,
             index_range_specs: self.index_range_specs,
         }
@@ -277,18 +279,17 @@ impl PreparedScalarNumericOp {
 }
 
 ///
-/// PreparedScalarNumericStrategy
+/// PreparedScalarNumericAggregateStrategy
 ///
-/// Non-generic numeric execution strategy resolved during typed boundary
-/// preparation. Runtime execution matches this enum instead of re-reading
-/// access-path and pagination policy from the original plan.
+/// Non-generic numeric aggregate-path strategy resolved during typed boundary
+/// preparation. This enum covers only the direct aggregate family; grouped
+/// global DISTINCT execution is modeled separately in the prepared payload.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum PreparedScalarNumericStrategy {
+pub(in crate::db::executor) enum PreparedScalarNumericAggregateStrategy {
     Streaming,
     Materialized,
-    GlobalDistinctGrouped,
 }
 
 ///
@@ -296,8 +297,7 @@ pub(in crate::db::executor) enum PreparedScalarNumericStrategy {
 ///
 /// PreparedScalarNumericBoundary is the non-generic numeric scalar contract
 /// derived once from a typed plan and request.
-/// It contains only resolved field metadata, the numeric operation, and the
-/// chosen execution strategy.
+/// It contains only resolved field metadata and the numeric operation.
 ///
 
 #[derive(Clone, Debug)]
@@ -305,19 +305,25 @@ pub(in crate::db::executor) struct PreparedScalarNumericBoundary {
     pub(in crate::db::executor) target_field_name: String,
     pub(in crate::db::executor) field_slot: FieldSlot,
     pub(in crate::db::executor) op: PreparedScalarNumericOp,
-    pub(in crate::db::executor) strategy: PreparedScalarNumericStrategy,
 }
 
-impl PreparedScalarNumericBoundary {
-    // Build the canonical direct-execution strategy mismatch invariant.
-    pub(in crate::db::executor) fn direct_execution_global_distinct_required(
-        &self,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "numeric aggregate direct execution reached {} strategy",
-            self.strategy.kind_label(),
-        ))
-    }
+///
+/// PreparedScalarNumericPayload
+///
+/// PreparedScalarNumericPayload selects the runtime family that will execute
+/// one numeric scalar boundary. This keeps the direct aggregate path and the
+/// grouped global DISTINCT path explicit instead of overloading one strategy
+/// enum with both concerns.
+///
+
+pub(in crate::db::executor) enum PreparedScalarNumericPayload<'ctx> {
+    Aggregate {
+        strategy: PreparedScalarNumericAggregateStrategy,
+        prepared: Box<PreparedAggregateStreamingInputs<'ctx>>,
+    },
+    GlobalDistinct {
+        route: Box<GroupedRouteStage>,
+    },
 }
 
 ///
@@ -325,29 +331,13 @@ impl PreparedScalarNumericBoundary {
 ///
 /// PreparedScalarNumericExecutionState pairs one non-generic numeric boundary
 /// contract with the runtime payload needed to execute it.
-/// The boundary itself is plan-free; only the runtime payload remains typed.
+/// The boundary itself is plan-free; only the payload determines which
+/// execution family runs.
 ///
 
-pub(in crate::db::executor) enum PreparedScalarNumericExecutionState<'ctx> {
-    Aggregate {
-        boundary: PreparedScalarNumericBoundary,
-        prepared: Box<PreparedAggregateStreamingInputs<'ctx>>,
-    },
-    GlobalDistinct {
-        boundary: PreparedScalarNumericBoundary,
-        route: Box<GroupedRouteStage>,
-    },
-}
-
-impl PreparedScalarNumericStrategy {
-    // Return the stable strategy label used in numeric execution invariants.
-    const fn kind_label(self) -> &'static str {
-        match self {
-            Self::Streaming => "streaming",
-            Self::Materialized => "materialized",
-            Self::GlobalDistinctGrouped => "global DISTINCT grouped",
-        }
-    }
+pub(in crate::db::executor) struct PreparedScalarNumericExecutionState<'ctx> {
+    pub(in crate::db::executor) boundary: PreparedScalarNumericBoundary,
+    pub(in crate::db::executor) payload: PreparedScalarNumericPayload<'ctx>,
 }
 
 ///
@@ -655,13 +645,7 @@ impl PreparedScalarTerminalOp {
 pub(in crate::db::executor) enum PreparedScalarTerminalStrategy {
     KernelAggregate,
     CountPrimaryKeyCardinality,
-    CountExistingRows {
-        direction: Direction,
-        covering: bool,
-    },
-    ExistsExistingRows {
-        direction: Direction,
-    },
+    ExistingRows { direction: Direction },
 }
 
 ///
@@ -690,6 +674,59 @@ pub(in crate::db::executor) struct PreparedScalarTerminalBoundary {
 
 pub(in crate::db::executor) struct PreparedScalarTerminalExecutionState<'ctx> {
     pub(in crate::db::executor) boundary: PreparedScalarTerminalBoundary,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
+}
+
+///
+/// PreparedOrderSensitiveTerminalBoundary
+///
+/// PreparedOrderSensitiveTerminalBoundary is the plan-free contract for
+/// order-sensitive scalar terminals.
+/// It keeps response-order terminals (`first`/`last`) separate from
+/// field-ordered terminals (`nth_by`/`median_by`/`min_max_by`) without
+/// widening the COUNT/EXISTS/id-terminal boundary again.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::executor) enum PreparedOrderSensitiveTerminalBoundary {
+    ResponseOrder {
+        kind: AggregateKind,
+    },
+    FieldOrder {
+        target_field_name: String,
+        field_slot: FieldSlot,
+        op: PreparedFieldOrderSensitiveTerminalOp,
+    },
+}
+
+///
+/// PreparedFieldOrderSensitiveTerminalOp
+///
+/// Non-generic field-ordered terminal operation resolved at the typed
+/// boundary before execution begins.
+/// These terminals require ranking/extrema-specific execution semantics over a
+/// planner-resolved orderable field.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::executor) enum PreparedFieldOrderSensitiveTerminalOp {
+    Nth { nth: usize },
+    Median,
+    MinMax,
+}
+
+///
+/// PreparedOrderSensitiveTerminalExecutionState
+///
+/// PreparedOrderSensitiveTerminalExecutionState pairs one prepared
+/// order-sensitive terminal boundary with the runtime payload needed to
+/// execute it.
+/// Runtime execution consumes this state directly instead of rebuilding the
+/// same slot-resolution and prepared aggregate inputs ad hoc.
+///
+
+pub(in crate::db::executor) struct PreparedOrderSensitiveTerminalExecutionState<'ctx> {
+    pub(in crate::db::executor) boundary: PreparedOrderSensitiveTerminalBoundary,
     pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 

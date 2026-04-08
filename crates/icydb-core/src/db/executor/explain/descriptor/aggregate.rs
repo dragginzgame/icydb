@@ -26,7 +26,7 @@ use crate::db::executor::explain::descriptor::shared::{
 };
 
 // Assemble one canonical scalar aggregate execution descriptor through one
-// model-owned authority path.
+// schema/model-owned explain boundary.
 #[inline(never)]
 pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
@@ -69,10 +69,10 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model
     );
 
     // Phase 3: emit one stable descriptor payload consumed by explain surfaces.
-    // Aggregate routes intentionally do not inherit the secondary-read
-    // authority labels here. Aggregate COUNT/EXISTS/extrema shortcuts still
-    // need their own missing-row sensitivity classification, so aggregate
-    // EXPLAIN must stay authority-unclassified until that model exists.
+    // Aggregate routes intentionally stay off the removed secondary-read label
+    // surface. COUNT/EXISTS/extrema use their own planner-visible route
+    // contracts, so aggregate EXPLAIN should not reintroduce load-side
+    // correctness vocabulary here.
     ExplainExecutionDescriptor {
         access_strategy: ExplainAccessRoute::from_access_plan(&plan.access),
         // Covering flag reflects index-only aggregate fast-path eligibility for

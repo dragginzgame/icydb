@@ -89,7 +89,7 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
 
     // Phase 5: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
-    db.mark_all_registered_index_stores_valid();
+    db.mark_all_registered_index_stores_ready();
 
     let _ = RECOVERED.set(());
 

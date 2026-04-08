@@ -22,10 +22,9 @@ use crate::{
             },
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, model::QueryModel},
-            plan::{AccessPlannedQuery, LoadSpec, QueryMode},
+            plan::{AccessPlannedQuery, LoadSpec, QueryMode, VisibleIndexes},
         },
     },
-    model::index::IndexModel,
     traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
     value::Value,
 };
@@ -223,7 +222,7 @@ impl StructuralQuery {
 
     pub(in crate::db) fn build_plan_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         self.intent.build_plan_model_with_indexes(visible_indexes)
     }
@@ -237,7 +236,7 @@ impl StructuralQuery {
     #[inline(never)]
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
 
@@ -268,7 +267,7 @@ impl StructuralQuery {
 
     pub(in crate::db) fn explain_execution_text_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         Ok(self
             .explain_execution_with_visible_indexes(visible_indexes)?
@@ -283,7 +282,7 @@ impl StructuralQuery {
 
     pub(in crate::db) fn explain_execution_json_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         Ok(self
             .explain_execution_with_visible_indexes(visible_indexes)?
@@ -354,7 +353,7 @@ impl StructuralQuery {
     #[inline(never)]
     pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
         let descriptor = assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
@@ -423,7 +422,7 @@ impl StructuralQuery {
     #[inline(never)]
     pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
         aggregate: AggregateExpr,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
@@ -665,7 +664,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn explain_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainPlan, QueryError> {
         let plan = self
             .inner
@@ -676,7 +675,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn plan_hash_hex_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
         let plan = self
             .inner
@@ -880,7 +879,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue,
@@ -899,7 +898,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn explain_execution_text_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError>
     where
         E: EntityValue,
@@ -918,7 +917,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn explain_execution_json_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError>
     where
         E: EntityValue,
@@ -946,13 +945,15 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .explain_aggregate_terminal_with_visible_indexes(E::MODEL.indexes(), aggregate)
+        self.inner.explain_aggregate_terminal_with_visible_indexes(
+            &VisibleIndexes::schema_owned(E::MODEL.indexes()),
+            aggregate,
+        )
     }
 
     pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError>
     where
         E: EntityValue,
@@ -963,7 +964,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
         aggregate: AggregateExpr,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
@@ -975,7 +976,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn explain_bytes_by_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
         target_field: &str,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
@@ -1025,7 +1026,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn planned_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<PlannedQuery<E>, QueryError> {
         let plan = self
             .inner
@@ -1054,7 +1055,7 @@ impl<E: EntityKind> Query<E> {
 
     pub(in crate::db) fn plan_with_visible_indexes(
         &self,
-        visible_indexes: &[&'static IndexModel],
+        visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<CompiledQuery<E>, QueryError> {
         let plan = self
             .inner
