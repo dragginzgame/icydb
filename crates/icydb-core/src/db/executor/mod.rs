@@ -40,8 +40,8 @@ pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
 pub(in crate::db) use aggregate::{
-    ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
-    ScalarTerminalBoundaryRequest,
+    ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
+    ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use continuation::{
@@ -75,6 +75,7 @@ pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
     assemble_load_execution_verbose_diagnostics_with_model,
     assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes,
+    assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;

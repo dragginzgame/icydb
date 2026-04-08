@@ -7,70 +7,22 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
-            EntityAuthority, assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
+            EntityAuthority,
+            assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
+            assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model,
         },
-        query::builder::aggregate::AggregateExpr,
+        query::explain::ExplainAggregateTerminalPlan,
         query::intent::StructuralQuery,
-        query::plan::{FieldSlot, resolve_aggregate_target_field_slot},
         session::sql::surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
-            SqlGlobalAggregateTerminal, apply_lowered_select_shape,
-            bind_lowered_sql_explain_global_aggregate_structural,
+            apply_lowered_select_shape, bind_lowered_sql_explain_global_aggregate_structural,
             bind_lowered_sql_query_structural,
         },
         sql::parser::SqlExplainMode,
     },
-    model::EntityModel,
     traits::CanisterKind,
 };
-
-// Resolve one aggregate target field through planner slot contracts before
-// aggregate explain descriptor assembly.
-fn resolve_sql_aggregate_target_slot_with_model(
-    model: &'static EntityModel,
-    field: &str,
-) -> Result<FieldSlot, QueryError> {
-    resolve_aggregate_target_field_slot(model, field)
-}
-
-// Convert one lowered global SQL aggregate terminal into aggregate expression
-// contracts used by aggregate explain execution descriptors.
-fn sql_global_aggregate_terminal_to_expr_with_model(
-    model: &'static EntityModel,
-    terminal: &SqlGlobalAggregateTerminal,
-) -> Result<AggregateExpr, QueryError> {
-    match terminal {
-        SqlGlobalAggregateTerminal::CountRows => Ok(crate::db::query::builder::aggregate::count()),
-        SqlGlobalAggregateTerminal::CountField(field) => {
-            let _ = resolve_sql_aggregate_target_slot_with_model(model, field)?;
-
-            Ok(crate::db::query::builder::aggregate::count_by(
-                field.as_str(),
-            ))
-        }
-        SqlGlobalAggregateTerminal::SumField(field) => {
-            let _ = resolve_sql_aggregate_target_slot_with_model(model, field)?;
-
-            Ok(crate::db::query::builder::aggregate::sum(field.as_str()))
-        }
-        SqlGlobalAggregateTerminal::AvgField(field) => {
-            let _ = resolve_sql_aggregate_target_slot_with_model(model, field)?;
-
-            Ok(crate::db::query::builder::aggregate::avg(field.as_str()))
-        }
-        SqlGlobalAggregateTerminal::MinField(field) => {
-            let _ = resolve_sql_aggregate_target_slot_with_model(model, field)?;
-
-            Ok(crate::db::query::builder::aggregate::min_by(field.as_str()))
-        }
-        SqlGlobalAggregateTerminal::MaxField(field) => {
-            let _ = resolve_sql_aggregate_target_slot_with_model(model, field)?;
-
-            Ok(crate::db::query::builder::aggregate::max_by(field.as_str()))
-        }
-    }
-}
 
 impl<C: CanisterKind> DbSession<C> {
     // Render one lowered SQL EXPLAIN payload through the session-owned planner
@@ -192,37 +144,38 @@ impl<C: CanisterKind> DbSession<C> {
         let model = command.query().model();
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let strategy = command
+            .prepared_scalar_strategy_with_model(model)
+            .map_err(QueryError::from_sql_lowering_error)?;
 
         match mode {
-            SqlExplainMode::Plan => {
-                let _ =
-                    sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
-
-                Ok(command
-                    .query()
-                    .build_plan_with_visible_indexes(&visible_indexes)?
-                    .explain_with_model(model)
-                    .render_text_canonical())
-            }
+            SqlExplainMode::Plan => Ok(command
+                .query()
+                .build_plan_with_visible_indexes(&visible_indexes)?
+                .explain_with_model(model)
+                .render_text_canonical()),
             SqlExplainMode::Execution => {
-                let aggregate =
-                    sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
                 let plan = command
                     .query()
-                    .explain_aggregate_terminal_with_visible_indexes(&visible_indexes, aggregate)?;
+                    .build_plan_with_visible_indexes(&visible_indexes)?;
+                let query_explain = plan.explain_with_model(model);
+                let execution =
+                    assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model(
+                        model, &plan, &strategy,
+                    );
+                let terminal_plan = ExplainAggregateTerminalPlan::new(
+                    query_explain,
+                    strategy.aggregate_kind(),
+                    execution,
+                );
 
-                Ok(plan.execution_node_descriptor().render_text_tree())
+                Ok(terminal_plan.execution_node_descriptor().render_text_tree())
             }
-            SqlExplainMode::Json => {
-                let _ =
-                    sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
-
-                Ok(command
-                    .query()
-                    .build_plan_with_visible_indexes(&visible_indexes)?
-                    .explain_with_model(model)
-                    .render_json_canonical())
-            }
+            SqlExplainMode::Json => Ok(command
+                .query()
+                .build_plan_with_visible_indexes(&visible_indexes)?
+                .explain_with_model(model)
+                .render_json_canonical()),
         }
     }
 }

@@ -64,8 +64,10 @@ pub(in crate::db::executor) use execution::{
     ScalarProjectionWindow,
 };
 pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
-pub(in crate::db) use projection::ScalarProjectionBoundaryRequest;
-pub(in crate::db) use terminals::ScalarTerminalBoundaryRequest;
+pub(in crate::db) use projection::{
+    ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
+};
+pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
 
 impl<E> LoadExecutor<E>
 where

@@ -8,13 +8,17 @@ use crate::{
         PersistedRow,
         executor::{
             ExecutablePlan, LoadExecutor, ScalarNumericFieldBoundaryRequest,
-            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryRequest,
+            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
+            ScalarTerminalBoundaryRequest,
         },
         query::{
             api::ResponseCardinalityExt,
             builder::{
-                AggregateExpr,
-                aggregate::{exists, first, last, max, min},
+                PreparedFluentNumericFieldRuntimeRequest, PreparedFluentNumericFieldStrategy,
+                PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+                PreparedFluentOrderSensitiveTerminalStrategy,
+                PreparedFluentProjectionRuntimeRequest, PreparedFluentProjectionStrategy,
+                PreparedFluentScalarTerminalRuntimeRequest, PreparedFluentScalarTerminalStrategy,
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::FluentLoadQuery,
@@ -63,9 +67,9 @@ where
 
     // Run one scalar aggregate EXPLAIN terminal through the canonical
     // non-paged fluent policy gate.
-    fn explain_scalar_non_paged_terminal(
+    fn explain_prepared_scalar_non_paged_terminal(
         &self,
-        aggregate: AggregateExpr,
+        strategy: &PreparedFluentScalarTerminalStrategy,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
@@ -73,7 +77,101 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .explain_query_aggregate_terminal_with_visible_indexes(self.query(), aggregate)
+            .explain_query_prepared_scalar_terminal_with_visible_indexes(self.query(), strategy)
+    }
+
+    // Execute one prepared fluent scalar terminal through the canonical
+    // non-paged fluent policy gate using the prepared runtime request as the
+    // single execution source.
+    fn execute_prepared_scalar_terminal_output(
+        &self,
+        strategy: PreparedFluentScalarTerminalStrategy,
+    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.execute_scalar_non_paged_terminal(move |load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                scalar_terminal_boundary_request_from_prepared(strategy.runtime_request().clone()),
+            )
+        })
+    }
+
+    // Execute one prepared fluent numeric-field terminal through the canonical
+    // non-paged fluent policy gate using the prepared numeric strategy as the
+    // single runtime source.
+    fn execute_prepared_numeric_field_terminal(
+        &self,
+        strategy: PreparedFluentNumericFieldStrategy,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.execute_scalar_non_paged_terminal(move |load, plan| {
+            load.execute_numeric_field_boundary(
+                plan,
+                strategy.target_field().clone(),
+                numeric_field_boundary_request_from_prepared(strategy.runtime_request()),
+            )
+        })
+    }
+
+    // Execute one prepared fluent order-sensitive terminal through the
+    // canonical non-paged fluent policy gate using the prepared order-sensitive
+    // strategy as the single runtime source.
+    fn execute_prepared_order_sensitive_terminal_output(
+        &self,
+        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.execute_scalar_non_paged_terminal(move |load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                order_sensitive_terminal_boundary_request_from_prepared(
+                    strategy.runtime_request().clone(),
+                ),
+            )
+        })
+    }
+
+    // Execute one prepared fluent projection/distinct terminal through the
+    // canonical non-paged fluent policy gate using the prepared projection
+    // strategy as the single runtime source.
+    fn execute_prepared_projection_terminal_output(
+        &self,
+        strategy: PreparedFluentProjectionStrategy,
+    ) -> Result<crate::db::executor::ScalarProjectionBoundaryOutput, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.execute_scalar_non_paged_terminal(move |load, plan| {
+            load.execute_scalar_projection_boundary(
+                plan,
+                strategy.target_field().clone(),
+                projection_boundary_request_from_prepared(strategy.runtime_request()),
+            )
+        })
+    }
+
+    // Run one order-sensitive aggregate EXPLAIN terminal through the canonical
+    // non-paged fluent policy gate.
+    fn explain_prepared_order_sensitive_non_paged_terminal(
+        &self,
+        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .explain_query_prepared_order_sensitive_terminal_with_visible_indexes(
+                self.query(),
+                strategy,
+            )
     }
 
     // ------------------------------------------------------------------
@@ -101,10 +199,11 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| {
-            load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Exists)?
-                .into_exists()
-        })
+        self.execute_prepared_scalar_terminal_output(
+            PreparedFluentScalarTerminalStrategy::exists_rows(),
+        )?
+        .into_exists()
+        .map_err(QueryError::execute)
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -112,7 +211,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_scalar_non_paged_terminal(exists())
+        self.explain_prepared_scalar_non_paged_terminal(
+            &PreparedFluentScalarTerminalStrategy::exists_rows(),
+        )
     }
 
     /// Explain scalar `not_exists()` routing without executing the terminal.
@@ -166,10 +267,11 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| {
-            load.execute_scalar_terminal_request(plan, ScalarTerminalBoundaryRequest::Count)?
-                .into_count()
-        })
+        self.execute_prepared_scalar_terminal_output(
+            PreparedFluentScalarTerminalStrategy::count_rows(),
+        )?
+        .into_count()
+        .map_err(QueryError::execute)
     }
 
     /// Execute and return the total persisted payload bytes for the effective
@@ -218,15 +320,11 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                ScalarTerminalBoundaryRequest::IdTerminal {
-                    kind: AggregateKind::Min,
-                },
-            )?
-            .into_id()
-        })
+        self.execute_prepared_scalar_terminal_output(
+            PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
+        )?
+        .into_id()
+        .map_err(QueryError::execute)
     }
 
     /// Explain scalar `min()` routing without executing the terminal.
@@ -234,7 +332,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_scalar_non_paged_terminal(min())
+        self.explain_prepared_scalar_non_paged_terminal(
+            &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
+        )
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -247,17 +347,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_terminal_request(
-                        plan,
-                        ScalarTerminalBoundaryRequest::IdBySlot {
-                            kind: AggregateKind::Min,
-                            target_field: target_slot,
-                        },
-                    )?
-                    .into_id()
-                })
+            self.execute_prepared_scalar_terminal_output(
+                PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
+            )?
+            .into_id()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -266,15 +360,11 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                ScalarTerminalBoundaryRequest::IdTerminal {
-                    kind: AggregateKind::Max,
-                },
-            )?
-            .into_id()
-        })
+        self.execute_prepared_scalar_terminal_output(
+            PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
+        )?
+        .into_id()
+        .map_err(QueryError::execute)
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -282,7 +372,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_scalar_non_paged_terminal(max())
+        self.explain_prepared_scalar_non_paged_terminal(
+            &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
+        )
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -295,17 +387,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_terminal_request(
-                        plan,
-                        ScalarTerminalBoundaryRequest::IdBySlot {
-                            kind: AggregateKind::Max,
-                            target_field: target_slot,
-                        },
-                    )?
-                    .into_id()
-                })
+            self.execute_prepared_scalar_terminal_output(
+                PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
+            )?
+            .into_id()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -318,17 +404,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_terminal_request(
-                        plan,
-                        ScalarTerminalBoundaryRequest::NthBySlot {
-                            target_field: target_slot,
-                            nth,
-                        },
-                    )?
-                    .into_id()
-                })
+            self.execute_prepared_order_sensitive_terminal_output(
+                PreparedFluentOrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
+            )?
+            .into_id()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -340,14 +420,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_numeric_field_boundary(
-                        plan,
-                        target_slot,
-                        ScalarNumericFieldBoundaryRequest::Sum,
-                    )
-                })
+            self.execute_prepared_numeric_field_terminal(
+                PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
+            )
         })
     }
 
@@ -359,14 +434,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_numeric_field_boundary(
-                        plan,
-                        target_slot,
-                        ScalarNumericFieldBoundaryRequest::SumDistinct,
-                    )
-                })
+            self.execute_prepared_numeric_field_terminal(
+                PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
+            )
         })
     }
 
@@ -378,14 +448,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_numeric_field_boundary(
-                        plan,
-                        target_slot,
-                        ScalarNumericFieldBoundaryRequest::Avg,
-                    )
-                })
+            self.execute_prepared_numeric_field_terminal(
+                PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
+            )
         })
     }
 
@@ -397,14 +462,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_numeric_field_boundary(
-                        plan,
-                        target_slot,
-                        ScalarNumericFieldBoundaryRequest::AvgDistinct,
-                    )
-                })
+            self.execute_prepared_numeric_field_terminal(
+                PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
+            )
         })
     }
 
@@ -419,16 +479,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_terminal_request(
-                        plan,
-                        ScalarTerminalBoundaryRequest::MedianBySlot {
-                            target_field: target_slot,
-                        },
-                    )?
-                    .into_id()
-                })
+            self.execute_prepared_order_sensitive_terminal_output(
+                PreparedFluentOrderSensitiveTerminalStrategy::median_by_slot(target_slot),
+            )?
+            .into_id()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -441,15 +496,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_projection_boundary(
-                        plan,
-                        target_slot,
-                        ScalarProjectionBoundaryRequest::CountDistinct,
-                    )?
-                    .into_count()
-                })
+            self.execute_prepared_projection_terminal_output(
+                PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
+            )?
+            .into_count()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -463,16 +514,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_terminal_request(
-                        plan,
-                        ScalarTerminalBoundaryRequest::MinMaxBySlot {
-                            target_field: target_slot,
-                        },
-                    )?
-                    .into_id_pair()
-                })
+            self.execute_prepared_order_sensitive_terminal_output(
+                PreparedFluentOrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
+            )?
+            .into_id_pair()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -484,15 +530,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_projection_boundary(
-                        plan,
-                        target_slot,
-                        ScalarProjectionBoundaryRequest::Values,
-                    )?
-                    .into_values()
-                })
+            self.execute_prepared_projection_terminal_output(
+                PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+            )?
+            .into_values()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -663,15 +705,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_projection_boundary(
-                        plan,
-                        target_slot,
-                        ScalarProjectionBoundaryRequest::DistinctValues,
-                    )?
-                    .into_values()
-                })
+            self.execute_prepared_projection_terminal_output(
+                PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
+            )?
+            .into_values()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -687,15 +725,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_projection_boundary(
-                        plan,
-                        target_slot,
-                        ScalarProjectionBoundaryRequest::ValuesWithIds,
-                    )?
-                    .into_values_with_ids()
-                })
+            self.execute_prepared_projection_terminal_output(
+                PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+            )?
+            .into_values_with_ids()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -708,17 +742,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_projection_boundary(
-                        plan,
-                        target_slot,
-                        ScalarProjectionBoundaryRequest::TerminalValue {
-                            terminal_kind: AggregateKind::First,
-                        },
-                    )?
-                    .into_terminal_value()
-                })
+            self.execute_prepared_projection_terminal_output(
+                PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+            )?
+            .into_terminal_value()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -731,17 +759,11 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.session
-                .execute_load_query_with(self.query(), move |load, plan| {
-                    load.execute_scalar_projection_boundary(
-                        plan,
-                        target_slot,
-                        ScalarProjectionBoundaryRequest::TerminalValue {
-                            terminal_kind: AggregateKind::Last,
-                        },
-                    )?
-                    .into_terminal_value()
-                })
+            self.execute_prepared_projection_terminal_output(
+                PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+            )?
+            .into_terminal_value()
+            .map_err(QueryError::execute)
         })
     }
 
@@ -750,15 +772,11 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                ScalarTerminalBoundaryRequest::IdTerminal {
-                    kind: AggregateKind::First,
-                },
-            )?
-            .into_id()
-        })
+        self.execute_prepared_order_sensitive_terminal_output(
+            PreparedFluentOrderSensitiveTerminalStrategy::first(),
+        )?
+        .into_id()
+        .map_err(QueryError::execute)
     }
 
     /// Explain scalar `first()` routing without executing the terminal.
@@ -766,7 +784,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_scalar_non_paged_terminal(first())
+        self.explain_prepared_order_sensitive_non_paged_terminal(
+            &PreparedFluentOrderSensitiveTerminalStrategy::first(),
+        )
     }
 
     /// Execute and return the last matching identifier in response order, if any.
@@ -774,15 +794,11 @@ where
     where
         E: EntityValue,
     {
-        self.execute_scalar_non_paged_terminal(|load, plan| {
-            load.execute_scalar_terminal_request(
-                plan,
-                ScalarTerminalBoundaryRequest::IdTerminal {
-                    kind: AggregateKind::Last,
-                },
-            )?
-            .into_id()
-        })
+        self.execute_prepared_order_sensitive_terminal_output(
+            PreparedFluentOrderSensitiveTerminalStrategy::last(),
+        )?
+        .into_id()
+        .map_err(QueryError::execute)
     }
 
     /// Explain scalar `last()` routing without executing the terminal.
@@ -790,7 +806,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_scalar_non_paged_terminal(last())
+        self.explain_prepared_order_sensitive_non_paged_terminal(
+            &PreparedFluentOrderSensitiveTerminalStrategy::last(),
+        )
     }
 
     /// Execute and require exactly one matching row.
@@ -809,5 +827,78 @@ where
     {
         self.execute()?.require_some()?;
         Ok(())
+    }
+}
+
+fn scalar_terminal_boundary_request_from_prepared(
+    request: PreparedFluentScalarTerminalRuntimeRequest,
+) -> ScalarTerminalBoundaryRequest {
+    match request {
+        PreparedFluentScalarTerminalRuntimeRequest::CountRows => {
+            ScalarTerminalBoundaryRequest::Count
+        }
+        PreparedFluentScalarTerminalRuntimeRequest::ExistsRows => {
+            ScalarTerminalBoundaryRequest::Exists
+        }
+        PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
+            ScalarTerminalBoundaryRequest::IdTerminal { kind }
+        }
+        PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
+            ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
+        }
+    }
+}
+
+const fn numeric_field_boundary_request_from_prepared(
+    request: PreparedFluentNumericFieldRuntimeRequest,
+) -> ScalarNumericFieldBoundaryRequest {
+    match request {
+        PreparedFluentNumericFieldRuntimeRequest::Sum => ScalarNumericFieldBoundaryRequest::Sum,
+        PreparedFluentNumericFieldRuntimeRequest::SumDistinct => {
+            ScalarNumericFieldBoundaryRequest::SumDistinct
+        }
+        PreparedFluentNumericFieldRuntimeRequest::Avg => ScalarNumericFieldBoundaryRequest::Avg,
+        PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => {
+            ScalarNumericFieldBoundaryRequest::AvgDistinct
+        }
+    }
+}
+
+fn order_sensitive_terminal_boundary_request_from_prepared(
+    request: PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+) -> ScalarTerminalBoundaryRequest {
+    match request {
+        PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+            ScalarTerminalBoundaryRequest::IdTerminal { kind }
+        }
+        PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
+            ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth }
+        }
+        PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => {
+            ScalarTerminalBoundaryRequest::MedianBySlot { target_field }
+        }
+        PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => {
+            ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field }
+        }
+    }
+}
+
+const fn projection_boundary_request_from_prepared(
+    request: PreparedFluentProjectionRuntimeRequest,
+) -> ScalarProjectionBoundaryRequest {
+    match request {
+        PreparedFluentProjectionRuntimeRequest::Values => ScalarProjectionBoundaryRequest::Values,
+        PreparedFluentProjectionRuntimeRequest::DistinctValues => {
+            ScalarProjectionBoundaryRequest::DistinctValues
+        }
+        PreparedFluentProjectionRuntimeRequest::CountDistinct => {
+            ScalarProjectionBoundaryRequest::CountDistinct
+        }
+        PreparedFluentProjectionRuntimeRequest::ValuesWithIds => {
+            ScalarProjectionBoundaryRequest::ValuesWithIds
+        }
+        PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => {
+            ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind }
+        }
     }
 }

@@ -14,9 +14,14 @@ use crate::{
     db::{
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
-            builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
+            builder::{
+                AggregateExpr,
+                aggregate::{avg, count, count_by, max_by, min_by, sum},
+            },
             intent::{Query, QueryError, StructuralQuery},
-            plan::{ExpressionOrderTerm, FieldSlot, resolve_aggregate_target_field_slot},
+            plan::{
+                AggregateKind, ExpressionOrderTerm, FieldSlot, resolve_aggregate_target_field_slot,
+            },
         },
         sql::identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
@@ -173,6 +178,365 @@ pub(crate) enum TypedSqlGlobalAggregateTerminal {
     MaxField(FieldSlot),
 }
 
+/// PreparedSqlScalarAggregateDomain
+///
+/// Typed SQL scalar aggregate execution domain selected before session runtime
+/// dispatch. This keeps the typed aggregate lane explicit about which internal
+/// execution family will consume the request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedSqlScalarAggregateDomain {
+    ExistingRows,
+    ProjectionField,
+    NumericField,
+    ScalarExtremaValue,
+}
+
+/// PreparedSqlScalarAggregateOrderingRequirement
+///
+/// Ordering sensitivity required by the selected typed SQL scalar aggregate
+/// strategy. This keeps first-slice descriptor/explain consumers off local
+/// kind checks when they need to know whether field order semantics matter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedSqlScalarAggregateOrderingRequirement {
+    None,
+    FieldOrder,
+}
+
+/// PreparedSqlScalarAggregateRowSource
+///
+/// Canonical row-source shape for one prepared typed SQL scalar aggregate
+/// strategy. This describes what kind of row-derived data the execution family
+/// ultimately consumes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedSqlScalarAggregateRowSource {
+    ExistingRows,
+    ProjectedField,
+    NumericField,
+    ExtremalWinnerField,
+}
+
+/// PreparedSqlScalarAggregateEmptySetBehavior
+///
+/// Canonical empty-window result behavior for one prepared typed SQL scalar
+/// aggregate strategy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedSqlScalarAggregateEmptySetBehavior {
+    Zero,
+    Null,
+}
+
+/// PreparedSqlScalarAggregateDescriptorShape
+///
+/// Stable typed SQL scalar aggregate descriptor shape derived once at the SQL
+/// aggregate preparation boundary and reused by runtime/EXPLAIN projections.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedSqlScalarAggregateDescriptorShape {
+    CountRows,
+    CountField,
+    SumField,
+    AvgField,
+    MinField,
+    MaxField,
+}
+
+/// PreparedSqlScalarAggregateRuntimeDescriptor
+///
+/// Stable runtime-family projection for one prepared typed SQL scalar
+/// aggregate strategy.
+/// Session SQL aggregate execution consumes this descriptor instead of
+/// rebuilding runtime boundary choice from raw SQL terminal variants or
+/// parallel metadata tuple matches.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedSqlScalarAggregateRuntimeDescriptor {
+    CountRows,
+    CountField,
+    NumericField { kind: AggregateKind },
+    ExtremalWinnerField { kind: AggregateKind },
+}
+
+///
+/// PreparedSqlScalarAggregateStrategy
+///
+/// PreparedSqlScalarAggregateStrategy is the single typed SQL scalar aggregate
+/// behavior source for the first `0.71` slice.
+/// It resolves aggregate domain, descriptor shape, target-slot ownership, and
+/// aggregate expression once so runtime and EXPLAIN do not re-derive that
+/// behavior from raw SQL terminal variants.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedSqlScalarAggregateStrategy {
+    aggregate: AggregateExpr,
+    target_slot: Option<FieldSlot>,
+    domain: PreparedSqlScalarAggregateDomain,
+    ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
+    row_source: PreparedSqlScalarAggregateRowSource,
+    empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior,
+    descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
+}
+
+impl PreparedSqlScalarAggregateStrategy {
+    const fn new(
+        aggregate: AggregateExpr,
+        target_slot: Option<FieldSlot>,
+        domain: PreparedSqlScalarAggregateDomain,
+        ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
+        row_source: PreparedSqlScalarAggregateRowSource,
+        empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior,
+        descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
+    ) -> Self {
+        Self {
+            aggregate,
+            target_slot,
+            domain,
+            ordering_requirement,
+            row_source,
+            empty_set_behavior,
+            descriptor_shape,
+        }
+    }
+
+    fn from_typed_terminal(terminal: &TypedSqlGlobalAggregateTerminal) -> Self {
+        match terminal {
+            TypedSqlGlobalAggregateTerminal::CountRows => Self::new(
+                count(),
+                None,
+                PreparedSqlScalarAggregateDomain::ExistingRows,
+                PreparedSqlScalarAggregateOrderingRequirement::None,
+                PreparedSqlScalarAggregateRowSource::ExistingRows,
+                PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+                PreparedSqlScalarAggregateDescriptorShape::CountRows,
+            ),
+            TypedSqlGlobalAggregateTerminal::CountField(target_slot) => Self::new(
+                count_by(target_slot.field()),
+                Some(target_slot.clone()),
+                PreparedSqlScalarAggregateDomain::ProjectionField,
+                PreparedSqlScalarAggregateOrderingRequirement::None,
+                PreparedSqlScalarAggregateRowSource::ProjectedField,
+                PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+                PreparedSqlScalarAggregateDescriptorShape::CountField,
+            ),
+            TypedSqlGlobalAggregateTerminal::SumField(target_slot) => Self::new(
+                sum(target_slot.field()),
+                Some(target_slot.clone()),
+                PreparedSqlScalarAggregateDomain::NumericField,
+                PreparedSqlScalarAggregateOrderingRequirement::None,
+                PreparedSqlScalarAggregateRowSource::NumericField,
+                PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                PreparedSqlScalarAggregateDescriptorShape::SumField,
+            ),
+            TypedSqlGlobalAggregateTerminal::AvgField(target_slot) => Self::new(
+                avg(target_slot.field()),
+                Some(target_slot.clone()),
+                PreparedSqlScalarAggregateDomain::NumericField,
+                PreparedSqlScalarAggregateOrderingRequirement::None,
+                PreparedSqlScalarAggregateRowSource::NumericField,
+                PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                PreparedSqlScalarAggregateDescriptorShape::AvgField,
+            ),
+            TypedSqlGlobalAggregateTerminal::MinField(target_slot) => Self::new(
+                min_by(target_slot.field()),
+                Some(target_slot.clone()),
+                PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+                PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+                PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+                PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                PreparedSqlScalarAggregateDescriptorShape::MinField,
+            ),
+            TypedSqlGlobalAggregateTerminal::MaxField(target_slot) => Self::new(
+                max_by(target_slot.field()),
+                Some(target_slot.clone()),
+                PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+                PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+                PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+                PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                PreparedSqlScalarAggregateDescriptorShape::MaxField,
+            ),
+        }
+    }
+
+    fn from_lowered_terminal_with_model(
+        model: &'static EntityModel,
+        terminal: &SqlGlobalAggregateTerminal,
+    ) -> Result<Self, SqlLoweringError> {
+        let resolve_target_slot = |field: &str| {
+            resolve_aggregate_target_field_slot(model, field).map_err(SqlLoweringError::from)
+        };
+
+        match terminal {
+            SqlGlobalAggregateTerminal::CountRows => Ok(Self::new(
+                count(),
+                None,
+                PreparedSqlScalarAggregateDomain::ExistingRows,
+                PreparedSqlScalarAggregateOrderingRequirement::None,
+                PreparedSqlScalarAggregateRowSource::ExistingRows,
+                PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+                PreparedSqlScalarAggregateDescriptorShape::CountRows,
+            )),
+            SqlGlobalAggregateTerminal::CountField(field) => {
+                let target_slot = resolve_target_slot(field.as_str())?;
+
+                Ok(Self::new(
+                    count_by(field.as_str()),
+                    Some(target_slot),
+                    PreparedSqlScalarAggregateDomain::ProjectionField,
+                    PreparedSqlScalarAggregateOrderingRequirement::None,
+                    PreparedSqlScalarAggregateRowSource::ProjectedField,
+                    PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+                    PreparedSqlScalarAggregateDescriptorShape::CountField,
+                ))
+            }
+            SqlGlobalAggregateTerminal::SumField(field) => {
+                let target_slot = resolve_target_slot(field.as_str())?;
+
+                Ok(Self::new(
+                    sum(field.as_str()),
+                    Some(target_slot),
+                    PreparedSqlScalarAggregateDomain::NumericField,
+                    PreparedSqlScalarAggregateOrderingRequirement::None,
+                    PreparedSqlScalarAggregateRowSource::NumericField,
+                    PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                    PreparedSqlScalarAggregateDescriptorShape::SumField,
+                ))
+            }
+            SqlGlobalAggregateTerminal::AvgField(field) => {
+                let target_slot = resolve_target_slot(field.as_str())?;
+
+                Ok(Self::new(
+                    avg(field.as_str()),
+                    Some(target_slot),
+                    PreparedSqlScalarAggregateDomain::NumericField,
+                    PreparedSqlScalarAggregateOrderingRequirement::None,
+                    PreparedSqlScalarAggregateRowSource::NumericField,
+                    PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                    PreparedSqlScalarAggregateDescriptorShape::AvgField,
+                ))
+            }
+            SqlGlobalAggregateTerminal::MinField(field) => {
+                let target_slot = resolve_target_slot(field.as_str())?;
+
+                Ok(Self::new(
+                    min_by(field.as_str()),
+                    Some(target_slot),
+                    PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+                    PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+                    PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+                    PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                    PreparedSqlScalarAggregateDescriptorShape::MinField,
+                ))
+            }
+            SqlGlobalAggregateTerminal::MaxField(field) => {
+                let target_slot = resolve_target_slot(field.as_str())?;
+
+                Ok(Self::new(
+                    max_by(field.as_str()),
+                    Some(target_slot),
+                    PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+                    PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+                    PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+                    PreparedSqlScalarAggregateEmptySetBehavior::Null,
+                    PreparedSqlScalarAggregateDescriptorShape::MaxField,
+                ))
+            }
+        }
+    }
+
+    /// Borrow the aggregate expression projected by this prepared SQL scalar strategy.
+    #[must_use]
+    pub(crate) const fn aggregate(&self) -> &AggregateExpr {
+        &self.aggregate
+    }
+
+    /// Borrow the resolved target slot when this prepared SQL scalar strategy is field-targeted.
+    #[must_use]
+    pub(crate) const fn target_slot(&self) -> Option<&FieldSlot> {
+        self.target_slot.as_ref()
+    }
+
+    /// Return the canonical typed SQL scalar aggregate domain.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn domain(&self) -> PreparedSqlScalarAggregateDomain {
+        self.domain
+    }
+
+    /// Return the stable descriptor/runtime shape label for this prepared strategy.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn descriptor_shape(&self) -> PreparedSqlScalarAggregateDescriptorShape {
+        self.descriptor_shape
+    }
+
+    /// Return the stable runtime-family projection for this prepared SQL
+    /// scalar aggregate strategy.
+    #[must_use]
+    pub(crate) const fn runtime_descriptor(&self) -> PreparedSqlScalarAggregateRuntimeDescriptor {
+        match self.descriptor_shape {
+            PreparedSqlScalarAggregateDescriptorShape::CountRows => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows
+            }
+            PreparedSqlScalarAggregateDescriptorShape::CountField => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountField
+            }
+            PreparedSqlScalarAggregateDescriptorShape::SumField => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                    kind: AggregateKind::Sum,
+                }
+            }
+            PreparedSqlScalarAggregateDescriptorShape::AvgField => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                    kind: AggregateKind::Avg,
+                }
+            }
+            PreparedSqlScalarAggregateDescriptorShape::MinField => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                    kind: AggregateKind::Min,
+                }
+            }
+            PreparedSqlScalarAggregateDescriptorShape::MaxField => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                    kind: AggregateKind::Max,
+                }
+            }
+        }
+    }
+
+    /// Return the canonical aggregate kind for this prepared SQL scalar strategy.
+    #[must_use]
+    pub(crate) const fn aggregate_kind(&self) -> AggregateKind {
+        self.aggregate.kind()
+    }
+
+    /// Return the projected field label for descriptor/explain projection when
+    /// this prepared strategy is field-targeted.
+    #[must_use]
+    pub(crate) fn projected_field(&self) -> Option<&str> {
+        self.target_slot().map(FieldSlot::field)
+    }
+
+    /// Return field-order sensitivity for this prepared SQL scalar aggregate strategy.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn ordering_requirement(
+        &self,
+    ) -> PreparedSqlScalarAggregateOrderingRequirement {
+        self.ordering_requirement
+    }
+
+    /// Return the canonical row-source shape for this prepared strategy.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn row_source(&self) -> PreparedSqlScalarAggregateRowSource {
+        self.row_source
+    }
+
+    /// Return empty-window behavior for this prepared SQL scalar aggregate strategy.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn empty_set_behavior(&self) -> PreparedSqlScalarAggregateEmptySetBehavior {
+        self.empty_set_behavior
+    }
+}
+
 ///
 /// LoweredSqlGlobalAggregateCommand
 ///
@@ -223,9 +587,16 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     }
 
     /// Borrow the lowered aggregate terminal.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn terminal(&self) -> &TypedSqlGlobalAggregateTerminal {
         &self.terminal
+    }
+
+    /// Prepare one typed SQL scalar aggregate strategy from the typed command boundary.
+    #[must_use]
+    pub(crate) fn prepared_scalar_strategy(&self) -> PreparedSqlScalarAggregateStrategy {
+        PreparedSqlScalarAggregateStrategy::from_typed_terminal(&self.terminal)
     }
 }
 
@@ -251,10 +622,12 @@ impl SqlGlobalAggregateCommandCore {
         &self.query
     }
 
-    /// Borrow the lowered aggregate terminal.
-    #[must_use]
-    pub(in crate::db) const fn terminal(&self) -> &SqlGlobalAggregateTerminal {
-        &self.terminal
+    /// Prepare one structural SQL scalar aggregate strategy using one concrete model.
+    pub(in crate::db) fn prepared_scalar_strategy_with_model(
+        &self,
+        model: &'static EntityModel,
+    ) -> Result<PreparedSqlScalarAggregateStrategy, SqlLoweringError> {
+        PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_model(model, &self.terminal)
     }
 }
 

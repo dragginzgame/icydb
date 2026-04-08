@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.71.x] 🧱 - 2026-04-08 - Aggregate Execution Simplification
+
+- `0.71.0` starts the aggregate execution simplification line by making typed SQL and fluent aggregate terminals prepare their runtime shape once and then project execution from that prepared strategy across scalar, numeric, order-sensitive, and projection/distinct families, without changing planner-visible index rules or aggregate semantics.
+
+See detailed breakdown:
+[docs/changelog/0.71.md](docs/changelog/0.71.md)
+
+---
+
 ## [0.70.x] 🧭 - 2026-04-07 - Planner-Gated Index Visibility
 
 - `0.70.7` closes the `0.68` to `0.70` design line in docs by marking the earlier covering-read plans as historical groundwork, recording `0.70` planner-gated visibility as the implemented current model, and clarifying that the discarded snapshot/authority notes are no longer active backlog.

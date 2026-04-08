@@ -17,8 +17,8 @@ use crate::db::{
         },
         plan::AccessPlannedQuery,
     },
+    sql::lowering::PreparedSqlScalarAggregateStrategy,
 };
-use std::str;
 
 use crate::db::executor::explain::descriptor::shared::{
     aggregate_covering_projection_for_terminal, explain_execution_mode,
@@ -36,6 +36,40 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model
     let aggregation = aggregate.kind();
     let projected_field = aggregate.target_field().map(str::to_string);
 
+    assemble_aggregate_terminal_execution_descriptor(
+        model,
+        plan,
+        aggregate,
+        aggregation,
+        projected_field.as_deref(),
+    )
+}
+
+// Assemble one canonical typed SQL scalar aggregate execution descriptor from
+// one already-prepared SQL scalar strategy so EXPLAIN does not rediscover
+// aggregate kind or projected-field shape from raw SQL terminal variants.
+#[inline(never)]
+pub(in crate::db) fn assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model(
+    model: &'static crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery,
+    strategy: &PreparedSqlScalarAggregateStrategy,
+) -> ExplainExecutionDescriptor {
+    assemble_aggregate_terminal_execution_descriptor(
+        model,
+        plan,
+        strategy.aggregate().clone(),
+        strategy.aggregate_kind(),
+        strategy.projected_field(),
+    )
+}
+
+fn assemble_aggregate_terminal_execution_descriptor(
+    model: &'static crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery,
+    aggregate: AggregateExpr,
+    aggregation: crate::db::query::plan::AggregateKind,
+    projected_field: Option<&str>,
+) -> ExplainExecutionDescriptor {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
     let execution_preparation =
         ExecutionPreparation::from_plan(model, plan, slot_map_for_model_plan(model, plan));
@@ -64,7 +98,7 @@ pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model
     let node_properties = explain_node_properties_for_route(
         &route_plan,
         aggregation,
-        projected_field.as_deref(),
+        projected_field,
         covering_projection,
     );
 

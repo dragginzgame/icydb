@@ -15,7 +15,10 @@ use crate::{
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
-            builder::aggregate::AggregateExpr,
+            builder::aggregate::{
+                AggregateExpr, PreparedFluentOrderSensitiveTerminalStrategy,
+                PreparedFluentScalarTerminalStrategy,
+            },
             explain::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
@@ -29,6 +32,9 @@ use crate::{
     value::Value,
 };
 use core::marker::PhantomData;
+
+#[cfg(test)]
+use crate::db::query::builder::aggregate::PreparedFluentNumericFieldStrategy;
 
 ///
 /// StructuralQuery
@@ -439,6 +445,46 @@ impl StructuralQuery {
             terminal,
             execution,
         ))
+    }
+
+    #[inline(never)]
+    pub(in crate::db) fn explain_prepared_scalar_terminal_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        strategy: &PreparedFluentScalarTerminalStrategy,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
+        self.explain_aggregate_terminal_with_visible_indexes(
+            visible_indexes,
+            strategy.aggregate().clone(),
+        )
+    }
+
+    #[inline(never)]
+    pub(in crate::db) fn explain_prepared_order_sensitive_terminal_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
+        let Some(aggregate) = strategy.explain_aggregate() else {
+            return Err(QueryError::invariant(
+                "prepared fluent order-sensitive explain requires an explain-visible aggregate kind",
+            ));
+        };
+
+        self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate.clone())
+    }
+
+    #[cfg(test)]
+    #[inline(never)]
+    pub(in crate::db) fn explain_prepared_numeric_field_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        strategy: &PreparedFluentNumericFieldStrategy,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
+        self.explain_aggregate_terminal_with_visible_indexes(
+            visible_indexes,
+            strategy.aggregate().clone(),
+        )
     }
 }
 
@@ -962,16 +1008,44 @@ impl<E: EntityKind> Query<E> {
             .explain_execution_verbose_with_visible_indexes(visible_indexes)
     }
 
-    pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
+    pub(in crate::db) fn explain_prepared_scalar_terminal_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
-        aggregate: AggregateExpr,
+        strategy: &PreparedFluentScalarTerminalStrategy,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
     {
         self.inner
-            .explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate)
+            .explain_prepared_scalar_terminal_with_visible_indexes(visible_indexes, strategy)
+    }
+
+    pub(in crate::db) fn explain_prepared_order_sensitive_terminal_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .explain_prepared_order_sensitive_terminal_with_visible_indexes(
+                visible_indexes,
+                strategy,
+            )
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn explain_prepared_numeric_field_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        strategy: &PreparedFluentNumericFieldStrategy,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .explain_prepared_numeric_field_with_visible_indexes(visible_indexes, strategy)
     }
 
     pub(in crate::db) fn explain_bytes_by_with_visible_indexes(

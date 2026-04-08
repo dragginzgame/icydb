@@ -9,11 +9,15 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::intent::Query,
         query::plan::{
-            QueryMode,
+            AggregateKind, QueryMode,
             expr::{Expr, ProjectionField},
         },
         sql::{
             lowering::{
+                PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
+                PreparedSqlScalarAggregateEmptySetBehavior,
+                PreparedSqlScalarAggregateOrderingRequirement, PreparedSqlScalarAggregateRowSource,
+                PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
                 SqlCommand, SqlLoweringError, TypedSqlGlobalAggregateTerminal, compile_sql_command,
                 compile_sql_global_aggregate_command,
             },
@@ -1383,6 +1387,166 @@ fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_te
             TypedSqlGlobalAggregateTerminal::SumField(field) if field.field() == "age"
         ),
         "qualified aggregate target fields should normalize to canonical unqualified target slots",
+    );
+}
+
+fn compile_prepared_sql_scalar_strategy(sql: &str) -> PreparedSqlScalarAggregateStrategy {
+    compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+        .expect("typed scalar aggregate SQL should lower")
+        .prepared_scalar_strategy()
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count_rows() {
+    let count_rows_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT COUNT(*) FROM SqlLowerEntity");
+
+    assert_eq!(
+        count_rows_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::ExistingRows,
+        "COUNT(*) should prepare as an existing-rows aggregate domain",
+    );
+    assert_eq!(
+        count_rows_strategy.descriptor_shape(),
+        PreparedSqlScalarAggregateDescriptorShape::CountRows,
+        "COUNT(*) should prepare the count-rows descriptor shape",
+    );
+    assert_eq!(
+        count_rows_strategy.row_source(),
+        PreparedSqlScalarAggregateRowSource::ExistingRows,
+        "COUNT(*) should keep existing-row source semantics",
+    );
+    assert_eq!(
+        count_rows_strategy.ordering_requirement(),
+        PreparedSqlScalarAggregateOrderingRequirement::None,
+        "COUNT(*) should not require field-order semantics",
+    );
+    assert_eq!(
+        count_rows_strategy.empty_set_behavior(),
+        PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+        "COUNT(*) should preserve zero-on-empty semantics",
+    );
+    assert_eq!(
+        count_rows_strategy.runtime_descriptor(),
+        PreparedSqlScalarAggregateRuntimeDescriptor::CountRows,
+        "COUNT(*) should project the count-rows runtime descriptor",
+    );
+    assert!(
+        count_rows_strategy.target_slot().is_none(),
+        "COUNT(*) should not require a target slot",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count_field() {
+    let count_field_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT COUNT(age) FROM SqlLowerEntity");
+
+    assert_eq!(
+        count_field_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::ProjectionField,
+        "COUNT(field) should prepare through the projection-field domain",
+    );
+    assert_eq!(
+        count_field_strategy.descriptor_shape(),
+        PreparedSqlScalarAggregateDescriptorShape::CountField,
+        "COUNT(field) should prepare the count-field descriptor shape",
+    );
+    assert_eq!(
+        count_field_strategy.row_source(),
+        PreparedSqlScalarAggregateRowSource::ProjectedField,
+        "COUNT(field) should preserve projection-field row sourcing",
+    );
+    assert_eq!(
+        count_field_strategy.empty_set_behavior(),
+        PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+        "COUNT(field) should preserve zero-on-empty semantics",
+    );
+    assert_eq!(
+        count_field_strategy
+            .target_slot()
+            .expect("COUNT(field) should keep target slot")
+            .field(),
+        "age",
+        "COUNT(field) should keep the canonical resolved target slot",
+    );
+    assert_eq!(
+        count_field_strategy.runtime_descriptor(),
+        PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
+        "COUNT(field) should project the count-field runtime descriptor",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_sum_field() {
+    let sum_field_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT SUM(age) FROM SqlLowerEntity");
+
+    assert_eq!(
+        sum_field_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::NumericField,
+        "SUM(field) should prepare through the numeric domain",
+    );
+    assert_eq!(
+        sum_field_strategy.descriptor_shape(),
+        PreparedSqlScalarAggregateDescriptorShape::SumField,
+        "SUM(field) should prepare the sum-field descriptor shape",
+    );
+    assert_eq!(
+        sum_field_strategy.row_source(),
+        PreparedSqlScalarAggregateRowSource::NumericField,
+        "SUM(field) should preserve numeric-field row sourcing",
+    );
+    assert_eq!(
+        sum_field_strategy.empty_set_behavior(),
+        PreparedSqlScalarAggregateEmptySetBehavior::Null,
+        "SUM(field) should preserve null-on-empty semantics",
+    );
+    assert_eq!(
+        sum_field_strategy.runtime_descriptor(),
+        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            kind: AggregateKind::Sum,
+        },
+        "SUM(field) should project the numeric SUM runtime descriptor",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_min_field() {
+    let min_field_strategy =
+        compile_prepared_sql_scalar_strategy("SELECT MIN(age) FROM SqlLowerEntity");
+
+    assert_eq!(
+        min_field_strategy.domain(),
+        PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+        "MIN(field) should prepare through the scalar-extrema-value domain",
+    );
+    assert_eq!(
+        min_field_strategy.descriptor_shape(),
+        PreparedSqlScalarAggregateDescriptorShape::MinField,
+        "MIN(field) should prepare the min-field descriptor shape",
+    );
+    assert_eq!(
+        min_field_strategy.row_source(),
+        PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+        "MIN(field) should preserve extremal-winner row sourcing",
+    );
+    assert_eq!(
+        min_field_strategy.ordering_requirement(),
+        PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+        "MIN(field) should keep field-order sensitivity explicit",
+    );
+    assert_eq!(
+        min_field_strategy.empty_set_behavior(),
+        PreparedSqlScalarAggregateEmptySetBehavior::Null,
+        "MIN(field) should preserve null-on-empty semantics",
+    );
+    assert_eq!(
+        min_field_strategy.runtime_descriptor(),
+        PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+            kind: AggregateKind::Min,
+        },
+        "MIN(field) should project the extrema runtime descriptor",
     );
 }
 

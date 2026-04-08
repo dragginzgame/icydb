@@ -20,13 +20,16 @@ use crate::{
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor_with_model},
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::explain::{
-            ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-        },
-        query::intent::StructuralQuery,
-        query::plan::{
-            AggregateKind,
-            expr::{Expr, ProjectionField},
+        query::{
+            builder::PreparedFluentNumericFieldStrategy,
+            explain::{
+                ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+            },
+            intent::StructuralQuery,
+            plan::{
+                AggregateKind, FieldSlot,
+                expr::{Expr, ProjectionField},
+            },
         },
         registry::{StoreHandle, StoreRegistry},
         response::EntityResponse,
@@ -40,7 +43,7 @@ use crate::{
     },
     serialize::serialized_len,
     testing::test_memory,
-    traits::Path,
+    traits::{EntitySchema, Path},
     types::{Date, Duration, EntityTag, Id, Timestamp, Ulid},
     value::{StorageKey, Value},
 };
@@ -10299,6 +10302,50 @@ fn session_aggregate_numeric_field_aggregates_match_execute_projection() {
             .expect("session aggregate avg_by(rank) should succeed"),
         expected_avg,
         "session aggregate avg_by(rank) should match execute() projection parity",
+    );
+}
+
+#[test]
+fn session_aggregate_numeric_field_prepared_strategy_explain_projects_sum_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_aggregate_entities(
+        &session,
+        &[
+            (8_2121, 7, 10),
+            (8_2122, 7, 20),
+            (8_2123, 7, 35),
+            (8_2124, 8, 99),
+        ],
+    );
+    let query = session
+        .load::<SessionAggregateEntity>()
+        .filter(session_aggregate_group_predicate(7))
+        .order_by("rank");
+    let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
+        .expect("rank field slot should resolve");
+    let explain = session
+        .explain_query_prepared_numeric_field_with_visible_indexes(
+            query.query(),
+            &PreparedFluentNumericFieldStrategy::sum_by_slot(rank_slot),
+        )
+        .expect("prepared numeric explain should build");
+    let node = explain.execution_node_descriptor();
+
+    assert_eq!(
+        explain.terminal(),
+        AggregateKind::Sum,
+        "prepared numeric explain should preserve the SUM terminal kind",
+    );
+    assert_eq!(
+        node.node_type(),
+        ExplainExecutionNodeType::AggregateSum,
+        "prepared numeric explain should project the SUM execution node type",
+    );
+    assert_eq!(
+        node.node_properties().get("proj_field"),
+        Some(&Value::from("rank")),
+        "prepared numeric explain should preserve the projected numeric field label",
     );
 }
 

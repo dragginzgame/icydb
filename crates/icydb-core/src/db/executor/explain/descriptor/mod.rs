@@ -8,7 +8,10 @@ mod load;
 pub(in crate::db::executor::explain::descriptor) mod shared;
 
 pub(in crate::db) use self::{
-    aggregate::assemble_aggregate_terminal_execution_descriptor_with_model,
+    aggregate::{
+        assemble_aggregate_terminal_execution_descriptor_with_model,
+        assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model,
+    },
     load::{
         assemble_load_execution_node_descriptor_with_model,
         assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
