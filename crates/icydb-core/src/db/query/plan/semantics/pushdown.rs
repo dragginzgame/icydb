@@ -3,10 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::query::plan::{AccessPlannedQuery, ScalarPlan},
-    model::entity::EntityModel,
-};
+use crate::db::query::plan::{AccessPlannedQuery, DeterministicSecondaryOrderContract};
 
 ///
 /// LogicalPushdownEligibility
@@ -60,28 +57,12 @@ impl LogicalPushdownEligibility {
 /// Derive planner-owned logical pushdown eligibility from validated semantics.
 #[must_use]
 pub(in crate::db) fn derive_logical_pushdown_eligibility(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
+    secondary_order_contract: Option<&DeterministicSecondaryOrderContract>,
 ) -> LogicalPushdownEligibility {
     LogicalPushdownEligibility::new(
-        secondary_order_contract_is_deterministic(model, plan.scalar_plan()),
+        secondary_order_contract.is_some(),
         plan.grouped_plan().is_some(),
         false,
     )
-}
-
-/// Return whether scalar ORDER BY preserves a deterministic secondary-order
-/// contract shape (`... , primary_key`) under one uniform direction.
-#[must_use]
-pub(in crate::db) fn secondary_order_contract_is_deterministic(
-    model: &EntityModel,
-    scalar: &ScalarPlan,
-) -> bool {
-    let Some(order) = scalar.order.as_ref() else {
-        return false;
-    };
-
-    order
-        .deterministic_secondary_order_direction(model.primary_key.name)
-        .is_some()
 }

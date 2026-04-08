@@ -165,13 +165,30 @@ fn initial_scalar_continuation_context() -> ScalarContinuationContext {
     ScalarContinuationContext::initial()
 }
 
+fn finalized_plan_for_model(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+) -> AccessPlannedQuery {
+    let mut finalized = plan.clone();
+    finalized.finalize_planner_route_profile_for_model(model);
+
+    finalized
+}
+
 fn build_load_route_plan_for_model(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    build_execution_route_plan_for_load_with_model(model, plan, continuation, probe_fetch_hint)
+    let finalized = finalized_plan_for_model(model, plan);
+
+    build_execution_route_plan_for_load_with_model(
+        model,
+        &finalized,
+        continuation,
+        probe_fetch_hint,
+    )
 }
 
 fn build_load_route_plan(
@@ -218,7 +235,9 @@ fn build_unique_load_route_plan(
 fn build_mutation_route_plan(
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    build_execution_route_plan_for_mutation_with_model(RouteCapabilityEntity::MODEL, plan)
+    let finalized = finalized_plan_for_model(RouteCapabilityEntity::MODEL, plan);
+
+    build_execution_route_plan_for_mutation_with_model(RouteCapabilityEntity::MODEL, &finalized)
 }
 
 fn build_aggregate_route(plan: &AccessPlannedQuery, kind: AggregateKind) -> ExecutionPlan {
@@ -239,15 +258,16 @@ fn build_aggregate_spec_route(
     plan: &AccessPlannedQuery,
     aggregate_expr: crate::db::query::builder::AggregateExpr,
 ) -> ExecutionPlan {
+    let finalized = finalized_plan_for_model(RouteCapabilityEntity::MODEL, plan);
     let execution_preparation = ExecutionPreparation::from_plan(
         RouteCapabilityEntity::MODEL,
-        plan,
-        slot_map_for_model_plan(RouteCapabilityEntity::MODEL, plan),
+        &finalized,
+        slot_map_for_model_plan(RouteCapabilityEntity::MODEL, &finalized),
     );
 
     build_execution_route_plan_for_aggregate_spec_with_model(
         RouteCapabilityEntity::MODEL,
-        plan,
+        &finalized,
         AggregateRouteShape::from_aggregate_expr(&aggregate_expr),
         &execution_preparation,
     )
@@ -354,8 +374,9 @@ fn grouped_field_slot(field: &str) -> FieldSlot {
 }
 
 fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
+    let finalized = finalized_plan_for_model(RouteCapabilityEntity::MODEL, plan);
     let grouped_handoff =
-        grouped_executor_handoff(plan).expect("grouped logical plans should build handoff");
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     build_execution_route_plan_for_grouped_plan(
         RouteCapabilityEntity::MODEL,

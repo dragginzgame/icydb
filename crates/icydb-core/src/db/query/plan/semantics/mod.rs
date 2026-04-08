@@ -27,7 +27,4 @@ pub(in crate::db) use group_having::grouped_cursor_policy_violation;
 pub(crate) use group_having::{GroupedCursorPolicyViolation, grouped_having_compare_op_supported};
 pub(crate) use grouped_strategy::GroupedPlanStrategyHint;
 pub(in crate::db) use grouped_strategy::grouped_plan_strategy_hint;
-pub(in crate::db) use pushdown::{
-    LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
-    secondary_order_contract_is_deterministic,
-};
+pub(in crate::db) use pushdown::{LogicalPushdownEligibility, derive_logical_pushdown_eligibility};

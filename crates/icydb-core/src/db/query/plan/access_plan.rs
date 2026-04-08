@@ -5,7 +5,10 @@
 
 use crate::db::{
     access::{AccessPlan, AccessStrategy},
-    query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan, expr::ProjectionSelection},
+    query::plan::{
+        AccessChoiceExplainSnapshot, GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan,
+        PlannerRouteProfile, expr::ProjectionSelection,
+    },
 };
 use crate::{traits::FieldValue, value::Value};
 
@@ -28,6 +31,8 @@ pub(crate) struct AccessPlannedQuery {
     pub(crate) logical: LogicalPlan,
     pub(crate) access: AccessPlan<Value>,
     pub(crate) projection_selection: ProjectionSelection,
+    pub(in crate::db) access_choice: AccessChoiceExplainSnapshot,
+    pub(in crate::db) planner_route_profile: PlannerRouteProfile,
 }
 
 impl AccessPlannedQuery {
@@ -37,6 +42,8 @@ impl AccessPlannedQuery {
     #[must_use]
     #[cfg(test)]
     pub(crate) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
+        let access = AccessPlan::path(access);
+
         Self {
             logical: LogicalPlan::Scalar(ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
@@ -47,7 +54,9 @@ impl AccessPlannedQuery {
                 page: None,
                 consistency,
             }),
-            access: AccessPlan::path(access),
+            access_choice: seeded_access_choice_snapshot(&access),
+            planner_route_profile: PlannerRouteProfile::seeded_unfinalized(false),
+            access,
             projection_selection: ProjectionSelection::All,
         }
     }
@@ -58,11 +67,17 @@ impl AccessPlannedQuery {
     where
         K: FieldValue,
     {
-        Self {
+        let access = access.into_value_plan();
+        let mut plan = Self {
             logical,
-            access: access.into_value_plan(),
+            access_choice: seeded_access_choice_snapshot(&access),
+            planner_route_profile: PlannerRouteProfile::seeded_unfinalized(false),
+            access,
             projection_selection: ProjectionSelection::All,
-        }
+        };
+        plan.planner_route_profile = seeded_planner_route_profile(&plan);
+
+        plan
     }
 
     /// Construct an access-planned query from logical + access + projection stages.
@@ -98,13 +113,14 @@ impl AccessPlannedQuery {
             logical,
             access,
             projection_selection,
+            access_choice,
+            planner_route_profile: _planner_route_profile,
         } = self;
         let scalar = match logical {
             LogicalPlan::Scalar(plan) => plan,
             LogicalPlan::Grouped(plan) => plan.scalar,
         };
-
-        Self {
+        let mut plan = Self {
             logical: LogicalPlan::Grouped(GroupPlan {
                 scalar,
                 group,
@@ -112,7 +128,12 @@ impl AccessPlannedQuery {
             }),
             access,
             projection_selection,
-        }
+            access_choice,
+            planner_route_profile: PlannerRouteProfile::seeded_unfinalized(true),
+        };
+        plan.planner_route_profile = seeded_planner_route_profile(&plan);
+
+        plan
     }
 
     /// Lower the chosen access plan into an access-owned normalized contract.
@@ -120,4 +141,41 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn access_strategy(&self) -> AccessStrategy<'_, Value> {
         self.access.resolve_strategy()
     }
+
+    /// Borrow the planner-owned access-choice diagnostics snapshot.
+    #[must_use]
+    pub(in crate::db) const fn access_choice(&self) -> &AccessChoiceExplainSnapshot {
+        &self.access_choice
+    }
+
+    /// Attach one planner-owned access-choice diagnostics snapshot.
+    pub(in crate::db) fn set_access_choice(&mut self, access_choice: AccessChoiceExplainSnapshot) {
+        self.access_choice = access_choice;
+    }
+
+    /// Borrow the frozen planner-owned route profile.
+    #[must_use]
+    pub(in crate::db) const fn planner_route_profile(&self) -> &PlannerRouteProfile {
+        &self.planner_route_profile
+    }
+
+    /// Attach one frozen planner-owned route profile.
+    pub(in crate::db) fn set_planner_route_profile(
+        &mut self,
+        planner_route_profile: PlannerRouteProfile,
+    ) {
+        self.planner_route_profile = planner_route_profile;
+    }
+}
+
+fn seeded_access_choice_snapshot(access: &AccessPlan<Value>) -> AccessChoiceExplainSnapshot {
+    if access.selected_index_model().is_some() {
+        AccessChoiceExplainSnapshot::selected_index_unavailable()
+    } else {
+        AccessChoiceExplainSnapshot::non_index_access()
+    }
+}
+
+fn seeded_planner_route_profile(plan: &AccessPlannedQuery) -> PlannerRouteProfile {
+    PlannerRouteProfile::seeded_unfinalized(plan.grouped_plan().is_some())
 }

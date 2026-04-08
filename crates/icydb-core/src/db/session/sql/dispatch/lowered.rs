@@ -17,7 +17,7 @@ use crate::{
         },
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlQuery,
-            apply_lowered_select_shape, bind_lowered_sql_delete_query_structural,
+            bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
         },
     },
     traits::CanisterKind,
@@ -34,12 +34,10 @@ impl<C: CanisterKind> DbSession<C> {
         select: &LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<crate::db::query::intent::StructuralQuery, QueryError> {
-        apply_lowered_select_shape(
-            crate::db::query::intent::StructuralQuery::new(
-                authority.model(),
-                MissingRowPolicy::Ignore,
-            ),
+        bind_lowered_sql_select_query_structural(
+            authority.model(),
             select.clone(),
+            MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)
     }

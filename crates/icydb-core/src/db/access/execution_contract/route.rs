@@ -14,9 +14,9 @@ use crate::{
                 SecondaryOrderPushdownRejection,
             },
         },
-        query::plan::{OrderSpec, index_order_terms},
+        query::plan::{DeterministicSecondaryOrderContract, index_order_terms},
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::index::IndexModel,
 };
 
 ///
@@ -118,12 +118,11 @@ impl AccessRouteClass {
     }
 
     /// Derive secondary ORDER BY pushdown applicability from one access class
-    /// and one validated ORDER BY spec.
+    /// and one planner-owned deterministic ORDER BY contract.
     #[must_use]
     pub(in crate::db) fn secondary_order_pushdown_applicability(
         self,
-        model: &EntityModel,
-        order: &OrderSpec,
+        order_contract: &DeterministicSecondaryOrderContract,
     ) -> PushdownApplicability {
         if !self.single_path() {
             if let Some((index, prefix_len)) = self.first_index_range_details() {
@@ -161,8 +160,7 @@ impl AccessRouteClass {
             let index_terms = index_order_terms(&index);
 
             return PushdownApplicability::Applicable(match_secondary_order_pushdown_core(
-                model,
-                order,
+                order_contract,
                 index.name(),
                 &index_terms,
                 prefix_len,
@@ -190,8 +188,7 @@ impl AccessRouteClass {
             let index_terms = index_order_terms(&index);
 
             let eligibility = match_secondary_order_pushdown_core(
-                model,
-                order,
+                order_contract,
                 index.name(),
                 &index_terms,
                 prefix_len,
@@ -215,50 +212,29 @@ impl AccessRouteClass {
     }
 
     /// Return true when this access class supports index-range limit pushdown
-    /// for the supplied ORDER BY field sequence.
+    /// for the supplied planner-owned deterministic ORDER BY contract.
     #[must_use]
-    pub(in crate::db) fn index_range_limit_pushdown_shape_supported_for_order<D>(
+    pub(in crate::db) fn index_range_limit_pushdown_shape_supported_for_order_contract(
         self,
-        order_fields: Option<&[(String, D)]>,
-        primary_key_name: &'static str,
-    ) -> bool
-    where
-        D: Copy + Eq,
-    {
+        order_contract: Option<&DeterministicSecondaryOrderContract>,
+        order_present: bool,
+    ) -> bool {
         if !self.single_path() {
             return false;
         }
         let Some((index, prefix_len)) = self.single_path_index_range_details() else {
             return false;
         };
+
+        if !order_present {
+            return true;
+        }
+        let Some(order_contract) = order_contract else {
+            return false;
+        };
         let index_terms = index_order_terms(&index);
 
-        let Some(order_fields) = order_fields else {
-            return true;
-        };
-        if order_fields.is_empty() {
-            return true;
-        }
-        let Some((_, expected_direction)) = order_fields.last() else {
-            return false;
-        };
-        if order_fields
-            .iter()
-            .any(|(_, direction)| *direction != *expected_direction)
-        {
-            return false;
-        }
-
-        let mut expected = Vec::with_capacity(index_terms.len().saturating_sub(prefix_len) + 1);
-        expected.extend(index_terms.iter().skip(prefix_len).map(String::as_str));
-        expected.push(primary_key_name);
-        if order_fields.len() != expected.len() {
-            return false;
-        }
-        order_fields
-            .iter()
-            .map(|(field, _)| field.as_str())
-            .eq(expected)
+        order_contract.matches_index_suffix(&index_terms, prefix_len)
     }
 }
 

@@ -3078,6 +3078,7 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
         logical,
         access,
         projection_selection: _projection_selection,
+        ..
     } = model_plan;
     let typed_plan = AccessPlannedQuery::from_parts(logical, access);
 
@@ -3116,6 +3117,7 @@ fn by_keys_access_strips_redundant_primary_key_in_predicate() {
         logical,
         access,
         projection_selection: _projection_selection,
+        ..
     } = model_plan;
     let typed_plan = AccessPlannedQuery::from_parts(logical, access);
 
@@ -3162,6 +3164,7 @@ fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
         logical,
         access,
         projection_selection: _projection_selection,
+        ..
     } = model_plan;
     let typed_plan = AccessPlannedQuery::from_parts(logical, access);
 
@@ -3280,6 +3283,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         logical: model_logical,
         access: model_access,
         projection_selection: _projection_selection,
+        ..
     } = model_plan;
     let LogicalPlan::Scalar(ScalarPlan {
         mode,
@@ -3294,7 +3298,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         panic!("typed/model intent parity test expects scalar logical plan");
     };
 
-    let model_as_typed = AccessPlannedQuery::from_parts(
+    let mut model_as_typed = AccessPlannedQuery::from_parts(
         LogicalPlan::Scalar(ScalarPlan {
             mode,
             predicate: plan_predicate,
@@ -3306,6 +3310,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         }),
         model_access,
     );
+    model_as_typed.finalize_planner_route_profile_for_model(PlanEntity::MODEL);
 
     let typed_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)

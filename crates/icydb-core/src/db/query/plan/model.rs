@@ -8,7 +8,10 @@ use crate::{
         cursor::ContinuationSignature,
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
-        query::plan::semantics::LogicalPushdownEligibility,
+        query::plan::{
+            order_contract::DeterministicSecondaryOrderContract,
+            semantics::LogicalPushdownEligibility,
+        },
     },
     value::Value,
 };
@@ -93,134 +96,6 @@ pub(crate) struct OrderSpec {
     pub(crate) fields: Vec<(String, OrderDirection)>,
 }
 
-impl OrderSpec {
-    /// Return the single ordered field when `ORDER BY` has exactly one element.
-    #[must_use]
-    pub(in crate::db) fn single_field(&self) -> Option<(&str, OrderDirection)> {
-        let [(field, direction)] = self.fields.as_slice() else {
-            return None;
-        };
-
-        Some((field.as_str(), *direction))
-    }
-
-    /// Return ordering direction when `ORDER BY` is primary-key-only.
-    #[must_use]
-    pub(in crate::db) fn primary_key_only_direction(
-        &self,
-        primary_key_name: &str,
-    ) -> Option<OrderDirection> {
-        let (field, direction) = self.single_field()?;
-        (field == primary_key_name).then_some(direction)
-    }
-
-    /// Return true when `ORDER BY` is exactly one primary-key field.
-    #[must_use]
-    pub(in crate::db) fn is_primary_key_only(&self, primary_key_name: &str) -> bool {
-        self.primary_key_only_direction(primary_key_name).is_some()
-    }
-
-    /// Return true when ORDER BY includes exactly one primary-key tie-break
-    /// and that tie-break is the terminal sort component.
-    #[must_use]
-    pub(in crate::db) fn has_exact_primary_key_tie_break(&self, primary_key_name: &str) -> bool {
-        let pk_count = self
-            .fields
-            .iter()
-            .filter(|(field, _)| field == primary_key_name)
-            .count();
-        let trailing_pk = self
-            .fields
-            .last()
-            .is_some_and(|(field, _)| field == primary_key_name);
-
-        pk_count == 1 && trailing_pk
-    }
-
-    /// Return direction when ORDER BY preserves one deterministic secondary
-    /// ordering contract (`..., primary_key`) with uniform direction.
-    #[must_use]
-    pub(in crate::db) fn deterministic_secondary_order_direction(
-        &self,
-        primary_key_name: &str,
-    ) -> Option<OrderDirection> {
-        let (_, expected_direction) = self.fields.last()?;
-        if !self.has_exact_primary_key_tie_break(primary_key_name) {
-            return None;
-        }
-        if self
-            .fields
-            .iter()
-            .any(|(_, direction)| *direction != *expected_direction)
-        {
-            return None;
-        }
-
-        Some(*expected_direction)
-    }
-
-    /// Return true when ORDER BY non-primary-key terms match one expected
-    /// deterministic sequence, followed by the primary key tie-break.
-    #[must_use]
-    pub(in crate::db) fn matches_expected_term_sequence_plus_primary_key<'a, I>(
-        &self,
-        expected_non_pk_terms: I,
-        primary_key_name: &str,
-    ) -> bool
-    where
-        I: IntoIterator<Item = &'a str>,
-    {
-        let expected_non_pk_terms = expected_non_pk_terms.into_iter().collect::<Vec<_>>();
-
-        if !self.has_exact_primary_key_tie_break(primary_key_name) {
-            return false;
-        }
-        if self.fields.len() != expected_non_pk_terms.len().saturating_add(1) {
-            return false;
-        }
-
-        self.fields
-            .iter()
-            .take(expected_non_pk_terms.len())
-            .map(|(field, _)| field.as_str())
-            .zip(expected_non_pk_terms.iter().copied())
-            .all(|(actual, expected)| actual == expected)
-    }
-
-    /// Return true when ORDER BY non-PK fields match the index suffix
-    /// beginning at `prefix_len`, followed by primary key.
-    #[must_use]
-    pub(in crate::db) fn matches_index_suffix_plus_primary_key(
-        &self,
-        index_fields: &[&str],
-        prefix_len: usize,
-        primary_key_name: &str,
-    ) -> bool {
-        if prefix_len > index_fields.len() {
-            return false;
-        }
-
-        self.matches_expected_term_sequence_plus_primary_key(
-            index_fields[prefix_len..].iter().copied(),
-            primary_key_name,
-        )
-    }
-
-    /// Return true when ORDER BY non-PK fields match full index order,
-    /// followed by primary key.
-    #[must_use]
-    pub(in crate::db) fn matches_index_full_plus_primary_key(
-        &self,
-        index_fields: &[&str],
-        primary_key_name: &str,
-    ) -> bool {
-        self.matches_expected_term_sequence_plus_primary_key(
-            index_fields.iter().copied(),
-            primary_key_name,
-        )
-    }
-}
-
 ///
 /// DeleteLimitSpec
 /// Executor-facing delete bound with no offsets.
@@ -258,25 +133,40 @@ impl DistinctExecutionStrategy {
 /// PlannerRouteProfile
 ///
 /// Planner-projected route profile consumed by executor route planning.
-/// Carries planner-owned continuation policy that route/load layers must honor.
+/// Carries planner-owned continuation policy plus deterministic order/pushdown
+/// contracts that route/load layers must honor without recomputing order shape.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannerRouteProfile {
     continuation_policy: ContinuationPolicy,
     logical_pushdown_eligibility: LogicalPushdownEligibility,
+    secondary_order_contract: Option<DeterministicSecondaryOrderContract>,
 }
 
 impl PlannerRouteProfile {
     /// Construct one planner-projected route profile.
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         continuation_policy: ContinuationPolicy,
         logical_pushdown_eligibility: LogicalPushdownEligibility,
+        secondary_order_contract: Option<DeterministicSecondaryOrderContract>,
     ) -> Self {
         Self {
             continuation_policy,
             logical_pushdown_eligibility,
+            secondary_order_contract,
+        }
+    }
+
+    /// Construct one fail-closed route profile for manually assembled plans
+    /// that have not yet been finalized against model authority.
+    #[must_use]
+    pub(in crate::db) const fn seeded_unfinalized(is_grouped: bool) -> Self {
+        Self {
+            continuation_policy: ContinuationPolicy::new(true, true, !is_grouped),
+            logical_pushdown_eligibility: LogicalPushdownEligibility::new(false, is_grouped, false),
+            secondary_order_contract: None,
         }
     }
 
@@ -290,6 +180,14 @@ impl PlannerRouteProfile {
     #[must_use]
     pub(in crate::db) const fn logical_pushdown_eligibility(&self) -> LogicalPushdownEligibility {
         self.logical_pushdown_eligibility
+    }
+
+    /// Borrow the planner-owned deterministic secondary-order contract, if one exists.
+    #[must_use]
+    pub(in crate::db) fn secondary_order_contract(
+        &self,
+    ) -> Option<&DeterministicSecondaryOrderContract> {
+        self.secondary_order_contract.as_ref()
     }
 }
 

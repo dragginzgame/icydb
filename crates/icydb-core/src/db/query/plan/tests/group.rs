@@ -83,6 +83,10 @@ fn load_plan_with_order_distinct_and_limit(
         }),
         access,
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     }
 }
 

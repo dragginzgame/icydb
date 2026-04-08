@@ -18,8 +18,9 @@ use crate::{
                 LogicalPlan, OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
                 fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, resolve_group_field_slot,
-                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
+                predicate_is_constant_false, project_access_choice_explain_snapshot_with_indexes,
+                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
+                validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -334,6 +335,17 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         } else {
             validate_query_semantics(&schema_info, self.model, &plan)?;
         }
+
+        // Phase 4: freeze planner-owned route and access-choice snapshots once
+        // so downstream execution and explain surfaces reuse the exact planner
+        // contracts already implied by this planning run.
+        plan.finalize_planner_route_profile_for_model(self.model);
+        let access_choice = project_access_choice_explain_snapshot_with_indexes(
+            self.model,
+            visible_indexes.as_slice(),
+            &plan,
+        );
+        plan.set_access_choice(access_choice);
 
         Ok(plan)
     }

@@ -18,7 +18,7 @@ use crate::{
                 pk_order_stream_fast_path_shape_supported_for_model,
             },
         },
-        query::plan::{AccessPlannedQuery, PlannerRouteProfile},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -83,7 +83,14 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_mutation_with_mode
         ));
     }
 
-    let capabilities = derive_execution_capabilities_for_model(model, plan, Direction::Asc, None);
+    let planner_route_profile = plan.planner_route_profile();
+    let capabilities = derive_execution_capabilities_for_model(
+        model,
+        plan,
+        planner_route_profile,
+        Direction::Asc,
+        None,
+    );
 
     Ok(ExecutionRoutePlan::for_mutation(capabilities))
 }
@@ -120,25 +127,18 @@ fn build_execution_route_plan_for_model(
         RouteIntent::Load => derive_load_terminal_fast_path_contract_for_model_plan(model, plan),
         RouteIntent::Aggregate { .. } | RouteIntent::AggregateGrouped { .. } => None,
     };
-    let planner_route_profile = derive_planner_route_profile(model, plan);
+    let planner_route_profile = plan.planner_route_profile();
     let intent_stage = derive_route_intent_stage(intent);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         model,
         plan,
         continuation,
         probe_fetch_hint,
-        &planner_route_profile,
+        planner_route_profile,
         &intent_stage,
     );
 
     build_execution_route_plan_from_stages(intent_stage, feasibility_stage, load_terminal_fast_path)
-}
-
-fn derive_planner_route_profile(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery,
-) -> PlannerRouteProfile {
-    plan.planner_route_profile(model)
 }
 
 pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(

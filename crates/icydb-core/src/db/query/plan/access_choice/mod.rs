@@ -15,17 +15,14 @@ mod tests;
 
 use crate::{
     db::{
-        query::{
-            explain::ExplainAccessPath,
-            plan::{
-                AccessPlannedQuery,
-                access_choice::{
-                    evaluator::{
-                        chosen_access_shape_projection, chosen_selection_reason,
-                        evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
-                    },
-                    model::{AccessChoiceFamily, AccessChoiceSelectedReason},
+        query::plan::{
+            AccessPlannedQuery,
+            access_choice::{
+                evaluator::{
+                    chosen_access_shape_projection, chosen_selection_reason,
+                    evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
                 },
+                model::AccessChoiceFamily,
             },
         },
         schema::SchemaInfo,
@@ -47,32 +44,21 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
-    access: &ExplainAccessPath,
 ) -> AccessChoiceExplainSnapshot {
+    let access = crate::db::query::explain::ExplainAccessPath::from_access_plan(&plan.access);
+
     // Phase 1: classify chosen access family and seed non-index fallbacks.
-    let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(access);
+    let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(&access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
-        return AccessChoiceExplainSnapshot {
-            chosen_reason: AccessChoiceSelectedReason::NonIndexAccess,
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        };
+        return AccessChoiceExplainSnapshot::non_index_access();
     }
 
     let Some(chosen_index_name) = chosen_index_name else {
-        return AccessChoiceExplainSnapshot {
-            chosen_reason: AccessChoiceSelectedReason::SelectedIndexUnavailable,
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        };
+        return AccessChoiceExplainSnapshot::selected_index_unavailable();
     };
 
     let Ok(schema_info) = SchemaInfo::from_entity_model(model) else {
-        return AccessChoiceExplainSnapshot {
-            chosen_reason: AccessChoiceSelectedReason::SchemaUnavailable,
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        };
+        return AccessChoiceExplainSnapshot::schema_unavailable();
     };
 
     let predicate = plan.scalar_plan().predicate.as_ref();

@@ -7,12 +7,11 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, QueryError,
         executor::EntityAuthority,
-        query::intent::StructuralQuery,
         session::sql::SqlDispatchResult,
         session::sql::computed_projection,
         sql::lowering::{
-            LoweredSqlQuery, apply_lowered_select_shape, lower_sql_command_from_prepared_statement,
-            prepare_sql_statement,
+            LoweredSqlQuery, bind_lowered_sql_select_query_structural,
+            lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
         sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlStatement},
     },
@@ -61,9 +60,10 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute the base field-only projection and then apply the
         // requested transforms without reopening generic expression ownership.
-        let structural = apply_lowered_select_shape(
-            StructuralQuery::new(authority.model(), MissingRowPolicy::Ignore),
+        let structural = bind_lowered_sql_select_query_structural(
+            authority.model(),
             select,
+            MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let base_payload = self.execute_structural_sql_projection(structural, authority)?;

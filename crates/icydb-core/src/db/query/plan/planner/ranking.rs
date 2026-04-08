@@ -73,23 +73,14 @@ pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
     index: &IndexModel,
     prefix_len: usize,
 ) -> bool {
-    let Some(order) = order else {
+    let Some(order_contract) = order
+        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))
+    else {
         return false;
     };
-    if order
-        .deterministic_secondary_order_direction(model.primary_key.name)
-        .is_none()
-    {
-        return false;
-    }
 
     let index_terms = index_order_terms(index);
 
-    order.matches_expected_term_sequence_plus_primary_key(
-        index_terms.iter().skip(prefix_len).map(String::as_str),
-        model.primary_key.name,
-    ) || order.matches_expected_term_sequence_plus_primary_key(
-        index_terms.iter().map(String::as_str),
-        model.primary_key.name,
-    )
+    order_contract.matches_index_suffix(&index_terms, prefix_len)
+        || order_contract.matches_index_full(&index_terms)
 }

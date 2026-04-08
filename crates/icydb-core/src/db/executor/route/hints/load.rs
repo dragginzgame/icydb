@@ -6,14 +6,14 @@
 use crate::{
     db::{
         executor::{ContinuationCapabilities, ExecutionKernel},
-        query::plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
+        query::plan::{AccessPlannedQuery, PlannerRouteProfile},
     },
     model::entity::EntityModel,
 };
 
 use crate::db::executor::route::{
     AccessWindow, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan, TopNSeekSpec,
-    capability::derive_budget_safety_flags_for_model,
+    capability::derive_budget_safety_flags_for_model, secondary_order_contract_active,
 };
 
 /// Assess index-range limit pushdown once for this execution and produce the bounded fetch spec.
@@ -56,8 +56,8 @@ pub(in crate::db::executor::route) fn load_scan_budget_hint(
 
 /// Build an explicit top-N seek contract for ordered load windows when route eligibility permits bounded access traversal.
 pub(in crate::db::executor::route) fn top_n_seek_spec_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
+    planner_route_profile: &PlannerRouteProfile,
     continuation: RouteContinuationPlan,
     capabilities: RouteCapabilities,
 ) -> Option<TopNSeekSpec> {
@@ -68,7 +68,9 @@ pub(in crate::db::executor::route) fn top_n_seek_spec_for_model(
         .as_ref()
         .is_some_and(|order| !order.fields.is_empty());
     (logical.mode.is_load() && has_order).then_some(())?;
-    secondary_order_contract_is_deterministic(model, logical).then_some(())?;
+    secondary_order_contract_active(planner_route_profile.logical_pushdown_eligibility())
+        .then_some(())?;
+    planner_route_profile.secondary_order_contract()?;
     capabilities
         .load_order_route_contract
         .allows_top_n_seek()

@@ -19,6 +19,39 @@ pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) rejected: Vec<String>,
 }
 
+impl AccessChoiceExplainSnapshot {
+    /// Construct one planner snapshot for non-index or composite access paths.
+    #[must_use]
+    pub(in crate::db) const fn non_index_access() -> Self {
+        Self {
+            chosen_reason: AccessChoiceSelectedReason::NonIndexAccess,
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        }
+    }
+
+    /// Construct one fail-closed snapshot for manually assembled index plans
+    /// that never passed through planner-owned candidate projection.
+    #[must_use]
+    pub(in crate::db) const fn selected_index_unavailable() -> Self {
+        Self {
+            chosen_reason: AccessChoiceSelectedReason::SelectedIndexUnavailable,
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        }
+    }
+
+    /// Construct one fail-closed snapshot when schema projection was not available.
+    #[must_use]
+    pub(in crate::db) const fn schema_unavailable() -> Self {
+        Self {
+            chosen_reason: AccessChoiceSelectedReason::SchemaUnavailable,
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        }
+    }
+}
+
 ///
 /// AccessChoiceSelectedReason
 ///

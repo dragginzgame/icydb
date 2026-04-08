@@ -22,8 +22,7 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-                CoveringReadFieldSource, VisibleIndexes,
-                project_access_choice_explain_snapshot_with_indexes,
+                CoveringReadFieldSource,
             },
         },
     },
@@ -51,36 +50,24 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
-        model,
-        &VisibleIndexes::schema_owned(model.indexes()),
-        plan,
-    )
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
+
+    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
 }
 
 #[inline(never)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &VisibleIndexes<'_>,
+    _visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
-
-    Ok(
-        assemble_load_execution_node_descriptor_with_model_and_route_plan(
-            model,
-            visible_indexes,
-            plan,
-            &route_plan,
-        ),
-    )
+    assemble_load_execution_node_descriptor_with_model(model, plan)
 }
 
 // Assemble one canonical scalar load execution descriptor tree through one
 // caller-supplied route plan.
 fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
 ) -> ExplainExecutionNodeDescriptor {
@@ -100,19 +87,13 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     // Phase 2: derive one canonical access projection and reuse it across
     // descriptor assembly instead of re-projecting the chosen route again.
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
-    let access_choice = project_access_choice_explain_snapshot_with_indexes(
-        model,
-        visible_indexes.as_slice(),
-        plan,
-        &access_strategy,
-    );
     let mut root =
         crate::db::executor::explain::descriptor::shared::access_execution_node_descriptor(
             access_strategy,
             execution_mode,
         );
     annotate_access_root_node_properties(&mut root, route_plan);
-    annotate_access_choice_node_properties(&mut root, access_choice);
+    annotate_access_choice_node_properties(&mut root, plan.access_choice().clone());
     let covering_scan = load_terminal_fast_path.is_some();
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
@@ -218,35 +199,29 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
-    assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
-        model,
-        &VisibleIndexes::schema_owned(model.indexes()),
-        plan,
-    )
-}
-
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
-    model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &VisibleIndexes<'_>,
-    plan: &AccessPlannedQuery,
-) -> Result<Vec<String>, InternalError> {
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
 
     Ok(
         assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
             model,
-            visible_indexes,
             plan,
             &route_plan,
         ),
     )
 }
 
+pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
+    model: &'static crate::model::entity::EntityModel,
+    _visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
+    plan: &AccessPlannedQuery,
+) -> Result<Vec<String>, InternalError> {
+    assemble_load_execution_verbose_diagnostics_with_model(model, plan)
+}
+
 // Assemble canonical verbose diagnostics for one scalar load route through one
 // caller-supplied route plan.
 fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
-    visible_indexes: &VisibleIndexes<'_>,
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
 ) -> Vec<String> {
@@ -267,12 +242,7 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
     let projection_pushdown = load_terminal_fast_path.is_some();
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
-    let access_choice = project_access_choice_explain_snapshot_with_indexes(
-        model,
-        visible_indexes.as_slice(),
-        plan,
-        &access_strategy,
-    );
+    let access_choice = plan.access_choice().clone();
     let mut chosen_label = String::new();
     write_access_strategy_label(&mut chosen_label, &access_strategy);
     let rejections = access_choice.rejected.into_iter().collect::<Vec<_>>();

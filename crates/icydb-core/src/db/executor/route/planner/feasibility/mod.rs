@@ -21,10 +21,7 @@ use crate::{
                 top_n_seek_spec_for_model,
             },
         },
-        query::plan::{
-            AccessPlannedQuery, GroupedPlanStrategyHint, LogicalPushdownEligibility,
-            PlannerRouteProfile,
-        },
+        query::plan::{AccessPlannedQuery, GroupedPlanStrategyHint, PlannerRouteProfile},
     },
     model::entity::EntityModel,
 };
@@ -49,7 +46,7 @@ pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stag
         model,
         plan,
         intent_stage,
-        planner_route_profile.logical_pushdown_eligibility(),
+        planner_route_profile,
         route_continuation,
         probe_fetch_hint,
     );
@@ -130,25 +127,30 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
     model: &EntityModel,
     plan: &AccessPlannedQuery,
     intent_stage: &RouteIntentStage<'_>,
-    logical_pushdown_eligibility: LogicalPushdownEligibility,
+    planner_route_profile: &PlannerRouteProfile,
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
 ) -> RouteDerivationContext {
     let aggregate_shape = intent_stage.aggregate_shape;
     let grouped = intent_stage.grouped;
     let grouped_plan_strategy_hint = intent_stage.grouped_plan_strategy_hint;
+    let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
     let secondary_pushdown_applicability =
         crate::db::executor::route::derive_secondary_pushdown_applicability_from_contract(
-            model,
             plan,
-            logical_pushdown_eligibility,
+            planner_route_profile,
         );
     let direction = aggregate_shape.map_or_else(
         || derive_load_route_direction(plan),
         |aggregate| derive_aggregate_route_direction(plan, aggregate),
     );
-    let capabilities =
-        derive_execution_capabilities_for_model(model, plan, direction, aggregate_shape);
+    let capabilities = derive_execution_capabilities_for_model(
+        model,
+        plan,
+        planner_route_profile,
+        direction,
+        aggregate_shape,
+    );
     let kind: Option<AggregateKind> = aggregate_shape.map(AggregateRouteShape::kind);
     let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
         aggregate_kind.is_count()
@@ -184,7 +186,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
     let aggregate_physical_fetch_hint =
         count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
     let top_n_seek_spec = load_scan_hints_enabled
-        .then(|| top_n_seek_spec_for_model(model, plan, continuation, capabilities))
+        .then(|| top_n_seek_spec_for_model(plan, planner_route_profile, continuation, capabilities))
         .flatten();
     let load_physical_fetch_hint = load_scan_hints_enabled
         .then_some(probe_fetch_hint)

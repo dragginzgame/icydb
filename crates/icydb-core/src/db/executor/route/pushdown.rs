@@ -7,43 +7,35 @@ use crate::{
     db::{
         access::PushdownApplicability,
         query::plan::{
-            AccessPlannedQuery, LogicalPushdownEligibility, OrderSpec, ScalarPlan,
-            secondary_order_contract_is_deterministic,
+            AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
+            PlannerRouteProfile,
         },
     },
     model::entity::EntityModel,
 };
 
-fn validated_secondary_order_for_contract<'a>(
-    model: &EntityModel,
-    logical: &'a ScalarPlan,
-    logical_pushdown_eligibility: LogicalPushdownEligibility,
-) -> Option<&'a OrderSpec> {
-    (secondary_order_contract_active(logical_pushdown_eligibility)
-        && secondary_order_contract_is_deterministic(model, logical))
-    .then_some(())?;
+fn validated_secondary_order_contract<'a>(
+    planner_route_profile: &'a PlannerRouteProfile,
+) -> Option<&'a DeterministicSecondaryOrderContract> {
+    secondary_order_contract_active(planner_route_profile.logical_pushdown_eligibility())
+        .then_some(())?;
 
-    logical.order.as_ref()
+    planner_route_profile.secondary_order_contract()
 }
 
 /// Derive route pushdown applicability from planner-owned logical eligibility and
 /// route-owned access capabilities. Route must not re-derive logical shape policy.
 pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
-    logical_pushdown_eligibility: LogicalPushdownEligibility,
+    planner_route_profile: &PlannerRouteProfile,
 ) -> PushdownApplicability {
-    let Some(order) = validated_secondary_order_for_contract(
-        model,
-        plan.scalar_plan(),
-        logical_pushdown_eligibility,
-    ) else {
+    let Some(order_contract) = validated_secondary_order_contract(planner_route_profile) else {
         return PushdownApplicability::NotApplicable;
     };
 
     let access_class = plan.access_strategy().class();
 
-    access_class.secondary_order_pushdown_applicability(model, order)
+    access_class.secondary_order_pushdown_applicability(order_contract)
 }
 
 /// Return whether planner logical pushdown eligibility allows route-level
@@ -66,9 +58,7 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_mode
         return false;
     };
     let access_class = plan.access_strategy().class();
-    let logical_pushdown_eligibility = plan
-        .planner_route_profile(model)
-        .logical_pushdown_eligibility();
+    let planner_route_profile = plan.planner_route_profile();
     let index_prefix_details = access_class.single_path_index_prefix_details();
     let index_range_details = access_class.single_path_index_range_details();
     let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
@@ -80,20 +70,16 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_mode
     let primary_key_order_satisfied = order.is_primary_key_only(model.primary_key.name)
         && access_class.ordered()
         && !has_index_path;
-    let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
     let prefix_order_contract_safe =
         index_prefix_details.is_none() || access_class.prefix_order_contract_safe();
-    let secondary_pushdown_eligible = derive_secondary_pushdown_applicability_from_contract(
-        model,
-        plan,
-        logical_pushdown_eligibility,
-    )
-    .is_eligible();
+    let secondary_pushdown_eligible = validated_secondary_order_contract(&planner_route_profile)
+        .is_some_and(|order_contract| {
+            access_class
+                .secondary_order_pushdown_applicability(order_contract)
+                .is_eligible()
+        });
 
     has_order_fields
         && (primary_key_order_satisfied
-            || (secondary_contract_active
-                && has_index_path
-                && prefix_order_contract_safe
-                && secondary_pushdown_eligible))
+            || (has_index_path && prefix_order_contract_safe && secondary_pushdown_eligible))
 }

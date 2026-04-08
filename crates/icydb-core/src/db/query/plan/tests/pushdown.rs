@@ -12,8 +12,8 @@ use crate::{
         executor::route::derive_secondary_pushdown_applicability_from_contract,
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, LoadSpec, LogicalPlan, LogicalPushdownEligibility, OrderDirection,
-            OrderSpec, QueryMode, derive_logical_pushdown_eligibility,
+            AccessPlannedQuery, ContinuationPolicy, LoadSpec, LogicalPlan,
+            LogicalPushdownEligibility, OrderDirection, OrderSpec, PlannerRouteProfile, QueryMode,
         },
     },
     model::{
@@ -88,6 +88,10 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlann
         }),
         access,
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     }
 }
 
@@ -157,11 +161,11 @@ fn contract_pushdown_applicability(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> PushdownApplicability {
-    derive_secondary_pushdown_applicability_from_contract(
-        model,
-        plan,
-        derive_logical_pushdown_eligibility(model, plan),
-    )
+    let mut finalized = plan.clone();
+    finalized.finalize_planner_route_profile_for_model(model);
+    let planner_route_profile = finalized.planner_route_profile();
+
+    derive_secondary_pushdown_applicability_from_contract(&finalized, planner_route_profile)
 }
 
 #[test]
@@ -623,15 +627,21 @@ fn secondary_order_pushdown_contract_cases() {
 #[test]
 fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     let model = model_with_index();
+    let plan = load_index_prefix_plan(
+        vec![Value::Text("a".to_string())],
+        Some(order_spec(&[("id", OrderDirection::Asc)])),
+    );
+    let mut finalized = plan.clone();
+    finalized.finalize_planner_route_profile_for_model(model);
+    let planner_route_profile = finalized.planner_route_profile();
+    let gated_profile = PlannerRouteProfile::new(
+        ContinuationPolicy::new(false, false, true),
+        LogicalPushdownEligibility::new(false, false, false),
+        planner_route_profile.secondary_order_contract().cloned(),
+    );
+
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(
-            model,
-            &load_index_prefix_plan(
-                vec![Value::Text("a".to_string())],
-                Some(order_spec(&[("id", OrderDirection::Asc)])),
-            ),
-            LogicalPushdownEligibility::new(false, false, false),
-        ),
+        derive_secondary_pushdown_applicability_from_contract(&plan, &gated_profile),
         PushdownApplicability::NotApplicable
     );
 }
@@ -639,15 +649,16 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
 #[test]
 fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape() {
     let model = model_with_index();
+    let plan = load_index_prefix_plan(
+        vec![Value::Text("a".to_string())],
+        Some(order_spec(&[("tag", OrderDirection::Asc)])),
+    );
+    let mut finalized = plan.clone();
+    finalized.finalize_planner_route_profile_for_model(model);
+    let planner_route_profile = finalized.planner_route_profile();
+
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(
-            model,
-            &load_index_prefix_plan(
-                vec![Value::Text("a".to_string())],
-                Some(order_spec(&[("tag", OrderDirection::Asc)])),
-            ),
-            LogicalPushdownEligibility::new(true, false, false),
-        ),
+        derive_secondary_pushdown_applicability_from_contract(&finalized, planner_route_profile),
         PushdownApplicability::NotApplicable,
         "route pushdown must not activate when ORDER BY omits deterministic PK tie-break",
     );
@@ -656,18 +667,19 @@ fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape()
 #[test]
 fn secondary_order_pushdown_contract_rejects_mixed_direction_shape() {
     let model = model_with_index();
+    let plan = load_index_prefix_plan(
+        vec![Value::Text("a".to_string())],
+        Some(order_spec(&[
+            ("tag", OrderDirection::Desc),
+            ("id", OrderDirection::Asc),
+        ])),
+    );
+    let mut finalized = plan.clone();
+    finalized.finalize_planner_route_profile_for_model(model);
+    let planner_route_profile = finalized.planner_route_profile();
+
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(
-            model,
-            &load_index_prefix_plan(
-                vec![Value::Text("a".to_string())],
-                Some(order_spec(&[
-                    ("tag", OrderDirection::Desc),
-                    ("id", OrderDirection::Asc),
-                ])),
-            ),
-            LogicalPushdownEligibility::new(true, false, false),
-        ),
+        derive_secondary_pushdown_applicability_from_contract(&finalized, planner_route_profile),
         PushdownApplicability::NotApplicable,
         "route pushdown must not activate when ORDER BY direction contract is mixed",
     );

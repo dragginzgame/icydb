@@ -17,9 +17,7 @@ use crate::{
                 secondary_order_contract_active,
             },
         },
-        query::plan::{
-            AccessPlannedQuery, OrderDirection, secondary_order_contract_is_deterministic,
-        },
+        query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
     },
     model::entity::EntityModel,
 };
@@ -139,6 +137,7 @@ impl ExecutionRoutePlan {
 pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
+    planner_route_profile: &PlannerRouteProfile,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
 ) -> RouteCapabilities {
@@ -166,7 +165,7 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
             &access_class,
         ),
         index_range_limit_pushdown_shape_supported:
-            index_range_limit_pushdown_shape_supported_for_model(model, plan),
+            index_range_limit_pushdown_shape_supported_for_model(plan, planner_route_profile),
         composite_aggregate_fast_path_eligible: aggregate_execution_policy
             .composite_aggregate_fast_path_eligible(),
         bounded_probe_hint_safe: bounded_probe_hint_is_safe(plan),
@@ -197,22 +196,34 @@ const fn count_pushdown_existing_rows_shape_supported(
 }
 
 fn index_range_limit_pushdown_shape_supported_for_model(
-    model: &EntityModel,
     plan: &AccessPlannedQuery,
+    planner_route_profile: &PlannerRouteProfile,
 ) -> bool {
-    let order = plan.scalar_plan().order.as_ref();
-    let order_contract_eligible = order.is_none_or(|_| {
-        secondary_order_contract_is_deterministic(model, plan.scalar_plan())
-            && secondary_order_contract_active(
-                plan.planner_route_profile(model)
-                    .logical_pushdown_eligibility(),
-            )
-    });
     let access_class = plan.access_strategy().class();
+    let planner_bypass_empty_order = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .is_some_and(|order| order.fields.is_empty());
+    let order_present = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .is_some_and(|order| !order.fields.is_empty());
+    let order_contract =
+        secondary_order_contract_active(planner_route_profile.logical_pushdown_eligibility())
+            .then(|| planner_route_profile.secondary_order_contract())
+            .flatten();
 
-    order_contract_eligible
-        && access_class.index_range_limit_pushdown_shape_supported_for_order(
-            order.map(|order| order.fields.as_slice()),
-            model.primary_key.name,
-        )
+    // Planner-owned order contracts never emit `Some(OrderSpec { fields: [] })`.
+    // Treat that planner-bypass shape as invalid rather than silently
+    // downgrading it to the same semantics as "no ORDER BY".
+    if planner_bypass_empty_order {
+        return false;
+    }
+
+    access_class.index_range_limit_pushdown_shape_supported_for_order_contract(
+        order_contract,
+        order_present,
+    )
 }

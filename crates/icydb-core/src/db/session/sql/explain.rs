@@ -12,12 +12,11 @@ use crate::{
             assemble_prepared_sql_scalar_aggregate_execution_descriptor_with_model,
         },
         query::explain::ExplainAggregateTerminalPlan,
-        query::intent::StructuralQuery,
         session::sql::surface::{SqlSurface, session_sql_lane, unsupported_sql_lane_message},
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
-            apply_lowered_select_shape, bind_lowered_sql_explain_global_aggregate_structural,
-            bind_lowered_sql_query_structural,
+            bind_lowered_sql_explain_global_aggregate_structural,
+            bind_lowered_sql_query_structural, bind_lowered_sql_select_query_structural,
         },
         sql::parser::SqlExplainMode,
     },
@@ -114,9 +113,10 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
-        let structural = apply_lowered_select_shape(
-            StructuralQuery::new(authority.model(), MissingRowPolicy::Ignore),
+        let structural = bind_lowered_sql_select_query_structural(
+            authority.model(),
             select.clone(),
+            MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let visible_indexes =

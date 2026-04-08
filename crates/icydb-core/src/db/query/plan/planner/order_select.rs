@@ -23,12 +23,11 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     order: Option<&OrderSpec>,
     query_predicate: Option<&Predicate>,
 ) -> Option<AccessPlan<Value>> {
-    let order = order?;
+    let order_contract = order
+        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))?;
 
     // Order-driven access fallback is only valid when the canonical ORDER BY
     // already carries one uniform-direction `..., primary_key` tie-break shape.
-    order.deterministic_secondary_order_direction(model.primary_key.name)?;
-
     // Filtered indexes remain eligible only when the full query predicate
     // implies their guard. When no predicate exists, evaluate against `True`
     // so filtered indexes fail closed instead of being scanned unconditionally.
@@ -37,10 +36,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
 
     for index in sorted_indexes(visible_indexes, query_predicate) {
         let index_terms = index_order_terms(index);
-        if !order.matches_expected_term_sequence_plus_primary_key(
-            index_terms.iter().map(String::as_str),
-            model.primary_key.name,
-        ) {
+        if !order_contract.matches_index_full(&index_terms) {
             continue;
         }
 

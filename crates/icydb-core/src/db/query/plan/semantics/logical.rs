@@ -170,13 +170,9 @@ impl AccessPlannedQuery {
         }
     }
 
-    /// Project one planner-owned route profile for executor route planning.
-    #[must_use]
-    pub(in crate::db) fn planner_route_profile(&self, model: &EntityModel) -> PlannerRouteProfile {
-        PlannerRouteProfile::new(
-            derive_continuation_policy_validated(self),
-            derive_logical_pushdown_eligibility(model, self),
-        )
+    /// Freeze one planner-owned route profile after model validation completes.
+    pub(in crate::db) fn finalize_planner_route_profile_for_model(&mut self, model: &EntityModel) {
+        self.set_planner_route_profile(project_planner_route_profile_for_model(model, self));
     }
 
     /// Build one immutable execution-shape signature contract for runtime layers.
@@ -226,5 +222,24 @@ fn derive_continuation_policy_validated(plan: &AccessPlannedQuery) -> Continuati
         true, // Continuation resume windows require anchor semantics for pushdown-safe replay.
         true, // Continuation resumes must advance strictly to prevent replay/regression loops.
         is_grouped_safe,
+    )
+}
+
+/// Project one planner-owned route profile from the finalized logical+access plan.
+#[must_use]
+pub(in crate::db) fn project_planner_route_profile_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+) -> PlannerRouteProfile {
+    let secondary_order_contract = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
+
+    PlannerRouteProfile::new(
+        derive_continuation_policy_validated(plan),
+        derive_logical_pushdown_eligibility(plan, secondary_order_contract.as_ref()),
+        secondary_order_contract,
     )
 }

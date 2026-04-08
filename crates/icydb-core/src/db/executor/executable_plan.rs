@@ -487,8 +487,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
         Self::build(plan)
     }
 
-    fn build(plan: AccessPlannedQuery) -> Self {
+    fn build(mut plan: AccessPlannedQuery) -> Self {
         let authority = EntityAuthority::for_type::<E>();
+        plan.finalize_planner_route_profile_for_model(E::MODEL);
 
         Self {
             core: build_executable_plan_core(authority, plan),

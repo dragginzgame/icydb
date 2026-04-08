@@ -341,12 +341,12 @@ fn covering_projection_order_contract(
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(direction));
     }
 
-    let direction = match order.deterministic_secondary_order_direction(primary_key_name)? {
+    let order_contract = order.deterministic_secondary_order_contract(primary_key_name)?;
+    let direction = match order_contract.direction() {
         OrderDirection::Asc => Direction::Asc,
         OrderDirection::Desc => Direction::Desc,
     };
-    if order.matches_index_suffix_plus_primary_key(index_order_terms, prefix_len, primary_key_name)
-    {
+    if order_contract.matches_index_suffix(index_order_terms, prefix_len) {
         return Some(CoveringProjectionOrder::IndexOrder(direction));
     }
 
@@ -354,8 +354,8 @@ fn covering_projection_order_contract(
         return None;
     }
 
-    order
-        .matches_index_full_plus_primary_key(index_order_terms, primary_key_name)
+    order_contract
+        .matches_index_full(index_order_terms)
         .then_some(CoveringProjectionOrder::IndexOrder(direction))
 }
 

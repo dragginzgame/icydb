@@ -69,7 +69,9 @@ pub(crate) use model::{
     PageSpec, ScalarPlan,
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
-pub(in crate::db) use order_contract::{ExecutionOrderContract, ExecutionOrdering};
+pub(in crate::db) use order_contract::{
+    DeterministicSecondaryOrderContract, ExecutionOrderContract, ExecutionOrdering,
+};
 pub(in crate::db) use order_term::{ExpressionOrderTerm, index_order_terms};
 #[cfg(test)]
 pub(crate) use planner::plan_access;
@@ -89,7 +91,6 @@ pub(crate) use semantics::{
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
     grouped_cursor_policy_violation, grouped_plan_strategy_hint,
-    secondary_order_contract_is_deterministic,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

@@ -1549,7 +1549,7 @@ pub(in crate::db) fn bind_lowered_sql_query_structural(
 ) -> Result<StructuralQuery, SqlLoweringError> {
     match lowered {
         LoweredSqlQuery::Select(select) => {
-            apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
+            bind_lowered_sql_select_query_structural(model, select, consistency)
         }
         LoweredSqlQuery::Delete(delete) => Ok(bind_lowered_sql_delete_query_structural(
             model,
@@ -1557,6 +1557,19 @@ pub(in crate::db) fn bind_lowered_sql_query_structural(
             consistency,
         )),
     }
+}
+
+/// Bind one lowered SQL SELECT shape onto the structural query surface.
+///
+/// This keeps the field-only SQL read lane narrow and owner-local: any caller
+/// that already resolved entity authority can reuse the same lowered-SELECT to
+/// structural-query boundary without reopening SQL shape application itself.
+pub(in crate::db) fn bind_lowered_sql_select_query_structural(
+    model: &'static crate::model::entity::EntityModel,
+    select: LoweredSelectShape,
+    consistency: MissingRowPolicy,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
 }
 
 pub(in crate::db) fn bind_lowered_sql_delete_query_structural(

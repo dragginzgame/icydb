@@ -129,6 +129,10 @@ fn plan_rejects_unorderable_field() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("unorderable field");
@@ -161,6 +165,10 @@ fn plan_rejects_duplicate_non_primary_order_field() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -194,6 +202,10 @@ fn plan_rejects_index_prefix_too_long() {
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
         }),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix too long");
@@ -223,6 +235,10 @@ fn plan_rejects_empty_index_prefix() {
             values: vec![],
         }),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix empty");
@@ -249,6 +265,10 @@ fn plan_accepts_model_based_validation() {
         }),
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     validate_query_semantics(&schema, model, &plan).expect("valid plan");
@@ -270,6 +290,10 @@ fn plan_rejects_empty_order_spec() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("empty order must fail");
@@ -296,6 +320,10 @@ fn delete_limit_requires_order() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -391,6 +419,10 @@ fn delete_plan_rejects_pagination() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -420,6 +452,10 @@ fn load_plan_rejects_delete_limit() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -450,6 +486,10 @@ fn plan_rejects_unordered_pagination() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -480,6 +520,10 @@ fn plan_rejects_limit_without_order() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -541,6 +585,10 @@ fn plan_accepts_ordered_pagination() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     validate_query_semantics(&schema, model, &plan).expect("ordered pagination is valid");
@@ -550,7 +598,7 @@ fn plan_accepts_ordered_pagination() {
 fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
     let model = model_with_expression_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid expression-indexed model");
-    let plan: AccessPlannedQuery = AccessPlannedQuery {
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -575,7 +623,12 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
             std::ops::Bound::Unbounded,
         )),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
+    plan.finalize_planner_route_profile_for_model(model);
 
     validate_query_semantics(&schema, model, &plan).expect(
         "expression order should validate when a matching index path already satisfies order",
@@ -586,7 +639,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
 fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: AccessPlannedQuery = AccessPlannedQuery {
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
@@ -606,7 +659,12 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
+    plan.finalize_planner_route_profile_for_model(model);
 
     let err = validate_query_semantics(&schema, model, &plan)
         .expect_err("expression order must fail closed when access does not satisfy ordering");
@@ -694,6 +752,10 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("missing PK tie-break");
@@ -727,6 +789,10 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
         }),
         access: AccessPlan::path(AccessPath::FullScan),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     let err = validate_query_semantics(&schema, model, &plan)

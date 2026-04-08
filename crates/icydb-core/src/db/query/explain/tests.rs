@@ -96,6 +96,10 @@ fn explain_is_deterministic_for_by_keys() {
         }),
         access: access_a,
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
     let plan_b: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -109,6 +113,10 @@ fn explain_is_deterministic_for_by_keys() {
         }),
         access: access_b,
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     assert_eq!(plan_a.explain(), plan_b.explain());
@@ -692,6 +700,10 @@ fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
             AccessPlan::path(AccessPath::FullScan),
         ]),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
     };
 
     assert_eq!(
