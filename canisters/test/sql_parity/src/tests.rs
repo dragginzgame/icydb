@@ -2,11 +2,6 @@ mod tests {
     use super::{
         Customer, CustomerAccount, CustomerOrder, SqlQueryResult, db, fixtures_load_default,
         fixtures_mark_customer_index_building,
-        fixtures_make_customer_name_order_stale,
-        fixtures_make_customer_order_numeric_equality_desc_stale,
-        fixtures_make_customer_order_numeric_equality_stale,
-        fixtures_make_customer_order_order_only_composite_desc_stale,
-        fixtures_make_customer_order_order_only_composite_stale,
         perf::{SqlPerfRequest, SqlPerfSurface, sample_sql_surface},
         sql_dispatch,
     };
@@ -58,47 +53,11 @@ mod tests {
         fixtures_load_default().expect("fixture reload should succeed");
     }
 
-    fn reload_default_fixtures_with_customer_name_stale() {
-        reload_default_fixtures();
-        ensure_sql_test_memory_range();
-        fixtures_make_customer_name_order_stale()
-            .expect("stale Customer name-order fixture mutation should succeed");
-    }
-
     fn reload_default_fixtures_with_customer_index_building() {
         reload_default_fixtures();
         ensure_sql_test_memory_range();
         fixtures_mark_customer_index_building()
             .expect("Customer index-building fixture mutation should succeed");
-    }
-
-    fn reload_default_fixtures_with_customer_order_order_only_composite_stale() {
-        reload_default_fixtures();
-        ensure_sql_test_memory_range();
-        fixtures_make_customer_order_order_only_composite_stale()
-            .expect("stale CustomerOrder order-only composite fixture mutation should succeed");
-    }
-
-    fn reload_default_fixtures_with_customer_order_numeric_equality_stale() {
-        reload_default_fixtures();
-        ensure_sql_test_memory_range();
-        fixtures_make_customer_order_numeric_equality_stale()
-            .expect("stale CustomerOrder numeric-equality fixture mutation should succeed");
-    }
-
-    fn reload_default_fixtures_with_customer_order_numeric_equality_desc_stale() {
-        reload_default_fixtures();
-        ensure_sql_test_memory_range();
-        fixtures_make_customer_order_numeric_equality_desc_stale()
-            .expect("stale descending CustomerOrder numeric-equality fixture mutation should succeed");
-    }
-
-    fn reload_default_fixtures_with_customer_order_order_only_composite_desc_stale() {
-        reload_default_fixtures();
-        ensure_sql_test_memory_range();
-        fixtures_make_customer_order_order_only_composite_desc_stale().expect(
-            "stale descending CustomerOrder order-only composite fixture mutation should succeed",
-        );
     }
 
     fn typed_result_for_sql_as<E>(sql: &str) -> SqlQueryResult
@@ -535,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_expression_key_only_order_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_expression_key_only_order_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -548,11 +507,11 @@ mod tests {
             "Customer expression key-only order explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "Customer expression key-only order explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "Customer expression key-only order explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -575,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_expression_key_only_order_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_expression_key_only_order_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -588,11 +547,11 @@ mod tests {
             "descending Customer expression key-only order explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "descending Customer expression key-only order explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "descending Customer expression key-only order explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -615,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -629,11 +588,11 @@ mod tests {
             "Customer expression key-only strict text-range explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "Customer expression key-only strict text-range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "Customer expression key-only strict text-range explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -656,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_expression_key_only_strict_text_range_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -670,11 +629,11 @@ mod tests {
             "descending Customer expression key-only strict text-range explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "descending Customer expression key-only strict text-range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "descending Customer expression key-only strict text-range explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -738,12 +697,12 @@ mod tests {
     fn generated_sql_dispatch_customer_secondary_covering_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering EXPLAIN parity",
+            "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary covering EXPLAIN parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_explain_reports_witness_validated_route() {
+    fn generated_sql_dispatch_customer_secondary_covering_explain_reports_planner_proven_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -756,48 +715,11 @@ mod tests {
             "secondary covering explain should expose the explicit covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "secondary covering explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_name_only_stale_explain_matches_typed_surface()
-     {
-        reload_default_fixtures_with_customer_name_stale();
-
-        assert_dispatch_matches_typed(
-            "EXPLAIN EXECUTION SELECT name FROM Customer ORDER BY name ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale Customer name-only covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_name_only_stale_explain_reports_storage_existence_witness_route()
-     {
-        reload_default_fixtures_with_customer_name_stale();
-
-        let explain =
-            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT name FROM Customer ORDER BY name ASC LIMIT 2");
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"name\")])"),
-            "stale Customer name-only covering explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")")
-                && !explain.contains("authority_decision")
-                && !explain.contains("authority_reason")
-                && !explain.contains("index_state"),
-            "stale Customer name-only covering explain should report the storage-owned existence witness mode without the removed flat authority labels: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale Customer name-only covering explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
+            "secondary covering explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -827,12 +749,12 @@ mod tests {
         assert!(
             !explain.contains("CoveringRead")
                 && !explain.contains("existing_row_mode")
-                && !explain.contains("witness_validated")
+                && !explain.contains("planner_proven")
                 && !explain.contains("storage_existence_witness")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "building-index Customer explain should not expose the removed authority surface or any leftover covering authority labels: {explain}",
+            "building-index Customer explain should not expose removed authority labels or any leftover covering labels: {explain}",
         );
     }
 
@@ -842,12 +764,12 @@ mod tests {
 
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT age FROM Customer ORDER BY name ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep non-covering Customer authority EXPLAIN parity",
+            "typed execute_sql_dispatch and sql_dispatch should keep non-covering Customer EXPLAIN parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_non_covering_explain_reports_probe_required_reason()
+    fn generated_sql_dispatch_customer_secondary_non_covering_explain_stays_off_removed_authority_labels()
     {
         reload_default_fixtures();
 
@@ -862,355 +784,12 @@ mod tests {
             !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "non-covering Customer explain should stay off the removed flat authority surface: {explain}",
+            "non-covering Customer explain should stay off the removed authority-label surface: {explain}",
         );
         assert!(
-            !explain.contains("witness_validated")
+            !explain.contains("planner_proven")
                 && !explain.contains("storage_existence_witness"),
-            "non-covering Customer explain must not surface probe-free authority labels: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_pk_plus_name_stale_explain_matches_typed_surface()
-     {
-        reload_default_fixtures_with_customer_name_stale();
-
-        assert_dispatch_matches_typed(
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale Customer PK-plus-name covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_pk_plus_name_stale_explain_reports_storage_existence_witness_route()
-    {
-        reload_default_fixtures_with_customer_name_stale();
-
-        let explain =
-            dispatch_explain_for_sql("EXPLAIN EXECUTION SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2");
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
-            "stale Customer PK-plus-name covering explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")")
-                && !explain.contains("authority_decision")
-                && !explain.contains("authority_reason")
-                && !explain.contains("index_state"),
-            "stale Customer PK-plus-name covering explain should report the storage-owned existence witness row mode without the removed flat authority labels: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale Customer PK-plus-name covering explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_stale_explain_matches_typed_surface()
-    {
-        reload_default_fixtures_with_customer_order_order_only_composite_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder composite order-only covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_stale_explain_reports_storage_existence_witness_route()
-    {
-        reload_default_fixtures_with_customer_order_order_only_composite_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"),
-            "stale CustomerOrder composite order-only explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale CustomerOrder composite order-only explain should report the storage-owned existence witness mode: {explain}",
-        );
-        assert!(
-            !explain.contains("authority_decision")
-                && !explain.contains("authority_reason")
-                && !explain.contains("index_state"),
-            "stale CustomerOrder composite order-only explain should stay on the richer profile-owned surface instead of inheriting flat classifier labels: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale CustomerOrder composite order-only explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_leading_component_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_order_only_composite_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder composite leading-component covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_leading_component_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_order_only_composite_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"priority\")])"),
-            "stale CustomerOrder composite leading-component explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale CustomerOrder composite leading-component explain should report the storage-owned existence witness mode: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale CustomerOrder composite leading-component explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_leading_component_desc_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_order_only_composite_desc_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder composite leading-component covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_leading_component_desc_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_order_only_composite_desc_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"priority\")])"),
-            "stale descending CustomerOrder composite leading-component explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale descending CustomerOrder composite leading-component explain should report the storage-owned existence witness mode: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale descending CustomerOrder composite leading-component explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_desc_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_order_only_composite_desc_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder composite order-only covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_desc_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_order_only_composite_desc_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"),
-            "stale descending CustomerOrder composite order-only explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale descending CustomerOrder composite order-only explain should report the storage-owned existence witness mode: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale descending CustomerOrder composite order-only explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_stale_explain_matches_typed_surface()
-    {
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder numeric-equality covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains(
-                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
-                ),
-            "stale CustomerOrder numeric-equality explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale CustomerOrder numeric-equality explain should report the storage-owned existence witness mode: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required"),
-            "stale CustomerOrder numeric-equality explain should not fall back to row_check_required once the storage witness is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_desc_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_desc_stale_projection_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality projection parity on the storage-witness route",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_desc_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains(
-                    "covering_fields=List([Text(\"id\"), Text(\"priority\"), Text(\"status\")])"
-                ),
-            "stale descending CustomerOrder numeric-equality explain should stay on the covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale descending CustomerOrder numeric-equality explain should report the storage-owned existence witness mode: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required") && !explain.contains("witness_validated"),
-            "stale descending CustomerOrder numeric-equality explain should not fall back once the shared covering-membership kernel keeps reverse traversal honest: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder numeric-equality leading-component EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain
-                    .contains("covering_fields=List([Text(\"id\"), Text(\"priority\")])"),
-            "stale CustomerOrder numeric-equality leading-component explain should stay on the covering-read route contract: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale CustomerOrder numeric-equality leading-component explain should report the storage-owned existence witness mode once the shared covering-membership kernel can carry that authority shape: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required") && !explain.contains("witness_validated"),
-            "stale CustomerOrder numeric-equality leading-component explain should not fall back once the covering-membership witness path is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_stale_projection_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale CustomerOrder numeric-equality leading-component projection parity on the storage-witness route",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_desc_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        assert_dispatch_matches_typed_as::<CustomerOrder>(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality leading-component EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_desc_stale_explain_reports_storage_existence_witness_route(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain
-                    .contains("covering_fields=List([Text(\"id\"), Text(\"priority\")])"),
-            "stale descending CustomerOrder numeric-equality leading-component explain should stay on the covering-read route contract: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"storage_existence_witness\")"),
-            "stale descending CustomerOrder numeric-equality leading-component explain should report the storage-owned existence witness mode once the reverse covering-membership kernel can carry that authority shape: {explain}",
-        );
-        assert!(
-            !explain.contains("row_check_required") && !explain.contains("witness_validated"),
-            "stale descending CustomerOrder numeric-equality leading-component explain should not fall back once the reverse covering-membership witness path is authoritative: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_leading_component_desc_stale_projection_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        assert_dispatch_result_matches_typed_as::<CustomerOrder>(
-            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale descending CustomerOrder numeric-equality leading-component projection parity on the storage-witness route",
+            "non-covering Customer explain must not surface legacy authority labels: {explain}",
         );
     }
 
@@ -1218,12 +797,12 @@ mod tests {
     fn generated_sql_dispatch_customer_secondary_covering_equality_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
-            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary equality covering EXPLAIN parity",
+            "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary equality covering EXPLAIN parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_equality_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_equality_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1237,11 +816,11 @@ mod tests {
             "secondary covering equality explain should expose the explicit covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "secondary covering equality explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "secondary covering equality explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -1250,12 +829,12 @@ mod tests {
     {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1",
-            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary equality desc covering EXPLAIN parity",
+            "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary equality desc covering EXPLAIN parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_equality_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_equality_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1269,11 +848,11 @@ mod tests {
             "secondary covering equality desc explain should expose the explicit covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "secondary covering equality desc explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "secondary covering equality desc explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -1281,12 +860,12 @@ mod tests {
     fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_matches_typed_surface() {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering range EXPLAIN parity",
+            "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary covering range EXPLAIN parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1300,11 +879,11 @@ mod tests {
             "secondary covering range explain should expose the explicit covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "secondary covering range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
+            "secondary covering range explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -1313,12 +892,12 @@ mod tests {
      {
         assert_dispatch_matches_typed(
             "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep witness-backed Customer secondary covering desc range EXPLAIN parity",
+            "typed execute_sql_dispatch and sql_dispatch should keep planner-proven Customer secondary covering desc range EXPLAIN parity",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_strict_range_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_secondary_covering_strict_range_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1332,89 +911,11 @@ mod tests {
             "secondary covering desc range explain should expose the explicit covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")")
+            explain.contains("existing_row_mode=Text(\"planner_proven\")")
                 && !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "secondary covering desc range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_equality_stale_explain_matches_typed_surface()
-     {
-        reload_default_fixtures_with_customer_name_stale();
-
-        assert_dispatch_matches_typed(
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale Customer secondary equality covering EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_equality_stale_explain_reports_authoritative_witness_unavailable(
-    ) {
-        reload_default_fixtures_with_customer_name_stale();
-
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
-            "stale secondary covering equality explain should stay on the explicit covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"row_check_required\")")
-                && !explain.contains("authority_decision")
-                && !explain.contains("authority_reason")
-                && !explain.contains("index_state"),
-            "stale secondary covering equality explain should fall back to row-check mode without surfacing the removed flat authority labels: {explain}",
-        );
-        assert!(
-            !explain.contains("witness_validated")
-                && !explain.contains("storage_existence_witness"),
-            "stale secondary covering equality explain should not expose probe-free authority labels: {explain}",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_strict_range_stale_explain_matches_typed_surface(
-    ) {
-        reload_default_fixtures_with_customer_name_stale();
-
-        assert_dispatch_matches_typed(
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
-            "typed execute_sql_dispatch and sql_dispatch should keep stale Customer secondary covering range EXPLAIN parity",
-        );
-    }
-
-    #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_strict_range_stale_explain_reports_authoritative_witness_unavailable(
-    ) {
-        reload_default_fixtures_with_customer_name_stale();
-
-        let explain = dispatch_explain_for_sql(
-            "EXPLAIN EXECUTION SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2",
-        );
-
-        assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
-            "stale secondary covering range explain should stay on the explicit covering-read route: {explain}",
-        );
-        assert!(
-            explain.contains("existing_row_mode=Text(\"row_check_required\")")
-                && !explain.contains("authority_decision")
-                && !explain.contains("authority_reason")
-                && !explain.contains("index_state"),
-            "stale secondary covering range explain should fall back to row-check mode without surfacing the removed flat authority labels: {explain}",
-        );
-        assert!(
-            !explain.contains("witness_validated")
-                && !explain.contains("storage_existence_witness"),
-            "stale secondary covering range explain should not expose probe-free authority labels: {explain}",
+            "secondary covering desc range explain should report the planner-proven row mode without the removed authority labels: {explain}",
         );
     }
 
@@ -1596,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_order_only_composite_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1612,14 +1113,14 @@ mod tests {
             "CustomerOrder order-only composite explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerOrder order-only composite explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerOrder order-only composite explain should report the planner-proven row mode: {explain}",
         );
         assert!(
             !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "CustomerOrder order-only composite explain should stay off the removed flat authority surface: {explain}",
+            "CustomerOrder order-only composite explain should stay off the removed authority-label surface: {explain}",
         );
     }
 
@@ -1641,7 +1142,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_order_only_composite_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_order_only_composite_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1657,14 +1158,14 @@ mod tests {
             "descending CustomerOrder order-only composite explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerOrder order-only composite explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerOrder order-only composite explain should report the planner-proven row mode: {explain}",
         );
         assert!(
             !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "descending CustomerOrder order-only composite explain should stay off the removed flat authority surface: {explain}",
+            "descending CustomerOrder order-only composite explain should stay off the removed authority-label surface: {explain}",
         );
     }
 
@@ -1685,7 +1186,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_explain_reports_witness_validated_route() {
+    fn generated_sql_dispatch_customer_order_numeric_equality_explain_reports_planner_proven_route() {
         reload_default_fixtures();
 
         let explain = dispatch_explain_for_sql(
@@ -1700,8 +1201,8 @@ mod tests {
             "CustomerOrder numeric-equality explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerOrder numeric-equality explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerOrder numeric-equality explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -1722,7 +1223,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_numeric_equality_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1738,8 +1239,8 @@ mod tests {
             "descending CustomerOrder numeric-equality explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerOrder numeric-equality explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerOrder numeric-equality explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -1762,7 +1263,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1778,8 +1279,8 @@ mod tests {
             "CustomerOrder numeric-equality bounded status explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerOrder numeric-equality bounded status explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerOrder numeric-equality bounded status explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -1802,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_order_numeric_equality_status_strict_text_range_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -1818,8 +1319,8 @@ mod tests {
             "descending CustomerOrder numeric-equality bounded status explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerOrder numeric-equality bounded status explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerOrder numeric-equality bounded status explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -1997,7 +1498,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2013,13 +1514,13 @@ mod tests {
             "CustomerAccount filtered composite order-only explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerAccount filtered composite order-only explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerAccount filtered composite order-only explain should report the planner-proven row mode: {explain}",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2035,13 +1536,13 @@ mod tests {
             "CustomerAccount filtered composite strict LIKE prefix explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerAccount filtered composite strict LIKE prefix explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerAccount filtered composite strict LIKE prefix explain should report the planner-proven row mode: {explain}",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_strict_like_prefix_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2057,8 +1558,8 @@ mod tests {
             "descending CustomerAccount filtered composite strict LIKE prefix explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerAccount filtered composite strict LIKE prefix explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerAccount filtered composite strict LIKE prefix explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -2081,7 +1582,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2097,13 +1598,13 @@ mod tests {
             "descending CustomerAccount filtered composite order-only explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerAccount filtered composite order-only explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerAccount filtered composite order-only explain should report the planner-proven row mode: {explain}",
         );
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_offset_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_order_only_desc_offset_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2119,8 +1620,8 @@ mod tests {
             "descending CustomerAccount filtered composite order-only offset explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerAccount filtered composite order-only offset explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerAccount filtered composite order-only offset explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -2269,7 +1770,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2283,8 +1784,8 @@ mod tests {
             "CustomerAccount filtered composite expression key-only order-only explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerAccount filtered composite expression key-only order-only explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerAccount filtered composite expression key-only order-only explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -2307,7 +1808,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_order_only_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2321,8 +1822,8 @@ mod tests {
             "descending CustomerAccount filtered composite expression key-only order-only explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerAccount filtered composite expression key-only order-only explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerAccount filtered composite expression key-only order-only explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -2345,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2359,8 +1860,8 @@ mod tests {
             "CustomerAccount filtered composite expression key-only strict text-range explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerAccount filtered composite expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerAccount filtered composite expression key-only strict text-range explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -2383,7 +1884,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_strict_text_range_desc_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2397,8 +1898,8 @@ mod tests {
             "descending CustomerAccount filtered composite expression key-only strict text-range explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "descending CustomerAccount filtered composite expression key-only strict text-range explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "descending CustomerAccount filtered composite expression key-only strict text-range explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -2421,7 +1922,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_direct_starts_with_explain_reports_witness_validated_route()
+    fn generated_sql_dispatch_customer_account_filtered_composite_expression_key_only_direct_starts_with_explain_reports_planner_proven_route()
      {
         reload_default_fixtures();
 
@@ -2435,8 +1936,8 @@ mod tests {
             "CustomerAccount filtered composite expression key-only direct STARTS_WITH explain should expose the covering-read route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"witness_validated\")"),
-            "CustomerAccount filtered composite expression key-only direct STARTS_WITH explain should report the witness-backed row mode: {explain}",
+            explain.contains("existing_row_mode=Text(\"planner_proven\")"),
+            "CustomerAccount filtered composite expression key-only direct STARTS_WITH explain should report the planner-proven row mode: {explain}",
         );
     }
 
@@ -3866,7 +3367,7 @@ mod tests {
             !explain.contains("authority_decision")
                 && !explain.contains("authority_reason")
                 && !explain.contains("index_state"),
-            "aggregate EXPLAIN EXECUTION should stay off the secondary-read authority label surface until aggregate authority is classified separately",
+            "aggregate EXPLAIN EXECUTION should stay off the removed secondary-read label surface",
         );
     }
 
@@ -4447,825 +3948,46 @@ mod tests {
         assert_eq!(
             generated_metrics.row_check_covering_candidates_seen,
             0,
-            "generated Customer name-order perf sample should not enter the row_check covering candidate lane on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not enter the row_check covering candidate lane on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_count,
             0,
-            "generated Customer name-order perf sample should not execute row-presence probes on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not execute row-presence probes on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_hits,
             0,
-            "generated Customer name-order perf sample should not execute row-presence probes on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not execute row-presence probes on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_misses,
             0,
-            "generated Customer name-order perf sample should not hit stale-row misses on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not hit row-presence misses on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_borrowed_data_store_count,
             0,
-            "generated Customer name-order perf sample should not route through the borrowed data-store row-check helper on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not route through the borrowed data-store row-check helper on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_presence_probe_store_handle_count,
             0,
-            "generated Customer name-order perf sample should not bounce through the store-handle row-presence helper on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not bounce through the store-handle row-presence helper on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_presence_key_to_raw_encodes,
             0,
-            "generated Customer name-order perf sample should not encode row-check primary keys on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not encode row-check primary keys on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics.row_check_rows_emitted,
             0,
-            "generated Customer name-order perf sample should not report row_check-emitted rows on the witness-backed default fixture set",
+            "generated Customer name-order perf sample should not report row_check-emitted rows on the planner-proven default fixture set",
         );
         assert_eq!(
             generated_metrics, typed_metrics,
             "generated and typed Customer name-order perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_name_order_stale_perf_surface_reports_row_check_metrics_in_parity() {
-        let sql = "SELECT name FROM Customer ORDER BY name ASC LIMIT 2";
-        reload_default_fixtures_with_customer_name_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("generated stale sql perf sample should succeed");
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomer,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("typed stale sql perf sample should succeed");
-
-        assert!(
-            generated.outcome.success,
-            "generated stale Customer name-order perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale Customer name-order perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale Customer name-order perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale Customer name-order perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated
-            .outcome
-            .row_check_metrics
-            .expect("generated stale Customer name-order perf sample should attach row_check metrics");
-        let typed_metrics = typed
-            .outcome
-            .row_check_metrics
-            .expect("typed stale Customer name-order perf sample should attach row_check metrics");
-
-        assert_eq!(
-            generated_metrics.row_check_covering_candidates_seen,
-            2,
-            "generated stale Customer name-order perf sample should inspect two secondary candidates before exhausting the requested window",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_count,
-            0,
-            "generated stale Customer name-order perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_hits,
-            0,
-            "generated stale Customer name-order perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_misses,
-            0,
-            "generated stale Customer name-order perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count,
-            0,
-            "generated stale Customer name-order perf sample should no longer route stale-row checks through the borrowed data-store helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_store_handle_count,
-            0,
-            "generated stale Customer name-order perf sample should not bounce stale-row checks through the store-handle helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes,
-            0,
-            "generated stale Customer name-order perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
-        );
-        assert_eq!(
-            generated_metrics.row_check_rows_emitted,
-            1,
-            "generated stale Customer name-order perf sample should emit exactly one live row after stale-row filtering",
-        );
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale Customer name-order perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_name_order_pk_projection_stale_perf_surface_reports_row_check_metrics_in_parity() {
-        let sql = "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2";
-        reload_default_fixtures_with_customer_name_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("generated stale PK-plus-name sql perf sample should succeed");
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomer,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("typed stale PK-plus-name sql perf sample should succeed");
-
-        assert!(
-            generated.outcome.success,
-            "generated stale Customer PK-plus-name order perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale Customer PK-plus-name order perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale Customer PK-plus-name order perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale Customer PK-plus-name order perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale Customer PK-plus-name order perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale Customer PK-plus-name order perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(
-            generated_metrics.row_check_covering_candidates_seen,
-            2,
-            "generated stale Customer PK-plus-name order perf sample should inspect two secondary candidates before exhausting the requested window",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_count,
-            0,
-            "generated stale Customer PK-plus-name order perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_hits,
-            0,
-            "generated stale Customer PK-plus-name order perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_misses,
-            0,
-            "generated stale Customer PK-plus-name order perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count,
-            0,
-            "generated stale Customer PK-plus-name order perf sample should no longer route stale-row checks through the borrowed data-store helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_store_handle_count,
-            0,
-            "generated stale Customer PK-plus-name order perf sample should not bounce stale-row checks through the store-handle helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes,
-            0,
-            "generated stale Customer PK-plus-name order perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
-        );
-        assert_eq!(
-            generated_metrics.row_check_rows_emitted,
-            1,
-            "generated stale Customer PK-plus-name order perf sample should emit exactly one live row after stale-row filtering",
-        );
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale Customer PK-plus-name order perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_order_only_composite_stale_perf_surface_reports_row_check_metrics_in_parity()
-    {
-        let sql =
-            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2";
-        reload_default_fixtures_with_customer_order_order_only_composite_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("generated stale CustomerOrder composite sql perf sample should succeed");
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("typed stale CustomerOrder composite sql perf sample should succeed");
-
-        assert!(
-            generated.outcome.success,
-            "generated stale CustomerOrder composite order-only perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale CustomerOrder composite order-only perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale CustomerOrder composite order-only perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale CustomerOrder composite order-only perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(
-            generated_metrics.row_check_covering_candidates_seen,
-            2,
-            "generated stale CustomerOrder composite order-only perf sample should inspect two secondary candidates before exhausting the requested window",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_count,
-            0,
-            "generated stale CustomerOrder composite order-only perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_hits,
-            0,
-            "generated stale CustomerOrder composite order-only perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_misses,
-            0,
-            "generated stale CustomerOrder composite order-only perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count,
-            0,
-            "generated stale CustomerOrder composite order-only perf sample should no longer route stale-row checks through the borrowed data-store helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_store_handle_count,
-            0,
-            "generated stale CustomerOrder composite order-only perf sample should not bounce stale-row checks through the store-handle helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes,
-            0,
-            "generated stale CustomerOrder composite order-only perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
-        );
-        assert_eq!(
-            generated_metrics.row_check_rows_emitted,
-            1,
-            "generated stale CustomerOrder composite order-only perf sample should emit exactly one live row after stale-row filtering",
-        );
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale CustomerOrder composite order-only perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_order_only_composite_leading_component_stale_perf_surface_reports_row_check_metrics_in_parity(
-    ) {
-        let sql =
-            "SELECT id, priority FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2";
-        reload_default_fixtures_with_customer_order_order_only_composite_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "generated stale CustomerOrder composite leading-component sql perf sample should succeed",
-        );
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "typed stale CustomerOrder composite leading-component sql perf sample should succeed",
-        );
-
-        assert!(
-            generated.outcome.success,
-            "generated stale CustomerOrder composite leading-component perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale CustomerOrder composite leading-component perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale CustomerOrder composite leading-component perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale CustomerOrder composite leading-component perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(
-            generated_metrics.row_check_covering_candidates_seen,
-            2,
-            "generated stale CustomerOrder composite leading-component perf sample should inspect two secondary candidates before exhausting the requested window",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_count,
-            0,
-            "generated stale CustomerOrder composite leading-component perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_hits,
-            0,
-            "generated stale CustomerOrder composite leading-component perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_misses,
-            0,
-            "generated stale CustomerOrder composite leading-component perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count,
-            0,
-            "generated stale CustomerOrder composite leading-component perf sample should no longer route stale-row checks through the borrowed data-store helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_store_handle_count,
-            0,
-            "generated stale CustomerOrder composite leading-component perf sample should not bounce stale-row checks through the store-handle helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes,
-            0,
-            "generated stale CustomerOrder composite leading-component perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
-        );
-        assert_eq!(
-            generated_metrics.row_check_rows_emitted,
-            1,
-            "generated stale CustomerOrder composite leading-component perf sample should emit exactly one live row after stale-row filtering",
-        );
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale CustomerOrder composite leading-component perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_order_only_composite_leading_component_desc_stale_perf_surface_reports_row_check_metrics_in_parity(
-    ) {
-        let sql =
-            "SELECT id, priority FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2";
-        reload_default_fixtures_with_customer_order_order_only_composite_desc_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "generated stale descending CustomerOrder composite leading-component sql perf sample should succeed",
-        );
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "typed stale descending CustomerOrder composite leading-component sql perf sample should succeed",
-        );
-
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale descending CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale descending CustomerOrder composite leading-component perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale descending CustomerOrder composite leading-component perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale descending CustomerOrder composite leading-component perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 2);
-        assert_eq!(generated_metrics.row_presence_probe_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
-        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
-        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
-        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
-        assert_eq!(generated_metrics.row_check_rows_emitted, 1);
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale descending CustomerOrder composite leading-component perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_order_only_composite_desc_stale_perf_surface_reports_row_check_metrics_in_parity(
-    ) {
-        let sql =
-            "SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2";
-        reload_default_fixtures_with_customer_order_order_only_composite_desc_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("generated stale descending CustomerOrder composite sql perf sample should succeed");
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("typed stale descending CustomerOrder composite sql perf sample should succeed");
-
-        assert!(
-            generated.outcome.success,
-            "generated stale descending CustomerOrder composite order-only perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale descending CustomerOrder composite order-only perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale descending CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale descending CustomerOrder composite order-only perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale descending CustomerOrder composite order-only perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale descending CustomerOrder composite order-only perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(
-            generated_metrics.row_check_covering_candidates_seen,
-            2,
-            "generated stale descending CustomerOrder composite order-only perf sample should inspect two secondary candidates before exhausting the requested window",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_count,
-            0,
-            "generated stale descending CustomerOrder composite order-only perf sample should not execute borrowed row-presence probes once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_hits,
-            0,
-            "generated stale descending CustomerOrder composite order-only perf sample should not report borrowed row-presence hits once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_misses,
-            0,
-            "generated stale descending CustomerOrder composite order-only perf sample should not report borrowed row-presence misses once the storage witness is authoritative",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_borrowed_data_store_count,
-            0,
-            "generated stale descending CustomerOrder composite order-only perf sample should no longer route stale-row checks through the borrowed data-store helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_probe_store_handle_count,
-            0,
-            "generated stale descending CustomerOrder composite order-only perf sample should not bounce stale-row checks through the store-handle helper",
-        );
-        assert_eq!(
-            generated_metrics.row_presence_key_to_raw_encodes,
-            0,
-            "generated stale descending CustomerOrder composite order-only perf sample should not encode authoritative row keys once the storage witness is attached to the index membership entry",
-        );
-        assert_eq!(
-            generated_metrics.row_check_rows_emitted,
-            1,
-            "generated stale descending CustomerOrder composite order-only perf sample should emit exactly one live row after stale-row filtering",
-        );
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale descending CustomerOrder composite order-only perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_numeric_equality_stale_perf_surface_reports_row_check_metrics_in_parity() {
-        let sql =
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2";
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("generated stale CustomerOrder numeric-equality sql perf sample should succeed");
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect("typed stale CustomerOrder numeric-equality sql perf sample should succeed");
-
-        assert!(
-            generated.outcome.success,
-            "generated stale CustomerOrder numeric-equality perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale CustomerOrder numeric-equality perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale CustomerOrder numeric-equality perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale CustomerOrder numeric-equality perf sample should consume scan budget on the missing leading row before emitting the first live row",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale CustomerOrder numeric-equality perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale CustomerOrder numeric-equality perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 2);
-        assert_eq!(generated_metrics.row_presence_probe_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
-        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
-        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
-        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
-        assert_eq!(generated_metrics.row_check_rows_emitted, 1);
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale CustomerOrder numeric-equality perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_numeric_equality_leading_component_stale_perf_surface_reports_row_check_metrics_in_parity(
-    ) {
-        let sql =
-            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2";
-        reload_default_fixtures_with_customer_order_numeric_equality_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "generated stale CustomerOrder numeric-equality leading-component sql perf sample should succeed",
-        );
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "typed stale CustomerOrder numeric-equality leading-component sql perf sample should succeed",
-        );
-
-        assert!(
-            generated.outcome.success,
-            "generated stale CustomerOrder numeric-equality leading-component perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale CustomerOrder numeric-equality leading-component perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(1),
-            "generated stale CustomerOrder numeric-equality leading-component perf sample should still emit one live row after the missing leading membership consumes part of the window",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(1),
-            "typed stale CustomerOrder numeric-equality leading-component perf sample should still emit one live row after the missing leading membership consumes part of the window",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 2);
-        assert_eq!(generated_metrics.row_presence_probe_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
-        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
-        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
-        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
-        assert_eq!(generated_metrics.row_check_rows_emitted, 1);
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale CustomerOrder numeric-equality leading-component perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_numeric_equality_desc_stale_perf_surface_reports_row_check_metrics_in_parity()
-    {
-        let sql =
-            "SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2";
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "generated stale descending CustomerOrder numeric-equality sql perf sample should succeed",
-        );
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "typed stale descending CustomerOrder numeric-equality sql perf sample should succeed",
-        );
-
-        assert!(
-            generated.outcome.success,
-            "generated stale descending CustomerOrder numeric-equality perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale descending CustomerOrder numeric-equality perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(2),
-            "generated stale descending CustomerOrder numeric-equality perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(2),
-            "typed stale descending CustomerOrder numeric-equality perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale descending CustomerOrder numeric-equality perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale descending CustomerOrder numeric-equality perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 4);
-        assert_eq!(generated_metrics.row_presence_probe_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
-        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
-        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
-        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
-        assert_eq!(generated_metrics.row_check_rows_emitted, 3);
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale descending CustomerOrder numeric-equality perf samples should keep row_check metrics in parity",
-        );
-    }
-
-    #[test]
-    fn customer_order_numeric_equality_leading_component_desc_stale_perf_surface_reports_row_check_metrics_in_parity(
-    ) {
-        let sql =
-            "SELECT id, priority FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2";
-        reload_default_fixtures_with_customer_order_numeric_equality_desc_stale();
-        let generated = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::GeneratedDispatch,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "generated stale descending CustomerOrder numeric-equality leading-component sql perf sample should succeed",
-        );
-        let typed = sample_sql_surface(SqlPerfRequest {
-            surface: SqlPerfSurface::TypedDispatchCustomerOrder,
-            sql: sql.to_string(),
-            cursor_token: None,
-            repeat_count: 1,
-        })
-        .expect(
-            "typed stale descending CustomerOrder numeric-equality leading-component sql perf sample should succeed",
-        );
-
-        assert!(
-            generated.outcome.success,
-            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should succeed: {generated:?}",
-        );
-        assert!(
-            typed.outcome.success,
-            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should succeed: {typed:?}",
-        );
-        assert_eq!(
-            generated.outcome.row_count,
-            Some(2),
-            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
-        );
-        assert_eq!(
-            typed.outcome.row_count,
-            Some(2),
-            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should preserve the canonical two-row window after the missing descending-leading row is filtered out",
-        );
-
-        let generated_metrics = generated.outcome.row_check_metrics.expect(
-            "generated stale descending CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
-        );
-        let typed_metrics = typed.outcome.row_check_metrics.expect(
-            "typed stale descending CustomerOrder numeric-equality leading-component perf sample should attach row_check metrics",
-        );
-
-        assert_eq!(generated_metrics.row_check_covering_candidates_seen, 4);
-        assert_eq!(generated_metrics.row_presence_probe_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_hits, 0);
-        assert_eq!(generated_metrics.row_presence_probe_misses, 0);
-        assert_eq!(generated_metrics.row_presence_probe_borrowed_data_store_count, 0);
-        assert_eq!(generated_metrics.row_presence_probe_store_handle_count, 0);
-        assert_eq!(generated_metrics.row_presence_key_to_raw_encodes, 0);
-        assert_eq!(generated_metrics.row_check_rows_emitted, 3);
-        assert_eq!(
-            generated_metrics, typed_metrics,
-            "generated and typed stale descending CustomerOrder numeric-equality leading-component perf samples should keep row_check metrics in parity",
         );
     }
 
