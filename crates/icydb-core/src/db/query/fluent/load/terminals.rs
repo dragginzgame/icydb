@@ -14,6 +14,9 @@ use crate::{
         query::{
             api::ResponseCardinalityExt,
             builder::{
+                PreparedFluentAggregateExplainStrategy,
+                PreparedFluentExistingRowsTerminalRuntimeRequest,
+                PreparedFluentExistingRowsTerminalStrategy,
                 PreparedFluentNumericFieldRuntimeRequest, PreparedFluentNumericFieldStrategy,
                 PreparedFluentOrderSensitiveTerminalRuntimeRequest,
                 PreparedFluentOrderSensitiveTerminalStrategy,
@@ -65,19 +68,37 @@ where
         self.session.execute_load_query_with(self.query(), execute)
     }
 
-    // Run one scalar aggregate EXPLAIN terminal through the canonical
-    // non-paged fluent policy gate.
-    fn explain_prepared_scalar_non_paged_terminal(
+    // Run one explain-visible aggregate terminal through the canonical
+    // non-paged fluent policy gate using the prepared aggregate strategy as
+    // the single explain projection source.
+    fn explain_prepared_aggregate_non_paged_terminal<S>(
         &self,
-        strategy: &PreparedFluentScalarTerminalStrategy,
+        strategy: &S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+        S: PreparedFluentAggregateExplainStrategy,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .explain_query_prepared_aggregate_terminal_with_visible_indexes(self.query(), strategy)
+    }
+
+    // Run one prepared projection/distinct explain terminal through the
+    // canonical non-paged fluent policy gate using the prepared projection
+    // strategy as the single explain projection source.
+    fn explain_prepared_projection_non_paged_terminal(
+        &self,
+        strategy: &PreparedFluentProjectionStrategy,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .explain_query_prepared_scalar_terminal_with_visible_indexes(self.query(), strategy)
+            .explain_query_prepared_projection_terminal_with_visible_indexes(self.query(), strategy)
     }
 
     // Execute one prepared fluent scalar terminal through the canonical
@@ -94,6 +115,26 @@ where
             load.execute_scalar_terminal_request(
                 plan,
                 scalar_terminal_boundary_request_from_prepared(strategy.runtime_request().clone()),
+            )
+        })
+    }
+
+    // Execute one prepared fluent existing-rows terminal through the
+    // canonical non-paged fluent policy gate using the prepared existing-rows
+    // strategy as the single runtime source.
+    fn execute_prepared_existing_rows_terminal_output(
+        &self,
+        strategy: PreparedFluentExistingRowsTerminalStrategy,
+    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.execute_scalar_non_paged_terminal(move |load, plan| {
+            load.execute_scalar_terminal_request(
+                plan,
+                existing_rows_terminal_boundary_request_from_prepared(
+                    strategy.runtime_request().clone(),
+                ),
             )
         })
     }
@@ -156,24 +197,6 @@ where
         })
     }
 
-    // Run one order-sensitive aggregate EXPLAIN terminal through the canonical
-    // non-paged fluent policy gate.
-    fn explain_prepared_order_sensitive_non_paged_terminal(
-        &self,
-        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .explain_query_prepared_order_sensitive_terminal_with_visible_indexes(
-                self.query(),
-                strategy,
-            )
-    }
-
     // ------------------------------------------------------------------
     // Execution terminals — semantic only
     // ------------------------------------------------------------------
@@ -199,8 +222,8 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_scalar_terminal_output(
-            PreparedFluentScalarTerminalStrategy::exists_rows(),
+        self.execute_prepared_existing_rows_terminal_output(
+            PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
         )?
         .into_exists()
         .map_err(QueryError::execute)
@@ -211,8 +234,8 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_scalar_non_paged_terminal(
-            &PreparedFluentScalarTerminalStrategy::exists_rows(),
+        self.explain_prepared_aggregate_non_paged_terminal(
+            &PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
         )
     }
 
@@ -267,8 +290,8 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_scalar_terminal_output(
-            PreparedFluentScalarTerminalStrategy::count_rows(),
+        self.execute_prepared_existing_rows_terminal_output(
+            PreparedFluentExistingRowsTerminalStrategy::count_rows(),
         )?
         .into_count()
         .map_err(QueryError::execute)
@@ -332,7 +355,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_scalar_non_paged_terminal(
+        self.explain_prepared_aggregate_non_paged_terminal(
             &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
         )
     }
@@ -372,7 +395,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_scalar_non_paged_terminal(
+        self.explain_prepared_aggregate_non_paged_terminal(
             &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
         )
     }
@@ -426,6 +449,23 @@ where
         })
     }
 
+    /// Explain scalar `sum_by(field)` routing without executing the terminal.
+    pub fn explain_sum_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_aggregate_non_paged_terminal(
+                &PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
+            )
+        })
+    }
+
     /// Execute and return the sum of distinct `field` values.
     pub fn sum_distinct_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
     where
@@ -436,6 +476,23 @@ where
         Self::with_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
                 PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
+            )
+        })
+    }
+
+    /// Explain scalar `sum(distinct field)` routing without executing the terminal.
+    pub fn explain_sum_distinct_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_aggregate_non_paged_terminal(
+                &PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
             )
         })
     }
@@ -454,6 +511,23 @@ where
         })
     }
 
+    /// Explain scalar `avg_by(field)` routing without executing the terminal.
+    pub fn explain_avg_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_aggregate_non_paged_terminal(
+                &PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
+            )
+        })
+    }
+
     /// Execute and return the average of distinct `field` values.
     pub fn avg_distinct_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
     where
@@ -464,6 +538,23 @@ where
         Self::with_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
                 PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
+            )
+        })
+    }
+
+    /// Explain scalar `avg(distinct field)` routing without executing the terminal.
+    pub fn explain_avg_distinct_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_aggregate_non_paged_terminal(
+                &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
             )
         })
     }
@@ -504,6 +595,23 @@ where
         })
     }
 
+    /// Explain `count_distinct_by(field)` routing without executing the terminal.
+    pub fn explain_count_distinct_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
+            )
+        })
+    }
+
     /// Execute and return both `(min_by(field), max_by(field))` in one terminal.
     ///
     /// Tie handling is deterministic for both extrema: primary key ascending.
@@ -535,6 +643,23 @@ where
             )?
             .into_values()
             .map_err(QueryError::execute)
+        })
+    }
+
+    /// Explain `values_by(field)` routing without executing the terminal.
+    pub fn explain_values_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+            )
         })
     }
 
@@ -713,6 +838,23 @@ where
         })
     }
 
+    /// Explain `distinct_values_by(field)` routing without executing the terminal.
+    pub fn explain_distinct_values_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
+            )
+        })
+    }
+
     /// Execute and return projected field values paired with row ids for the
     /// effective result window.
     pub fn values_by_with_ids(
@@ -733,6 +875,23 @@ where
         })
     }
 
+    /// Explain `values_by_with_ids(field)` routing without executing the terminal.
+    pub fn explain_values_by_with_ids(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+            )
+        })
+    }
+
     /// Execute and return the first projected field value in effective response
     /// order, if any.
     pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, QueryError>
@@ -747,6 +906,23 @@ where
             )?
             .into_terminal_value()
             .map_err(QueryError::execute)
+        })
+    }
+
+    /// Explain `first_value_by(field)` routing without executing the terminal.
+    pub fn explain_first_value_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+            )
         })
     }
 
@@ -767,6 +943,23 @@ where
         })
     }
 
+    /// Explain `last_value_by(field)` routing without executing the terminal.
+    pub fn explain_last_value_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.explain_prepared_projection_non_paged_terminal(
+                &PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+            )
+        })
+    }
+
     /// Execute and return the first matching identifier in response order, if any.
     pub fn first(&self) -> Result<Option<Id<E>>, QueryError>
     where
@@ -784,7 +977,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_order_sensitive_non_paged_terminal(
+        self.explain_prepared_aggregate_non_paged_terminal(
             &PreparedFluentOrderSensitiveTerminalStrategy::first(),
         )
     }
@@ -806,7 +999,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_order_sensitive_non_paged_terminal(
+        self.explain_prepared_aggregate_non_paged_terminal(
             &PreparedFluentOrderSensitiveTerminalStrategy::last(),
         )
     }
@@ -834,17 +1027,24 @@ fn scalar_terminal_boundary_request_from_prepared(
     request: PreparedFluentScalarTerminalRuntimeRequest,
 ) -> ScalarTerminalBoundaryRequest {
     match request {
-        PreparedFluentScalarTerminalRuntimeRequest::CountRows => {
-            ScalarTerminalBoundaryRequest::Count
-        }
-        PreparedFluentScalarTerminalRuntimeRequest::ExistsRows => {
-            ScalarTerminalBoundaryRequest::Exists
-        }
         PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
             ScalarTerminalBoundaryRequest::IdTerminal { kind }
         }
         PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
             ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
+        }
+    }
+}
+
+const fn existing_rows_terminal_boundary_request_from_prepared(
+    request: PreparedFluentExistingRowsTerminalRuntimeRequest,
+) -> ScalarTerminalBoundaryRequest {
+    match request {
+        PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => {
+            ScalarTerminalBoundaryRequest::Count
+        }
+        PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => {
+            ScalarTerminalBoundaryRequest::Exists
         }
     }
 }

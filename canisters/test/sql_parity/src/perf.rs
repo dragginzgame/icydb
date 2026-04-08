@@ -7,8 +7,9 @@ use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
     db::{
-        EntityAuthority, PersistedRow, RowCheckMetrics, SqlProjectionMaterializationMetrics,
-        SqlStatementRoute, StructuralReadMetrics, identifiers_tail_match,
+        EntityAuthority, ExplainExecutionNodeDescriptor, PersistedRow, RowCheckMetrics,
+        SqlProjectionMaterializationMetrics, SqlStatementRoute, StructuralReadMetrics,
+        identifiers_tail_match,
         query::Predicate,
         response::{
             PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
@@ -57,6 +58,10 @@ pub enum SqlPerfSurface {
     TypedExecuteSqlGroupedCustomer,
     TypedExecuteSqlGroupedCustomerSecondPage,
     TypedExecuteSqlAggregateCustomer,
+    FluentExplainCustomerSumByAge,
+    FluentExplainCustomerAvgDistinctByAge,
+    FluentExplainCustomerCountDistinctByAge,
+    FluentExplainCustomerLastValueByAge,
     FluentLoadCustomerByIdLimit2,
     FluentLoadCustomerNameEqLimit1,
     FluentPagedCustomerByIdLimit2FirstPage,
@@ -870,6 +875,89 @@ where
     })
 }
 
+// Keep fluent aggregate explain perf probes on one canonical Customer load
+// window so the checked-in harness measures the new public explain surfaces
+// without inventing extra fixture-only query shapes.
+fn outcome_from_explain_execution_descriptor(
+    entity: &str,
+    descriptor: ExplainExecutionNodeDescriptor,
+) -> SqlPerfOutcome {
+    SqlPerfOutcome {
+        success: true,
+        result_kind: "explain".to_string(),
+        entity: Some(entity.to_string()),
+        row_count: None,
+        detail_count: Some(checked_perf_count(
+            descriptor.render_text_tree().lines().count(),
+            "fluent explain line count",
+        )),
+        has_cursor: None,
+        rendered_value: None,
+        error_kind: None,
+        error_origin: None,
+        error_message: None,
+        structural_read_metrics: None,
+        projection_materialization_metrics: None,
+        row_check_metrics: None,
+    }
+}
+
+// Route the new public fluent aggregate explain probes through the same
+// stable Customer load window so PocketIC and canister perf runs measure the
+// surface cost rather than fixture setup differences.
+fn measure_fluent_customer_sum_by_age_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_sum_by("age")
+            .map_or_else(outcome_from_error, |plan| {
+                outcome_from_explain_execution_descriptor(
+                    Customer::MODEL.name(),
+                    plan.execution_node_descriptor(),
+                )
+            })
+    })
+}
+
+fn measure_fluent_customer_avg_distinct_by_age_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_avg_distinct_by("age")
+            .map_or_else(outcome_from_error, |plan| {
+                outcome_from_explain_execution_descriptor(
+                    Customer::MODEL.name(),
+                    plan.execution_node_descriptor(),
+                )
+            })
+    })
+}
+
+fn measure_fluent_customer_count_distinct_by_age_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_count_distinct_by("age")
+            .map_or_else(outcome_from_error, |descriptor| {
+                outcome_from_explain_execution_descriptor(Customer::MODEL.name(), descriptor)
+            })
+    })
+}
+
+fn measure_fluent_customer_last_value_by_age_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_last_value_by("age")
+            .map_or_else(outcome_from_error, |descriptor| {
+                outcome_from_explain_execution_descriptor(Customer::MODEL.name(), descriptor)
+            })
+    })
+}
+
+// Keep the perf harness surface table exhaustive in one match so new public
+// SQL and fluent probe variants stay auditable from one dispatch boundary.
+#[expect(clippy::too_many_lines)]
 fn measure_once(
     surface: SqlPerfSurface,
     sql: &str,
@@ -941,6 +1029,18 @@ fn measure_once(
             db().execute_sql_aggregate::<Customer>(sql)
                 .map_or_else(outcome_from_error, outcome_from_value)
         }),
+        SqlPerfSurface::FluentExplainCustomerSumByAge => {
+            measure_fluent_customer_sum_by_age_explain()
+        }
+        SqlPerfSurface::FluentExplainCustomerAvgDistinctByAge => {
+            measure_fluent_customer_avg_distinct_by_age_explain()
+        }
+        SqlPerfSurface::FluentExplainCustomerCountDistinctByAge => {
+            measure_fluent_customer_count_distinct_by_age_explain()
+        }
+        SqlPerfSurface::FluentExplainCustomerLastValueByAge => {
+            measure_fluent_customer_last_value_by_age_explain()
+        }
         SqlPerfSurface::FluentLoadCustomerByIdLimit2 => measure_surface_call(|| {
             db().load::<Customer>()
                 .order_by("id")

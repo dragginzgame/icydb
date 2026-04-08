@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    db::query::{avg, builder},
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     macros::{canister, entity, store},
     traits::{Path as _, Sanitizer as _},
@@ -265,6 +266,70 @@ fn assert_explain_contains_tokens(explain: &str, tokens: &[&str], context: &str)
             "facade explain matrix case missing token `{token}`: {context}",
         );
     }
+}
+
+#[test]
+fn facade_fluent_query_planning_introspection_surfaces_are_available() {
+    let session = fresh_facade_session();
+
+    // Phase 1: assert the aggregate builder helpers are re-exported through
+    // both query facade paths that callers discover first.
+    let _avg = avg("age");
+    let _builder_avg = builder::avg("age");
+
+    // Phase 2: build one simple load query and assert the public planning
+    // diagnostics remain available through the facade.
+    let load = session.load::<FacadeSqlEntity>().order_by("age").limit(1);
+    let load_hash = load
+        .plan_hash_hex()
+        .expect("facade load plan hash should build");
+    let load_explain = load.explain().expect("facade load explain should build");
+    let load_planned = load.planned().expect("facade load planned should build");
+    let load_compiled = load.plan().expect("facade load plan should build");
+
+    assert!(
+        !load_explain.render_text_canonical().is_empty(),
+        "facade load explain should render text",
+    );
+    assert_eq!(
+        load_planned.plan_hash_hex(),
+        load_hash,
+        "facade load planned hash should match query hash",
+    );
+    assert_eq!(
+        load_compiled.plan_hash_hex(),
+        load_hash,
+        "facade load compiled hash should match query hash",
+    );
+
+    // Phase 3: assert the same planning-introspection surface exists for the
+    // fluent delete facade, which previously dropped these methods.
+    let delete = session.delete::<FacadeSqlEntity>().order_by("age").limit(1);
+    let delete_hash = delete
+        .plan_hash_hex()
+        .expect("facade delete plan hash should build");
+    let delete_explain = delete
+        .explain()
+        .expect("facade delete explain should build");
+    let delete_planned = delete
+        .planned()
+        .expect("facade delete planned should build");
+    let delete_compiled = delete.plan().expect("facade delete plan should build");
+
+    assert!(
+        !delete_explain.render_text_canonical().is_empty(),
+        "facade delete explain should render text",
+    );
+    assert_eq!(
+        delete_planned.plan_hash_hex(),
+        delete_hash,
+        "facade delete planned hash should match query hash",
+    );
+    assert_eq!(
+        delete_compiled.plan_hash_hex(),
+        delete_hash,
+        "facade delete compiled hash should match query hash",
+    );
 }
 
 #[test]

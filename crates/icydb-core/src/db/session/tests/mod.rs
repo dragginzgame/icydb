@@ -21,7 +21,7 @@ use crate::{
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
-            builder::PreparedFluentNumericFieldStrategy,
+            builder::{PreparedFluentNumericFieldStrategy, PreparedFluentProjectionStrategy},
             explain::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },
@@ -10325,7 +10325,7 @@ fn session_aggregate_numeric_field_prepared_strategy_explain_projects_sum_shape(
     let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
         .expect("rank field slot should resolve");
     let explain = session
-        .explain_query_prepared_numeric_field_with_visible_indexes(
+        .explain_query_prepared_aggregate_terminal_with_visible_indexes(
             query.query(),
             &PreparedFluentNumericFieldStrategy::sum_by_slot(rank_slot),
         )
@@ -10346,6 +10346,110 @@ fn session_aggregate_numeric_field_prepared_strategy_explain_projects_sum_shape(
         node.node_properties().get("proj_field"),
         Some(&Value::from("rank")),
         "prepared numeric explain should preserve the projected numeric field label",
+    );
+}
+
+#[test]
+fn session_aggregate_numeric_field_explain_uses_prepared_strategy_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_aggregate_entities(
+        &session,
+        &[
+            (8_2221, 7, 10),
+            (8_2222, 7, 20),
+            (8_2223, 7, 20),
+            (8_2224, 8, 99),
+        ],
+    );
+    let load_window = || {
+        session
+            .load::<SessionAggregateEntity>()
+            .filter(session_aggregate_group_predicate(7))
+            .order_by("rank")
+    };
+    let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
+        .expect("rank field slot should resolve");
+    let prepared_sum = session
+        .explain_query_prepared_aggregate_terminal_with_visible_indexes(
+            load_window().query(),
+            &PreparedFluentNumericFieldStrategy::sum_by_slot(rank_slot.clone()),
+        )
+        .expect("prepared numeric SUM explain should build");
+    let prepared_avg_distinct = session
+        .explain_query_prepared_aggregate_terminal_with_visible_indexes(
+            load_window().query(),
+            &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(rank_slot),
+        )
+        .expect("prepared numeric AVG DISTINCT explain should build");
+    let public_sum = load_window()
+        .explain_sum_by("rank")
+        .expect("public fluent SUM explain should build");
+    let public_avg_distinct = load_window()
+        .explain_avg_distinct_by("rank")
+        .expect("public fluent AVG DISTINCT explain should build");
+
+    assert_eq!(
+        session_aggregate_terminal_plan_snapshot(&public_sum),
+        session_aggregate_terminal_plan_snapshot(&prepared_sum),
+        "public fluent SUM explain should project from the same prepared numeric strategy",
+    );
+    assert_eq!(
+        session_aggregate_terminal_plan_snapshot(&public_avg_distinct),
+        session_aggregate_terminal_plan_snapshot(&prepared_avg_distinct),
+        "public fluent AVG DISTINCT explain should project from the same prepared numeric strategy",
+    );
+}
+
+#[test]
+fn session_aggregate_projection_terminal_explain_uses_prepared_strategy_projection() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_aggregate_entities(
+        &session,
+        &[
+            (8_2321, 7, 10),
+            (8_2322, 7, 20),
+            (8_2323, 7, 20),
+            (8_2324, 8, 99),
+        ],
+    );
+    let load_window = || {
+        session
+            .load::<SessionAggregateEntity>()
+            .filter(session_aggregate_group_predicate(7))
+            .order_by("rank")
+    };
+    let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
+        .expect("rank field slot should resolve");
+    let prepared_count_distinct = session
+        .explain_query_prepared_projection_terminal_with_visible_indexes(
+            load_window().query(),
+            &PreparedFluentProjectionStrategy::count_distinct_by_slot(rank_slot.clone()),
+        )
+        .expect("prepared projection COUNT DISTINCT explain should build");
+    let prepared_last_value = session
+        .explain_query_prepared_projection_terminal_with_visible_indexes(
+            load_window().query(),
+            &PreparedFluentProjectionStrategy::last_value_by_slot(rank_slot),
+        )
+        .expect("prepared projection terminal-value explain should build");
+    let public_count_distinct = load_window()
+        .explain_count_distinct_by("rank")
+        .expect("public fluent COUNT DISTINCT explain should build");
+    let public_last_value = load_window()
+        .explain_last_value_by("rank")
+        .expect("public fluent last_value_by explain should build");
+
+    assert_eq!(
+        public_count_distinct.render_json_canonical(),
+        prepared_count_distinct.render_json_canonical(),
+        "public fluent COUNT DISTINCT explain should project from the prepared projection strategy",
+    );
+    assert_eq!(
+        public_last_value.render_json_canonical(),
+        prepared_last_value.render_json_canonical(),
+        "public fluent last_value_by explain should project from the prepared projection strategy",
     );
 }
 

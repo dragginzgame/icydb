@@ -2809,6 +2809,59 @@ mod tests {
     }
 
     #[test]
+    fn fluent_aggregate_explain_perf_surfaces_report_explain_outcomes() {
+        for (surface, label) in [
+            (
+                SqlPerfSurface::FluentExplainCustomerSumByAge,
+                "fluent explain_sum_by(age)",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerAvgDistinctByAge,
+                "fluent explain_avg_distinct_by(age)",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerCountDistinctByAge,
+                "fluent explain_count_distinct_by(age)",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerLastValueByAge,
+                "fluent explain_last_value_by(age)",
+            ),
+        ] {
+            let sample = perf_sample(surface, label);
+
+            assert!(
+                sample.outcome.success,
+                "{label} perf sample should succeed: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "explain",
+                "{label} perf sample should classify the public explain surface as an explain outcome",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "{label} perf sample should stay on the Customer load lane",
+            );
+            assert!(
+                sample.outcome.detail_count.is_some_and(|count| count > 0),
+                "{label} perf sample should expose a positive explain line count",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "{label} perf sample should stay scalar and not expose row counts",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "{label} perf sample should not expose cursor state",
+            );
+        }
+    }
+
+    #[test]
     fn typed_execute_sql_aggregate_customer_filtered_queries_return_expected_values() {
         reload_default_fixtures();
 

@@ -98,16 +98,101 @@ impl AggregateExpr {
     }
 }
 
-/// PreparedFluentScalarTerminalRuntimeRequest
 ///
-/// Stable fluent scalar terminal runtime request projection derived once at the
-/// fluent aggregate entrypoint boundary.
-/// This keeps execution-side request choice aligned with the aggregate
-/// expression used for explain/descriptor projection.
+/// PreparedFluentAggregateExplainStrategy
+///
+/// PreparedFluentAggregateExplainStrategy is the shared explain-only
+/// projection contract for fluent aggregate domains that can render one
+/// `AggregateExpr`.
+/// It keeps session/query explain projection generic without collapsing the
+/// runtime domain boundaries that still stay family-specific.
+///
+
+pub(crate) trait PreparedFluentAggregateExplainStrategy {
+    /// Borrow the prepared aggregate expression used for explain projection,
+    /// or return `None` when this runtime family has no explain-visible
+    /// `AggregateKind` representation.
+    fn project_explain_aggregate(&self) -> Option<&AggregateExpr>;
+}
+
+/// PreparedFluentExistingRowsTerminalRuntimeRequest
+///
+/// Stable fluent existing-rows terminal runtime request projection derived
+/// once at the fluent aggregate entrypoint boundary.
+/// This keeps count/exists request choice aligned with the aggregate
+/// expression used for explain projection.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PreparedFluentScalarTerminalRuntimeRequest {
+pub(crate) enum PreparedFluentExistingRowsTerminalRuntimeRequest {
     CountRows,
     ExistsRows,
+}
+
+///
+/// PreparedFluentExistingRowsTerminalStrategy
+///
+/// PreparedFluentExistingRowsTerminalStrategy is the single fluent
+/// existing-rows behavior source for the next `0.71` slice.
+/// It resolves aggregate expression and runtime terminal request once so
+/// `count()` and `exists()` do not share a mixed strategy type with the
+/// id/extrema scalar family.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedFluentExistingRowsTerminalStrategy {
+    aggregate: AggregateExpr,
+    runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest,
+}
+
+impl PreparedFluentExistingRowsTerminalStrategy {
+    /// Prepare one fluent `count(*)` terminal strategy.
+    #[must_use]
+    pub(crate) const fn count_rows() -> Self {
+        Self {
+            aggregate: count(),
+            runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows,
+        }
+    }
+
+    /// Prepare one fluent `exists()` terminal strategy.
+    #[must_use]
+    pub(crate) const fn exists_rows() -> Self {
+        Self {
+            aggregate: exists(),
+            runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows,
+        }
+    }
+
+    /// Borrow the aggregate expression projected by this prepared fluent
+    /// existing-rows strategy.
+    #[must_use]
+    pub(crate) const fn aggregate(&self) -> &AggregateExpr {
+        &self.aggregate
+    }
+
+    /// Borrow the prepared runtime request projected by this fluent
+    /// existing-rows strategy.
+    #[must_use]
+    pub(crate) const fn runtime_request(
+        &self,
+    ) -> &PreparedFluentExistingRowsTerminalRuntimeRequest {
+        &self.runtime_request
+    }
+}
+
+impl PreparedFluentAggregateExplainStrategy for PreparedFluentExistingRowsTerminalStrategy {
+    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
+        Some(self.aggregate())
+    }
+}
+
+/// PreparedFluentScalarTerminalRuntimeRequest
+///
+/// Stable fluent scalar terminal runtime request projection derived once at
+/// the fluent aggregate entrypoint boundary.
+/// This keeps id/extrema execution-side request choice aligned with the
+/// aggregate expression used for explain projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum PreparedFluentScalarTerminalRuntimeRequest {
     IdTerminal {
         kind: AggregateKind,
     },
@@ -120,11 +205,11 @@ pub(crate) enum PreparedFluentScalarTerminalRuntimeRequest {
 ///
 /// PreparedFluentScalarTerminalStrategy
 ///
-/// PreparedFluentScalarTerminalStrategy is the single fluent scalar terminal
-/// behavior source for the first non-SQL `0.71` slice.
-/// It resolves aggregate expression and runtime terminal request once so
-/// fluent execution and fluent EXPLAIN do not rebuild those decisions through
-/// parallel branch trees.
+/// PreparedFluentScalarTerminalStrategy is the fluent scalar id/extrema
+/// behavior source for the current `0.71` slice.
+/// It resolves aggregate expression and runtime terminal request once so the
+/// id/extrema family does not rebuild those decisions through parallel branch
+/// trees.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -134,24 +219,6 @@ pub(crate) struct PreparedFluentScalarTerminalStrategy {
 }
 
 impl PreparedFluentScalarTerminalStrategy {
-    /// Prepare one fluent `count(*)` terminal strategy.
-    #[must_use]
-    pub(crate) const fn count_rows() -> Self {
-        Self {
-            aggregate: count(),
-            runtime_request: PreparedFluentScalarTerminalRuntimeRequest::CountRows,
-        }
-    }
-
-    /// Prepare one fluent `exists()` terminal strategy.
-    #[must_use]
-    pub(crate) const fn exists_rows() -> Self {
-        Self {
-            aggregate: exists(),
-            runtime_request: PreparedFluentScalarTerminalRuntimeRequest::ExistsRows,
-        }
-    }
-
     /// Prepare one fluent id-returning scalar terminal without a field target.
     #[must_use]
     pub(crate) fn id_terminal(kind: AggregateKind) -> Self {
@@ -186,6 +253,12 @@ impl PreparedFluentScalarTerminalStrategy {
     #[must_use]
     pub(crate) const fn runtime_request(&self) -> &PreparedFluentScalarTerminalRuntimeRequest {
         &self.runtime_request
+    }
+}
+
+impl PreparedFluentAggregateExplainStrategy for PreparedFluentScalarTerminalStrategy {
+    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
+        Some(self.aggregate())
     }
 }
 
@@ -266,7 +339,6 @@ impl PreparedFluentNumericFieldStrategy {
 
     /// Borrow the aggregate expression projected by this prepared fluent
     /// numeric strategy.
-    #[cfg(test)]
     #[must_use]
     pub(crate) const fn aggregate(&self) -> &AggregateExpr {
         &self.aggregate
@@ -300,6 +372,12 @@ impl PreparedFluentNumericFieldStrategy {
     #[must_use]
     pub(crate) const fn runtime_request(&self) -> PreparedFluentNumericFieldRuntimeRequest {
         self.runtime_request
+    }
+}
+
+impl PreparedFluentAggregateExplainStrategy for PreparedFluentNumericFieldStrategy {
+    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
+        Some(self.aggregate())
     }
 }
 
@@ -410,6 +488,12 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
     }
 }
 
+impl PreparedFluentAggregateExplainStrategy for PreparedFluentOrderSensitiveTerminalStrategy {
+    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
+        self.explain_aggregate()
+    }
+}
+
 ///
 /// PreparedFluentProjectionRuntimeRequest
 ///
@@ -516,6 +600,40 @@ impl PreparedFluentProjectionStrategy {
     pub(crate) const fn runtime_request(&self) -> PreparedFluentProjectionRuntimeRequest {
         self.runtime_request
     }
+
+    /// Return the stable fluent explain terminal label for this prepared
+    /// projection strategy.
+    #[must_use]
+    pub(crate) fn explain_terminal_label(&self) -> &'static str {
+        match self.runtime_request {
+            PreparedFluentProjectionRuntimeRequest::Values => "values_by",
+            PreparedFluentProjectionRuntimeRequest::DistinctValues => "distinct_values_by",
+            PreparedFluentProjectionRuntimeRequest::CountDistinct => "count_distinct_by",
+            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => "values_by_with_ids",
+            PreparedFluentProjectionRuntimeRequest::TerminalValue {
+                terminal_kind: AggregateKind::First,
+            } => "first_value_by",
+            PreparedFluentProjectionRuntimeRequest::TerminalValue {
+                terminal_kind: AggregateKind::Last,
+            } => "last_value_by",
+            PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => {
+                unreachable!("projection terminal value explain requires FIRST/LAST kind")
+            }
+        }
+    }
+
+    /// Return the stable fluent explain output-shape label for this prepared
+    /// projection strategy.
+    #[must_use]
+    pub(crate) const fn explain_output_label(&self) -> &'static str {
+        match self.runtime_request {
+            PreparedFluentProjectionRuntimeRequest::Values
+            | PreparedFluentProjectionRuntimeRequest::DistinctValues => "values",
+            PreparedFluentProjectionRuntimeRequest::CountDistinct => "count",
+            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => "values_with_ids",
+            PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => "terminal_value",
+        }
+    }
 }
 
 /// Build `count(*)`.
@@ -592,8 +710,9 @@ pub fn max_by(field: impl AsRef<str>) -> AggregateExpr {
 mod tests {
     use crate::db::query::{
         builder::{
-            PreparedFluentNumericFieldRuntimeRequest, PreparedFluentNumericFieldStrategy,
-            PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+            PreparedFluentExistingRowsTerminalRuntimeRequest,
+            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
+            PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
             PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
             PreparedFluentProjectionStrategy,
         },
@@ -628,6 +747,38 @@ mod tests {
             strategy.runtime_request(),
             PreparedFluentNumericFieldRuntimeRequest::SumDistinct,
             "sum(distinct field) should project the numeric DISTINCT runtime request",
+        );
+    }
+
+    #[test]
+    fn prepared_fluent_existing_rows_strategy_count_preserves_runtime_shape() {
+        let strategy = PreparedFluentExistingRowsTerminalStrategy::count_rows();
+
+        assert_eq!(
+            strategy.aggregate().kind(),
+            AggregateKind::Count,
+            "count() should preserve the explain-visible aggregate kind",
+        );
+        assert_eq!(
+            strategy.runtime_request(),
+            &PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows,
+            "count() should project the existing-rows count runtime request",
+        );
+    }
+
+    #[test]
+    fn prepared_fluent_existing_rows_strategy_exists_preserves_runtime_shape() {
+        let strategy = PreparedFluentExistingRowsTerminalStrategy::exists_rows();
+
+        assert_eq!(
+            strategy.aggregate().kind(),
+            AggregateKind::Exists,
+            "exists() should preserve the explain-visible aggregate kind",
+        );
+        assert_eq!(
+            strategy.runtime_request(),
+            &PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows,
+            "exists() should project the existing-rows exists runtime request",
         );
     }
 

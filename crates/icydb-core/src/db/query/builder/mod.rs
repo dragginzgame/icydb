@@ -10,8 +10,9 @@ pub use aggregate::{
     AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
 };
 pub(crate) use aggregate::{
-    PreparedFluentNumericFieldRuntimeRequest, PreparedFluentNumericFieldStrategy,
-    PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+    PreparedFluentAggregateExplainStrategy, PreparedFluentExistingRowsTerminalRuntimeRequest,
+    PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
+    PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
     PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
     PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalRuntimeRequest,
     PreparedFluentScalarTerminalStrategy,

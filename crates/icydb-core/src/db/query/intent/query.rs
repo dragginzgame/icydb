@@ -15,9 +15,9 @@ use crate::{
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
-            builder::aggregate::{
-                AggregateExpr, PreparedFluentOrderSensitiveTerminalStrategy,
-                PreparedFluentScalarTerminalStrategy,
+            builder::{
+                AggregateExpr, PreparedFluentAggregateExplainStrategy,
+                PreparedFluentProjectionStrategy,
             },
             explain::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
@@ -32,9 +32,6 @@ use crate::{
     value::Value,
 };
 use core::marker::PhantomData;
-
-#[cfg(test)]
-use crate::db::query::builder::aggregate::PreparedFluentNumericFieldStrategy;
 
 ///
 /// StructuralQuery
@@ -448,43 +445,21 @@ impl StructuralQuery {
     }
 
     #[inline(never)]
-    pub(in crate::db) fn explain_prepared_scalar_terminal_with_visible_indexes(
+    pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentScalarTerminalStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
-        self.explain_aggregate_terminal_with_visible_indexes(
-            visible_indexes,
-            strategy.aggregate().clone(),
-        )
-    }
-
-    #[inline(never)]
-    pub(in crate::db) fn explain_prepared_order_sensitive_terminal_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
-        let Some(aggregate) = strategy.explain_aggregate() else {
+        strategy: &S,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        S: PreparedFluentAggregateExplainStrategy,
+    {
+        let Some(aggregate) = strategy.project_explain_aggregate() else {
             return Err(QueryError::invariant(
-                "prepared fluent order-sensitive explain requires an explain-visible aggregate kind",
+                "prepared fluent aggregate explain requires an explain-visible aggregate kind",
             ));
         };
 
         self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate.clone())
-    }
-
-    #[cfg(test)]
-    #[inline(never)]
-    pub(in crate::db) fn explain_prepared_numeric_field_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentNumericFieldStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
-        self.explain_aggregate_terminal_with_visible_indexes(
-            visible_indexes,
-            strategy.aggregate().clone(),
-        )
     }
 }
 
@@ -1008,44 +983,17 @@ impl<E: EntityKind> Query<E> {
             .explain_execution_verbose_with_visible_indexes(visible_indexes)
     }
 
-    pub(in crate::db) fn explain_prepared_scalar_terminal_with_visible_indexes(
+    pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentScalarTerminalStrategy,
+        strategy: &S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
+        S: PreparedFluentAggregateExplainStrategy,
     {
         self.inner
-            .explain_prepared_scalar_terminal_with_visible_indexes(visible_indexes, strategy)
-    }
-
-    pub(in crate::db) fn explain_prepared_order_sensitive_terminal_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .explain_prepared_order_sensitive_terminal_with_visible_indexes(
-                visible_indexes,
-                strategy,
-            )
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn explain_prepared_numeric_field_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentNumericFieldStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .explain_prepared_numeric_field_with_visible_indexes(visible_indexes, strategy)
+            .explain_prepared_aggregate_terminal_with_visible_indexes(visible_indexes, strategy)
     }
 
     pub(in crate::db) fn explain_bytes_by_with_visible_indexes(
@@ -1082,6 +1030,36 @@ impl<E: EntityKind> Query<E> {
                 projection_mode,
                 BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
             )),
+        );
+
+        Ok(descriptor)
+    }
+
+    pub(in crate::db) fn explain_prepared_projection_terminal_with_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+        strategy: &PreparedFluentProjectionStrategy,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        let executable = self
+            .plan_with_visible_indexes(visible_indexes)?
+            .into_executable();
+        let mut descriptor = executable
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+
+        descriptor
+            .node_properties
+            .insert("terminal", Value::from(strategy.explain_terminal_label()));
+        descriptor.node_properties.insert(
+            "terminal_field",
+            Value::from(strategy.target_field().field().to_string()),
+        );
+        descriptor.node_properties.insert(
+            "terminal_output",
+            Value::from(strategy.explain_output_label()),
         );
 
         Ok(descriptor)

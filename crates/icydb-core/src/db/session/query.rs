@@ -14,8 +14,8 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionStrategy, GroupedCursorPage, LoadExecutor, PageCursor,
         },
-        query::builder::aggregate::{
-            PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentScalarTerminalStrategy,
+        query::builder::{
+            PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy,
         },
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
@@ -27,9 +27,6 @@ use crate::{
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
-
-#[cfg(test)]
-use crate::db::query::builder::aggregate::PreparedFluentNumericFieldStrategy;
 
 impl<C: CanisterKind> DbSession<C> {
     // Compile one typed query using only the indexes currently visible for the
@@ -143,53 +140,20 @@ impl<C: CanisterKind> DbSession<C> {
         query.explain_execution_verbose_with_visible_indexes(&visible_indexes)
     }
 
-    // Explain one prepared fluent scalar terminal using only planner-visible
-    // indexes from the recovered store state.
-    pub(in crate::db) fn explain_query_prepared_scalar_terminal_with_visible_indexes<E>(
-        &self,
-        query: &Query<E>,
-        strategy: &PreparedFluentScalarTerminalStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue + EntityKind<Canister = C>,
-    {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_prepared_scalar_terminal_with_visible_indexes(&visible_indexes, strategy)
-    }
-
-    // Explain one prepared fluent order-sensitive terminal using only
+    // Explain one prepared fluent aggregate terminal using only
     // planner-visible indexes from the recovered store state.
-    pub(in crate::db) fn explain_query_prepared_order_sensitive_terminal_with_visible_indexes<E>(
+    pub(in crate::db) fn explain_query_prepared_aggregate_terminal_with_visible_indexes<E, S>(
         &self,
         query: &Query<E>,
-        strategy: &PreparedFluentOrderSensitiveTerminalStrategy,
+        strategy: &S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue + EntityKind<Canister = C>,
+        S: PreparedFluentAggregateExplainStrategy,
     {
         let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
 
-        query.explain_prepared_order_sensitive_terminal_with_visible_indexes(
-            &visible_indexes,
-            strategy,
-        )
-    }
-
-    // Explain one prepared fluent numeric-field terminal using only
-    // planner-visible indexes from the recovered store state.
-    #[cfg(test)]
-    pub(in crate::db) fn explain_query_prepared_numeric_field_with_visible_indexes<E>(
-        &self,
-        query: &Query<E>,
-        strategy: &PreparedFluentNumericFieldStrategy,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue + EntityKind<Canister = C>,
-    {
-        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
-
-        query.explain_prepared_numeric_field_with_visible_indexes(&visible_indexes, strategy)
+        query.explain_prepared_aggregate_terminal_with_visible_indexes(&visible_indexes, strategy)
     }
 
     // Explain one `bytes_by(field)` terminal using only planner-visible
@@ -205,6 +169,21 @@ impl<C: CanisterKind> DbSession<C> {
         let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
 
         query.explain_bytes_by_with_visible_indexes(&visible_indexes, target_field)
+    }
+
+    // Explain one prepared fluent projection terminal using only
+    // planner-visible indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_prepared_projection_terminal_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+        strategy: &PreparedFluentProjectionStrategy,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_prepared_projection_terminal_with_visible_indexes(&visible_indexes, strategy)
     }
 
     // Validate that one execution strategy is admissible for scalar paged load

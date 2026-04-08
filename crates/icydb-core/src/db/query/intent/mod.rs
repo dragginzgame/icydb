@@ -19,7 +19,6 @@ pub use errors::{IntentError, QueryError, QueryExecutionError};
 pub(crate) use key_access::{
     KeyAccess, KeyAccessKind, KeyAccessState, build_access_plan_from_keys,
 };
-#[expect(unreachable_pub)]
 pub use query::PlannedQuery;
 #[cfg(feature = "sql")]
 pub(in crate::db) use query::StructuralQuery;

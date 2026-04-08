@@ -378,6 +378,10 @@ enum SqlPerfSurface {
     TypedExecuteSqlGroupedCustomer,
     TypedExecuteSqlGroupedCustomerSecondPage,
     TypedExecuteSqlAggregateCustomer,
+    FluentExplainCustomerSumByAge,
+    FluentExplainCustomerAvgDistinctByAge,
+    FluentExplainCustomerCountDistinctByAge,
+    FluentExplainCustomerLastValueByAge,
     FluentLoadCustomerByIdLimit2,
     FluentLoadCustomerNameEqLimit1,
     FluentPagedCustomerByIdLimit2FirstPage,
@@ -708,6 +712,26 @@ fn sql_perf_probe_sample_surface() -> SqlPerfSurface {
         | "typed_execute_sql_aggregate_customer"
         | "typedexecutesqlaggregateuser"
         | "typed_execute_sql_aggregate_user" => SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+        "fluentexplaincustomersumbyage"
+        | "fluent_explain_customer_sum_by_age"
+        | "fluentexplainsumbyage"
+        | "fluent_explain_sum_by_age" => SqlPerfSurface::FluentExplainCustomerSumByAge,
+        "fluentexplaincustomeravgdistinctbyage"
+        | "fluent_explain_customer_avg_distinct_by_age"
+        | "fluentexplainavgdistinctbyage"
+        | "fluent_explain_avg_distinct_by_age" => {
+            SqlPerfSurface::FluentExplainCustomerAvgDistinctByAge
+        }
+        "fluentexplaincustomercountdistinctbyage"
+        | "fluent_explain_customer_count_distinct_by_age"
+        | "fluentexplaincountdistinctbyage"
+        | "fluent_explain_count_distinct_by_age" => {
+            SqlPerfSurface::FluentExplainCustomerCountDistinctByAge
+        }
+        "fluentexplaincustomerlastvaluebyage"
+        | "fluent_explain_customer_last_value_by_age"
+        | "fluentexplainlastvaluebyage"
+        | "fluent_explain_last_value_by_age" => SqlPerfSurface::FluentExplainCustomerLastValueByAge,
         "fluentloadcustomerbyidlimit2"
         | "fluent_load_customer_by_id_limit_2"
         | "fluentloaduserorderidlimit2"
@@ -3157,6 +3181,75 @@ fn sql_canister_perf_typed_execute_sql_aggregate_customer_numeric_surfaces_expec
             assert_eq!(
                 sample.outcome.has_cursor, None,
                 "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    });
+}
+
+#[test]
+fn sql_canister_perf_fluent_aggregate_explain_customer_surfaces_report_explain_outcomes() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        for (surface, sql, label) in [
+            (
+                SqlPerfSurface::FluentExplainCustomerSumByAge,
+                "FLUENT EXPLAIN Customer SUM BY age",
+                "fluent explain_sum_by(age)",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerAvgDistinctByAge,
+                "FLUENT EXPLAIN Customer AVG DISTINCT BY age",
+                "fluent explain_avg_distinct_by(age)",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerCountDistinctByAge,
+                "FLUENT EXPLAIN Customer COUNT DISTINCT BY age",
+                "fluent explain_count_distinct_by(age)",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerLastValueByAge,
+                "FLUENT EXPLAIN Customer LAST VALUE BY age",
+                "fluent explain_last_value_by(age)",
+            ),
+        ] {
+            let sample = sql_perf_sample(
+                pic,
+                canister_id,
+                &SqlPerfRequest {
+                    surface,
+                    sql: sql.to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            );
+
+            assert_positive_perf_sample(
+                &format!("fluent.aggregate.explain.customer::{label}"),
+                &sample,
+            );
+            assert!(
+                sample.outcome.success,
+                "{label} perf sample should succeed: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind, "explain",
+                "{label} perf sample should stay on the explain outcome kind",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "{label} perf sample should stay on the Customer load lane",
+            );
+            assert!(
+                sample.outcome.detail_count.is_some_and(|count| count > 0),
+                "{label} perf sample should expose a positive explain line count",
+            );
+            assert_eq!(
+                sample.outcome.row_count, None,
+                "{label} perf sample should not expose row counts",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor, None,
+                "{label} perf sample should not expose cursor state",
             );
         }
     });
@@ -6272,6 +6365,42 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "EXPLAIN SELECT COUNT(*) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.sum_by_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerSumByAge,
+                    sql: "FLUENT EXPLAIN Customer SUM BY age".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.avg_distinct_by_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerAvgDistinctByAge,
+                    sql: "FLUENT EXPLAIN Customer AVG DISTINCT BY age".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.count_distinct_by_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerCountDistinctByAge,
+                    sql: "FLUENT EXPLAIN Customer COUNT DISTINCT BY age".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.last_value_by_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerLastValueByAge,
+                    sql: "FLUENT EXPLAIN Customer LAST VALUE BY age".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
                 },

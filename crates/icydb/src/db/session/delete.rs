@@ -2,7 +2,7 @@ use crate::{
     db::{
         PersistedRow, Row,
         query::{
-            Query, QueryTracePlan,
+            CompiledQuery, ExplainPlan, PlannedQuery, Query, QueryTracePlan,
             expr::{FilterExpr, SortExpr},
             predicate::Predicate,
         },
@@ -58,6 +58,21 @@ impl<E: PersistedRow> SessionDeleteQuery<'_, E> {
     /// Build one trace payload without executing the query.
     pub fn trace(&self) -> Result<QueryTracePlan, Error> {
         Ok(self.inner.trace()?)
+    }
+
+    /// Build logical explain metadata for the current query.
+    pub fn explain(&self) -> Result<ExplainPlan, Error> {
+        Ok(self.inner.explain()?)
+    }
+
+    /// Build the validated logical plan without compiling execution details.
+    pub fn planned(&self) -> Result<PlannedQuery<E>, Error> {
+        Ok(self.inner.planned()?)
+    }
+
+    /// Build the compiled executable plan for this query.
+    pub fn plan(&self) -> Result<CompiledQuery<E>, Error> {
+        Ok(self.inner.plan()?)
     }
 
     /// Execute this delete while returning only the affected-row count.
