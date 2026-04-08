@@ -6278,6 +6278,98 @@ fn sql_canister_query_lane_explain_json_planner_order_only_choice_prefers_order_
 }
 
 #[test]
+fn sql_canister_query_lane_planner_order_only_offset_windows_preserve_ordered_rows() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let asc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
+            "planner order-only ascending offset projection should succeed",
+        );
+        assert_projection_window(
+            &asc_rows,
+            "PlannerChoice",
+            &["alpha"],
+            &[&["bravo"], &["charlie"]],
+            "planner order-only ascending offset projection should preserve the expected ordered window",
+        );
+
+        let desc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
+            "planner order-only descending offset projection should succeed",
+        );
+        assert_projection_window(
+            &desc_rows,
+            "PlannerChoice",
+            &["alpha"],
+            &[&["foxtrot"], &["delta"]],
+            "planner order-only descending offset projection should preserve the expected reversed ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_order_only_choice_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner order-only offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerChoice|alpha",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "offset=Uint(1)",
+            ],
+            &["OrderByMaterializedSort"],
+            "planner order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_order_only_choice_desc_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner descending order-only offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerChoice|alpha",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "scan_dir=Text(\"desc\")",
+                "offset=Uint(1)",
+            ],
+            &["OrderByMaterializedSort"],
+            "planner descending order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_explain_json_planner_composite_order_only_choice_prefers_order_compatible_index()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {

@@ -4134,6 +4134,69 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_planner_choice_order_only_offset_projection_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice order-only ascending offset projection parity",
+        );
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "SELECT id, alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice order-only descending offset projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_order_only_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerChoice|alpha")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("offset=Uint(1)"),
+            "PlannerChoice order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "PlannerChoice order-only offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_order_only_desc_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, alpha FROM PlannerChoice ORDER BY alpha DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerChoice|alpha")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("scan_dir=Text(\"desc\")")
+                && explain.contains("offset=Uint(1)"),
+            "descending PlannerChoice order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "descending PlannerChoice order-only offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_explain_json_matches_typed_surface(
     ) {
         assert_dispatch_matches_typed_as::<PlannerPrefixChoice>(

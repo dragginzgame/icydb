@@ -2251,6 +2251,216 @@ fn session_explain_execution_composite_order_only_choice_uses_bounded_index_rang
 }
 
 #[test]
+fn session_explain_execution_order_only_choice_offset_uses_bounded_index_range_hints() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .order_by("alpha")
+        .order_by("id")
+        .offset(1)
+        .limit(2)
+        .explain_execution()
+        .expect("session deterministic order-only offset explain_execution should build");
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "order-only offset roots should stay on the chosen index-range fallback route",
+    );
+    assert!(
+        descriptor
+            .access_strategy()
+            .is_some_and(
+                |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_alpha_idx")
+            ),
+        "order-only offset roots should expose the chosen order-compatible fallback index",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "order-only offset roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "order-only offset roots should derive bounded index-range limit pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        "order-only offset roots should also derive Top-N seek for bounded ordered windows",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "order-only offset roots should keep access-satisfied ordering",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_none(),
+        "order-only offset roots should stay off the materialized order fallback lane",
+    );
+}
+
+#[test]
+fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_order_only_choice_session_entities(
+        &session,
+        &[
+            (9_971, "delta", "alpha"),
+            (9_972, "alpha", "echo"),
+            (9_973, "bravo", "delta"),
+            (9_974, "foxtrot", "golf"),
+            (9_975, "charlie", "charlie"),
+            (9_976, "hotel", "india"),
+        ],
+    );
+
+    let asc = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .order_by("alpha")
+        .order_by("id")
+        .offset(1)
+        .limit(2)
+        .execute()
+        .expect("ascending order-only offset window should execute");
+    let asc_alpha = asc
+        .iter()
+        .map(|row| row.entity_ref().alpha.as_str())
+        .collect::<Vec<_>>();
+    let asc_paged = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .order_by("alpha")
+        .order_by("id")
+        .offset(1)
+        .limit(2)
+        .execute_paged()
+        .expect("ascending order-only offset paged window should execute");
+    let asc_paged_alpha = asc_paged
+        .iter()
+        .map(|row| row.entity_ref().alpha.as_str())
+        .collect::<Vec<_>>();
+
+    let desc = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .order_by_desc("alpha")
+        .order_by_desc("id")
+        .offset(1)
+        .limit(2)
+        .execute()
+        .expect("descending order-only offset window should execute");
+    let desc_alpha = desc
+        .iter()
+        .map(|row| row.entity_ref().alpha.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        asc_paged_alpha,
+        vec!["bravo", "charlie"],
+        "order-only paged windows should preserve the same shifted fallback index order",
+    );
+    assert_eq!(
+        asc_alpha,
+        vec!["bravo", "charlie"],
+        "ascending order-only offset windows should preserve the shifted fallback index order",
+    );
+    assert_eq!(
+        desc_alpha,
+        vec!["foxtrot", "delta"],
+        "descending order-only offset windows should preserve the reversed shifted fallback index order",
+    );
+}
+
+#[test]
+fn session_explain_execution_order_only_choice_desc_offset_uses_bounded_index_range_hints() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let descriptor = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .order_by_desc("alpha")
+        .order_by_desc("id")
+        .offset(1)
+        .limit(2)
+        .explain_execution()
+        .expect(
+            "session descending deterministic order-only offset explain_execution should build",
+        );
+
+    assert_eq!(
+        descriptor.node_type(),
+        ExplainExecutionNodeType::IndexRangeScan,
+        "descending order-only offset roots should stay on the chosen index-range fallback route",
+    );
+    assert!(
+        descriptor
+            .access_strategy()
+            .is_some_and(
+                |access| matches!(access, ExplainAccessPath::IndexRange { name, .. } if *name == "z_alpha_idx")
+            ),
+        "descending order-only offset roots should expose the chosen order-compatible fallback index",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("scan_dir"),
+        Some(&Value::Text("desc".to_string())),
+        "descending order-only offset roots should expose the descending scan direction",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::SecondaryOrderPushdown
+        )
+        .is_some(),
+        "descending order-only offset roots should expose secondary order pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::IndexRangeLimitPushdown
+        )
+        .is_some(),
+        "descending order-only offset roots should derive bounded index-range limit pushdown",
+    );
+    assert!(
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            .is_some(),
+        "descending order-only offset roots should also derive Top-N seek for bounded ordered windows",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        )
+        .is_some(),
+        "descending order-only offset roots should keep access-satisfied ordering",
+    );
+    assert!(
+        explain_execution_find_first_node(
+            &descriptor,
+            ExplainExecutionNodeType::OrderByMaterializedSort
+        )
+        .is_none(),
+        "descending order-only offset roots should stay off the materialized order fallback lane",
+    );
+}
+
+#[test]
 fn session_explain_execution_composite_order_only_choice_desc_uses_bounded_index_range_hints() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -2749,6 +2959,23 @@ fn seed_unique_prefix_offset_session_entities(
                 note: note.to_string(),
             })
             .expect("unique-prefix offset seed insert should succeed");
+    }
+}
+
+// Seed one deterministic single-field order-only dataset used by offset-aware
+// fallback index-order session tests.
+fn seed_order_only_choice_session_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(u128, &'static str, &'static str)],
+) {
+    for (id, alpha, beta) in rows.iter().copied() {
+        session
+            .insert(SessionOrderOnlyChoiceEntity {
+                id: Ulid::from_u128(id),
+                alpha: alpha.to_string(),
+                beta: beta.to_string(),
+            })
+            .expect("order-only choice seed insert should succeed");
     }
 }
 

@@ -4467,6 +4467,11 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let expected_optimization = if descending {
+            None
+        } else {
+            Some(ExecutionOptimization::SecondaryOrderTopNSeek)
+        };
         let build_plan = || {
             let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
@@ -4490,8 +4495,8 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
             seed_trace.optimization(),
-            None,
-            "materialized secondary offset shape should not emit fast-path optimization for case={case_name}",
+            expected_optimization,
+            "secondary offset continuation shape should report the admitted bounded secondary optimization split for case={case_name}",
         );
 
         let expected_ids =
