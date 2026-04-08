@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.72.x] 🎯 - 2026-04-08 - Deterministic Planning & Index Exploitation
+
+- `0.72.0` makes single-entity read planning choose between competing visible indexes with one stable ranking order, and locks that choice across planner tests, session explain, generated SQL parity, and PocketIC without changing index-visibility rules or reintroducing runtime correctness checks.
+
+See detailed breakdown:
+[docs/changelog/0.72.md](docs/changelog/0.72.md)
+
+---
+
 ## [0.71.x] 🧱 - 2026-04-08 - Aggregate Execution Simplification
 
 - `0.71.2` keeps aggregate behavior unchanged but makes more aggregate reads and aggregate `EXPLAIN` calls cheaper by keeping slot-only decoded rows sparse through projection, bytes, extrema, and numeric paths, cutting several typed SQL aggregate and fluent aggregate explain instruction counts by about `0.6%` to `1.6%`.

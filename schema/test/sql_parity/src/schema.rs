@@ -109,3 +109,53 @@ pub struct CustomerOrderProfile {}
     )
 )]
 pub struct CustomerOrder {}
+
+///
+/// PlannerChoice
+///
+/// Technical deterministic-planning fixture used to lock public SQL route
+/// selection when multiple visible indexes tie on structural eligibility.
+///
+
+#[entity(
+    store = "SqlParityStore",
+    pk(field = "id"),
+    index(fields = "tier,alpha,label"),
+    index(fields = "tier,handle,label"),
+    index(fields = "tier,label,alpha"),
+    index(fields = "tier,label,handle"),
+    index(fields = "beta"),
+    index(fields = "alpha"),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "tier", value(item(prim = "Text"))),
+        field(ident = "score", value(item(prim = "Nat16"))),
+        field(ident = "handle", value(item(prim = "Text"))),
+        field(ident = "label", value(item(prim = "Text"))),
+        field(ident = "alpha", value(item(prim = "Text"))),
+        field(ident = "beta", value(item(prim = "Text")))
+    )
+)]
+pub struct PlannerChoice {}
+
+///
+/// PlannerPrefixChoice
+///
+/// Technical deterministic-planning fixture used to lock public SQL
+/// equality-prefix route selection when competing visible indexes tie on
+/// prefix length.
+///
+
+#[entity(
+    store = "SqlParityStore",
+    pk(field = "id"),
+    index(fields = "tier,label"),
+    index(fields = "tier,handle"),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "tier", value(item(prim = "Text"))),
+        field(ident = "handle", value(item(prim = "Text"))),
+        field(ident = "label", value(item(prim = "Text")))
+    )
+)]
+pub struct PlannerPrefixChoice {}

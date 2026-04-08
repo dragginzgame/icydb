@@ -20,7 +20,7 @@ use icydb::traits::Path;
 use icydb_core::db::IndexState;
 use icydb_testing_test_sql_parity_fixtures::{
     fixtures,
-    schema::{Customer, CustomerAccount, CustomerOrder},
+    schema::{Customer, CustomerAccount, CustomerOrder, PlannerChoice, PlannerPrefixChoice},
 };
 
 icydb::start!();
@@ -59,6 +59,8 @@ fn sql_perf_attribution(
 /// Clear all fixture rows from this test canister.
 #[update]
 fn fixtures_reset() -> Result<(), icydb::Error> {
+    db().delete::<PlannerPrefixChoice>().execute()?;
+    db().delete::<PlannerChoice>().execute()?;
     db().delete::<CustomerOrder>().execute()?;
     db().delete::<CustomerAccount>().execute()?;
     db().delete::<Customer>().execute()?;
@@ -77,6 +79,8 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
     db().insert_many_atomic(customers)?;
     db().insert_many_atomic(fixtures::customer_accounts())?;
+    db().insert_many_atomic(fixtures::planner_prefix_choices())?;
+    db().insert_many_atomic(fixtures::planner_choices())?;
     #[cfg(feature = "sql")]
     db().insert_many_atomic(customer_orders)?;
     #[cfg(not(feature = "sql"))]

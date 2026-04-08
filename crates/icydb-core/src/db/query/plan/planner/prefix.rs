@@ -8,11 +8,14 @@ use crate::{
         access::AccessPlan,
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
-            OrderSpec, index_order_terms,
+            OrderSpec,
             key_item_match::{
                 eq_lookup_value_for_key_item, index_key_item_count, leading_index_key_item,
             },
-            planner::{index_literal_matches_schema, sorted_indexes},
+            planner::{
+                AccessCandidateScore, access_candidate_score_outranks,
+                candidate_satisfies_secondary_order, index_literal_matches_schema, sorted_indexes,
+            },
         },
         schema::SchemaInfo,
     },
@@ -53,7 +56,7 @@ pub(super) fn index_prefix_for_eq(
 ) -> Option<AccessPlan<Value>> {
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
-    let mut best: Option<(bool, &'static IndexModel, Value)> = None;
+    let mut best: Option<(AccessCandidateScore, &'static IndexModel, Value)> = None;
     for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(lookup_value) =
             leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
@@ -61,14 +64,18 @@ pub(super) fn index_prefix_for_eq(
             continue;
         };
 
-        let order_match = prefix_candidate_satisfies_secondary_order(model, order, index, 1);
+        let score = AccessCandidateScore::new(
+            1,
+            index_key_item_count(index) == 1,
+            candidate_satisfies_secondary_order(model, order, index, 1),
+        );
         match best {
-            None => best = Some((order_match, index, lookup_value)),
-            Some((best_order_match, best_index, _))
-                if order_match && !best_order_match
-                    || (order_match == best_order_match && index.name() < best_index.name()) =>
+            None => best = Some((score, index, lookup_value)),
+            Some((best_score, best_index, _))
+                if access_candidate_score_outranks(score, best_score, true)
+                    || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((order_match, index, lookup_value));
+                best = Some((score, index, lookup_value));
             }
             _ => {}
         }
@@ -147,7 +154,7 @@ pub(super) fn index_prefix_from_and(
         });
     }
 
-    let mut best: Option<(usize, bool, bool, &IndexModel, Vec<Value>)> = None;
+    let mut best: Option<(AccessCandidateScore, &IndexModel, Vec<Value>)> = None;
     for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
             continue;
@@ -156,60 +163,24 @@ pub(super) fn index_prefix_from_and(
             continue;
         }
 
-        let exact = prefix.len() == index_key_item_count(index);
-        let order_match =
-            prefix_candidate_satisfies_secondary_order(model, order, index, prefix.len());
+        let score = AccessCandidateScore::new(
+            prefix.len(),
+            prefix.len() == index_key_item_count(index),
+            candidate_satisfies_secondary_order(model, order, index, prefix.len()),
+        );
         match &best {
-            None => best = Some((prefix.len(), exact, order_match, index, prefix)),
-            Some((best_len, best_exact, best_order_match, best_index, _)) => {
-                if prefix.len() > *best_len
-                    || (prefix.len() == *best_len && exact && !*best_exact)
-                    || (prefix.len() == *best_len
-                        && exact == *best_exact
-                        && order_match
-                        && !*best_order_match)
-                    || (prefix.len() == *best_len
-                        && exact == *best_exact
-                        && order_match == *best_order_match
-                        && index.name() < best_index.name())
-                {
-                    best = Some((prefix.len(), exact, order_match, index, prefix));
-                }
+            None => best = Some((score, index, prefix)),
+            Some((best_score, best_index, _))
+                if access_candidate_score_outranks(score, *best_score, true)
+                    || (score == *best_score && index.name() < best_index.name()) =>
+            {
+                best = Some((score, index, prefix));
             }
+            Some(_) => {}
         }
     }
 
-    best.map(|(_, _, _, index, values)| AccessPlan::index_prefix(*index, values))
-}
-
-// Prefix ranking preserves the old selectivity-first policy and only uses
-// ORDER BY satisfaction as a deterministic tie-break for equally selective
-// candidates.
-fn prefix_candidate_satisfies_secondary_order(
-    model: &EntityModel,
-    order: Option<&OrderSpec>,
-    index: &IndexModel,
-    prefix_len: usize,
-) -> bool {
-    let Some(order) = order else {
-        return false;
-    };
-    if order
-        .deterministic_secondary_order_direction(model.primary_key.name)
-        .is_none()
-    {
-        return false;
-    }
-
-    let index_terms = index_order_terms(index);
-
-    order.matches_expected_term_sequence_plus_primary_key(
-        index_terms.iter().skip(prefix_len).map(String::as_str),
-        model.primary_key.name,
-    ) || order.matches_expected_term_sequence_plus_primary_key(
-        index_terms.iter().map(String::as_str),
-        model.primary_key.name,
-    )
+    best.map(|(_, index, values)| AccessPlan::index_prefix(*index, values))
 }
 
 ///

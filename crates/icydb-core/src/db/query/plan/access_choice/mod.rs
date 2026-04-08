@@ -76,21 +76,30 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     };
 
     let predicate = plan.scalar_plan().predicate.as_ref();
-    let mut chosen_score = chosen_score_hint;
+    let order = plan.scalar_plan().order.as_ref();
+    let chosen_score = visible_indexes
+        .iter()
+        .copied()
+        .find(|index| index.name() == chosen_index_name)
+        .and_then(|index| {
+            match evaluate_index_candidate(family, index, model, &schema_info, predicate, order) {
+                self::model::CandidateEvaluation::Eligible(score) => Some(score),
+                self::model::CandidateEvaluation::Rejected(_) => None,
+            }
+        })
+        .unwrap_or(chosen_score_hint);
     let mut alternatives = Vec::new();
     let mut rejected = Vec::new();
     let mut eligible_other_scores = Vec::new();
 
-    // Phase 2: walk deterministic model order once so chosen-score recovery
-    // and alternative/rejection projection stay under one evaluation owner.
+    // Phase 2: walk deterministic model order once so alternative/rejection
+    // projection stays under one evaluation owner after the chosen score has
+    // already been frozen from planner evaluation.
     for index in sorted_indexes(visible_indexes) {
         let index_name = index.name();
-        match evaluate_index_candidate(family, index, &schema_info, predicate) {
-            self::model::CandidateEvaluation::Eligible(score)
-                if index_name == chosen_index_name =>
-            {
-                chosen_score = score;
-            }
+        match evaluate_index_candidate(family, index, model, &schema_info, predicate, order) {
+            self::model::CandidateEvaluation::Eligible(_score)
+                if index_name == chosen_index_name => {}
             self::model::CandidateEvaluation::Eligible(score) => {
                 alternatives.push(index_name);
                 eligible_other_scores.push(score);

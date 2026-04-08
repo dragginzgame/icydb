@@ -10,8 +10,12 @@ use crate::{
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
         query::plan::{
+            OrderSpec,
             key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
-            planner::{index_literal_matches_schema, sorted_indexes},
+            planner::{
+                AccessCandidateScore, access_candidate_score_outranks,
+                candidate_satisfies_secondary_order, index_literal_matches_schema, sorted_indexes,
+            },
         },
         schema::{SchemaInfo, literal_matches_type},
     },
@@ -126,11 +130,12 @@ struct CachedCompare<'a> {
 // - For a chosen index: slots 0..k must be Eq, slot k must be Range,
 //   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
-    _model: &EntityModel,
+    model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     children: &[Predicate],
     query_predicate: &Predicate,
+    order: Option<&OrderSpec>,
 ) -> Option<SemanticIndexRangeSpec> {
     let mut compares = Vec::with_capacity(children.len());
     for child in children {
@@ -169,7 +174,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     }
 
     let mut best: Option<(
-        usize,
+        AccessCandidateScore,
         &'static IndexModel,
         usize,
         Vec<Value>,
@@ -183,13 +188,18 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         };
 
         let prefix_len = prefix.len();
+        let score = AccessCandidateScore::new(
+            prefix_len,
+            false,
+            candidate_satisfies_secondary_order(model, order, index, prefix_len),
+        );
         match best {
-            None => best = Some((prefix_len, index, range_slot, prefix, range)),
-            Some((best_len, best_index, _, _, _))
-                if prefix_len > best_len
-                    || (prefix_len == best_len && index.name() < best_index.name()) =>
+            None => best = Some((score, index, range_slot, prefix, range)),
+            Some((best_score, best_index, _, _, _))
+                if access_candidate_score_outranks(score, best_score, false)
+                    || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((prefix_len, index, range_slot, prefix, range));
+                best = Some((score, index, range_slot, prefix, range));
             }
             _ => {}
         }

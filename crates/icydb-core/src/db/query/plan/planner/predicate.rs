@@ -58,6 +58,7 @@ pub(super) fn plan_predicate(
                 schema,
                 children,
                 query_predicate,
+                order,
             ) {
                 return Ok(AccessPlan::index_range(range_spec));
             }

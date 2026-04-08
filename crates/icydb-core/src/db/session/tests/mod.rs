@@ -49,7 +49,7 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::BTreeMap};
 
 crate::test_canister! {
     ident = SessionSqlCanister,
@@ -226,6 +226,57 @@ struct SessionExplainEntity {
 }
 
 ///
+/// SessionDeterministicChoiceEntity
+///
+/// Session-local deterministic-choice fixture used to lock prefix-family
+/// planner ranking through the recovered session-visible index boundary.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionDeterministicChoiceEntity {
+    id: Ulid,
+    tier: String,
+    handle: String,
+    label: String,
+}
+
+///
+/// SessionDeterministicRangeEntity
+///
+/// Session-local deterministic-choice fixture used to lock range-family
+/// planner ranking through the recovered session-visible index boundary.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionDeterministicRangeEntity {
+    id: Ulid,
+    tier: String,
+    score: u64,
+    handle: String,
+    label: String,
+}
+
+///
+/// SessionOrderOnlyChoiceEntity
+///
+/// Session-local deterministic-choice fixture used to lock order-only
+/// fallback ranking through the recovered session-visible index boundary.
+///
+
+#[derive(
+    Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow, Serialize,
+)]
+struct SessionOrderOnlyChoiceEntity {
+    id: Ulid,
+    alpha: String,
+    beta: String,
+}
+
+///
 /// SessionTemporalEntity
 ///
 /// Session-local temporal fixture used to keep Date/Timestamp/Duration
@@ -323,6 +374,54 @@ static SESSION_EXPLAIN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &SESSION_EXPLAIN_INDEX_FIELDS,
     false,
 )];
+static SESSION_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
+static SESSION_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
+static SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_tier_label_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_tier_handle_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS,
+        false,
+    ),
+];
+static SESSION_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
+static SESSION_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
+static SESSION_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_tier_score_handle_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_tier_score_label_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS,
+        false,
+    ),
+];
+static SESSION_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
+static SESSION_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
+static SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_beta_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_alpha_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS,
+        false,
+    ),
+];
 
 crate::test_entity_schema! {
     ident = SessionSqlEntity,
@@ -469,6 +568,69 @@ crate::test_entity_schema! {
     ],
     indexes = [],
     store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionDeterministicChoiceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionDeterministicChoiceEntity",
+    entity_tag = EntityTag::new(0x1040),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tier", FieldKind::Text),
+        ("handle", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [
+        &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
+        &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[1],
+    ],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionDeterministicRangeEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionDeterministicRangeEntity",
+    entity_tag = EntityTag::new(0x1041),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tier", FieldKind::Text),
+        ("score", FieldKind::Uint),
+        ("handle", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [
+        &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[0],
+        &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[1],
+    ],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionOrderOnlyChoiceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionOrderOnlyChoiceEntity",
+    entity_tag = EntityTag::new(0x1042),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("alpha", FieldKind::Text),
+        ("beta", FieldKind::Text),
+    ],
+    indexes = [
+        &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[0],
+        &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[1],
+    ],
+    store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,
 }
 
@@ -753,6 +915,126 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
     );
 }
 
+#[test]
+fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank_ties() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicChoiceEntity>()
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("handle")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("session deterministic prefix verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexPrefix(z_tier_handle_idx)".to_string()),
+        "session fluent verbose explain must project the session-visible order-compatible prefix index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session fluent verbose explain must report the canonical order-compatibility tie-break when prefix rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
+            }),
+        "session fluent verbose explain must report the lexicographically earlier but order-incompatible prefix index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_range_choice_prefers_order_compatible_index_when_rank_ties() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Uint(10),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("score")
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("session deterministic range verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
+        "session fluent verbose explain must project the session-visible order-compatible range index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session fluent verbose explain must report the canonical order-compatibility tie-break when range rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "session fluent verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_rank_ties() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionOrderOnlyChoiceEntity>()
+        .order_by("alpha")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("session deterministic order-only verbose explain should build");
+
+    let diagnostics = session_verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_alpha_idx)".to_string()),
+        "session fluent verbose explain must project the session-visible order-compatible fallback index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "session fluent verbose explain must report the canonical order-compatibility tie-break when order-only ranking ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_beta_idx=order_compatible_preferred")
+            }),
+        "session fluent verbose explain must report the lexicographically earlier but order-incompatible fallback index as planner-rejected for the same canonical reason",
+    );
+}
+
 fn unsupported_sql_dispatch_query_error(message: &'static str) -> QueryError {
     QueryError::execute(crate::error::InternalError::classified(
         ErrorClass::Unsupported,
@@ -821,6 +1103,24 @@ where
             "EXPLAIN dispatch requires an EXPLAIN statement",
         )),
     }
+}
+
+// Parse one verbose explain payload into `diag.*` key/value pairs so session
+// tests can assert planner-choice diagnostics without snapshotting the full
+// rendered tree.
+fn session_verbose_diagnostics_map(verbose: &str) -> BTreeMap<String, String> {
+    let mut diagnostics = BTreeMap::new();
+    for line in verbose.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if !key.starts_with("diag.") {
+            continue;
+        }
+        diagnostics.insert(key.to_string(), value.to_string());
+    }
+
+    diagnostics
 }
 
 fn dispatch_describe_sql<E>(

@@ -190,6 +190,103 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL: EntityModel = entity_m
     &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS,
     &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS,
 );
+static PLANNER_RANKING_FIELDS: [FieldModel; 4] = [
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("tier", FieldKind::Text),
+    FieldModel::new("handle", FieldKind::Text),
+    FieldModel::new("label", FieldKind::Text),
+];
+static PLANNER_RANKING_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
+static PLANNER_RANKING_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
+static PLANNER_RANKING_INDEXES: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_tier_label_idx",
+        "planner::ranking_test_entity",
+        &PLANNER_RANKING_LABEL_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_tier_handle_idx",
+        "planner::ranking_test_entity",
+        &PLANNER_RANKING_HANDLE_INDEX_FIELDS,
+        false,
+    ),
+];
+static PLANNER_RANKING_INDEX_REFS: [&IndexModel; 2] =
+    [&PLANNER_RANKING_INDEXES[0], &PLANNER_RANKING_INDEXES[1]];
+static PLANNER_RANKING_MODEL: EntityModel = entity_model_from_static(
+    "planner::ranking_test_entity",
+    "PlannerRankingTestEntity",
+    &PLANNER_RANKING_FIELDS[0],
+    &PLANNER_RANKING_FIELDS,
+    &PLANNER_RANKING_INDEX_REFS,
+);
+static PLANNER_RANGE_RANKING_FIELDS: [FieldModel; 5] = [
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("tier", FieldKind::Text),
+    FieldModel::new("score", FieldKind::Uint),
+    FieldModel::new("handle", FieldKind::Text),
+    FieldModel::new("label", FieldKind::Text),
+];
+static PLANNER_RANGE_RANKING_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
+static PLANNER_RANGE_RANKING_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
+static PLANNER_RANGE_RANKING_INDEXES: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_tier_score_handle_idx",
+        "planner::range_ranking_test_entity",
+        &PLANNER_RANGE_RANKING_HANDLE_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_tier_score_label_idx",
+        "planner::range_ranking_test_entity",
+        &PLANNER_RANGE_RANKING_LABEL_INDEX_FIELDS,
+        false,
+    ),
+];
+static PLANNER_RANGE_RANKING_INDEX_REFS: [&IndexModel; 2] = [
+    &PLANNER_RANGE_RANKING_INDEXES[0],
+    &PLANNER_RANGE_RANKING_INDEXES[1],
+];
+static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
+    "planner::range_ranking_test_entity",
+    "PlannerRangeRankingTestEntity",
+    &PLANNER_RANGE_RANKING_FIELDS[0],
+    &PLANNER_RANGE_RANKING_FIELDS,
+    &PLANNER_RANGE_RANKING_INDEX_REFS,
+);
+static PLANNER_ORDER_ONLY_RANKING_FIELDS: [FieldModel; 3] = [
+    FieldModel::new("id", FieldKind::Ulid),
+    FieldModel::new("alpha", FieldKind::Text),
+    FieldModel::new("beta", FieldKind::Text),
+];
+static PLANNER_ORDER_ONLY_RANKING_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
+static PLANNER_ORDER_ONLY_RANKING_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
+static PLANNER_ORDER_ONLY_RANKING_INDEXES: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_beta_idx",
+        "planner::order_only_ranking_test_entity",
+        &PLANNER_ORDER_ONLY_RANKING_BETA_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_alpha_idx",
+        "planner::order_only_ranking_test_entity",
+        &PLANNER_ORDER_ONLY_RANKING_ALPHA_INDEX_FIELDS,
+        false,
+    ),
+];
+static PLANNER_ORDER_ONLY_RANKING_INDEX_REFS: [&IndexModel; 2] = [
+    &PLANNER_ORDER_ONLY_RANKING_INDEXES[0],
+    &PLANNER_ORDER_ONLY_RANKING_INDEXES[1],
+];
+static PLANNER_ORDER_ONLY_RANKING_MODEL: EntityModel = entity_model_from_static(
+    "planner::order_only_ranking_test_entity",
+    "PlannerOrderOnlyRankingTestEntity",
+    &PLANNER_ORDER_ONLY_RANKING_FIELDS[0],
+    &PLANNER_ORDER_ONLY_RANKING_FIELDS,
+    &PLANNER_ORDER_ONLY_RANKING_INDEX_REFS,
+);
 
 fn plan_access_for_test(
     model: &EntityModel,
@@ -471,6 +568,129 @@ fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard()
         )),
         "filtered indexes should satisfy order-only access once the query implies their guard",
     );
+}
+
+#[test]
+fn planner_prefix_selection_prefers_order_compatible_index_over_name_order_tie() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_RANKING_MODEL)
+        .expect("planner ranking test model should produce schema info");
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "tier",
+        CompareOp::Eq,
+        Value::Text("gold".to_string()),
+        CoercionId::Strict,
+    ));
+    let order = canonical_order(&[("handle", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_RANKING_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("ranking test access planning should succeed");
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("ranking test predicate should lower to one index-prefix path");
+    };
+    let AccessPath::IndexPrefix { index, values } = path.as_ref() else {
+        panic!("ranking test predicate should lower to one index-prefix path");
+    };
+
+    assert_eq!(
+        index.name(),
+        "z_tier_handle_idx",
+        "planner must use the order-compatible composite index instead of lexicographic name order when predicate rank ties",
+    );
+    assert_eq!(
+        values,
+        &[Value::Text("gold".to_string())],
+        "planner must preserve the canonical equality prefix on the selected composite route",
+    );
+}
+
+#[test]
+fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_RANGE_RANKING_MODEL)
+        .expect("planner range ranking test model should produce schema info");
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "score",
+            CompareOp::Gt,
+            Value::Uint(10),
+            CoercionId::Strict,
+        )),
+    ]);
+    let order = canonical_order(&[
+        ("score", OrderDirection::Asc),
+        ("label", OrderDirection::Asc),
+        ("id", OrderDirection::Asc),
+    ]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_RANGE_RANKING_MODEL,
+        &schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("range ranking test access planning should succeed");
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("range ranking predicate should lower to one index path");
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!("range ranking predicate should lower to one index range");
+    };
+
+    assert_eq!(
+        spec.index().name(),
+        "z_tier_score_label_idx",
+        "planner must keep the order-compatible range index when prefix/range rank ties and name order points at the wrong index",
+    );
+    assert_eq!(
+        spec.prefix_values(),
+        &[Value::Text("gold".to_string())],
+        "range ranking must preserve the equality-bound prefix on the selected index range",
+    );
+    assert_eq!(spec.lower(), &Bound::Excluded(Value::Uint(10)));
+    assert_eq!(spec.upper(), &Bound::Unbounded);
+}
+
+#[test]
+fn planner_order_only_selection_prefers_order_compatible_index_over_name_order_tie() {
+    let schema = SchemaInfo::from_entity_model(&PLANNER_ORDER_ONLY_RANKING_MODEL)
+        .expect("planner order-only ranking test model should produce schema info");
+    let order = canonical_order(&[("alpha", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
+
+    let planner_shape = plan_access_for_test_with_order(
+        &PLANNER_ORDER_ONLY_RANKING_MODEL,
+        &schema,
+        None,
+        Some(order),
+    )
+    .expect("order-only ranking access planning should succeed");
+
+    let AccessPlan::Path(path) = planner_shape else {
+        panic!("order-only ranking should lower to one index path");
+    };
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
+        panic!("order-only ranking should lower to one index range");
+    };
+
+    assert_eq!(
+        spec.index().name(),
+        "z_alpha_idx",
+        "planner must keep the order-compatible fallback index when predicate rank is absent and name order points at the wrong index",
+    );
+    assert!(spec.prefix_values().is_empty());
+    assert_eq!(spec.lower(), &Bound::Unbounded);
+    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]

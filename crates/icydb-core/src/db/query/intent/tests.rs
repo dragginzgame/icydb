@@ -268,6 +268,30 @@ struct PlanExpressionCasefoldEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanDeterministicChoiceEntity {
+    id: Ulid,
+    tier: String,
+    handle: String,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanDeterministicRangeEntity {
+    id: Ulid,
+    tier: String,
+    score: u32,
+    handle: String,
+    label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct PlanOrderOnlyChoiceEntity {
+    id: Ulid,
+    alpha: String,
+    beta: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct PlanTemporalBoundaryEntity {
     id: Ulid,
     occurred_on: Date,
@@ -389,6 +413,54 @@ static PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new
     &PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS,
     false,
 )];
+static PLAN_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
+static PLAN_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
+static PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_tier_label_idx",
+        PlanDataStore::PATH,
+        &PLAN_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_tier_handle_idx",
+        PlanDataStore::PATH,
+        &PLAN_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS,
+        false,
+    ),
+];
+static PLAN_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
+static PLAN_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
+static PLAN_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_tier_score_handle_idx",
+        PlanDataStore::PATH,
+        &PLAN_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_tier_score_label_idx",
+        PlanDataStore::PATH,
+        &PLAN_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS,
+        false,
+    ),
+];
+static PLAN_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
+static PLAN_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
+static PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::new(
+        "a_beta_idx",
+        PlanDataStore::PATH,
+        &PLAN_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::new(
+        "z_alpha_idx",
+        PlanDataStore::PATH,
+        &PLAN_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS,
+        false,
+    ),
+];
 
 static PLAN_PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
 
@@ -473,6 +545,69 @@ crate::test_entity_schema! {
         ("label", FieldKind::Text),
     ],
     indexes = [&PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0]],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanDeterministicChoiceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanDeterministicChoiceEntity",
+    entity_tag = crate::testing::PLAN_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tier", FieldKind::Text),
+        ("handle", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [
+        &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
+        &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[1],
+    ],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanDeterministicRangeEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanDeterministicRangeEntity",
+    entity_tag = crate::testing::PLAN_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tier", FieldKind::Text),
+        ("score", FieldKind::Uint),
+        ("handle", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [
+        &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[0],
+        &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[1],
+    ],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanOrderOnlyChoiceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PlanOrderOnlyChoiceEntity",
+    entity_tag = crate::testing::PLAN_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("alpha", FieldKind::Text),
+        ("beta", FieldKind::Text),
+    ],
+    indexes = [
+        &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[0],
+        &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[1],
+    ],
     store = PlanDataStore,
     canister = PlanCanister,
 }
@@ -1719,6 +1854,117 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
     assert_eq!(
         diagnostics, expected,
         "index-range verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_prefix_choice_prefers_order_compatible_index_when_rank_ties() {
+    let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("handle")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("deterministic prefix explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexPrefix(z_tier_handle_idx)".to_string()),
+        "verbose explain must project the planner-selected order-compatible prefix index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "planner-choice explain must report the canonical order-compatibility tie-break when predicate rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_label_idx=order_compatible_preferred")
+            }),
+        "verbose explain must report the lexicographically earlier but order-incompatible index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_range_choice_prefers_order_compatible_index_when_rank_ties() {
+    let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tier",
+                CompareOp::Eq,
+                Value::Text("gold".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Uint(10),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("score")
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("deterministic range explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_tier_score_label_idx)".to_string()),
+        "verbose explain must project the planner-selected order-compatible range index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "planner-choice explain must report the canonical order-compatibility tie-break when range rank ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_tier_score_handle_idx=order_compatible_preferred")
+            }),
+        "verbose explain must report the lexicographically earlier but order-incompatible range index as planner-rejected for the same canonical reason",
+    );
+}
+
+#[test]
+fn explain_execution_verbose_order_only_choice_prefers_order_compatible_index_when_rank_ties() {
+    let verbose = Query::<PlanOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("alpha")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("deterministic order-only explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen"),
+        Some(&"IndexRange(z_alpha_idx)".to_string()),
+        "verbose explain must project the planner-selected order-compatible fallback index",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&"order_compatible_preferred".to_string()),
+        "planner-choice explain must report the canonical order-compatibility tie-break when order-only ranking ties",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| {
+                rejections.contains("index:a_beta_idx=order_compatible_preferred")
+            }),
+        "verbose explain must report the lexicographically earlier but order-incompatible fallback index as planner-rejected for the same canonical reason",
     );
 }
 

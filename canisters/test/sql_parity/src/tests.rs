@@ -1,7 +1,7 @@
 mod tests {
     use super::{
-        Customer, CustomerAccount, CustomerOrder, SqlQueryResult, db, fixtures_load_default,
-        fixtures_mark_customer_index_building,
+        Customer, CustomerAccount, CustomerOrder, PlannerChoice, PlannerPrefixChoice,
+        SqlQueryResult, db, fixtures_load_default, fixtures_mark_customer_index_building,
         perf::{SqlPerfRequest, SqlPerfSurface, sample_sql_surface},
         sql_dispatch,
     };
@@ -249,6 +249,22 @@ mod tests {
             .lines()
             .find(|line| line.starts_with("access="))
             .expect("explain payload should include an access line")
+    }
+
+    fn assert_json_access_uses_index(
+        explain: &str,
+        expected_type: &str,
+        expected_name: &str,
+        context: &str,
+    ) {
+        let required = format!(
+            "\"access\":{{\"type\":\"{expected_type}\",\"name\":\"{expected_name}\""
+        );
+
+        assert!(
+            explain.contains(required.as_str()),
+            "{context}: expected JSON explain to contain {required}, got {explain}",
+        );
     }
 
     #[test]
@@ -3646,6 +3662,91 @@ mod tests {
                 "direct LOWER(field) equivalent prefix-form JSON explains must not fall back to full scan: {explain}",
             );
         }
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_explain_json_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<PlannerPrefixChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerPrefixChoice prefix deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_explain_json_prefers_order_compatible_index() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexPrefix",
+            "PlannerPrefixChoice|tier|handle",
+            "PlannerPrefixChoice prefix EXPLAIN JSON should lock the order-compatible prefix index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerPrefixChoice|tier|label\""),
+            "PlannerPrefixChoice prefix EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible prefix index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_explain_json_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice range deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_explain_json_prefers_order_compatible_index() {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexRange",
+            "PlannerChoice|tier|label|handle",
+            "PlannerChoice range EXPLAIN JSON should lock the order-compatible range index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerChoice|tier|label|alpha\""),
+            "PlannerChoice range EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible range index: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_order_only_explain_json_matches_typed_surface() {
+        assert_dispatch_matches_typed_as::<PlannerChoice>(
+            "EXPLAIN JSON SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice order-only deterministic EXPLAIN JSON parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_order_only_explain_json_prefers_order_compatible_index()
+     {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN JSON SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2",
+        );
+
+        assert_json_access_uses_index(
+            explain.as_str(),
+            "IndexRange",
+            "PlannerChoice|alpha",
+            "PlannerChoice order-only EXPLAIN JSON should lock the order-compatible fallback index",
+        );
+        assert!(
+            !explain.contains("\"name\":\"PlannerChoice|beta\""),
+            "PlannerChoice order-only EXPLAIN JSON should not drift back to the lexicographically earlier but order-incompatible fallback index: {explain}",
+        );
     }
 
     #[test]

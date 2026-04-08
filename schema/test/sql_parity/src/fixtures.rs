@@ -1,4 +1,7 @@
-use crate::schema::{Customer, CustomerAccount, CustomerOrder, CustomerOrderProfile};
+use crate::schema::{
+    Customer, CustomerAccount, CustomerOrder, CustomerOrderProfile, PlannerChoice,
+    PlannerPrefixChoice,
+};
 
 /// Build one deterministic baseline customer fixture batch.
 #[must_use]
@@ -132,6 +135,74 @@ pub fn customer_orders() -> Vec<CustomerOrder> {
                 summary: "archived".to_string(),
                 bucket: 9,
             },
+            ..Default::default()
+        },
+    ]
+}
+
+/// Build one deterministic planner-choice fixture batch.
+#[must_use]
+pub fn planner_choices() -> Vec<PlannerChoice> {
+    vec![
+        PlannerChoice {
+            tier: "gold".to_string(),
+            score: 5,
+            handle: "zephyr".to_string(),
+            label: "amber".to_string(),
+            alpha: "delta".to_string(),
+            beta: "alpha".to_string(),
+            ..Default::default()
+        },
+        PlannerChoice {
+            tier: "gold".to_string(),
+            score: 20,
+            handle: "bravo".to_string(),
+            label: "cello".to_string(),
+            alpha: "alpha".to_string(),
+            beta: "echo".to_string(),
+            ..Default::default()
+        },
+        PlannerChoice {
+            tier: "gold".to_string(),
+            score: 30,
+            handle: "charlie".to_string(),
+            label: "bravo".to_string(),
+            alpha: "bravo".to_string(),
+            beta: "delta".to_string(),
+            ..Default::default()
+        },
+        PlannerChoice {
+            tier: "silver".to_string(),
+            score: 40,
+            handle: "delta".to_string(),
+            label: "delta".to_string(),
+            alpha: "charlie".to_string(),
+            beta: "charlie".to_string(),
+            ..Default::default()
+        },
+    ]
+}
+
+/// Build one deterministic equality-prefix planner-choice fixture batch.
+#[must_use]
+pub fn planner_prefix_choices() -> Vec<PlannerPrefixChoice> {
+    vec![
+        PlannerPrefixChoice {
+            tier: "gold".to_string(),
+            handle: "bravo".to_string(),
+            label: "amber".to_string(),
+            ..Default::default()
+        },
+        PlannerPrefixChoice {
+            tier: "gold".to_string(),
+            handle: "charlie".to_string(),
+            label: "bravo".to_string(),
+            ..Default::default()
+        },
+        PlannerPrefixChoice {
+            tier: "silver".to_string(),
+            handle: "delta".to_string(),
+            label: "delta".to_string(),
             ..Default::default()
         },
     ]

@@ -14,6 +14,7 @@ mod order_select;
 mod predicate;
 mod prefix;
 mod range;
+mod ranking;
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +37,9 @@ pub(in crate::db::query::plan) use index_select::{
 pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,
     residual_query_predicate_after_filtered_access,
+};
+pub(in crate::db::query::plan) use ranking::{
+    AccessCandidateScore, access_candidate_score_outranks, candidate_satisfies_secondary_order,
 };
 
 ///
@@ -99,6 +103,9 @@ pub(crate) fn plan_access_with_order(
     // Planner determinism rules:
     // - Predicate canonicalization is owned by `db::predicate`.
     // - Index candidates are considered in lexicographic IndexModel.name order.
+    // - Competing index candidates are ranked by one canonical planner score:
+    //   prefix match, family-specific exact-match preference, then secondary-order compatibility.
+    // - Structural ties still break on lexicographic IndexModel.name order.
     // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).

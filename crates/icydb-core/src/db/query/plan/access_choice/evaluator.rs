@@ -9,6 +9,7 @@ use crate::{
         query::{
             explain::ExplainAccessPath,
             plan::{
+                OrderSpec,
                 access_choice::model::{
                     AccessChoiceFamily, AccessChoiceRejectedReason, AccessChoiceSelectedReason,
                     CandidateEvaluation, CandidateScore, RangeCompareKind, RangeFieldConstraint,
@@ -18,12 +19,18 @@ use crate::{
                     key_item_matches_field_and_coercion, leading_index_key_item,
                     starts_with_lookup_value_for_key_item,
                 },
-                planner::{index_literal_matches_schema, sorted_model_indexes},
+                planner::{
+                    AccessCandidateScore, candidate_satisfies_secondary_order,
+                    index_literal_matches_schema, sorted_model_indexes,
+                },
             },
         },
         schema::SchemaInfo,
     },
-    model::index::{IndexKeyItem, IndexModel},
+    model::{
+        entity::EntityModel,
+        index::{IndexKeyItem, IndexModel},
+    },
     value::Value,
 };
 
@@ -43,10 +50,7 @@ pub(super) const fn chosen_access_shape_projection(
         | ExplainAccessPath::Intersection(_) => (
             AccessChoiceFamily::NonIndex,
             None,
-            CandidateScore {
-                prefix_len: 0,
-                exact: true,
-            },
+            CandidateScore::new(0, true, false),
         ),
         ExplainAccessPath::IndexPrefix {
             name,
@@ -56,28 +60,19 @@ pub(super) const fn chosen_access_shape_projection(
         } => (
             AccessChoiceFamily::Prefix,
             Some(*name),
-            CandidateScore {
-                prefix_len: *prefix_len,
-                exact: *prefix_len == fields.len(),
-            },
+            CandidateScore::new(*prefix_len, *prefix_len == fields.len(), false),
         ),
         ExplainAccessPath::IndexMultiLookup { name, fields, .. } => (
             AccessChoiceFamily::MultiLookup,
             Some(*name),
-            CandidateScore {
-                prefix_len: 1,
-                exact: fields.len() == 1,
-            },
+            CandidateScore::new(1, fields.len() == 1, false),
         ),
         ExplainAccessPath::IndexRange {
             name, prefix_len, ..
         } => (
             AccessChoiceFamily::Range,
             Some(*name),
-            CandidateScore {
-                prefix_len: *prefix_len,
-                exact: false,
-            },
+            CandidateScore::new(*prefix_len, false, false),
         ),
     }
 }
@@ -85,22 +80,72 @@ pub(super) const fn chosen_access_shape_projection(
 pub(super) fn evaluate_index_candidate(
     family: AccessChoiceFamily,
     index: &IndexModel,
+    model: &EntityModel,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
 ) -> CandidateEvaluation {
+    if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
+        return evaluate_order_only_range_candidate(index, model, order);
+    }
+
     let Some(predicate) = predicate else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::PredicateAbsent);
     };
 
     match family {
-        AccessChoiceFamily::Prefix => evaluate_prefix_candidate(index, schema, predicate),
+        AccessChoiceFamily::Prefix => augment_candidate_with_order_compatibility(
+            evaluate_prefix_candidate(index, schema, predicate),
+            model,
+            order,
+            index,
+        ),
         AccessChoiceFamily::MultiLookup => {
             evaluate_multi_lookup_candidate(index, schema, predicate)
         }
-        AccessChoiceFamily::Range => evaluate_range_candidate(index, schema, predicate),
+        AccessChoiceFamily::Range => augment_candidate_with_order_compatibility(
+            evaluate_range_candidate(index, schema, predicate),
+            model,
+            order,
+            index,
+        ),
         AccessChoiceFamily::NonIndex => {
             CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonIndexAccess)
         }
+    }
+}
+
+// Project one order-only range-family candidate for explain when planner fell
+// back from full-scan predicate planning onto deterministic visible-index
+// ordering. The canonical score still carries order compatibility so explain
+// can report why one visible index won the fallback.
+fn evaluate_order_only_range_candidate(
+    index: &IndexModel,
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+) -> CandidateEvaluation {
+    CandidateEvaluation::Eligible(AccessCandidateScore::new(
+        0,
+        false,
+        candidate_satisfies_secondary_order(model, order, index, 0),
+    ))
+}
+
+fn augment_candidate_with_order_compatibility(
+    evaluation: CandidateEvaluation,
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    index: &IndexModel,
+) -> CandidateEvaluation {
+    match evaluation {
+        CandidateEvaluation::Eligible(score) => {
+            CandidateEvaluation::Eligible(AccessCandidateScore::new(
+                score.prefix_len,
+                score.exact,
+                candidate_satisfies_secondary_order(model, order, index, score.prefix_len),
+            ))
+        }
+        CandidateEvaluation::Rejected(reason) => CandidateEvaluation::Rejected(reason),
     }
 }
 
@@ -153,6 +198,7 @@ pub(crate) fn evaluate_prefix_compare_candidate(
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len: 1,
         exact: index_key_item_count(index) == 1,
+        order_compatible: false,
     })
 }
 
@@ -179,6 +225,7 @@ fn evaluate_prefix_and_candidate(
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len,
         exact: prefix_len == index_key_item_count(index),
+        order_compatible: false,
     })
 }
 
@@ -337,6 +384,7 @@ pub(crate) fn evaluate_multi_lookup_candidate(
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len: 1,
         exact: index_key_item_count(index) == 1,
+        order_compatible: false,
     })
 }
 
@@ -373,6 +421,7 @@ fn evaluate_range_compare_candidate(
         Ok(()) => CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            order_compatible: false,
         }),
         Err(reason) => CandidateEvaluation::Rejected(reason),
     }
@@ -478,6 +527,7 @@ fn range_candidate_score_from_compares(
     Ok(CandidateScore {
         prefix_len,
         exact: false,
+        order_compatible: false,
     })
 }
 
@@ -738,6 +788,19 @@ pub(super) fn chosen_selection_reason(
         return AccessChoiceSelectedReason::ExactMatchPreferred;
     }
 
+    if matches!(
+        family,
+        AccessChoiceFamily::Prefix | AccessChoiceFamily::Range
+    ) && chosen_score.order_compatible
+        && eligible_other_scores.iter().any(|score| {
+            score.prefix_len == chosen_score.prefix_len
+                && score.exact == chosen_score.exact
+                && !score.order_compatible
+        })
+    {
+        return AccessChoiceSelectedReason::OrderCompatiblePreferred;
+    }
+
     AccessChoiceSelectedReason::LexicographicTiebreak
 }
 
@@ -758,6 +821,17 @@ pub(super) const fn ranked_rejection_reason(
         && candidate.prefix_len == chosen.prefix_len
     {
         return AccessChoiceRejectedReason::ExactMatchPreferred;
+    }
+
+    if matches!(
+        family,
+        AccessChoiceFamily::Prefix | AccessChoiceFamily::Range
+    ) && !candidate.order_compatible
+        && chosen.order_compatible
+        && candidate.prefix_len == chosen.prefix_len
+        && candidate.exact == chosen.exact
+    {
+        return AccessChoiceRejectedReason::OrderCompatiblePreferred;
     }
 
     AccessChoiceRejectedReason::LexicographicTiebreak

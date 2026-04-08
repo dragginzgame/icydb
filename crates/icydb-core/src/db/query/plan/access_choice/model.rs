@@ -3,6 +3,8 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+pub(super) use crate::db::query::plan::planner::AccessCandidateScore as CandidateScore;
+
 ///
 /// AccessChoiceExplainSnapshot
 ///
@@ -31,6 +33,7 @@ pub(in crate::db) enum AccessChoiceSelectedReason {
     SingleCandidate,
     BestPrefixLen,
     ExactMatchPreferred,
+    OrderCompatiblePreferred,
     LexicographicTiebreak,
 }
 
@@ -44,6 +47,7 @@ impl AccessChoiceSelectedReason {
             Self::SingleCandidate => "single_candidate",
             Self::BestPrefixLen => "best_prefix_len",
             Self::ExactMatchPreferred => "exact_match_preferred",
+            Self::OrderCompatiblePreferred => "order_compatible_preferred",
             Self::LexicographicTiebreak => "lexicographic_tiebreak",
         }
     }
@@ -83,6 +87,7 @@ pub(in crate::db) enum AccessChoiceRejectedReason {
     MissingRangeConstraint,
     ShorterPrefix,
     ExactMatchPreferred,
+    OrderCompatiblePreferred,
     LexicographicTiebreak,
 }
 
@@ -116,6 +121,7 @@ impl AccessChoiceRejectedReason {
             Self::MissingRangeConstraint => "missing_range_constraint",
             Self::ShorterPrefix => "shorter_prefix",
             Self::ExactMatchPreferred => "exact_match_preferred",
+            Self::OrderCompatiblePreferred => "order_compatible_preferred",
             Self::LexicographicTiebreak => "lexicographic_tiebreak",
         }
     }
@@ -145,19 +151,6 @@ pub(super) enum AccessChoiceFamily {
     Prefix,
     MultiLookup,
     Range,
-}
-
-///
-/// CandidateScore
-///
-/// CandidateScore carries the deterministic planner ranking inputs used to
-/// compare eligible access candidates without re-running predicate analysis.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct CandidateScore {
-    pub(super) prefix_len: usize,
-    pub(super) exact: bool,
 }
 
 ///

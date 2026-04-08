@@ -1,0 +1,95 @@
+//! Module: db::query::plan::planner::ranking
+//! Responsibility: canonical deterministic candidate ranking for planner-visible index selection.
+//! Does not own: predicate eligibility derivation or execution semantics.
+//! Boundary: shared ranking contract consumed by planner selection and planner-choice explain.
+
+use crate::{
+    db::query::plan::{OrderSpec, index_order_terms},
+    model::{entity::EntityModel, index::IndexModel},
+};
+
+///
+/// AccessCandidateScore
+///
+/// AccessCandidateScore carries the canonical deterministic comparison inputs
+/// for one planner-visible index candidate.
+/// Planner selection and planner-choice explain both consume this score so
+/// deterministic tie-break policy does not drift across those surfaces.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db::query::plan) struct AccessCandidateScore {
+    pub(in crate::db::query::plan) prefix_len: usize,
+    pub(in crate::db::query::plan) exact: bool,
+    pub(in crate::db::query::plan) order_compatible: bool,
+}
+
+impl AccessCandidateScore {
+    /// Construct one canonical candidate score from deterministic planner
+    /// ranking inputs.
+    #[must_use]
+    pub(in crate::db::query::plan) const fn new(
+        prefix_len: usize,
+        exact: bool,
+        order_compatible: bool,
+    ) -> Self {
+        Self {
+            prefix_len,
+            exact,
+            order_compatible,
+        }
+    }
+}
+
+// Compare two candidate scores under one family-specific exact-match policy.
+// The remaining structural tie-breaker on index name stays at the call site so
+// local loops can keep their existing selected payload ownership.
+#[must_use]
+pub(in crate::db::query::plan) const fn access_candidate_score_outranks(
+    candidate: AccessCandidateScore,
+    best: AccessCandidateScore,
+    exact_priority: bool,
+) -> bool {
+    if candidate.prefix_len != best.prefix_len {
+        return candidate.prefix_len > best.prefix_len;
+    }
+    if exact_priority && candidate.exact != best.exact {
+        return candidate.exact;
+    }
+    if candidate.order_compatible != best.order_compatible {
+        return candidate.order_compatible;
+    }
+
+    false
+}
+
+// Project whether one index candidate can preserve the canonical deterministic
+// secondary ordering contract after consuming `prefix_len` equality-bound key
+// items.
+#[must_use]
+pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> bool {
+    let Some(order) = order else {
+        return false;
+    };
+    if order
+        .deterministic_secondary_order_direction(model.primary_key.name)
+        .is_none()
+    {
+        return false;
+    }
+
+    let index_terms = index_order_terms(index);
+
+    order.matches_expected_term_sequence_plus_primary_key(
+        index_terms.iter().skip(prefix_len).map(String::as_str),
+        model.primary_key.name,
+    ) || order.matches_expected_term_sequence_plus_primary_key(
+        index_terms.iter().map(String::as_str),
+        model.primary_key.name,
+    )
+}

@@ -122,6 +122,7 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_expression_index() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -146,6 +147,7 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_upper_expression_inde
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -214,6 +216,7 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_expression_index() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -243,6 +246,7 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_upper_expression_index(
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -338,6 +342,7 @@ fn evaluate_range_candidate_accepts_text_casefold_gt_for_expression_index() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -364,6 +369,7 @@ fn evaluate_range_candidate_accepts_text_casefold_lt_for_upper_expression_index(
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -407,6 +413,7 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_expression_ind
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -433,6 +440,7 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_upper_expressi
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            order_compatible: false,
         }),
     );
 }
@@ -509,6 +517,7 @@ fn evaluate_range_candidate_accepts_contiguous_eq_prefix_then_range_field() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: false,
+            order_compatible: false,
         }),
     );
 }

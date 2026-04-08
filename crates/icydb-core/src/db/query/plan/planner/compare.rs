@@ -15,7 +15,8 @@ use crate::{
                 starts_with_lookup_value_for_key_item,
             },
             planner::{
-                index_literal_matches_schema,
+                AccessCandidateScore, access_candidate_score_outranks,
+                candidate_satisfies_secondary_order, index_literal_matches_schema,
                 prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
                 sorted_indexes,
             },
@@ -109,7 +110,7 @@ pub(super) fn plan_compare(
                 return AccessPlan::full_scan();
             }
             if let Some(path) =
-                plan_ordered_compare(model, visible_indexes, schema, cmp, query_predicate)
+                plan_ordered_compare(model, visible_indexes, schema, cmp, query_predicate, order)
             {
                 return path;
             }
@@ -129,9 +130,14 @@ pub(super) fn plan_compare(
             // - expression-key lookups still keep their lower-bounded shape
             //   because the derived expression ordering does not yet expose one
             //   tighter planner-owned upper-bound contract
-            if let Some(path) =
-                plan_starts_with_compare(model, visible_indexes, schema, cmp, query_predicate)
-            {
+            if let Some(path) = plan_starts_with_compare(
+                model,
+                visible_indexes,
+                schema,
+                cmp,
+                query_predicate,
+                order,
+            ) {
                 return path;
             }
         }
@@ -183,11 +189,12 @@ fn plan_pk_compare(
 }
 
 fn plan_starts_with_compare(
-    _model: &EntityModel,
+    model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
+    order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     // This helper owns the shared starts-with range lowering contract for both
     // raw field keys and the expression-key casefold path.
@@ -196,6 +203,12 @@ fn plan_starts_with_compare(
         return None;
     }
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
+    let mut best: Option<(
+        AccessCandidateScore,
+        &'static IndexModel,
+        Bound<Value>,
+        Bound<Value>,
+    )> = None;
     for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
@@ -224,26 +237,53 @@ fn plan_starts_with_compare(
             strict_text_prefix_upper_bound(&prefix)
         };
 
-        let semantic_range =
-            SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
-        return Some(AccessPlan::index_range(semantic_range));
+        let score = AccessCandidateScore::new(
+            0,
+            false,
+            candidate_satisfies_secondary_order(model, order, index, 0),
+        );
+        match best {
+            None => best = Some((score, index, lower, upper)),
+            Some((best_score, best_index, _, _))
+                if access_candidate_score_outranks(score, best_score, false)
+                    || (score == best_score && index.name() < best_index.name()) =>
+            {
+                best = Some((score, index, lower, upper));
+            }
+            _ => {}
+        }
     }
 
-    None
+    best.map(|(_, index, lower, upper)| {
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            *index,
+            vec![0usize],
+            Vec::new(),
+            lower,
+            upper,
+        ))
+    })
 }
 
 fn plan_ordered_compare(
-    _model: &EntityModel,
+    model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
+    order: Option<&OrderSpec>,
 ) -> Option<AccessPlan<Value>> {
     // Ordered bounds must reuse the same canonical literal-lowering authority
     // as Eq/In/prefix matching so expression-key comparisons stay aligned with
     // the stored normalized index value order.
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
 
+    let mut best: Option<(
+        AccessCandidateScore,
+        &'static IndexModel,
+        Bound<Value>,
+        Bound<Value>,
+    )> = None;
     for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
@@ -285,13 +325,32 @@ fn plan_ordered_compare(
             CompareOp::Lte => (Bound::Unbounded, Bound::Included(bound_value)),
             _ => unreachable!("ordered compare helper must receive one of Gt/Gte/Lt/Lte"),
         };
-        let semantic_range =
-            SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
-
-        return Some(AccessPlan::index_range(semantic_range));
+        let score = AccessCandidateScore::new(
+            0,
+            false,
+            candidate_satisfies_secondary_order(model, order, index, 0),
+        );
+        match best {
+            None => best = Some((score, index, lower, upper)),
+            Some((best_score, best_index, _, _))
+                if access_candidate_score_outranks(score, best_score, false)
+                    || (score == best_score && index.name() < best_index.name()) =>
+            {
+                best = Some((score, index, lower, upper));
+            }
+            _ => {}
+        }
     }
 
-    None
+    best.map(|(_, index, lower, upper)| {
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            *index,
+            vec![0usize],
+            Vec::new(),
+            lower,
+            upper,
+        ))
+    })
 }
 
 fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {

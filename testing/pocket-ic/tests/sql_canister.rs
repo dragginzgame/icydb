@@ -5748,6 +5748,78 @@ fn sql_canister_query_lane_explain_json_direct_lower_text_range_preserves_index_
 }
 
 #[test]
+fn sql_canister_query_lane_explain_json_planner_prefix_choice_prefers_order_compatible_index() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerPrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner prefix-choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexPrefix\"",
+                "\"name\":\"PlannerPrefixChoice|tier|handle\"",
+            ],
+            &["\"name\":\"PlannerPrefixChoice|tier|label\""],
+            "planner prefix-choice JSON explain should lock the order-compatible prefix index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_planner_range_choice_prefers_order_compatible_index() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2",
+        )
+        .expect("planner range-choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"name\":\"PlannerChoice|tier|label|handle\"",
+            ],
+            &["\"name\":\"PlannerChoice|tier|label|alpha\""],
+            "planner range-choice JSON explain should lock the order-compatible range index",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_json_planner_order_only_choice_prefers_order_compatible_index() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN JSON SELECT id, alpha FROM PlannerChoice ORDER BY alpha ASC, id ASC LIMIT 2",
+        )
+        .expect("planner order-only choice JSON explain should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "\"mode\":{\"type\":\"Load\"",
+                "\"access\":{\"type\":\"IndexRange\"",
+                "\"name\":\"PlannerChoice|alpha\"",
+            ],
+            &["\"name\":\"PlannerChoice|beta\""],
+            "planner order-only choice JSON explain should lock the order-compatible fallback index",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_explain_json_equivalent_direct_lower_prefix_forms_preserve_index_range_route()
  {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
