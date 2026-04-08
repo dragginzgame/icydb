@@ -11,7 +11,13 @@ mod tests {
         sql_dispatch,
     };
     use candid::encode_one;
-    use icydb::{db::PersistedRow, traits::EntityValue};
+    use icydb::{
+        db::PersistedRow,
+        error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
+        traits::EntityValue,
+        types::Decimal,
+        value::Value,
+    };
     use icydb_testing_test_sql_parity_fixtures::{fixtures, schema::SqlParityCanister};
     use std::collections::BTreeSet;
 
@@ -117,6 +123,33 @@ mod tests {
 
     fn typed_result_for_sql_unchecked(sql: &str) -> Result<SqlQueryResult, icydb::Error> {
         typed_result_for_sql_unchecked_as::<Customer>(sql)
+    }
+
+    // Execute one constrained global aggregate SQL statement through the typed
+    // aggregate lane so parity tests can lock the dedicated scalar surface
+    // directly instead of inferring it through dispatch rejection.
+    fn typed_aggregate_value_for_sql_as<E>(sql: &str) -> Value
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        test_db()
+            .execute_sql_aggregate::<E>(sql)
+            .expect("typed execute_sql_aggregate should succeed")
+    }
+
+    fn typed_aggregate_value_for_sql(sql: &str) -> Value {
+        typed_aggregate_value_for_sql_as::<Customer>(sql)
+    }
+
+    fn typed_aggregate_value_for_sql_unchecked_as<E>(sql: &str) -> Result<Value, icydb::Error>
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
+        test_db().execute_sql_aggregate::<E>(sql)
+    }
+
+    fn typed_aggregate_value_for_sql_unchecked(sql: &str) -> Result<Value, icydb::Error> {
+        typed_aggregate_value_for_sql_unchecked_as::<Customer>(sql)
     }
 
     fn perf_sample(surface: SqlPerfSurface, sql: &str) -> super::perf::SqlPerfSample {
@@ -3139,6 +3172,628 @@ mod tests {
     }
 
     #[test]
+    fn typed_execute_sql_aggregate_customer_count_queries_return_expected_values() {
+        reload_default_fixtures();
+
+        let count_rows = typed_aggregate_value_for_sql("SELECT COUNT(*) FROM Customer");
+        let count_age = typed_aggregate_value_for_sql("SELECT COUNT(age) FROM Customer");
+
+        assert_eq!(
+            count_rows,
+            Value::Uint(3),
+            "typed execute_sql_aggregate COUNT(*) should return the default Customer fixture cardinality",
+        );
+        assert_eq!(
+            count_age,
+            Value::Uint(3),
+            "typed execute_sql_aggregate COUNT(age) should count all non-null Customer ages in the default fixture set",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_count_perf_surface_reports_expected_values() {
+        for (sql, expected_rendered_value) in [
+            ("SELECT COUNT(*) FROM Customer", "Uint(3)"),
+            ("SELECT COUNT(age) FROM Customer", "Uint(3)"),
+        ] {
+            let sample = perf_sample(SqlPerfSurface::TypedExecuteSqlAggregateCustomer, sql);
+
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "aggregate_value",
+                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate perf sample should render the expected scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_numeric_queries_return_expected_values() {
+        reload_default_fixtures();
+
+        let min_age = typed_aggregate_value_for_sql("SELECT MIN(age) FROM Customer");
+        let max_age = typed_aggregate_value_for_sql("SELECT MAX(age) FROM Customer");
+        let sum_age = typed_aggregate_value_for_sql("SELECT SUM(age) FROM Customer");
+        let avg_age = typed_aggregate_value_for_sql("SELECT AVG(age) FROM Customer");
+
+        assert_eq!(
+            min_age,
+            Value::Int(24),
+            "typed execute_sql_aggregate MIN(age) should return the smallest default Customer age",
+        );
+        assert_eq!(
+            max_age,
+            Value::Int(43),
+            "typed execute_sql_aggregate MAX(age) should return the largest default Customer age",
+        );
+        assert_eq!(
+            sum_age,
+            Value::Decimal(Decimal::from(98u64)),
+            "typed execute_sql_aggregate SUM(age) should return the default Customer age total",
+        );
+        assert_eq!(
+            avg_age,
+            Value::Decimal(Decimal::from_i128_with_scale(32_666_666_666_666_666_667, 18)),
+            "typed execute_sql_aggregate AVG(age) should preserve the decimal average across the default Customer fixture set",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_numeric_perf_surface_reports_expected_values() {
+        for (sql, expected_rendered_value) in [
+            ("SELECT MIN(age) FROM Customer", "Int(24)"),
+            ("SELECT MAX(age) FROM Customer", "Int(43)"),
+            (
+                "SELECT SUM(age) FROM Customer",
+                "Decimal(Decimal { mantissa: 98, scale: 0 })",
+            ),
+            (
+                "SELECT AVG(age) FROM Customer",
+                "Decimal(Decimal { mantissa: 32666666666666666667, scale: 18 })",
+            ),
+        ] {
+            let sample = perf_sample(SqlPerfSurface::TypedExecuteSqlAggregateCustomer, sql);
+
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "aggregate_value",
+                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate perf sample should render the expected scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_filtered_queries_return_expected_values() {
+        reload_default_fixtures();
+
+        let count_rows =
+            typed_aggregate_value_for_sql("SELECT COUNT(*) FROM Customer WHERE age >= 30");
+        let count_age =
+            typed_aggregate_value_for_sql("SELECT COUNT(age) FROM Customer WHERE age >= 30");
+        let min_age = typed_aggregate_value_for_sql("SELECT MIN(age) FROM Customer WHERE age >= 30");
+        let max_age = typed_aggregate_value_for_sql("SELECT MAX(age) FROM Customer WHERE age >= 30");
+        let sum_age = typed_aggregate_value_for_sql("SELECT SUM(age) FROM Customer WHERE age >= 30");
+        let avg_age = typed_aggregate_value_for_sql("SELECT AVG(age) FROM Customer WHERE age >= 30");
+
+        assert_eq!(
+            count_rows,
+            Value::Uint(2),
+            "typed execute_sql_aggregate COUNT(*) should respect filtered Customer windows",
+        );
+        assert_eq!(
+            count_age,
+            Value::Uint(2),
+            "typed execute_sql_aggregate COUNT(age) should respect filtered Customer windows",
+        );
+        assert_eq!(
+            min_age,
+            Value::Int(31),
+            "typed execute_sql_aggregate MIN(age) should keep filtered Customer scalar typing",
+        );
+        assert_eq!(
+            max_age,
+            Value::Int(43),
+            "typed execute_sql_aggregate MAX(age) should keep filtered Customer scalar typing",
+        );
+        assert_eq!(
+            sum_age,
+            Value::Decimal(Decimal::from(74u64)),
+            "typed execute_sql_aggregate SUM(age) should total the filtered Customer ages",
+        );
+        assert_eq!(
+            avg_age,
+            Value::Decimal(Decimal::from(37u64)),
+            "typed execute_sql_aggregate AVG(age) should preserve the filtered Customer average",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_filtered_perf_surface_reports_expected_values() {
+        for (sql, expected_rendered_value) in [
+            ("SELECT COUNT(*) FROM Customer WHERE age >= 30", "Uint(2)"),
+            ("SELECT COUNT(age) FROM Customer WHERE age >= 30", "Uint(2)"),
+            ("SELECT MIN(age) FROM Customer WHERE age >= 30", "Int(31)"),
+            ("SELECT MAX(age) FROM Customer WHERE age >= 30", "Int(43)"),
+            (
+                "SELECT SUM(age) FROM Customer WHERE age >= 30",
+                "Decimal(Decimal { mantissa: 74, scale: 0 })",
+            ),
+            (
+                "SELECT AVG(age) FROM Customer WHERE age >= 30",
+                "Decimal(Decimal { mantissa: 37, scale: 0 })",
+            ),
+        ] {
+            let sample = perf_sample(SqlPerfSurface::TypedExecuteSqlAggregateCustomer, sql);
+
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "aggregate_value",
+                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate perf sample should render the expected filtered scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_empty_window_queries_return_expected_values() {
+        reload_default_fixtures();
+
+        let count_rows = typed_aggregate_value_for_sql("SELECT COUNT(*) FROM Customer WHERE age < 0");
+        let sum_age = typed_aggregate_value_for_sql("SELECT SUM(age) FROM Customer WHERE age < 0");
+        let avg_age = typed_aggregate_value_for_sql("SELECT AVG(age) FROM Customer WHERE age < 0");
+        let min_age = typed_aggregate_value_for_sql("SELECT MIN(age) FROM Customer WHERE age < 0");
+        let max_age = typed_aggregate_value_for_sql("SELECT MAX(age) FROM Customer WHERE age < 0");
+
+        assert_eq!(
+            count_rows,
+            Value::Uint(0),
+            "typed execute_sql_aggregate COUNT(*) should return zero on an empty filtered Customer window",
+        );
+        assert_eq!(
+            sum_age,
+            Value::Null,
+            "typed execute_sql_aggregate SUM(age) should stay null on an empty filtered Customer window",
+        );
+        assert_eq!(
+            avg_age,
+            Value::Null,
+            "typed execute_sql_aggregate AVG(age) should stay null on an empty filtered Customer window",
+        );
+        assert_eq!(
+            min_age,
+            Value::Null,
+            "typed execute_sql_aggregate MIN(age) should stay null on an empty filtered Customer window",
+        );
+        assert_eq!(
+            max_age,
+            Value::Null,
+            "typed execute_sql_aggregate MAX(age) should stay null on an empty filtered Customer window",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_empty_window_perf_surface_reports_expected_values() {
+        for (sql, expected_rendered_value) in [
+            ("SELECT COUNT(*) FROM Customer WHERE age < 0", "Uint(0)"),
+            ("SELECT SUM(age) FROM Customer WHERE age < 0", "Null"),
+            ("SELECT AVG(age) FROM Customer WHERE age < 0", "Null"),
+            ("SELECT MIN(age) FROM Customer WHERE age < 0", "Null"),
+            ("SELECT MAX(age) FROM Customer WHERE age < 0", "Null"),
+        ] {
+            let sample = perf_sample(SqlPerfSurface::TypedExecuteSqlAggregateCustomer, sql);
+
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "aggregate_value",
+                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate perf sample should render the expected empty-window scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_window_queries_return_expected_values() {
+        reload_default_fixtures();
+
+        let count_rows = typed_aggregate_value_for_sql(
+            "SELECT COUNT(*) FROM Customer ORDER BY age DESC LIMIT 2 OFFSET 1",
+        );
+        let sum_age = typed_aggregate_value_for_sql(
+            "SELECT SUM(age) FROM Customer ORDER BY age DESC LIMIT 1 OFFSET 1",
+        );
+        let avg_age = typed_aggregate_value_for_sql(
+            "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 2 OFFSET 1",
+        );
+
+        assert_eq!(
+            count_rows,
+            Value::Uint(2),
+            "typed execute_sql_aggregate COUNT(*) should respect Customer order/limit/offset windows",
+        );
+        assert_eq!(
+            sum_age,
+            Value::Decimal(Decimal::from(31u64)),
+            "typed execute_sql_aggregate SUM(age) should respect Customer order/limit/offset windows",
+        );
+        assert_eq!(
+            avg_age,
+            Value::Decimal(Decimal::from(37u64)),
+            "typed execute_sql_aggregate AVG(age) should respect Customer order/limit/offset windows",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_window_perf_surface_reports_expected_values() {
+        for (sql, expected_rendered_value) in [
+            (
+                "SELECT COUNT(*) FROM Customer ORDER BY age DESC LIMIT 2 OFFSET 1",
+                "Uint(2)",
+            ),
+            (
+                "SELECT SUM(age) FROM Customer ORDER BY age DESC LIMIT 1 OFFSET 1",
+                "Decimal(Decimal { mantissa: 31, scale: 0 })",
+            ),
+            (
+                "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 2 OFFSET 1",
+                "Decimal(Decimal { mantissa: 37, scale: 0 })",
+            ),
+        ] {
+            let sample = perf_sample(SqlPerfSurface::TypedExecuteSqlAggregateCustomer, sql);
+
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "aggregate_value",
+                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate perf sample should render the expected windowed scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_offset_beyond_window_queries_return_expected_values() {
+        reload_default_fixtures();
+
+        let count_rows = typed_aggregate_value_for_sql(
+            "SELECT COUNT(*) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        );
+        let sum_age = typed_aggregate_value_for_sql(
+            "SELECT SUM(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        );
+        let avg_age = typed_aggregate_value_for_sql(
+            "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        );
+        let min_age = typed_aggregate_value_for_sql(
+            "SELECT MIN(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        );
+        let max_age = typed_aggregate_value_for_sql(
+            "SELECT MAX(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+        );
+
+        assert_eq!(
+            count_rows,
+            Value::Uint(0),
+            "typed execute_sql_aggregate COUNT(*) should return zero when offset removes the full Customer window",
+        );
+        assert_eq!(
+            sum_age,
+            Value::Null,
+            "typed execute_sql_aggregate SUM(age) should stay null when offset removes the full Customer window",
+        );
+        assert_eq!(
+            avg_age,
+            Value::Null,
+            "typed execute_sql_aggregate AVG(age) should stay null when offset removes the full Customer window",
+        );
+        assert_eq!(
+            min_age,
+            Value::Null,
+            "typed execute_sql_aggregate MIN(age) should stay null when offset removes the full Customer window",
+        );
+        assert_eq!(
+            max_age,
+            Value::Null,
+            "typed execute_sql_aggregate MAX(age) should stay null when offset removes the full Customer window",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_offset_beyond_window_perf_surface_reports_expected_values(
+    ) {
+        for (sql, expected_rendered_value) in [
+            (
+                "SELECT COUNT(*) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+                "Uint(0)",
+            ),
+            (
+                "SELECT SUM(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+                "Null",
+            ),
+            (
+                "SELECT AVG(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+                "Null",
+            ),
+            (
+                "SELECT MIN(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+                "Null",
+            ),
+            (
+                "SELECT MAX(age) FROM Customer ORDER BY age ASC LIMIT 1 OFFSET 10",
+                "Null",
+            ),
+        ] {
+            let sample = perf_sample(SqlPerfSurface::TypedExecuteSqlAggregateCustomer, sql);
+
+            assert!(
+                sample.outcome.success,
+                "typed execute_sql_aggregate perf sample should succeed for `{sql}`: {sample:?}",
+            );
+            assert_eq!(
+                sample.outcome.result_kind,
+                "aggregate_value",
+                "typed execute_sql_aggregate perf sample should keep the aggregate outcome kind for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.entity.as_deref(),
+                Some("Customer"),
+                "typed execute_sql_aggregate perf sample should stay on the Customer aggregate lane for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.rendered_value.as_deref(),
+                Some(expected_rendered_value),
+                "typed execute_sql_aggregate perf sample should render the expected offset-beyond-window scalar value for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.row_count,
+                None,
+                "typed execute_sql_aggregate perf sample should stay scalar for `{sql}`",
+            );
+            assert_eq!(
+                sample.outcome.has_cursor,
+                None,
+                "typed execute_sql_aggregate perf sample should not expose cursor state for `{sql}`",
+            );
+        }
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_rejects_non_aggregate_select_in_current_lane() {
+        reload_default_fixtures();
+
+        let err = typed_aggregate_value_for_sql_unchecked("SELECT age FROM Customer")
+            .expect_err("non-aggregate SELECT should stay fail-closed for execute_sql_aggregate");
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "typed execute_sql_aggregate should map non-aggregate SELECT rejection onto Runtime::Unsupported",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "typed execute_sql_aggregate should keep non-aggregate SELECT rejection on the query origin",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_aggregate requires constrained global aggregate SELECT"),
+            "typed execute_sql_aggregate should preserve constrained aggregate-surface guidance for non-aggregate SELECT",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_rejects_grouped_select_in_current_lane() {
+        reload_default_fixtures();
+
+        let err = typed_aggregate_value_for_sql_unchecked(
+            "SELECT age, COUNT(*) FROM Customer GROUP BY age",
+        )
+        .expect_err("grouped SELECT should stay fail-closed for execute_sql_aggregate");
+
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "typed execute_sql_aggregate should map grouped SELECT rejection onto Runtime::Unsupported",
+        );
+        assert_eq!(
+            err.origin(),
+            ErrorOrigin::Query,
+            "typed execute_sql_aggregate should keep grouped SELECT rejection on the query origin",
+        );
+        assert!(
+            err.to_string()
+                .contains("execute_sql_aggregate rejects grouped SELECT"),
+            "typed execute_sql_aggregate should preserve grouped-entrypoint guidance for grouped SELECT rejection",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_reject_path_perf_surface_reports_non_aggregate_error() {
+        let sample = perf_sample(
+            SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+            "SELECT age FROM Customer",
+        );
+
+        assert!(
+            !sample.outcome.success,
+            "typed execute_sql_aggregate perf sample should fail for non-aggregate SELECT: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind,
+            "error",
+            "typed execute_sql_aggregate perf sample should classify non-aggregate SELECT as an error",
+        );
+        assert_eq!(
+            sample.outcome.error_kind.as_deref(),
+            Some("Runtime(Unsupported)"),
+            "typed execute_sql_aggregate perf sample should preserve Runtime::Unsupported for non-aggregate SELECT",
+        );
+        assert_eq!(
+            sample.outcome.error_origin.as_deref(),
+            Some("Query"),
+            "typed execute_sql_aggregate perf sample should preserve Query origin for non-aggregate SELECT",
+        );
+        assert!(
+            sample
+                .outcome
+                .error_message
+                .as_deref()
+                .is_some_and(|message| message.contains("execute_sql_aggregate requires constrained global aggregate SELECT")),
+            "typed execute_sql_aggregate perf sample should preserve constrained aggregate-surface guidance for non-aggregate SELECT",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_aggregate_customer_reject_path_perf_surface_reports_grouped_error() {
+        let sample = perf_sample(
+            SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+            "SELECT age, COUNT(*) FROM Customer GROUP BY age",
+        );
+
+        assert!(
+            !sample.outcome.success,
+            "typed execute_sql_aggregate perf sample should fail for grouped SELECT: {sample:?}",
+        );
+        assert_eq!(
+            sample.outcome.result_kind,
+            "error",
+            "typed execute_sql_aggregate perf sample should classify grouped SELECT as an error",
+        );
+        assert_eq!(
+            sample.outcome.error_kind.as_deref(),
+            Some("Runtime(Unsupported)"),
+            "typed execute_sql_aggregate perf sample should preserve Runtime::Unsupported for grouped SELECT",
+        );
+        assert_eq!(
+            sample.outcome.error_origin.as_deref(),
+            Some("Query"),
+            "typed execute_sql_aggregate perf sample should preserve Query origin for grouped SELECT",
+        );
+        assert!(
+            sample
+                .outcome
+                .error_message
+                .as_deref()
+                .is_some_and(|message| message.contains("execute_sql_aggregate rejects grouped SELECT")),
+            "typed execute_sql_aggregate perf sample should preserve grouped-entrypoint guidance for grouped SELECT",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_grouped_execution_stays_fail_closed() {
         let sql = "SELECT age, COUNT(*) FROM Customer GROUP BY age";
         let dispatch_err = dispatch_result_for_sql_unchecked(sql)
@@ -3179,6 +3834,22 @@ mod tests {
         assert_dispatch_result_matches_typed(
             "EXPLAIN SELECT age, COUNT(*) FROM Customer GROUP BY age",
             "typed execute_sql_dispatch and sql_dispatch should keep grouped EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_global_aggregate_explain_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN SELECT COUNT(*) FROM Customer",
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_global_aggregate_explain_execution_matches_typed_surface() {
+        assert_dispatch_result_matches_typed(
+            "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer",
+            "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN EXECUTION parity",
         );
     }
 

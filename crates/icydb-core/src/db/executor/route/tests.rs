@@ -308,7 +308,7 @@ fn secondary_order_covering_plan() -> AccessPlannedQuery {
 }
 
 // Build one explicit composite order-only covering plan used to prove that the
-// widened `0.70.2` classifier now owns the synchronized composite witness
+// widened `0.70.x` classifier now owns the synchronized composite witness
 // family while stale composite siblings remain on the richer profile.
 fn composite_secondary_order_covering_plan(direction: OrderDirection) -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::new(
@@ -1087,6 +1087,33 @@ fn route_plan_flat_classifier_projection_keeps_single_component_and_composite_se
     assert!(
         synchronized_composite_profile.has_flat_classifier_projection(),
         "the synchronized composite order-only witness family should expose one admitted flat classifier projection once the stronger witness is present",
+    );
+}
+
+#[test]
+fn route_plan_same_snapshot_yields_same_resolved_authority_profile() {
+    reset_route_authority_store();
+    let plan = secondary_order_covering_plan();
+    let store = route_authority_store_handle();
+
+    store.mark_secondary_covering_authoritative();
+    let authority_snapshot = store.secondary_read_authority_snapshot();
+    let first = resolve_secondary_read_authority_profile(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        authority_snapshot,
+    );
+    let second = resolve_secondary_read_authority_profile(
+        RouteCapabilityEntity::MODEL,
+        &plan,
+        None,
+        authority_snapshot,
+    );
+
+    assert_eq!(
+        first, second,
+        "the resolved authority profile must be deterministic for the same immutable snapshot and structural plan inputs",
     );
 }
 

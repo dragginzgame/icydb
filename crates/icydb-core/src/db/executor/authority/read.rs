@@ -18,7 +18,7 @@ use std::ops::Bound;
 /// AuthorityDecision
 ///
 /// High-level read-authority decision for one store-backed secondary load.
-/// This stays intentionally small in `0.70.2`: either the route may stay
+/// This stays intentionally small in `0.70.x`: either the route may stay
 /// probe free, or it must fail closed back to row checks.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,7 +46,7 @@ enum AuthorityReason {
 ///
 /// SecondaryReadAuthorityClassifier
 ///
-/// Flat compatibility projection for the current `0.70.2` authority surface.
+/// Flat compatibility projection for the current `0.70.x` authority surface.
 /// This keeps the existing decision/reason vocabulary stable while the richer
 /// executor-owned profile becomes the canonical behavior source.
 /// The classifier vocabulary is frozen to the currently admitted probe-free
@@ -93,7 +93,7 @@ impl SecondaryReadAuthorityClassifier {
 ///
 /// AuthorityContext
 ///
-/// Minimal structural context used by the `0.70.2` authority classifier.
+/// Minimal structural context used by the `0.70.x` authority classifier.
 /// This keeps the new decision point small while still preserving the already
 /// shipped witness-backed covering semantics for the single-component line.
 ///
@@ -296,7 +296,7 @@ fn secondary_access_is_single_component(plan: &AccessPlannedQuery) -> bool {
 }
 
 // Return whether one covering contract matches the narrow composite
-// witness-validated family that `0.70.2` can state cleanly without the richer
+// witness-validated family that `0.70.x` can state cleanly without the richer
 // stale witness structure.
 fn secondary_classifier_owns_composite_witness_validated_family(
     model: &'static EntityModel,
@@ -313,7 +313,7 @@ fn secondary_classifier_owns_composite_witness_validated_family(
         == Some(SecondaryWitnessValidatedCoveringCohort::CompositeOrderOnly)
 }
 
-// Classify one compact secondary-read authority context. The current `0.70.2`
+// Classify one compact secondary-read authority context. The current `0.70.x`
 // rule is intentionally narrow:
 // - non-covering or non-single-component routes stay on row checks
 // - invalid indexes fail closed
@@ -547,6 +547,11 @@ fn derive_flat_classifier_if_admissible(
 // Resolve the final executor-owned behavior profile for one concrete
 // store-backed secondary read without forcing callers to branch separately on
 // rich behavior and the optional flat projection.
+//
+// IMPORTANT: this resolver consumes immutable `SecondaryReadAuthoritySnapshot`
+// input only. Do not reintroduce `StoreHandle` or registry lookups here.
+// Lifecycle truth and synchronized witness bits must be captured once at the
+// registry boundary and then passed in as snapshot state.
 pub(in crate::db::executor) fn resolve_secondary_read_authority_profile(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,

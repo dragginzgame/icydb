@@ -4,12 +4,15 @@
 //! Boundary: centralizes structural entity identity plus evidence-backed
 //! secondary read authority.
 //!
-//! `0.70.2` keeps one explicit rule here:
+//! `0.70.x` keeps one explicit rule here:
 //! - `ResolvedSecondaryReadAuthorityProfile` is the canonical behavior source
 //! - flat classifier labels are projection-only compatibility surfaces
+//! - secondary read authority consumes immutable snapshot inputs from the
+//!   registry boundary instead of borrowing live `StoreHandle` state here
 //!
 //! Production code must not reintroduce classifier-driven correctness
-//! decisions outside this module boundary.
+//! decisions outside this module boundary, and `authority/read.rs` must stay
+//! snapshot-only for store-backed secondary read truth ingestion.
 
 mod entity;
 mod read;
