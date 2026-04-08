@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.70.x] 🧭 - 2026-04-07 - Planner-Gated Index Visibility
 
+- `0.70.7` closes the `0.68` to `0.70` design line in docs by marking the earlier covering-read plans as historical groundwork, recording `0.70` planner-gated visibility as the implemented current model, and clarifying that the discarded snapshot/authority notes are no longer active backlog.
 - `0.70.6` finishes the cleanup around planner-visible `Ready` indexes by making the visible-index boundary explicit in planning, extending the same fallback rule to filtered aggregate `EXPLAIN` surfaces, and simplifying the aggregate terminal and numeric runtime shapes while the last matrix checks stayed effectively flat.
 - `0.70.5` completes the new Option A direction for session-backed reads by hiding non-`Ready` indexes from planning entirely, so execution no longer carries index-correctness checks, `SHOW INDEXES` now reports `ready|building|dropping`, and building indexes now fall back to ordinary full-scan/materialized routes across core tests, generated SQL parity, and PocketIC.
 - `0.70.4` keeps the current covering-authority rules unchanged but moves secondary-read authority resolution onto one immutable snapshot taken from the live registry/store boundary, while also broadening aggregate query coverage and PocketIC perf baselines so the typed aggregate lane now has locked success, empty-window, reject, and explain behavior without widening policy by analogy.
