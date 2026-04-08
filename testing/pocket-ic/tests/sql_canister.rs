@@ -5928,6 +5928,188 @@ fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_orde
 }
 
 #[test]
+fn sql_canister_query_lane_planner_equality_prefix_suffix_order_offset_windows_preserve_ordered_rows()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let asc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "planner equality-prefix suffix-order ascending offset projection should succeed",
+        );
+        assert_projection_window(
+            &asc_rows,
+            "PlannerChoice",
+            &["tier", "handle"],
+            &[&["gold", "echo"], &["gold", "lima"]],
+            "planner equality-prefix suffix-order ascending offset projection should preserve the expected ordered window",
+        );
+
+        let desc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "planner equality-prefix suffix-order descending offset projection should succeed",
+        );
+        assert_projection_window(
+            &desc_rows,
+            "PlannerChoice",
+            &["tier", "handle"],
+            &[&["gold", "echo"], &["gold", "charlie"]],
+            "planner equality-prefix suffix-order descending offset projection should preserve the expected reversed ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner equality-prefix suffix-order offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexPrefixScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "offset=Uint(1)",
+            ],
+            &["IndexRangeLimitPushdown", "OrderByMaterializedSort"],
+            "planner equality-prefix suffix-order offset EXPLAIN EXECUTION should expose the bounded chosen prefix route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_equality_prefix_suffix_order_choice_desc_offset_reports_materialized_order_fallback()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner descending equality-prefix suffix-order offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexPrefixScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "OrderByMaterializedSort",
+                "scan_dir=Text(\"desc\")",
+                "offset=Uint(1)",
+            ],
+            &[
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+            ],
+            "planner descending equality-prefix suffix-order offset EXPLAIN EXECUTION should expose the chosen prefix route plus materialized order fallback",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_planner_unique_prefix_offset_windows_preserve_ordered_rows() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let asc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "unique-prefix ascending offset projection should succeed",
+        );
+        assert_projection_window(
+            &asc_rows,
+            "PlannerUniquePrefixChoice",
+            &["tier", "note"],
+            &[&["gold", "B"], &["gold", "C"]],
+            "unique-prefix ascending offset projection should preserve the expected ordered window",
+        );
+
+        let desc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "unique-prefix descending offset projection should succeed",
+        );
+        assert_projection_window(
+            &desc_rows,
+            "PlannerUniquePrefixChoice",
+            &["tier", "note"],
+            &[&["gold", "C"], &["gold", "B"]],
+            "unique-prefix descending offset projection should preserve the expected reversed ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_unique_prefix_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner unique-prefix ascending offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerUniquePrefixChoice",
+            &[
+                "IndexPrefixScan",
+                "PlannerUniquePrefixChoice|tier|handle",
+                "SecondaryOrderPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+            ],
+            &["OrderByMaterializedSort"],
+            "planner unique-prefix ascending offset EXPLAIN EXECUTION should expose the bounded ordered prefix route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_unique_prefix_offset_desc_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner unique-prefix descending offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerUniquePrefixChoice",
+            &[
+                "IndexPrefixScan",
+                "PlannerUniquePrefixChoice|tier|handle",
+                "SecondaryOrderPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "scan_dir=Text(\"desc\")",
+            ],
+            &["OrderByMaterializedSort"],
+            "planner unique-prefix descending offset EXPLAIN EXECUTION should expose the bounded ordered prefix route",
+        );
+    });
+}
+
+#[test]
 fn sql_canister_query_lane_explain_execution_planner_range_choice_reports_bounded_ordered_route() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         let payload = query_result(
@@ -5977,6 +6159,96 @@ fn sql_canister_query_lane_explain_execution_planner_range_choice_desc_reports_b
             ],
             &["TopNSeek"],
             "planner descending range-choice EXPLAIN EXECUTION should expose the bounded ordered range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_planner_range_offset_windows_preserve_ordered_rows() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let asc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "planner range ascending offset projection should succeed",
+        );
+        assert_projection_window(
+            &asc_rows,
+            "PlannerChoice",
+            &["tier", "handle"],
+            &[&["gold", "echo"], &["gold", "lima"]],
+            "planner range ascending offset projection should preserve the expected ordered window",
+        );
+
+        let desc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "planner range descending offset projection should succeed",
+        );
+        assert_projection_window(
+            &desc_rows,
+            "PlannerChoice",
+            &["tier", "handle"],
+            &[&["gold", "lima"], &["gold", "echo"]],
+            "planner range descending offset projection should preserve the expected reversed ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_range_choice_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner range-choice offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "OrderByAccessSatisfied",
+                "offset=Uint(1)",
+            ],
+            &["TopNSeek"],
+            "planner range-choice offset EXPLAIN EXECUTION should expose the bounded ordered range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_range_choice_desc_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner descending range-choice offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerChoice|tier|label|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "OrderByAccessSatisfied",
+                "scan_dir=Text(\"desc\")",
+                "offset=Uint(1)",
+            ],
+            &["TopNSeek"],
+            "planner descending range-choice offset EXPLAIN EXECUTION should expose the bounded ordered range route",
         );
     });
 }
@@ -6108,6 +6380,98 @@ fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice
             ],
             &[],
             "planner descending composite order-only EXPLAIN EXECUTION should expose the bounded ordered fallback route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_planner_composite_order_only_offset_windows_preserve_ordered_rows() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let asc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "planner composite order-only ascending offset projection should succeed",
+        );
+        assert_projection_window(
+            &asc_rows,
+            "PlannerPrefixChoice",
+            &["tier", "handle"],
+            &[&["gold", "charlie"], &["silver", "delta"]],
+            "planner composite order-only ascending offset projection should preserve the expected ordered window",
+        );
+
+        let desc_rows = query_projection_rows(
+            pic,
+            canister_id,
+            "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "planner composite order-only descending offset projection should succeed",
+        );
+        assert_projection_window(
+            &desc_rows,
+            "PlannerPrefixChoice",
+            &["tier", "handle"],
+            &[&["gold", "charlie"], &["gold", "bravo"]],
+            "planner composite order-only descending offset projection should preserve the expected reversed ordered window",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner composite order-only offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerPrefixChoice|tier|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "offset=Uint(1)",
+            ],
+            &["OrderByMaterializedSort"],
+            "planner composite order-only offset EXPLAIN EXECUTION should expose the bounded chosen index-range route",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_query_lane_explain_execution_planner_composite_order_only_choice_desc_offset_reports_bounded_ordered_route()
+ {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        let payload = query_result(
+            pic,
+            canister_id,
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+        )
+        .expect("planner descending composite order-only offset EXPLAIN EXECUTION should succeed");
+
+        assert_explain_route(
+            payload,
+            "PlannerPrefixChoice",
+            &[
+                "IndexRangeScan",
+                "PlannerPrefixChoice|tier|handle",
+                "SecondaryOrderPushdown",
+                "IndexRangeLimitPushdown",
+                "TopNSeek",
+                "OrderByAccessSatisfied",
+                "scan_dir=Text(\"desc\")",
+                "offset=Uint(1)",
+            ],
+            &["OrderByMaterializedSort"],
+            "planner descending composite order-only offset EXPLAIN EXECUTION should expose the bounded ordered fallback route",
         );
     });
 }

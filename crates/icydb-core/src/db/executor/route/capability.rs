@@ -80,16 +80,18 @@ pub(in crate::db::executor) fn load_order_route_contract_for_model(
 fn secondary_prefix_streaming_requires_materialized_boundary(plan: &AccessPlannedQuery) -> bool {
     let logical = plan.scalar_plan();
     let access_class = plan.access_strategy().class();
-    let Some((index, _prefix_len)) = access_class.single_path_index_prefix_details() else {
+    let Some((index, prefix_len)) = access_class.single_path_index_prefix_details() else {
         return false;
     };
 
-    // Offset windows over secondary-prefix routes still need the canonical
-    // materialized boundary so skip semantics and emitted continuations stay
-    // aligned with fallback execution.
+    // Offset windows over non-unique secondary-prefix routes still need the
+    // canonical materialized boundary unless the chosen equality prefix already
+    // collapses traversal to one suffix window. Bound ascending suffix-order
+    // shapes can keep one stable total order through the planner-owned PK
+    // tie-break, while unbound prefixes still fail closed here.
     let offset =
         usize::try_from(ExecutionKernel::effective_page_offset(plan, None)).unwrap_or(usize::MAX);
-    if offset > 0 {
+    if offset > 0 && !index.is_unique() && prefix_len == 0 {
         return true;
     }
 

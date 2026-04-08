@@ -159,3 +159,23 @@ pub struct PlannerChoice {}
     )
 )]
 pub struct PlannerPrefixChoice {}
+
+///
+/// PlannerUniquePrefixChoice
+///
+/// Technical deterministic-planning fixture used to lock offset-aware ordered
+/// secondary-prefix execution on one unique composite `(tier, handle)` index.
+///
+
+#[entity(
+    store = "SqlParityStore",
+    pk(field = "id"),
+    index(fields = "tier,handle", unique),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "tier", value(item(prim = "Text"))),
+        field(ident = "handle", value(item(prim = "Text"))),
+        field(ident = "note", value(item(prim = "Text")))
+    )
+)]
+pub struct PlannerUniquePrefixChoice {}

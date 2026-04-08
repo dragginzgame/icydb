@@ -1,6 +1,7 @@
 mod tests {
     use super::{
         Customer, CustomerAccount, CustomerOrder, PlannerChoice, PlannerPrefixChoice,
+        PlannerUniquePrefixChoice,
         SqlQueryResult, db, fixtures_load_default, fixtures_mark_customer_index_building,
         perf::{SqlPerfRequest, SqlPerfSurface, sample_sql_surface},
         sql_dispatch,
@@ -3864,6 +3865,138 @@ mod tests {
     }
 
     #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_offset_projection_matches_typed_surface(
+    ) {
+        assert_dispatch_result_matches_typed_as::<PlannerChoice>(
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice equality-prefix suffix-order offset projection parity",
+        );
+        assert_dispatch_result_matches_typed_as::<PlannerChoice>(
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerChoice equality-prefix suffix-order offset projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("offset=Uint(1)"),
+            "PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should expose the bounded chosen prefix route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
+        );
+        assert!(
+            !explain.contains("IndexRangeLimitPushdown"),
+            "PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should not claim index-range limit pushdown on an index-prefix route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_equality_prefix_suffix_order_desc_offset_explain_execution_reports_materialized_order_fallback(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label = 'bravo' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("OrderByMaterializedSort")
+                && explain.contains("scan_dir=Text(\"desc\")")
+                && explain.contains("offset=Uint(1)"),
+            "descending PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should expose the chosen prefix route plus materialized order fallback: {explain}",
+        );
+        assert!(
+            !explain.contains("IndexRangeLimitPushdown"),
+            "descending PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should not claim index-range limit pushdown on an index-prefix route: {explain}",
+        );
+        assert!(
+            !explain.contains("TopNSeek"),
+            "descending PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should stay off the ascending prefix Top-N seek shape: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByAccessSatisfied"),
+            "descending PlannerChoice equality-prefix suffix-order offset EXPLAIN EXECUTION should not claim access-satisfied ordering once it materializes sort order: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_unique_prefix_offset_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<PlannerUniquePrefixChoice>(
+            "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep unique-prefix ascending offset projection parity",
+        );
+        assert_dispatch_result_matches_typed_as::<PlannerUniquePrefixChoice>(
+            "SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep unique-prefix descending offset projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_unique_prefix_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("PlannerUniquePrefixChoice|tier|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied"),
+            "unique-prefix ascending offset EXPLAIN EXECUTION should expose the bounded chosen prefix route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "unique-prefix ascending offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_unique_prefix_offset_desc_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT tier, note FROM PlannerUniquePrefixChoice WHERE tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexPrefixScan")
+                && explain.contains("PlannerUniquePrefixChoice|tier|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("scan_dir=Text(\"desc\")"),
+            "unique-prefix descending offset EXPLAIN EXECUTION should expose the bounded chosen prefix route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "unique-prefix descending offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
+        );
+    }
+
+    #[test]
     fn generated_sql_dispatch_planner_choice_range_explain_execution_reports_bounded_ordered_route(
     ) {
         reload_default_fixtures();
@@ -3907,6 +4040,67 @@ mod tests {
         assert!(
             !explain.contains("TopNSeek"),
             "descending PlannerChoice range EXPLAIN EXECUTION should keep the range lane off the prefix-only Top-N seek shape: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_offset_projection_matches_typed_surface() {
+        assert_dispatch_result_matches_typed_as::<PlannerChoice>(
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerChoice range offset projection parity",
+        );
+        assert_dispatch_result_matches_typed_as::<PlannerChoice>(
+            "SELECT tier, handle FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerChoice range offset projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("offset=Uint(1)"),
+            "PlannerChoice range offset EXPLAIN EXECUTION should expose the bounded ordered range route on the chosen composite index: {explain}",
+        );
+        assert!(
+            !explain.contains("TopNSeek"),
+            "PlannerChoice range offset EXPLAIN EXECUTION should keep the range lane off the prefix-only Top-N seek shape: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_choice_range_desc_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT id, tier FROM PlannerChoice WHERE tier = 'gold' AND label >= 'br' AND label < 'd' ORDER BY label DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerChoice|tier|label|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("scan_dir=Text(\"desc\")")
+                && explain.contains("offset=Uint(1)"),
+            "descending PlannerChoice range offset EXPLAIN EXECUTION should expose the bounded ordered range route on the chosen composite index: {explain}",
+        );
+        assert!(
+            !explain.contains("TopNSeek"),
+            "descending PlannerChoice range offset EXPLAIN EXECUTION should keep the range lane off the prefix-only Top-N seek shape: {explain}",
         );
     }
 
@@ -4037,6 +4231,70 @@ mod tests {
                 && explain.contains("OrderByAccessSatisfied")
                 && explain.contains("scan_dir=Text(\"desc\")"),
             "descending PlannerPrefixChoice composite order-only EXPLAIN EXECUTION should expose the bounded chosen index-range route: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_offset_projection_matches_typed_surface(
+    ) {
+        assert_dispatch_result_matches_typed_as::<PlannerPrefixChoice>(
+            "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep PlannerPrefixChoice composite order-only ascending offset projection parity",
+        );
+        assert_dispatch_result_matches_typed_as::<PlannerPrefixChoice>(
+            "SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+            "typed execute_sql_dispatch and sql_dispatch should keep descending PlannerPrefixChoice composite order-only offset projection parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier ASC, handle ASC, id ASC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerPrefixChoice|tier|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("offset=Uint(1)"),
+            "PlannerPrefixChoice composite order-only offset EXPLAIN EXECUTION should expose the bounded chosen index-range route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "PlannerPrefixChoice composite order-only offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_planner_prefix_choice_composite_order_only_desc_offset_explain_execution_reports_bounded_ordered_route(
+    ) {
+        reload_default_fixtures();
+
+        let explain = dispatch_explain_for_sql(
+            "EXPLAIN EXECUTION SELECT tier, handle FROM PlannerPrefixChoice ORDER BY tier DESC, handle DESC, id DESC LIMIT 2 OFFSET 1",
+        );
+
+        assert!(
+            explain.contains("IndexRangeScan")
+                && explain.contains("PlannerPrefixChoice|tier|handle")
+                && explain.contains("SecondaryOrderPushdown")
+                && explain.contains("IndexRangeLimitPushdown")
+                && explain.contains("TopNSeek")
+                && explain.contains("OrderByAccessSatisfied")
+                && explain.contains("scan_dir=Text(\"desc\")")
+                && explain.contains("offset=Uint(1)"),
+            "descending PlannerPrefixChoice composite order-only offset EXPLAIN EXECUTION should expose the bounded chosen index-range route: {explain}",
+        );
+        assert!(
+            !explain.contains("OrderByMaterializedSort"),
+            "descending PlannerPrefixChoice composite order-only offset EXPLAIN EXECUTION should stay off the materialized order fallback lane: {explain}",
         );
     }
 

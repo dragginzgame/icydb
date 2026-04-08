@@ -3,5 +3,5 @@ pub mod schema;
 
 pub use schema::{
     Customer, CustomerAccount, CustomerOrder, CustomerOrderProfile, PlannerChoice,
-    PlannerPrefixChoice, SqlParityCanister, SqlParityStore,
+    PlannerPrefixChoice, PlannerUniquePrefixChoice, SqlParityCanister, SqlParityStore,
 };

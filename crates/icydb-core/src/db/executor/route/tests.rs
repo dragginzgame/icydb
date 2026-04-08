@@ -1247,6 +1247,188 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
 }
 
 #[test]
+fn route_matrix_load_index_range_offset_uses_bounded_limit_pushdown() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            ROUTE_CAPABILITY_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
+
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Streaming,
+        "offset-aware ordered index-range shapes should stay streaming when pushdown is admitted",
+    );
+    assert_eq!(
+        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+        Some(4),
+        "offset-aware ordered index-range shapes should derive offset+limit+1 fetch contracts",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(4),
+        "offset-aware ordered index-range shapes should keep scan-budget hints aligned with limit pushdown",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(4),
+        "offset-aware ordered index-range shapes should retain one generic bounded window hint alongside limit pushdown",
+    );
+}
+
+#[test]
+fn route_matrix_load_index_range_desc_offset_uses_bounded_limit_pushdown() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            ROUTE_CAPABILITY_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
+
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Streaming,
+        "descending offset-aware ordered index-range shapes should stay streaming when pushdown is admitted",
+    );
+    assert_eq!(
+        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+        Some(4),
+        "descending offset-aware ordered index-range shapes should derive offset+limit+1 fetch contracts",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(4),
+        "descending offset-aware ordered index-range shapes should keep scan-budget hints aligned with limit pushdown",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(4),
+        "descending offset-aware ordered index-range shapes should retain one generic bounded window hint alongside limit pushdown",
+    );
+}
+
+#[test]
+fn route_matrix_load_composite_order_only_offset_uses_bounded_limit_pushdown() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            vec![],
+            Bound::Unbounded,
+            Bound::Unbounded,
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("label".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
+
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Streaming,
+        "offset-aware composite order-only index-range shapes should stay streaming when pushdown is admitted",
+    );
+    assert_eq!(
+        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+        Some(4),
+        "offset-aware composite order-only index-range shapes should derive offset+limit+1 fetch contracts",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(4),
+        "offset-aware composite order-only index-range shapes should keep scan-budget hints aligned with limit pushdown",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(4),
+        "offset-aware composite order-only index-range shapes should retain one generic bounded window hint alongside limit pushdown",
+    );
+}
+
+#[test]
+fn route_matrix_load_composite_order_only_desc_offset_uses_bounded_limit_pushdown() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            vec![],
+            Bound::Unbounded,
+            Bound::Unbounded,
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("label".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
+
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Streaming,
+        "descending offset-aware composite order-only index-range shapes should stay streaming when pushdown is admitted",
+    );
+    assert_eq!(
+        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+        Some(4),
+        "descending offset-aware composite order-only index-range shapes should derive offset+limit+1 fetch contracts",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(4),
+        "descending offset-aware composite order-only index-range shapes should keep scan-budget hints aligned with limit pushdown",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(4),
+        "descending offset-aware composite order-only index-range shapes should retain one generic bounded window hint alongside limit pushdown",
+    );
+}
+
+#[test]
 fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdown() {
     let limit = 256_u32;
     let mut plan = AccessPlannedQuery::new(
@@ -1450,6 +1632,141 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
 }
 
 #[test]
+fn route_matrix_load_unique_secondary_order_offset_uses_bounded_top_n_seek() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+
+    let route_plan = build_unique_load_route_plan(&plan)
+        .expect("offset-sensitive unique secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::DirectStreaming,
+        "offset-sensitive unique secondary order should stay on the direct streaming contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Streaming,
+        "offset-sensitive unique secondary order should stay streaming",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(4),
+        "offset-sensitive unique secondary order should derive one offset-aware Top-N seek fetch window",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(4),
+        "offset-sensitive unique secondary order should derive one offset-aware scan-budget hint",
+    );
+}
+
+#[test]
+fn route_matrix_load_bound_non_unique_secondary_order_offset_uses_bounded_top_n_seek() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            values: vec![Value::Uint(10)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("label".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+
+    let route_plan = build_load_route_plan(&plan)
+        .expect("offset-sensitive bound non-unique secondary order route plan should build");
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::DirectStreaming,
+        "offset-sensitive bound non-unique secondary order should stay on the direct streaming contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Streaming,
+        "offset-sensitive bound non-unique secondary order should stay streaming",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(4),
+        "offset-sensitive bound non-unique secondary order should derive one offset-aware Top-N seek fetch window",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(4),
+        "offset-sensitive bound non-unique secondary order should derive one offset-aware scan-budget hint",
+    );
+}
+
+#[test]
+fn route_matrix_load_bound_non_unique_secondary_order_desc_offset_fails_closed_before_top_n() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            values: vec![Value::Uint(10)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("label".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+
+    let route_plan = build_load_route_plan(&plan).expect(
+        "offset-sensitive descending bound non-unique secondary order route plan should build",
+    );
+
+    assert_eq!(
+        route_plan.load_order_route_contract(),
+        LoadOrderRouteContract::MaterializedBoundary,
+        "offset-sensitive descending bound non-unique secondary order must fail closed to the materialized boundary contract",
+    );
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        RouteExecutionMode::Materialized,
+        "offset-sensitive descending bound non-unique secondary order must fail closed to materialized execution",
+    );
+    assert_eq!(
+        route_plan.top_n_seek_spec(),
+        None,
+        "offset-sensitive descending bound non-unique secondary order must not derive Top-N seek",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint, None,
+        "offset-sensitive descending bound non-unique secondary order must not derive bounded scan-budget hints",
+    );
+}
+
+#[test]
 fn route_matrix_load_non_unique_secondary_order_desc_limit_one_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
@@ -1534,7 +1851,7 @@ fn route_matrix_load_non_unique_secondary_order_desc_offset_fails_closed_before_
 }
 
 #[test]
-fn route_matrix_load_unique_secondary_order_desc_offset_stays_on_materialized_boundary() {
+fn route_matrix_load_unique_secondary_order_desc_offset_uses_bounded_top_n_seek() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
@@ -1558,18 +1875,23 @@ fn route_matrix_load_unique_secondary_order_desc_offset_stays_on_materialized_bo
 
     assert_eq!(
         route_plan.load_order_route_contract(),
-        LoadOrderRouteContract::MaterializedBoundary,
-        "offset-sensitive unique descending secondary order should keep the ordered materialized boundary contract",
+        LoadOrderRouteContract::DirectStreaming,
+        "offset-sensitive unique descending secondary order should stay on the direct streaming contract",
     );
     assert_eq!(
         route_plan.shape().execution_mode(),
-        RouteExecutionMode::Materialized,
-        "offset-sensitive unique descending secondary order must stay materialized",
+        RouteExecutionMode::Streaming,
+        "offset-sensitive unique descending secondary order should stay streaming",
     );
     assert_eq!(
-        route_plan.top_n_seek_spec(),
-        None,
-        "offset-sensitive unique descending secondary order must not derive top-n seek",
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+        Some(3),
+        "offset-sensitive unique descending secondary order should derive one offset-aware Top-N seek fetch window",
+    );
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(3),
+        "offset-sensitive unique descending secondary order should derive one offset-aware scan-budget hint",
     );
 }
 
