@@ -12,6 +12,7 @@ use crate::{
             assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
             assemble_load_execution_verbose_diagnostics_with_model,
             assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes,
+            route::AggregateRouteShape,
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
@@ -426,7 +427,7 @@ impl StructuralQuery {
     pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
-        aggregate: AggregateExpr,
+        aggregate: AggregateRouteShape<'_>,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
         let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
         let query_explain = plan.explain_with_model(self.intent.model());
@@ -453,13 +454,14 @@ impl StructuralQuery {
     where
         S: PreparedFluentAggregateExplainStrategy,
     {
-        let Some(aggregate) = strategy.project_explain_aggregate() else {
+        let Some(kind) = strategy.explain_aggregate_kind() else {
             return Err(QueryError::invariant(
                 "prepared fluent aggregate explain requires an explain-visible aggregate kind",
             ));
         };
+        let aggregate = AggregateRouteShape::new(kind, strategy.explain_projected_field());
 
-        self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate.clone())
+        self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate)
     }
 }
 
@@ -968,7 +970,7 @@ impl<E: EntityKind> Query<E> {
     {
         self.inner.explain_aggregate_terminal_with_visible_indexes(
             &VisibleIndexes::schema_owned(E::MODEL.indexes()),
-            aggregate,
+            AggregateRouteShape::from_aggregate_expr(&aggregate),
         )
     }
 
@@ -1049,17 +1051,19 @@ impl<E: EntityKind> Query<E> {
         let mut descriptor = executable
             .explain_load_execution_node_descriptor()
             .map_err(QueryError::execute)?;
+        let projection_descriptor = strategy.explain_descriptor();
 
-        descriptor
-            .node_properties
-            .insert("terminal", Value::from(strategy.explain_terminal_label()));
+        descriptor.node_properties.insert(
+            "terminal",
+            Value::from(projection_descriptor.terminal_label()),
+        );
         descriptor.node_properties.insert(
             "terminal_field",
-            Value::from(strategy.target_field().field().to_string()),
+            Value::from(projection_descriptor.field_label().to_string()),
         );
         descriptor.node_properties.insert(
             "terminal_output",
-            Value::from(strategy.explain_output_label()),
+            Value::from(projection_descriptor.output_label()),
         );
 
         Ok(descriptor)

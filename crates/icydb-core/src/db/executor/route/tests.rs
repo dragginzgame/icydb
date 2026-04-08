@@ -4,9 +4,9 @@
 //! Boundary: verifies this module API while keeping fixture details internal.
 
 use super::{
-    AGGREGATE_FAST_PATH_ORDER, ExecutionModeRouteCase, FastPathOrder, GroupedExecutionStrategy,
-    GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER, LoadOrderRouteContract,
-    LoadTerminalFastPathContract, RouteExecutionMode, TopNSeekSpec,
+    AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, ExecutionModeRouteCase, FastPathOrder,
+    GroupedExecutionStrategy, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
+    LoadOrderRouteContract, LoadTerminalFastPathContract, RouteExecutionMode, TopNSeekSpec,
     build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
@@ -248,7 +248,7 @@ fn build_aggregate_spec_route(
     build_execution_route_plan_for_aggregate_spec_with_model(
         RouteCapabilityEntity::MODEL,
         plan,
-        aggregate_expr,
+        AggregateRouteShape::from_aggregate_expr(&aggregate_expr),
         &execution_preparation,
     )
 }

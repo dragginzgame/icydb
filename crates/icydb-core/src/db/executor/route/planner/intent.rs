@@ -25,11 +25,11 @@ const fn route_shape_kind_for_intent(grouped: bool, kind: Option<AggregateKind>)
 }
 
 pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
-    intent: RouteIntent,
-) -> RouteIntentStage {
+    intent: RouteIntent<'_>,
+) -> RouteIntentStage<'_> {
     let stage = match intent {
         RouteIntent::Load => RouteIntentStage {
-            aggregate_expr: None,
+            aggregate_shape: None,
             grouped: false,
             route_shape_kind: route_shape_kind_for_intent(false, None),
             grouped_plan_strategy_hint: None,
@@ -42,7 +42,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
         } => {
             let aggregate_kind = aggregate.kind();
             RouteIntentStage {
-                aggregate_expr: Some(aggregate),
+                aggregate_shape: Some(aggregate),
                 grouped: false,
                 route_shape_kind: route_shape_kind_for_intent(false, Some(aggregate_kind)),
                 grouped_plan_strategy_hint: None,
@@ -54,7 +54,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
             grouped_plan_strategy_hint,
             aggregate_force_materialized_due_to_predicate_uncertainty,
         } => RouteIntentStage {
-            aggregate_expr: None,
+            aggregate_shape: None,
             grouped: true,
             route_shape_kind: route_shape_kind_for_intent(true, None),
             grouped_plan_strategy_hint: Some(grouped_plan_strategy_hint),
@@ -76,7 +76,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
         "route invariant: route intent must map to the canonical fast-path order contract",
     );
     debug_assert!(
-        !stage.grouped || stage.aggregate_expr.is_none() && stage.fast_path_order.is_empty(),
+        !stage.grouped || stage.aggregate_shape.is_none() && stage.fast_path_order.is_empty(),
         "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
     );
     let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());

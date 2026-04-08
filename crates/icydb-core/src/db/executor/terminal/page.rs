@@ -28,6 +28,72 @@ use crate::{
 use std::{borrow::Cow, marker::PhantomData, ptr};
 
 ///
+/// RetainedSlotRow
+///
+/// RetainedSlotRow keeps only the caller-declared decoded slot values for one
+/// SQL-only structural row.
+/// The slot-only execution path uses this sparse retained shape so it does not
+/// collapse back into full-width `Vec<Option<Value>>` buffers before
+/// projection materialization.
+///
+
+pub(in crate::db::executor) struct RetainedSlotRow {
+    slot_count: usize,
+    entries: Vec<(usize, Value)>,
+}
+
+impl RetainedSlotRow {
+    /// Build one retained slot row from sparse decoded `(slot, value)` pairs.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        slot_count: usize,
+        entries: Vec<(usize, Value)>,
+    ) -> Self {
+        Self {
+            slot_count,
+            entries,
+        }
+    }
+
+    /// Borrow one retained slot value without cloning it back out of the row.
+    #[must_use]
+    pub(in crate::db::executor) fn slot_ref(&self, slot: usize) -> Option<&Value> {
+        self.entries
+            .iter()
+            .find_map(|(index, value)| (*index == slot).then_some(value))
+    }
+
+    /// Clone one retained slot value for generic projection readers.
+    #[must_use]
+    pub(in crate::db::executor) fn slot(&self, slot: usize) -> Option<Value> {
+        self.slot_ref(slot).cloned()
+    }
+
+    /// Remove one retained slot value by slot index while consuming the row in
+    /// direct field-projection paths.
+    pub(in crate::db::executor) fn take_slot(&mut self, slot: usize) -> Option<Value> {
+        let position = self.entries.iter().position(|(index, _)| *index == slot)?;
+
+        Some(self.entries.swap_remove(position).1)
+    }
+
+    /// Expand this retained row back into one dense slot vector only when a
+    /// caller still requires the legacy full-width slot image.
+    #[must_use]
+    pub(in crate::db::executor) fn into_dense_slots(self) -> Vec<Option<Value>> {
+        let mut slots = vec![None; self.slot_count];
+
+        for (slot, value) in self.entries {
+            if let Some(entry) = slots.get_mut(slot) {
+                *entry = Some(value);
+            }
+        }
+
+        slots
+    }
+}
+
+///
 /// KernelRow
 ///
 /// Non-generic scalar-kernel row envelope used by shared ordering/cursor/page
@@ -36,7 +102,12 @@ use std::{borrow::Cow, marker::PhantomData, ptr};
 
 pub(in crate::db) struct KernelRow {
     data_row: Option<DataRow>,
-    slots: Vec<Option<Value>>,
+    slots: KernelRowSlots,
+}
+
+enum KernelRowSlots {
+    Dense(Vec<Option<Value>>),
+    Retained(RetainedSlotRow),
 }
 
 impl KernelRow {
@@ -46,16 +117,16 @@ impl KernelRow {
     pub(in crate::db) const fn new(data_row: DataRow, slots: Vec<Option<Value>>) -> Self {
         Self {
             data_row: Some(data_row),
-            slots,
+            slots: KernelRowSlots::Dense(slots),
         }
     }
 
     /// Build one structural kernel row that retains only decoded slot values.
     #[must_use]
-    pub(in crate::db::executor) const fn new_slot_only(slots: Vec<Option<Value>>) -> Self {
+    pub(in crate::db::executor) const fn new_slot_only(slots: RetainedSlotRow) -> Self {
         Self {
             data_row: None,
-            slots,
+            slots: KernelRowSlots::Retained(slots),
         }
     }
 
@@ -63,7 +134,10 @@ impl KernelRow {
     /// structural row cache.
     #[must_use]
     pub(in crate::db) fn slot_ref(&self, slot: usize) -> Option<&Value> {
-        self.slots.get(slot).and_then(Option::as_ref)
+        match &self.slots {
+            KernelRowSlots::Dense(slots) => slots.get(slot).and_then(Option::as_ref),
+            KernelRowSlots::Retained(slots) => slots.slot_ref(slot),
+        }
     }
 
     pub(in crate::db) fn slot(&self, slot: usize) -> Option<Value> {
@@ -79,7 +153,26 @@ impl KernelRow {
     }
 
     pub(in crate::db) fn into_slots(self) -> Vec<Option<Value>> {
-        self.slots
+        match self.slots {
+            KernelRowSlots::Dense(slots) => slots,
+            KernelRowSlots::Retained(slots) => slots.into_dense_slots(),
+        }
+    }
+
+    pub(in crate::db::executor) fn into_retained_slot_row(self) -> RetainedSlotRow {
+        match self.slots {
+            KernelRowSlots::Dense(slots) => {
+                let slot_count = slots.len();
+                let entries = slots
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(slot, value)| value.map(|value| (slot, value)))
+                    .collect();
+
+                RetainedSlotRow::new(slot_count, entries)
+            }
+            KernelRowSlots::Retained(slots) => slots,
+        }
     }
 
     #[cfg(feature = "sql")]
@@ -90,6 +183,11 @@ impl KernelRow {
                 "slot-only kernel row reached delete row materialization path",
             )
         })?;
+
+        let slots = match slots {
+            KernelRowSlots::Dense(slots) => slots,
+            KernelRowSlots::Retained(slots) => slots.into_dense_slots(),
+        };
 
         Ok((data_row, slots))
     }
@@ -319,7 +417,10 @@ pub(in crate::db::executor) fn materialize_key_stream_into_structural_page<'a>(
     #[cfg(feature = "sql")]
     let page = if retain_slot_rows {
         let row_count = rows.len();
-        let slot_rows = rows.into_iter().map(KernelRow::into_slots).collect();
+        let slot_rows = rows
+            .into_iter()
+            .map(KernelRow::into_retained_slot_row)
+            .collect();
         StructuralCursorPage::new_with_slot_rows(slot_rows, row_count, next_cursor)
     } else {
         let data_rows = rows

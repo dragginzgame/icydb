@@ -336,6 +336,21 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
     Ok(value)
 }
 
+// Extract one field value from one already-decoded retained slot and enforce
+// the declared runtime field kind without rebuilding a slot-reader closure at
+// each retained-slot callsite.
+pub(in crate::db::executor) fn extract_orderable_field_value_from_decoded_slot(
+    target_field: &str,
+    field_slot: FieldSlot,
+    decoded_value: Option<Value>,
+) -> Result<Value, AggregateFieldValueError> {
+    let mut decoded_value = decoded_value;
+
+    extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |_| {
+        decoded_value.take()
+    })
+}
+
 /// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
 pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
     target_field: &str,
@@ -344,6 +359,27 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
 ) -> Result<Decimal, AggregateFieldValueError> {
     let value =
         extract_orderable_field_value_with_slot_reader(target_field, field_slot, read_slot)?;
+    let Some(decimal) = coerce_numeric_decimal(&value) else {
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
+            field: target_field.to_string(),
+            kind: field_slot.kind,
+            value: Box::new(value),
+        });
+    };
+
+    Ok(decimal)
+}
+
+// Extract one numeric field value as `Decimal` from one already-decoded
+// retained slot without rebuilding a one-shot slot-reader closure at each
+// retained-slot numeric callsite.
+pub(in crate::db::executor) fn extract_numeric_field_decimal_from_decoded_slot(
+    target_field: &str,
+    field_slot: FieldSlot,
+    decoded_value: Option<Value>,
+) -> Result<Decimal, AggregateFieldValueError> {
+    let value =
+        extract_orderable_field_value_from_decoded_slot(target_field, field_slot, decoded_value)?;
     let Some(decimal) = coerce_numeric_decimal(&value) else {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),

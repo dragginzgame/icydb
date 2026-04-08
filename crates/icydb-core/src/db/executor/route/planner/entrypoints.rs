@@ -11,17 +11,14 @@ use crate::{
             continuation::ScalarContinuationContext,
             preparation::resolved_index_slots_for_access_path,
             route::{
-                ExecutionRoutePlan, LoadTerminalFastPathContract, RouteIntent,
+                AggregateRouteShape, ExecutionRoutePlan, LoadTerminalFastPathContract, RouteIntent,
                 aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
                 derive_execution_capabilities_for_model,
                 derive_load_terminal_fast_path_contract_for_model_plan,
                 pk_order_stream_fast_path_shape_supported_for_model,
             },
         },
-        query::{
-            builder::AggregateExpr,
-            plan::{AccessPlannedQuery, PlannerRouteProfile},
-        },
+        query::plan::{AccessPlannedQuery, PlannerRouteProfile},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -95,7 +92,7 @@ pub(in crate::db::executor) fn build_execution_route_plan_for_mutation_with_mode
 pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_with_model(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
     execution_preparation: &ExecutionPreparation,
 ) -> ExecutionPlan {
     build_initial_execution_route_plan_for_model(
@@ -117,7 +114,7 @@ fn build_execution_route_plan_for_model(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
-    intent: RouteIntent,
+    intent: RouteIntent<'_>,
 ) -> ExecutionRoutePlan {
     let load_terminal_fast_path = match &intent {
         RouteIntent::Load => derive_load_terminal_fast_path_contract_for_model_plan(model, plan),
@@ -174,7 +171,7 @@ fn build_initial_execution_route_plan_for_model(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     probe_fetch_hint: Option<usize>,
-    intent: RouteIntent,
+    intent: RouteIntent<'_>,
 ) -> ExecutionRoutePlan {
     let continuation = ScalarContinuationContext::initial();
 
@@ -183,7 +180,7 @@ fn build_initial_execution_route_plan_for_model(
 
 // Build one shared execution route contract from intent + feasibility stages.
 fn build_execution_route_plan_from_stages(
-    intent_stage: RouteIntentStage,
+    intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 ) -> ExecutionRoutePlan {
@@ -200,7 +197,7 @@ fn build_execution_route_plan_from_stages(
 }
 
 fn assemble_execution_route_plan(
-    intent_stage: RouteIntentStage,
+    intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
     execution_stage: RouteExecutionStage,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,

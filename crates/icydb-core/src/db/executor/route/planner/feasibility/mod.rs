@@ -12,16 +12,15 @@ use crate::{
             aggregate::AggregateKind,
             continuation::ScalarContinuationContext,
             route::{
-                RouteContinuationPlan, ScanHintPlan, aggregate_probe_fetch_hint_for_model,
-                aggregate_seek_spec_for_model, assess_index_range_limit_pushdown_for_model,
-                count_pushdown_fetch_hint, derive_aggregate_route_direction,
-                derive_execution_capabilities_for_model, derive_load_route_direction,
-                load_scan_budget_hint,
+                AggregateRouteShape, RouteContinuationPlan, ScanHintPlan,
+                aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model,
+                assess_index_range_limit_pushdown_for_model, count_pushdown_fetch_hint,
+                derive_aggregate_route_direction, derive_execution_capabilities_for_model,
+                derive_load_route_direction, load_scan_budget_hint,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
                 top_n_seek_spec_for_model,
             },
         },
-        query::builder::AggregateExpr,
         query::plan::{
             AccessPlannedQuery, GroupedPlanStrategyHint, LogicalPushdownEligibility,
             PlannerRouteProfile,
@@ -41,7 +40,7 @@ pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stag
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
     planner_route_profile: &PlannerRouteProfile,
-    intent_stage: &RouteIntentStage,
+    intent_stage: &RouteIntentStage<'_>,
 ) -> RouteFeasibilityStage {
     let continuation_policy = *planner_route_profile.continuation_policy();
     let route_continuation = continuation.route_continuation_plan(plan, continuation_policy);
@@ -130,12 +129,12 @@ pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stag
 pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-    intent_stage: &RouteIntentStage,
+    intent_stage: &RouteIntentStage<'_>,
     logical_pushdown_eligibility: LogicalPushdownEligibility,
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
 ) -> RouteDerivationContext {
-    let aggregate_expr = intent_stage.aggregate_expr.as_ref();
+    let aggregate_shape = intent_stage.aggregate_shape;
     let grouped = intent_stage.grouped;
     let grouped_plan_strategy_hint = intent_stage.grouped_plan_strategy_hint;
     let secondary_pushdown_applicability =
@@ -144,13 +143,13 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
             plan,
             logical_pushdown_eligibility,
         );
-    let direction = aggregate_expr.map_or_else(
+    let direction = aggregate_shape.map_or_else(
         || derive_load_route_direction(plan),
         |aggregate| derive_aggregate_route_direction(plan, aggregate),
     );
     let capabilities =
-        derive_execution_capabilities_for_model(model, plan, direction, aggregate_expr);
-    let kind = aggregate_expr.map(AggregateExpr::kind);
+        derive_execution_capabilities_for_model(model, plan, direction, aggregate_shape);
+    let kind: Option<AggregateKind> = aggregate_shape.map(AggregateRouteShape::kind);
     let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
         aggregate_kind.is_count()
             && (capabilities.count_pushdown_shape_supported
@@ -162,7 +161,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
     let count_pushdown_probe_fetch_hint = count_pushdown_eligible
         .then(|| count_pushdown_fetch_hint(keep_access_window, capabilities))
         .flatten();
-    let aggregate_terminal_probe_fetch_hint = aggregate_expr.and_then(|aggregate| {
+    let aggregate_terminal_probe_fetch_hint = aggregate_shape.and_then(|aggregate| {
         aggregate_probe_fetch_hint_for_model(
             model,
             plan,
@@ -172,7 +171,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
             keep_access_window,
         )
     });
-    let aggregate_seek_spec = aggregate_expr.and_then(|aggregate| {
+    let aggregate_seek_spec = aggregate_shape.and_then(|aggregate| {
         aggregate_seek_spec_for_model(
             model,
             plan,

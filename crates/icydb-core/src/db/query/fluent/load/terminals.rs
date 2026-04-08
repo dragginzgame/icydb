@@ -111,10 +111,12 @@ where
     where
         E: EntityValue,
     {
+        let runtime_request = strategy.into_runtime_request();
+
         self.execute_scalar_non_paged_terminal(move |load, plan| {
             load.execute_scalar_terminal_request(
                 plan,
-                scalar_terminal_boundary_request_from_prepared(strategy.runtime_request().clone()),
+                scalar_terminal_boundary_request_from_prepared(runtime_request),
             )
         })
     }
@@ -129,12 +131,12 @@ where
     where
         E: EntityValue,
     {
+        let runtime_request = strategy.into_runtime_request();
+
         self.execute_scalar_non_paged_terminal(move |load, plan| {
             load.execute_scalar_terminal_request(
                 plan,
-                existing_rows_terminal_boundary_request_from_prepared(
-                    strategy.runtime_request().clone(),
-                ),
+                existing_rows_terminal_boundary_request_from_prepared(runtime_request),
             )
         })
     }
@@ -149,11 +151,13 @@ where
     where
         E: EntityValue,
     {
+        let (target_field, runtime_request) = strategy.into_runtime_parts();
+
         self.execute_scalar_non_paged_terminal(move |load, plan| {
             load.execute_numeric_field_boundary(
                 plan,
-                strategy.target_field().clone(),
-                numeric_field_boundary_request_from_prepared(strategy.runtime_request()),
+                target_field,
+                numeric_field_boundary_request_from_prepared(runtime_request),
             )
         })
     }
@@ -168,12 +172,12 @@ where
     where
         E: EntityValue,
     {
+        let runtime_request = strategy.into_runtime_request();
+
         self.execute_scalar_non_paged_terminal(move |load, plan| {
             load.execute_scalar_terminal_request(
                 plan,
-                order_sensitive_terminal_boundary_request_from_prepared(
-                    strategy.runtime_request().clone(),
-                ),
+                order_sensitive_terminal_boundary_request_from_prepared(runtime_request),
             )
         })
     }
@@ -188,11 +192,13 @@ where
     where
         E: EntityValue,
     {
+        let (target_field, runtime_request) = strategy.into_runtime_parts();
+
         self.execute_scalar_non_paged_terminal(move |load, plan| {
             load.execute_scalar_projection_boundary(
                 plan,
-                strategy.target_field().clone(),
-                projection_boundary_request_from_prepared(strategy.runtime_request()),
+                target_field,
+                projection_boundary_request_from_prepared(runtime_request),
             )
         })
     }

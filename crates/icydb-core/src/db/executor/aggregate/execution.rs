@@ -491,8 +491,8 @@ pub(in crate::db::executor) enum PreparedScalarProjectionStrategy {
 ///
 /// PreparedScalarProjectionBoundary is the plan-free scalar projection
 /// contract derived once at the typed boundary.
-/// It captures the resolved field slot, operation kind, and prepared
-/// execution strategy without retaining `ExecutablePlan<E>`.
+/// It captures the resolved field slot and operation kind without retaining
+/// `ExecutablePlan<E>`.
 ///
 
 #[derive(Clone, Debug)]
@@ -500,7 +500,6 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
     pub(in crate::db::executor) target_field_name: String,
     pub(in crate::db::executor) field_slot: FieldSlot,
     pub(in crate::db::executor) op: PreparedScalarProjectionOp,
-    pub(in crate::db::executor) strategy: PreparedScalarProjectionStrategy,
 }
 
 ///
@@ -508,12 +507,13 @@ pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
 ///
 /// PreparedScalarProjectionExecutionState combines the non-generic prepared
 /// projection contract with the runtime payload required to execute it.
-/// The executor matches only the boundary contract; typed state remains an
-/// opaque runtime dependency rather than a policy source.
+/// The executor matches the prepared strategy directly while treating the
+/// projection boundary as the stable contract for downstream helpers.
 ///
 
 pub(in crate::db::executor) struct PreparedScalarProjectionExecutionState<'ctx> {
     pub(in crate::db::executor) boundary: PreparedScalarProjectionBoundary,
+    pub(in crate::db::executor) strategy: PreparedScalarProjectionStrategy,
     pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 

@@ -378,6 +378,9 @@ enum SqlPerfSurface {
     TypedExecuteSqlGroupedCustomer,
     TypedExecuteSqlGroupedCustomerSecondPage,
     TypedExecuteSqlAggregateCustomer,
+    FluentExplainCustomerExists,
+    FluentExplainCustomerMin,
+    FluentExplainCustomerLast,
     FluentExplainCustomerSumByAge,
     FluentExplainCustomerAvgDistinctByAge,
     FluentExplainCustomerCountDistinctByAge,
@@ -712,6 +715,18 @@ fn sql_perf_probe_sample_surface() -> SqlPerfSurface {
         | "typed_execute_sql_aggregate_customer"
         | "typedexecutesqlaggregateuser"
         | "typed_execute_sql_aggregate_user" => SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
+        "fluentexplaincustomerexists"
+        | "fluent_explain_customer_exists"
+        | "fluentexplainexists"
+        | "fluent_explain_exists" => SqlPerfSurface::FluentExplainCustomerExists,
+        "fluentexplaincustomermin"
+        | "fluent_explain_customer_min"
+        | "fluentexplainmin"
+        | "fluent_explain_min" => SqlPerfSurface::FluentExplainCustomerMin,
+        "fluentexplaincustomerlast"
+        | "fluent_explain_customer_last"
+        | "fluentexplainlast"
+        | "fluent_explain_last" => SqlPerfSurface::FluentExplainCustomerLast,
         "fluentexplaincustomersumbyage"
         | "fluent_explain_customer_sum_by_age"
         | "fluentexplainsumbyage"
@@ -3190,6 +3205,21 @@ fn sql_canister_perf_typed_execute_sql_aggregate_customer_numeric_surfaces_expec
 fn sql_canister_perf_fluent_aggregate_explain_customer_surfaces_report_explain_outcomes() {
     run_with_loaded_sql_parity_canister(|pic, canister_id| {
         for (surface, sql, label) in [
+            (
+                SqlPerfSurface::FluentExplainCustomerExists,
+                "FLUENT EXPLAIN Customer EXISTS",
+                "fluent explain_exists()",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerMin,
+                "FLUENT EXPLAIN Customer MIN",
+                "fluent explain_min()",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerLast,
+                "FLUENT EXPLAIN Customer LAST",
+                "fluent explain_last()",
+            ),
             (
                 SqlPerfSurface::FluentExplainCustomerSumByAge,
                 "FLUENT EXPLAIN Customer SUM BY age",
@@ -6365,6 +6395,33 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::GeneratedDispatch,
                     sql: "EXPLAIN SELECT COUNT(*) FROM Customer".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.exists",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerExists,
+                    sql: "FLUENT EXPLAIN Customer EXISTS".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.min",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerMin,
+                    sql: "FLUENT EXPLAIN Customer MIN".to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "fluent.aggregate.explain.customer.last",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::FluentExplainCustomerLast,
+                    sql: "FLUENT EXPLAIN Customer LAST".to_string(),
                     cursor_token: None,
                     repeat_count: 5,
                 },

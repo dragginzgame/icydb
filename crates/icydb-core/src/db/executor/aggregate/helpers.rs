@@ -11,7 +11,7 @@ use crate::{
             aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
-                extract_orderable_field_value_with_slot_reader,
+                extract_orderable_field_value_from_decoded_slot,
             },
             drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
@@ -255,18 +255,19 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<(StorageKey, Value)>, InternalError> {
-        let row_decoder = RowDecoder::structural();
         let mut projected = Vec::with_capacity(rows.len());
 
         for (data_key, raw_row) in rows {
             let storage_key = data_key.storage_key();
-            let kernel_row = row_decoder.decode(row_layout, (data_key, raw_row))?;
-            let value = extract_orderable_field_value_with_slot_reader(
-                target_field,
-                field_slot,
-                &mut |index| kernel_row.slot(index),
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                storage_key,
+                &raw_row,
+                field_slot.index,
+            )?;
+            let value =
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
             projected.push((storage_key, value));
         }
 
@@ -299,23 +300,18 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let row_decoder = RowDecoder::structural();
-        let Some(row) = Self::read_kernel_row_for_field_aggregate(
-            store,
-            row_layout,
-            row_decoder,
-            consistency,
-            key,
-        )?
-        else {
+        let Some(row) = read_data_row_with_consistency_from_store(store, key, consistency)? else {
             return Ok(None);
         };
-        let value = extract_orderable_field_value_with_slot_reader(
-            target_field,
-            field_slot,
-            &mut |index| row.slot(index),
-        )
-        .map_err(AggregateFieldValueError::into_internal_error)?;
+        let value = RowDecoder::decode_required_slot_value(
+            row_layout,
+            key.storage_key(),
+            &row.1,
+            field_slot.index,
+        )?;
+        let value =
+            extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
 
         Ok(Some(value))
     }

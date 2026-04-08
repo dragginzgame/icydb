@@ -21,6 +21,7 @@ use crate::{
                     visit_projection_values_with_required_value_reader,
                 },
             },
+            terminal::RetainedSlotRow,
         },
         query::plan::{
             AccessPlannedQuery,
@@ -312,7 +313,7 @@ fn render_sql_projection_enum(value: &ValueEnum) -> String {
 fn project_slot_rows_from_projection_structural(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
-    rows: Vec<Vec<Option<Value>>>,
+    rows: Vec<RetainedSlotRow>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     if let Some(field_slots) = direct_projection_field_slots(model, projection) {
         return project_slot_rows_from_direct_field_slots(rows, field_slots.as_slice());
@@ -327,14 +328,14 @@ fn project_slot_rows_from_projection_structural(
 fn project_dense_slot_rows_from_projection_structural(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
-    rows: Vec<Vec<Option<Value>>>,
+    rows: Vec<RetainedSlotRow>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let prepared = prepare_projection_plan(model, projection);
     let mut projected_rows = Vec::with_capacity(rows.len());
 
     for row in &rows {
         let mut values = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot: usize| row.get(slot).cloned().flatten();
+        let mut read_slot = |slot: usize| row.slot(slot);
         visit_prepared_projection_values_with_value_reader(
             &prepared,
             projection,
@@ -354,7 +355,7 @@ fn project_dense_slot_rows_from_projection_structural(
 #[cfg(feature = "sql")]
 // Project one retained dense slot-row page through direct field-slot copies only.
 fn project_slot_rows_from_direct_field_slots(
-    rows: Vec<Vec<Option<Value>>>,
+    rows: Vec<RetainedSlotRow>,
     field_slots: &[(String, usize)],
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(rows.len());
@@ -363,8 +364,7 @@ fn project_slot_rows_from_direct_field_slots(
         let mut values = Vec::with_capacity(field_slots.len());
         for (field_name, slot) in field_slots {
             let value = row
-                .get_mut(*slot)
-                .and_then(Option::take)
+                .take_slot(*slot)
                 .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
                     field: field_name.clone(),
                     index: *slot,

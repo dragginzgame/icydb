@@ -24,6 +24,7 @@ use crate::{
                 PreparedScalarProjectionStrategy, ScalarProjectionWindow,
                 field::{
                     AggregateFieldValueError, FieldSlot,
+                    extract_orderable_field_value_from_decoded_slot,
                     extract_orderable_field_value_with_slot_reader,
                     resolve_any_aggregate_target_slot_from_planner_slot_with_model,
                     resolve_orderable_aggregate_target_slot_from_planner_slot_with_model,
@@ -217,8 +218,8 @@ where
                 target_field_name,
                 field_slot,
                 op,
-                strategy,
             },
+            strategy,
             prepared,
         })
     }
@@ -229,13 +230,25 @@ where
         &self,
         prepared_state: PreparedScalarProjectionExecutionState<'_>,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
-        let PreparedScalarProjectionExecutionState { boundary, prepared } = prepared_state;
-        let row_layout = RowLayout::from_model(prepared.authority.model());
+        let PreparedScalarProjectionExecutionState {
+            boundary,
+            strategy,
+            prepared,
+        } = prepared_state;
 
-        match boundary.strategy.clone() {
-            PreparedScalarProjectionStrategy::Materialized => self
-                .execute_materialized_scalar_projection_boundary(boundary, prepared, &row_layout),
+        match strategy {
+            PreparedScalarProjectionStrategy::Materialized => {
+                let row_layout = RowLayout::from_model(prepared.authority.model());
+
+                self.execute_materialized_scalar_projection_boundary(
+                    boundary,
+                    prepared,
+                    &row_layout,
+                )
+            }
             PreparedScalarProjectionStrategy::StreamingCountNonNull { direction } => {
+                let row_layout = RowLayout::from_model(prepared.authority.model());
+
                 Self::execute_streaming_count_non_null_scalar_projection_boundary(
                     boundary,
                     prepared,
@@ -729,17 +742,18 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u32, InternalError> {
-        let row_decoder = RowDecoder::structural();
         let mut count = 0_u32;
 
         for (data_key, raw_row) in rows {
-            let row = row_decoder.decode(row_layout, (data_key, raw_row))?;
-            let value = extract_orderable_field_value_with_slot_reader(
-                target_field,
-                field_slot,
-                &mut |index| row.slot(index),
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                data_key.storage_key(),
+                &raw_row,
+                field_slot.index,
+            )?;
+            let value =
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
 
             if !matches!(value, Value::Null) {
                 count = count.saturating_add(1);
@@ -757,18 +771,18 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<ValueProjection, InternalError> {
-        let row_decoder = RowDecoder::structural();
-
         rows.into_iter()
             .map(|(data_key, raw_row)| {
-                let row = row_decoder.decode(row_layout, (data_key.clone(), raw_row))?;
-                extract_orderable_field_value_with_slot_reader(
-                    target_field,
-                    field_slot,
-                    &mut |index| row.slot(index),
-                )
-                .map(|value| (data_key, value))
-                .map_err(AggregateFieldValueError::into_internal_error)
+                let value = RowDecoder::decode_required_slot_value(
+                    row_layout,
+                    data_key.storage_key(),
+                    &raw_row,
+                    field_slot.index,
+                )?;
+
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map(|value| (data_key, value))
+                    .map_err(AggregateFieldValueError::into_internal_error)
             })
             .collect()
     }
@@ -844,7 +858,7 @@ where
             prepared.consistency(),
             covering_requires_row_presence_check(),
             "aggregate covering projection expected one decoded component",
-            |value| Ok(value.clone()),
+            Ok,
         )?
         else {
             return Ok(None);

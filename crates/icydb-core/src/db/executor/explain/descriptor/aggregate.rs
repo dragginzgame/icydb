@@ -7,10 +7,12 @@ use crate::db::{
     executor::{
         ExecutionPreparation,
         preparation::slot_map_for_model_plan,
-        route::{AggregateSeekSpec, build_execution_route_plan_for_aggregate_spec_with_model},
+        route::{
+            AggregateRouteShape, AggregateSeekSpec,
+            build_execution_route_plan_for_aggregate_spec_with_model,
+        },
     },
     query::{
-        builder::AggregateExpr,
         explain::{
             ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor,
             ExplainExecutionOrderingSource,
@@ -31,17 +33,16 @@ use crate::db::executor::explain::descriptor::shared::{
 pub(in crate::db) fn assemble_aggregate_terminal_execution_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
 ) -> ExplainExecutionDescriptor {
     let aggregation = aggregate.kind();
-    let projected_field = aggregate.target_field().map(str::to_string);
 
     assemble_aggregate_terminal_execution_descriptor(
         model,
         plan,
         aggregate,
         aggregation,
-        projected_field.as_deref(),
+        aggregate.target_field(),
     )
 }
 
@@ -57,7 +58,7 @@ pub(in crate::db) fn assemble_prepared_sql_scalar_aggregate_execution_descriptor
     assemble_aggregate_terminal_execution_descriptor(
         model,
         plan,
-        strategy.aggregate().clone(),
+        AggregateRouteShape::new(strategy.aggregate_kind(), strategy.projected_field()),
         strategy.aggregate_kind(),
         strategy.projected_field(),
     )
@@ -66,7 +67,7 @@ pub(in crate::db) fn assemble_prepared_sql_scalar_aggregate_execution_descriptor
 fn assemble_aggregate_terminal_execution_descriptor(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
     aggregation: crate::db::query::plan::AggregateKind,
     projected_field: Option<&str>,
 ) -> ExplainExecutionDescriptor {

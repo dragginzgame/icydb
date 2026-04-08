@@ -9,12 +9,12 @@ use crate::db::{
     executor::{
         aggregate::{AggregateFoldMode, AggregateKind},
         route::{
-            AggregateSeekSpec, ExecutionModeRouteCase, FastPathOrder, GroupedExecutionStrategy,
-            IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan, RouteExecutionMode,
-            RouteShapeKind, ScanHintPlan, TopNSeekSpec,
+            AggregateRouteShape, AggregateSeekSpec, ExecutionModeRouteCase, FastPathOrder,
+            GroupedExecutionStrategy, IndexRangeLimitSpec, RouteCapabilities,
+            RouteContinuationPlan, RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
         },
     },
-    query::{builder::AggregateExpr, plan::GroupedPlanStrategyHint},
+    query::plan::GroupedPlanStrategyHint,
 };
 
 ///
@@ -47,8 +47,8 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
 /// forcing policy in one typed boundary.
 ///
 
-pub(in crate::db::executor::route::planner) struct RouteIntentStage {
-    pub(in crate::db::executor::route::planner) aggregate_expr: Option<AggregateExpr>,
+pub(in crate::db::executor::route::planner) struct RouteIntentStage<'a> {
+    pub(in crate::db::executor::route::planner) aggregate_shape: Option<AggregateRouteShape<'a>>,
     pub(in crate::db::executor::route::planner) grouped: bool,
     pub(in crate::db::executor::route::planner) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor::route::planner) grouped_plan_strategy_hint:
@@ -58,10 +58,10 @@ pub(in crate::db::executor::route::planner) struct RouteIntentStage {
         bool,
 }
 
-impl RouteIntentStage {
+impl RouteIntentStage<'_> {
     /// Return aggregate kind carried by this intent stage, if any.
     pub(in crate::db::executor::route::planner) fn kind(&self) -> Option<AggregateKind> {
-        self.aggregate_expr.as_ref().map(AggregateExpr::kind)
+        self.aggregate_shape.map(AggregateRouteShape::kind)
     }
 }
 

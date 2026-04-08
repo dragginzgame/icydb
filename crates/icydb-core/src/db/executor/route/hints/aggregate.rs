@@ -9,12 +9,11 @@ use crate::{
         executor::{
             aggregate::field_target_is_tie_free_probe_target_for_model,
             route::{
-                AccessWindow, AggregateSeekSpec, RouteCapabilities,
+                AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilities,
                 aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
                 direction_allows_physical_fetch_hint,
             },
         },
-        query::builder::AggregateExpr,
         query::plan::{AccessPlannedQuery, AggregateKind},
     },
     model::entity::EntityModel,
@@ -34,7 +33,7 @@ pub(in crate::db::executor::route) const fn count_pushdown_fetch_hint(
 pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: &AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
     direction: Direction,
     capabilities: RouteCapabilities,
     access_window: AccessWindow,
@@ -57,7 +56,7 @@ pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint_for_model(
 pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: &AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
     direction: Direction,
     capabilities: RouteCapabilities,
     access_window: AccessWindow,
@@ -83,7 +82,7 @@ pub(in crate::db::executor::route) fn aggregate_seek_spec_for_model(
 fn aggregate_probe_shape_supported_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: &AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
     direction: Direction,
     capabilities: RouteCapabilities,
 ) -> bool {
@@ -119,7 +118,7 @@ fn aggregate_probe_window_fetch_hint(
 fn field_target_max_probe_shape_is_tie_free_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-    aggregate: &AggregateExpr,
+    aggregate: AggregateRouteShape<'_>,
 ) -> bool {
     aggregate.target_field().is_some_and(|target_field| {
         let access_class = plan.access_strategy().class();

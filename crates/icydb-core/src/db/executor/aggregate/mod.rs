@@ -31,7 +31,7 @@ use crate::{
                 ProjectionMaterializationMode,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
-            route::aggregate_materialized_fold_direction,
+            route::{AggregateRouteShape, aggregate_materialized_fold_direction},
             terminal::RowLayout,
             validate_executor_plan_for_authority,
         },
@@ -97,7 +97,7 @@ impl ExecutionKernel {
             crate::db::executor::route::build_execution_route_plan_for_aggregate_spec_with_model(
                 prepared.authority.model(),
                 &prepared.logical_plan,
-                aggregate.clone(),
+                AggregateRouteShape::from_aggregate_expr(&aggregate),
                 &prepared.execution_preparation,
             );
         let direction = route_plan.direction();

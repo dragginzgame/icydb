@@ -12,13 +12,13 @@ use crate::db::executor::{
     },
 };
 
-pub(in crate::db::executor::route::planner) fn derive_execution_mode_for_aggregate_non_count(
-    intent_stage: &RouteIntentStage,
+pub(in crate::db::executor::route::planner) const fn derive_execution_mode_for_aggregate_non_count(
+    intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,
 ) -> RouteExecutionMode {
     let streaming_allowed = aggregate_non_count_streaming_allowed(
-        intent_stage.aggregate_expr.as_ref(),
+        intent_stage.aggregate_shape,
         feasibility_stage.derivation.capabilities,
         feasibility_stage
             .derivation
@@ -37,7 +37,7 @@ pub(in crate::db::executor::route::planner) fn derive_execution_mode_for_aggrega
 }
 
 pub(in crate::db::executor::route::planner) fn build_execution_stage_for_aggregate_non_count(
-    intent_stage: &RouteIntentStage,
+    intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,
 ) -> RouteExecutionStage {

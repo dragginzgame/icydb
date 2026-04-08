@@ -21,6 +21,7 @@ use crate::{
             ExecutionKernel, KeyStreamLoopControl, PreparedAggregatePlan, TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
+                extract_numeric_field_decimal_from_decoded_slot,
                 extract_numeric_field_decimal_with_slot_reader,
                 resolve_numeric_aggregate_target_slot_from_planner_slot_with_model,
             },
@@ -165,16 +166,16 @@ where
         kind: PreparedScalarNumericOp,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut accumulator = NumericAggregateAccumulator::new();
-        let row_decoder = RowDecoder::structural();
-
-        for row in rows {
-            let row = row_decoder.decode(row_layout, row)?;
-            let value = extract_numeric_field_decimal_with_slot_reader(
-                target_field,
-                field_slot,
-                &mut |index| row.slot(index),
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+        for (data_key, raw_row) in rows {
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                data_key.storage_key(),
+                &raw_row,
+                field_slot.index,
+            )?;
+            let value =
+                extract_numeric_field_decimal_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
             accumulator.add(value);
         }
 

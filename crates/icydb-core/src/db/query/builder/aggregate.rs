@@ -109,10 +109,14 @@ impl AggregateExpr {
 ///
 
 pub(crate) trait PreparedFluentAggregateExplainStrategy {
-    /// Borrow the prepared aggregate expression used for explain projection,
-    /// or return `None` when this runtime family has no explain-visible
-    /// `AggregateKind` representation.
-    fn project_explain_aggregate(&self) -> Option<&AggregateExpr>;
+    /// Return the explain-visible aggregate kind when this runtime family can
+    /// project one aggregate terminal plan shape.
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind>;
+
+    /// Return the explain-visible projected field label, if any.
+    fn explain_projected_field(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// PreparedFluentExistingRowsTerminalRuntimeRequest
@@ -132,14 +136,15 @@ pub(crate) enum PreparedFluentExistingRowsTerminalRuntimeRequest {
 ///
 /// PreparedFluentExistingRowsTerminalStrategy is the single fluent
 /// existing-rows behavior source for the next `0.71` slice.
-/// It resolves aggregate expression and runtime terminal request once so
-/// `count()` and `exists()` do not share a mixed strategy type with the
-/// id/extrema scalar family.
+/// It resolves runtime terminal request shape once and projects explain
+/// aggregate metadata from that same prepared state on demand.
+/// This keeps `count()` and `exists()` off the mixed id/extrema scalar
+/// strategy without carrying owned explain-only aggregate expressions through
+/// execution.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedFluentExistingRowsTerminalStrategy {
-    aggregate: AggregateExpr,
     runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest,
 }
 
@@ -148,7 +153,6 @@ impl PreparedFluentExistingRowsTerminalStrategy {
     #[must_use]
     pub(crate) const fn count_rows() -> Self {
         Self {
-            aggregate: count(),
             runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows,
         }
     }
@@ -157,31 +161,47 @@ impl PreparedFluentExistingRowsTerminalStrategy {
     #[must_use]
     pub(crate) const fn exists_rows() -> Self {
         Self {
-            aggregate: exists(),
             runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows,
         }
     }
 
-    /// Borrow the aggregate expression projected by this prepared fluent
-    /// existing-rows strategy.
+    /// Build the explain-visible aggregate expression projected by this
+    /// prepared fluent existing-rows strategy.
+    #[cfg(test)]
     #[must_use]
-    pub(crate) const fn aggregate(&self) -> &AggregateExpr {
-        &self.aggregate
+    pub(crate) const fn aggregate(&self) -> AggregateExpr {
+        match self.runtime_request {
+            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => count(),
+            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => exists(),
+        }
     }
 
     /// Borrow the prepared runtime request projected by this fluent
     /// existing-rows strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn runtime_request(
         &self,
     ) -> &PreparedFluentExistingRowsTerminalRuntimeRequest {
         &self.runtime_request
     }
+
+    /// Move the prepared runtime request out of this fluent existing-rows
+    /// strategy so execution can consume it without cloning.
+    #[must_use]
+    pub(crate) const fn into_runtime_request(
+        self,
+    ) -> PreparedFluentExistingRowsTerminalRuntimeRequest {
+        self.runtime_request
+    }
 }
 
 impl PreparedFluentAggregateExplainStrategy for PreparedFluentExistingRowsTerminalStrategy {
-    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
-        Some(self.aggregate())
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(match self.runtime_request {
+            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => AggregateKind::Count,
+            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => AggregateKind::Exists,
+        })
     }
 }
 
@@ -190,7 +210,7 @@ impl PreparedFluentAggregateExplainStrategy for PreparedFluentExistingRowsTermin
 /// Stable fluent scalar terminal runtime request projection derived once at
 /// the fluent aggregate entrypoint boundary.
 /// This keeps id/extrema execution-side request choice aligned with the
-/// aggregate expression used for explain projection.
+/// same prepared metadata that explain projects on demand.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PreparedFluentScalarTerminalRuntimeRequest {
     IdTerminal {
@@ -207,23 +227,22 @@ pub(crate) enum PreparedFluentScalarTerminalRuntimeRequest {
 ///
 /// PreparedFluentScalarTerminalStrategy is the fluent scalar id/extrema
 /// behavior source for the current `0.71` slice.
-/// It resolves aggregate expression and runtime terminal request once so the
-/// id/extrema family does not rebuild those decisions through parallel branch
-/// trees.
+/// It resolves runtime terminal request shape once so the id/extrema family
+/// does not rebuild those decisions through parallel branch trees.
+/// Explain-visible aggregate shape is projected from that same prepared
+/// metadata only when explain needs it.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedFluentScalarTerminalStrategy {
-    aggregate: AggregateExpr,
     runtime_request: PreparedFluentScalarTerminalRuntimeRequest,
 }
 
 impl PreparedFluentScalarTerminalStrategy {
     /// Prepare one fluent id-returning scalar terminal without a field target.
     #[must_use]
-    pub(crate) fn id_terminal(kind: AggregateKind) -> Self {
+    pub(crate) const fn id_terminal(kind: AggregateKind) -> Self {
         Self {
-            aggregate: AggregateExpr::terminal_for_kind(kind),
             runtime_request: PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind },
         }
     }
@@ -231,9 +250,8 @@ impl PreparedFluentScalarTerminalStrategy {
     /// Prepare one fluent field-targeted extrema terminal with a resolved
     /// planner slot.
     #[must_use]
-    pub(crate) fn id_by_slot(kind: AggregateKind, target_field: FieldSlot) -> Self {
+    pub(crate) const fn id_by_slot(kind: AggregateKind, target_field: FieldSlot) -> Self {
         Self {
-            aggregate: AggregateExpr::field_target_extrema_for_kind(kind, target_field.field()),
             runtime_request: PreparedFluentScalarTerminalRuntimeRequest::IdBySlot {
                 kind,
                 target_field,
@@ -241,24 +259,29 @@ impl PreparedFluentScalarTerminalStrategy {
         }
     }
 
-    /// Borrow the aggregate expression projected by this prepared fluent
-    /// scalar terminal strategy.
+    /// Move the prepared runtime request out of this fluent scalar strategy
+    /// so execution can consume it without cloning.
     #[must_use]
-    pub(crate) const fn aggregate(&self) -> &AggregateExpr {
-        &self.aggregate
-    }
-
-    /// Borrow the prepared runtime request projected by this fluent scalar
-    /// terminal strategy.
-    #[must_use]
-    pub(crate) const fn runtime_request(&self) -> &PreparedFluentScalarTerminalRuntimeRequest {
-        &self.runtime_request
+    pub(crate) fn into_runtime_request(self) -> PreparedFluentScalarTerminalRuntimeRequest {
+        self.runtime_request
     }
 }
 
 impl PreparedFluentAggregateExplainStrategy for PreparedFluentScalarTerminalStrategy {
-    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
-        Some(self.aggregate())
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(match self.runtime_request {
+            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind }
+            | PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, .. } => kind,
+        })
+    }
+
+    fn explain_projected_field(&self) -> Option<&str> {
+        match &self.runtime_request {
+            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { .. } => None,
+            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { target_field, .. } => {
+                Some(target_field.field())
+            }
+        }
     }
 }
 
@@ -267,8 +290,8 @@ impl PreparedFluentAggregateExplainStrategy for PreparedFluentScalarTerminalStra
 ///
 /// Stable fluent numeric-field runtime request projection derived once at the
 /// fluent aggregate entrypoint boundary.
-/// This keeps numeric boundary selection aligned with the aggregate expression
-/// used by runtime and explain projections.
+/// This keeps numeric boundary selection aligned with the same prepared
+/// metadata that runtime and explain projections share.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -284,14 +307,15 @@ pub(crate) enum PreparedFluentNumericFieldRuntimeRequest {
 ///
 /// PreparedFluentNumericFieldStrategy is the single fluent numeric-field
 /// behavior source for the next `0.71` slice.
-/// It resolves aggregate expression, target-slot ownership, and runtime
-/// boundary request once so `SUM/AVG` callers do not rebuild those decisions
-/// through parallel branch trees.
+/// It resolves target-slot ownership and runtime boundary request once so
+/// `SUM/AVG` callers do not rebuild those decisions through parallel branch
+/// trees.
+/// Explain-visible aggregate shape is projected on demand from that prepared
+/// state instead of being carried as owned execution metadata.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedFluentNumericFieldStrategy {
-    aggregate: AggregateExpr,
     target_field: FieldSlot,
     runtime_request: PreparedFluentNumericFieldRuntimeRequest,
 }
@@ -299,9 +323,8 @@ pub(crate) struct PreparedFluentNumericFieldStrategy {
 impl PreparedFluentNumericFieldStrategy {
     /// Prepare one fluent `sum(field)` terminal strategy.
     #[must_use]
-    pub(crate) fn sum_by_slot(target_field: FieldSlot) -> Self {
+    pub(crate) const fn sum_by_slot(target_field: FieldSlot) -> Self {
         Self {
-            aggregate: sum(target_field.field()),
             target_field,
             runtime_request: PreparedFluentNumericFieldRuntimeRequest::Sum,
         }
@@ -309,9 +332,8 @@ impl PreparedFluentNumericFieldStrategy {
 
     /// Prepare one fluent `sum(distinct field)` terminal strategy.
     #[must_use]
-    pub(crate) fn sum_distinct_by_slot(target_field: FieldSlot) -> Self {
+    pub(crate) const fn sum_distinct_by_slot(target_field: FieldSlot) -> Self {
         Self {
-            aggregate: sum(target_field.field()).distinct(),
             target_field,
             runtime_request: PreparedFluentNumericFieldRuntimeRequest::SumDistinct,
         }
@@ -319,9 +341,8 @@ impl PreparedFluentNumericFieldStrategy {
 
     /// Prepare one fluent `avg(field)` terminal strategy.
     #[must_use]
-    pub(crate) fn avg_by_slot(target_field: FieldSlot) -> Self {
+    pub(crate) const fn avg_by_slot(target_field: FieldSlot) -> Self {
         Self {
-            aggregate: avg(target_field.field()),
             target_field,
             runtime_request: PreparedFluentNumericFieldRuntimeRequest::Avg,
         }
@@ -329,19 +350,26 @@ impl PreparedFluentNumericFieldStrategy {
 
     /// Prepare one fluent `avg(distinct field)` terminal strategy.
     #[must_use]
-    pub(crate) fn avg_distinct_by_slot(target_field: FieldSlot) -> Self {
+    pub(crate) const fn avg_distinct_by_slot(target_field: FieldSlot) -> Self {
         Self {
-            aggregate: avg(target_field.field()).distinct(),
             target_field,
             runtime_request: PreparedFluentNumericFieldRuntimeRequest::AvgDistinct,
         }
     }
 
-    /// Borrow the aggregate expression projected by this prepared fluent
-    /// numeric strategy.
+    /// Build the explain-visible aggregate expression projected by this
+    /// prepared fluent numeric strategy.
+    #[cfg(test)]
     #[must_use]
-    pub(crate) const fn aggregate(&self) -> &AggregateExpr {
-        &self.aggregate
+    pub(crate) fn aggregate(&self) -> AggregateExpr {
+        let field = self.target_field.field();
+
+        match self.runtime_request {
+            PreparedFluentNumericFieldRuntimeRequest::Sum => sum(field),
+            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => sum(field).distinct(),
+            PreparedFluentNumericFieldRuntimeRequest::Avg => avg(field),
+            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => avg(field).distinct(),
+        }
     }
 
     /// Return the aggregate kind projected by this prepared fluent numeric
@@ -349,19 +377,25 @@ impl PreparedFluentNumericFieldStrategy {
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn aggregate_kind(&self) -> AggregateKind {
-        self.aggregate.kind()
+        match self.runtime_request {
+            PreparedFluentNumericFieldRuntimeRequest::Sum
+            | PreparedFluentNumericFieldRuntimeRequest::SumDistinct => AggregateKind::Sum,
+            PreparedFluentNumericFieldRuntimeRequest::Avg
+            | PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => AggregateKind::Avg,
+        }
     }
 
     /// Borrow the projected field label for this prepared fluent numeric
     /// strategy.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn projected_field(&self) -> Option<&str> {
-        self.aggregate.target_field()
+    pub(crate) fn projected_field(&self) -> &str {
+        self.target_field.field()
     }
 
     /// Borrow the resolved planner target slot owned by this prepared fluent
     /// numeric strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn target_field(&self) -> &FieldSlot {
         &self.target_field
@@ -369,15 +403,34 @@ impl PreparedFluentNumericFieldStrategy {
 
     /// Return the prepared runtime request projected by this fluent numeric
     /// strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn runtime_request(&self) -> PreparedFluentNumericFieldRuntimeRequest {
         self.runtime_request
     }
+
+    /// Move the resolved field slot and numeric runtime request out of this
+    /// strategy so execution can consume them without cloning the field slot.
+    #[must_use]
+    pub(crate) fn into_runtime_parts(
+        self,
+    ) -> (FieldSlot, PreparedFluentNumericFieldRuntimeRequest) {
+        (self.target_field, self.runtime_request)
+    }
 }
 
 impl PreparedFluentAggregateExplainStrategy for PreparedFluentNumericFieldStrategy {
-    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
-        Some(self.aggregate())
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(match self.runtime_request {
+            PreparedFluentNumericFieldRuntimeRequest::Sum
+            | PreparedFluentNumericFieldRuntimeRequest::SumDistinct => AggregateKind::Sum,
+            PreparedFluentNumericFieldRuntimeRequest::Avg
+            | PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => AggregateKind::Avg,
+        })
+    }
+
+    fn explain_projected_field(&self) -> Option<&str> {
+        Some(self.target_field.field())
     }
 }
 
@@ -387,7 +440,8 @@ impl PreparedFluentAggregateExplainStrategy for PreparedFluentNumericFieldStrate
 /// Stable fluent order-sensitive runtime request projection derived once at
 /// the fluent aggregate entrypoint boundary.
 /// This keeps response-order and field-order terminal request shape aligned
-/// with the prepared strategy that fluent execution consumes.
+/// with the prepared strategy that fluent execution consumes and explain
+/// projects on demand.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -410,7 +464,6 @@ pub(crate) enum PreparedFluentOrderSensitiveTerminalRuntimeRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedFluentOrderSensitiveTerminalStrategy {
-    explain_aggregate: Option<AggregateExpr>,
     runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest,
 }
 
@@ -419,7 +472,6 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
     #[must_use]
     pub(crate) const fn first() -> Self {
         Self {
-            explain_aggregate: Some(first()),
             runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder {
                 kind: AggregateKind::First,
             },
@@ -430,7 +482,6 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
     #[must_use]
     pub(crate) const fn last() -> Self {
         Self {
-            explain_aggregate: Some(last()),
             runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder {
                 kind: AggregateKind::Last,
             },
@@ -441,7 +492,6 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
     #[must_use]
     pub(crate) const fn nth_by_slot(target_field: FieldSlot, nth: usize) -> Self {
         Self {
-            explain_aggregate: None,
             runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot {
                 target_field,
                 nth,
@@ -453,7 +503,6 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
     #[must_use]
     pub(crate) const fn median_by_slot(target_field: FieldSlot) -> Self {
         Self {
-            explain_aggregate: None,
             runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot {
                 target_field,
             },
@@ -464,33 +513,55 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
     #[must_use]
     pub(crate) const fn min_max_by_slot(target_field: FieldSlot) -> Self {
         Self {
-            explain_aggregate: None,
             runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot {
                 target_field,
             },
         }
     }
 
-    /// Borrow the aggregate expression projected by this prepared
-    /// order-sensitive strategy when an EXPLAIN-visible aggregate kind exists.
+    /// Build the explain-visible aggregate expression projected by this
+    /// prepared order-sensitive strategy when one exists.
+    #[cfg(test)]
     #[must_use]
-    pub(crate) const fn explain_aggregate(&self) -> Option<&AggregateExpr> {
-        self.explain_aggregate.as_ref()
+    pub(crate) fn explain_aggregate(&self) -> Option<AggregateExpr> {
+        match self.runtime_request {
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+                Some(AggregateExpr::terminal_for_kind(kind))
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { .. }
+            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { .. }
+            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { .. } => None,
+        }
     }
 
     /// Borrow the prepared runtime request projected by this fluent
     /// order-sensitive strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn runtime_request(
         &self,
     ) -> &PreparedFluentOrderSensitiveTerminalRuntimeRequest {
         &self.runtime_request
     }
+
+    /// Move the prepared runtime request out of this order-sensitive strategy
+    /// so execution can consume it without cloning.
+    #[must_use]
+    pub(crate) fn into_runtime_request(self) -> PreparedFluentOrderSensitiveTerminalRuntimeRequest {
+        self.runtime_request
+    }
 }
 
 impl PreparedFluentAggregateExplainStrategy for PreparedFluentOrderSensitiveTerminalStrategy {
-    fn project_explain_aggregate(&self) -> Option<&AggregateExpr> {
-        self.explain_aggregate()
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        match self.runtime_request {
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+                Some(kind)
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { .. }
+            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { .. }
+            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { .. } => None,
+        }
     }
 }
 
@@ -510,6 +581,42 @@ pub(crate) enum PreparedFluentProjectionRuntimeRequest {
     CountDistinct,
     ValuesWithIds,
     TerminalValue { terminal_kind: AggregateKind },
+}
+
+///
+/// PreparedFluentProjectionExplainDescriptor
+///
+/// PreparedFluentProjectionExplainDescriptor is the stable explain projection
+/// surface for fluent projection/distinct terminals.
+/// It carries the already-decided descriptor labels explain needs so query
+/// intent does not rebuild projection terminal shape from runtime requests.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedFluentProjectionExplainDescriptor<'a> {
+    terminal: &'static str,
+    field: &'a str,
+    output: &'static str,
+}
+
+impl<'a> PreparedFluentProjectionExplainDescriptor<'a> {
+    /// Return the stable explain terminal label.
+    #[must_use]
+    pub(crate) const fn terminal_label(self) -> &'static str {
+        self.terminal
+    }
+
+    /// Return the stable explain field label.
+    #[must_use]
+    pub(crate) const fn field_label(self) -> &'a str {
+        self.field
+    }
+
+    /// Return the stable explain output-shape label.
+    #[must_use]
+    pub(crate) const fn output_label(self) -> &'static str {
+        self.output
+    }
 }
 
 ///
@@ -589,6 +696,7 @@ impl PreparedFluentProjectionStrategy {
 
     /// Borrow the resolved planner target slot owned by this prepared fluent
     /// projection strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn target_field(&self) -> &FieldSlot {
         &self.target_field
@@ -596,16 +704,25 @@ impl PreparedFluentProjectionStrategy {
 
     /// Return the prepared runtime request projected by this fluent
     /// projection strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn runtime_request(&self) -> PreparedFluentProjectionRuntimeRequest {
         self.runtime_request
     }
 
-    /// Return the stable fluent explain terminal label for this prepared
-    /// projection strategy.
+    /// Move the resolved field slot and projection runtime request out of
+    /// this strategy so execution can consume them without cloning the field
+    /// slot.
     #[must_use]
-    pub(crate) fn explain_terminal_label(&self) -> &'static str {
-        match self.runtime_request {
+    pub(crate) fn into_runtime_parts(self) -> (FieldSlot, PreparedFluentProjectionRuntimeRequest) {
+        (self.target_field, self.runtime_request)
+    }
+
+    /// Return the stable projection explain descriptor for this prepared
+    /// strategy.
+    #[must_use]
+    pub(crate) fn explain_descriptor(&self) -> PreparedFluentProjectionExplainDescriptor<'_> {
+        let terminal_label = match self.runtime_request {
             PreparedFluentProjectionRuntimeRequest::Values => "values_by",
             PreparedFluentProjectionRuntimeRequest::DistinctValues => "distinct_values_by",
             PreparedFluentProjectionRuntimeRequest::CountDistinct => "count_distinct_by",
@@ -619,19 +736,19 @@ impl PreparedFluentProjectionStrategy {
             PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => {
                 unreachable!("projection terminal value explain requires FIRST/LAST kind")
             }
-        }
-    }
-
-    /// Return the stable fluent explain output-shape label for this prepared
-    /// projection strategy.
-    #[must_use]
-    pub(crate) const fn explain_output_label(&self) -> &'static str {
-        match self.runtime_request {
+        };
+        let output_label = match self.runtime_request {
             PreparedFluentProjectionRuntimeRequest::Values
             | PreparedFluentProjectionRuntimeRequest::DistinctValues => "values",
             PreparedFluentProjectionRuntimeRequest::CountDistinct => "count",
             PreparedFluentProjectionRuntimeRequest::ValuesWithIds => "values_with_ids",
             PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => "terminal_value",
+        };
+
+        PreparedFluentProjectionExplainDescriptor {
+            terminal: terminal_label,
+            field: self.target_field.field(),
+            output: output_label,
         }
     }
 }
@@ -731,7 +848,7 @@ mod tests {
         );
         assert_eq!(
             strategy.projected_field(),
-            Some("rank"),
+            "rank",
             "sum(distinct field) should preserve projected field labels",
         );
         assert!(
@@ -794,7 +911,7 @@ mod tests {
         );
         assert_eq!(
             strategy.projected_field(),
-            Some("rank"),
+            "rank",
             "avg(field) should preserve projected field labels",
         );
         assert!(
@@ -818,7 +935,9 @@ mod tests {
         let strategy = PreparedFluentOrderSensitiveTerminalStrategy::first();
 
         assert_eq!(
-            strategy.explain_aggregate().map(super::AggregateExpr::kind),
+            strategy
+                .explain_aggregate()
+                .map(|aggregate| aggregate.kind()),
             Some(AggregateKind::First),
             "first() should preserve the explain-visible aggregate kind",
         );
@@ -856,6 +975,7 @@ mod tests {
     fn prepared_fluent_projection_strategy_count_distinct_preserves_runtime_shape() {
         let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
         let strategy = PreparedFluentProjectionStrategy::count_distinct_by_slot(rank_slot.clone());
+        let explain = strategy.explain_descriptor();
 
         assert_eq!(
             strategy.target_field(),
@@ -867,12 +987,28 @@ mod tests {
             PreparedFluentProjectionRuntimeRequest::CountDistinct,
             "count_distinct_by(field) should project the distinct-count runtime request",
         );
+        assert_eq!(
+            explain.terminal_label(),
+            "count_distinct_by",
+            "count_distinct_by(field) should project the stable explain terminal label",
+        );
+        assert_eq!(
+            explain.field_label(),
+            "rank",
+            "count_distinct_by(field) should project the stable explain field label",
+        );
+        assert_eq!(
+            explain.output_label(),
+            "count",
+            "count_distinct_by(field) should project the stable explain output label",
+        );
     }
 
     #[test]
     fn prepared_fluent_projection_strategy_terminal_value_preserves_runtime_shape() {
         let rank_slot = FieldSlot::from_parts_for_test(7, "rank");
         let strategy = PreparedFluentProjectionStrategy::last_value_by_slot(rank_slot.clone());
+        let explain = strategy.explain_descriptor();
 
         assert_eq!(
             strategy.target_field(),
@@ -885,6 +1021,21 @@ mod tests {
                 terminal_kind: AggregateKind::Last,
             },
             "last_value_by(field) should project the terminal-value runtime request",
+        );
+        assert_eq!(
+            explain.terminal_label(),
+            "last_value_by",
+            "last_value_by(field) should project the stable explain terminal label",
+        );
+        assert_eq!(
+            explain.field_label(),
+            "rank",
+            "last_value_by(field) should project the stable explain field label",
+        );
+        assert_eq!(
+            explain.output_label(),
+            "terminal_value",
+            "last_value_by(field) should project the stable explain output label",
         );
     }
 }

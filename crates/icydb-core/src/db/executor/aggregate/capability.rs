@@ -6,9 +6,9 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::aggregate::AggregateKind,
+        executor::{aggregate::AggregateKind, route::AggregateRouteShape},
         numeric::field_kind_supports_aggregate_numeric,
-        query::{builder::AggregateExpr, plan::AccessPlannedQuery},
+        query::plan::AccessPlannedQuery,
     },
     model::{
         entity::{EntityModel, resolve_field_slot},
@@ -198,7 +198,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
     direction: Direction,
-    aggregate_expr: Option<&AggregateExpr>,
+    aggregate_shape: Option<AggregateRouteShape<'_>>,
     inputs: AggregateExecutionPolicyInputs,
 ) -> AggregateExecutionPolicy {
     let access_class = plan.access_strategy().class();
@@ -206,14 +206,14 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy_for_model(
         model,
         plan,
         direction,
-        aggregate_expr,
+        aggregate_shape,
         AggregateKind::Min,
     );
     let field_max_fast_path = assess_field_extrema_fast_path_eligibility_for_model(
         model,
         plan,
         direction,
-        aggregate_expr,
+        aggregate_shape,
         AggregateKind::Max,
     );
 
@@ -232,10 +232,10 @@ pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility_for_mo
     model: &EntityModel,
     plan: &AccessPlannedQuery,
     direction: Direction,
-    aggregate_expr: Option<&AggregateExpr>,
+    aggregate_shape: Option<AggregateRouteShape<'_>>,
     extrema_kind: AggregateKind,
 ) -> AggregateFieldExtremaEligibility {
-    let Some(aggregate) = aggregate_expr else {
+    let Some(aggregate) = aggregate_shape else {
         return AggregateFieldExtremaEligibility {
             eligible: false,
             ineligibility_reason: Some(AggregateFieldExtremaIneligibilityReason::SpecMissing),

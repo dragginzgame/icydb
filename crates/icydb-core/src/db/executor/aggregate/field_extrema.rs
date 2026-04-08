@@ -15,7 +15,7 @@ use crate::{
                 field::{
                     AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                     compare_orderable_field_values_with_slot,
-                    extract_orderable_field_value_with_slot_reader,
+                    extract_orderable_field_value_from_decoded_slot,
                     resolve_orderable_aggregate_target_slot_with_model,
                 },
             },
@@ -133,15 +133,19 @@ impl ExecutionKernel {
         let compare_direction = aggregate_extrema_direction(kind)
             .ok_or_else(FieldExtremaFoldSpec::materialized_reduction_reached_non_extrema)?;
 
-        let row_decoder = RowDecoder::structural();
         let mut selected: Option<(StorageKey, Value)> = None;
         for (data_key, raw_row) in rows {
             let candidate_key = data_key.storage_key();
-            let row = row_decoder.decode(row_layout, (data_key, raw_row))?;
-            let candidate_value = extract_orderable_field_value_with_slot_reader(
+            let candidate_value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                candidate_key,
+                &raw_row,
+                field_slot.index,
+            )?;
+            let candidate_value = extract_orderable_field_value_from_decoded_slot(
                 target_field,
                 field_slot,
-                &mut |index| row.slot(index),
+                candidate_value,
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             let should_replace = match selected.as_ref() {
@@ -305,7 +309,6 @@ impl ExecutionKernel {
             return Err(FieldExtremaFoldSpec::fold_direction_mismatch());
         }
 
-        let row_decoder = RowDecoder::structural();
         let mut keys_scanned = 0usize;
         let mut selected: Option<(StorageKey, Value)> = None;
         let pre_key = || KeyStreamLoopControl::Emit;
@@ -316,12 +319,17 @@ impl ExecutionKernel {
             else {
                 return Ok(KeyStreamLoopControl::Emit);
             };
-            let row = row_decoder.decode(row_layout, row)?;
             let key = data_key.storage_key();
-            let value = extract_orderable_field_value_with_slot_reader(
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                key,
+                &row.1,
+                spec.field_slot.index,
+            )?;
+            let value = extract_orderable_field_value_from_decoded_slot(
                 spec.target_field,
                 spec.field_slot,
-                &mut |index| row.slot(index),
+                value,
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
             let selected_was_empty = selected.is_none();

@@ -38,7 +38,7 @@ fn debug_assert_non_mutation_shape(route_shape_kind: RouteShapeKind) {
 }
 
 fn aggregate_force_materialized_due_to_predicate_uncertainty(
-    intent_stage: &RouteIntentStage,
+    intent_stage: &RouteIntentStage<'_>,
 ) -> bool {
     let kind = intent_stage.kind();
     (kind.is_some() || intent_stage.grouped)
@@ -62,7 +62,7 @@ fn debug_assert_probe_hint_contract(feasibility_stage: &RouteFeasibilityStage) {
 }
 
 pub(in crate::db::executor::route::planner) fn derive_route_execution_stage(
-    intent_stage: &RouteIntentStage,
+    intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionStage {
     // Phase 1: derive shape and enforce scalar-route shape constraints.

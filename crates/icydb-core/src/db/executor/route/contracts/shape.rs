@@ -3,7 +3,10 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::query::{builder::AggregateExpr, plan::GroupedPlanStrategyHint};
+use crate::db::query::{
+    builder::AggregateExpr,
+    plan::{AggregateKind, GroupedPlanStrategyHint},
+};
 
 ///
 /// FastPathOrder
@@ -48,13 +51,56 @@ pub(in crate::db::executor) const GROUPED_AGGREGATE_FAST_PATH_ORDER: [FastPathOr
 pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
 
 ///
+/// AggregateRouteShape
+///
+/// Borrowed aggregate semantic shape consumed by route planning for scalar
+/// aggregate routing.
+/// This route-owned contract keeps kind plus optional target-field metadata
+/// available without requiring owned `AggregateExpr` payloads in the route
+/// planner.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AggregateRouteShape<'a> {
+    kind: AggregateKind,
+    target_field: Option<&'a str>,
+}
+
+impl<'a> AggregateRouteShape<'a> {
+    /// Construct one route-owned aggregate shape from semantic parts.
+    #[must_use]
+    pub(in crate::db) const fn new(kind: AggregateKind, target_field: Option<&'a str>) -> Self {
+        Self { kind, target_field }
+    }
+
+    /// Borrow one route-owned aggregate shape from a full aggregate
+    /// expression.
+    #[must_use]
+    pub(in crate::db) fn from_aggregate_expr(aggregate: &'a AggregateExpr) -> Self {
+        Self::new(aggregate.kind(), aggregate.target_field())
+    }
+
+    /// Return aggregate kind.
+    #[must_use]
+    pub(in crate::db) const fn kind(self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Return optional target field name.
+    #[must_use]
+    pub(in crate::db) const fn target_field(self) -> Option<&'a str> {
+        self.target_field
+    }
+}
+
+///
 /// RouteIntent
 ///
 
-pub(in crate::db::executor::route) enum RouteIntent {
+pub(in crate::db::executor::route) enum RouteIntent<'a> {
     Load,
     Aggregate {
-        aggregate: AggregateExpr,
+        aggregate: AggregateRouteShape<'a>,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     },
     AggregateGrouped {

@@ -110,6 +110,8 @@ pub(in crate::db::executor) use stream::key::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use terminal::KernelRow;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use terminal::RetainedSlotRow;
 pub(in crate::db::executor) use util::saturating_row_len;
 pub(in crate::db) use window::compute_page_keep_count;
 

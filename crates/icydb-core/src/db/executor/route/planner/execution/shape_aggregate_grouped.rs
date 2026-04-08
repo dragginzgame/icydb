@@ -12,7 +12,7 @@ use crate::db::executor::{
 };
 
 pub(in crate::db::executor::route::planner) fn build_execution_stage_for_aggregate_grouped(
-    intent_stage: &RouteIntentStage,
+    intent_stage: &RouteIntentStage<'_>,
 ) -> RouteExecutionStage {
     debug_assert!(
         intent_stage.grouped,

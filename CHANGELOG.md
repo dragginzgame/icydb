@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.71.x] 🧱 - 2026-04-08 - Aggregate Execution Simplification
 
+- `0.71.2` keeps aggregate behavior unchanged but makes more aggregate reads and aggregate `EXPLAIN` calls cheaper by keeping slot-only decoded rows sparse through projection, bytes, extrema, and numeric paths, cutting several typed SQL aggregate and fluent aggregate explain instruction counts by about `0.6%` to `1.6%`.
 - `0.71.1` follows up the aggregate execution cleanup by adding public fluent `EXPLAIN` coverage for numeric and projection/distinct aggregate helpers, wiring the `icydb` facade back up to the same aggregate/planning introspection surface as core, and extending perf coverage for those public explain methods without changing aggregate semantics.
 - `0.71.0` starts the aggregate execution simplification line by making typed SQL and fluent aggregate terminals prepare their runtime shape once and then project execution from that prepared strategy across scalar, numeric, order-sensitive, and projection/distinct families, without changing planner-visible index rules or aggregate semantics.
 

@@ -12,14 +12,13 @@ use crate::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
             },
             route::{
-                LoadOrderRouteContract, bounded_probe_hint_is_safe,
+                AggregateRouteShape, LoadOrderRouteContract, bounded_probe_hint_is_safe,
                 pk_order_stream_fast_path_shape_supported_for_model,
                 secondary_order_contract_active,
             },
         },
-        query::{
-            builder::AggregateExpr,
-            plan::{AccessPlannedQuery, OrderDirection, secondary_order_contract_is_deterministic},
+        query::plan::{
+            AccessPlannedQuery, OrderDirection, secondary_order_contract_is_deterministic,
         },
     },
     model::entity::EntityModel,
@@ -139,7 +138,7 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
     direction: Direction,
-    aggregate_expr: Option<&AggregateExpr>,
+    aggregate_shape: Option<AggregateRouteShape<'_>>,
 ) -> RouteCapabilities {
     let access_class = plan.access_strategy().class();
     let (has_residual_filter, _, requires_post_access_sort) =
@@ -148,7 +147,7 @@ pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
         model,
         plan,
         direction,
-        aggregate_expr,
+        aggregate_shape,
         AggregateExecutionPolicyInputs::new(has_residual_filter, requires_post_access_sort),
     );
     let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();

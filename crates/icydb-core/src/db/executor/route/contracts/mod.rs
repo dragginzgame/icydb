@@ -20,6 +20,7 @@ pub(in crate::db::executor) use execution::{
 // Keep this symbol on the route boundary so compile-fail privacy tests fail on
 // module visibility, not unresolved-symbol drift.
 pub(in crate::db::executor) use execution::GroupedRouteObservability;
+pub(in crate::db) use shape::AggregateRouteShape;
 pub(in crate::db::executor::route) use shape::RouteIntent;
 pub(in crate::db::executor) use shape::{
     AGGREGATE_FAST_PATH_ORDER, FastPathOrder, GROUPED_AGGREGATE_FAST_PATH_ORDER,

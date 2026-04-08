@@ -8,7 +8,7 @@ use crate::value::Value;
 
 #[cfg(feature = "sql")]
 type StructuralSqlProjectionRows = (
-    Option<Vec<Vec<Option<Value>>>>,
+    Option<Vec<RetainedSlotRow>>,
     Option<Vec<Vec<Value>>>,
     Option<Vec<Vec<String>>>,
     Vec<DataRow>,
@@ -27,7 +27,7 @@ use crate::{
             route::access_order_satisfied_by_route_contract_for_model,
             route::{LoadOrderRouteContract, LoadTerminalFastPathContract},
             terminal::{
-                RowDecoder, RowLayout,
+                RetainedSlotRow, RowDecoder, RowLayout,
                 page::{
                     KernelPageMaterializationRequest, KernelRowPayloadMode, ScalarRowRuntimeHandle,
                     ScalarRowRuntimeVTable, materialize_key_stream_into_structural_page,
@@ -133,11 +133,11 @@ unsafe fn structural_scalar_read_kernel_row(
             state.row_decoder.decode(&state.row_layout, data_row)?
         }
         KernelRowPayloadMode::SlotsOnly => {
-            let slots = state.row_decoder.decode_slots(
+            let slots = RowDecoder::decode_retained_slots(
                 &state.row_layout,
                 key.storage_key(),
                 &row,
-                required_slots,
+                required_slots.unwrap_or(&[]),
             )?;
 
             crate::db::executor::terminal::page::KernelRow::new_slot_only(slots)
@@ -178,7 +178,7 @@ pub(in crate::db::executor) struct StructuralCursorPage {
     data_rows: Vec<DataRow>,
     row_count: usize,
     #[cfg(feature = "sql")]
-    slot_rows: Option<Vec<Vec<Option<Value>>>>,
+    slot_rows: Option<Vec<RetainedSlotRow>>,
     #[cfg(feature = "sql")]
     projected_rows: Option<Vec<Vec<Value>>>,
     #[cfg(feature = "sql")]
@@ -211,7 +211,7 @@ impl StructuralCursorPage {
     #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::executor) const fn new_with_slot_rows(
-        slot_rows: Vec<Vec<Option<Value>>>,
+        slot_rows: Vec<RetainedSlotRow>,
         row_count: usize,
         next_cursor: Option<crate::db::executor::pipeline::contracts::PageCursor>,
     ) -> Self {

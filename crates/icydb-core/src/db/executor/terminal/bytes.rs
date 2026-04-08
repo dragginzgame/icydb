@@ -14,7 +14,7 @@ use crate::{
             TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
-                extract_orderable_field_value_with_slot_reader,
+                extract_orderable_field_value_from_decoded_slot,
                 resolve_any_aggregate_target_slot_from_planner_slot_with_model,
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
@@ -227,19 +227,20 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u64, InternalError> {
-        let row_decoder = RowDecoder::structural();
         let mut total = 0u64;
 
         // Fold serialized field payload sizes over the effective response
         // window without rebuilding typed entity responses.
         for (data_key, raw_row) in rows {
-            let row = row_decoder.decode(row_layout, (data_key.clone(), raw_row.clone()))?;
-            let value = extract_orderable_field_value_with_slot_reader(
-                target_field,
-                field_slot,
-                &mut |index| row.slot(index),
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                data_key.storage_key(),
+                raw_row,
+                field_slot.index,
+            )?;
+            let value =
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
             total = saturating_add_payload_len(total, serialized_value_len(&value)?);
         }
 
@@ -276,7 +277,7 @@ where
             prepared.consistency(),
             covering_requires_row_presence_check(),
             "bytes covering projection expected one decoded component",
-            serialized_value_len,
+            |value| serialized_value_len(&value),
         )?
         else {
             return Ok(None);

@@ -2812,6 +2812,18 @@ mod tests {
     fn fluent_aggregate_explain_perf_surfaces_report_explain_outcomes() {
         for (surface, label) in [
             (
+                SqlPerfSurface::FluentExplainCustomerExists,
+                "fluent explain_exists()",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerMin,
+                "fluent explain_min()",
+            ),
+            (
+                SqlPerfSurface::FluentExplainCustomerLast,
+                "fluent explain_last()",
+            ),
+            (
                 SqlPerfSurface::FluentExplainCustomerSumByAge,
                 "fluent explain_sum_by(age)",
             ),

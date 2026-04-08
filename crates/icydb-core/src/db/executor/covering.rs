@@ -667,7 +667,7 @@ pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
     mut map_decoded: F,
 ) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
 where
-    F: FnMut(&Value) -> Result<T, InternalError>,
+    F: FnMut(Value) -> Result<T, InternalError>,
 {
     decode_covering_projection_pairs(
         raw_pairs,
@@ -675,9 +675,13 @@ where
         consistency,
         existing_row_mode,
         |decoded| {
-            let [value] = decoded.as_slice() else {
+            let mut decoded = decoded.into_iter();
+            let Some(value) = decoded.next() else {
                 return Err(InternalError::query_executor_invariant(invariant_message));
             };
+            if decoded.next().is_some() {
+                return Err(InternalError::query_executor_invariant(invariant_message));
+            }
 
             map_decoded(value)
         },

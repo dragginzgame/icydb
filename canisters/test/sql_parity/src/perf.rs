@@ -58,6 +58,9 @@ pub enum SqlPerfSurface {
     TypedExecuteSqlGroupedCustomer,
     TypedExecuteSqlGroupedCustomerSecondPage,
     TypedExecuteSqlAggregateCustomer,
+    FluentExplainCustomerExists,
+    FluentExplainCustomerMin,
+    FluentExplainCustomerLast,
     FluentExplainCustomerSumByAge,
     FluentExplainCustomerAvgDistinctByAge,
     FluentExplainCustomerCountDistinctByAge,
@@ -905,6 +908,48 @@ fn outcome_from_explain_execution_descriptor(
 // Route the new public fluent aggregate explain probes through the same
 // stable Customer load window so PocketIC and canister perf runs measure the
 // surface cost rather than fixture setup differences.
+fn measure_fluent_customer_exists_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_exists()
+            .map_or_else(outcome_from_error, |plan| {
+                outcome_from_explain_execution_descriptor(
+                    Customer::MODEL.name(),
+                    plan.execution_node_descriptor(),
+                )
+            })
+    })
+}
+
+fn measure_fluent_customer_min_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_min()
+            .map_or_else(outcome_from_error, |plan| {
+                outcome_from_explain_execution_descriptor(
+                    Customer::MODEL.name(),
+                    plan.execution_node_descriptor(),
+                )
+            })
+    })
+}
+
+fn measure_fluent_customer_last_explain() -> (u64, SqlPerfOutcome) {
+    measure_surface_call(|| {
+        db().load::<Customer>()
+            .order_by("id")
+            .explain_last()
+            .map_or_else(outcome_from_error, |plan| {
+                outcome_from_explain_execution_descriptor(
+                    Customer::MODEL.name(),
+                    plan.execution_node_descriptor(),
+                )
+            })
+    })
+}
+
 fn measure_fluent_customer_sum_by_age_explain() -> (u64, SqlPerfOutcome) {
     measure_surface_call(|| {
         db().load::<Customer>()
@@ -1029,6 +1074,9 @@ fn measure_once(
             db().execute_sql_aggregate::<Customer>(sql)
                 .map_or_else(outcome_from_error, outcome_from_value)
         }),
+        SqlPerfSurface::FluentExplainCustomerExists => measure_fluent_customer_exists_explain(),
+        SqlPerfSurface::FluentExplainCustomerMin => measure_fluent_customer_min_explain(),
+        SqlPerfSurface::FluentExplainCustomerLast => measure_fluent_customer_last_explain(),
         SqlPerfSurface::FluentExplainCustomerSumByAge => {
             measure_fluent_customer_sum_by_age_explain()
         }
