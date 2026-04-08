@@ -8,7 +8,7 @@ use crate::{
         access::single_path_capabilities,
         direction::Direction,
         executor::{
-            ExecutionPreparation, authority::resolve_secondary_read_authority_profile,
+            ExecutionPreparation, authority::ResolvedSecondaryReadAuthorityProfile,
             preparation::slot_map_for_model_plan,
         },
         predicate::IndexPredicateCapability,
@@ -16,7 +16,6 @@ use crate::{
             AccessPlannedQuery, CoveringExistingRowMode, CoveringReadExecutionPlan,
             covering_read_execution_plan, index_covering_existing_rows_terminal_eligible,
         },
-        registry::StoreHandle,
     },
     model::entity::EntityModel,
 };
@@ -69,60 +68,31 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
     CoveringRead(CoveringReadExecutionPlan),
 }
 
-// Promote one narrow secondary covering cohort onto witness-backed authority
-// when the resolved store pair is synchronized and the centralized route-owned
-// authority profile resolves this store pair onto the stronger synchronized
-// witness mode.
-pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_secondary_authority_witness(
-    store: StoreHandle,
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
+// Apply one already-resolved secondary-read authority profile to the route's
+// load-terminal fast path.
+//
+// Store-backed route builders use this after resolving one canonical profile
+// from the immutable authority snapshot so route promotion and EXPLAIN can
+// share the exact same decision instead of resolving secondary authority
+// independently at each consumer.
+pub(in crate::db::executor) const fn apply_resolved_secondary_read_authority_profile_to_load_terminal_fast_path(
+    resolved_authority_profile: ResolvedSecondaryReadAuthorityProfile,
     load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
 ) {
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-    let resolved_authority_profile = resolve_secondary_read_authority_profile(
-        model,
-        plan,
-        load_terminal_fast_path.as_ref(),
-        authority_snapshot,
-    );
     let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
         return;
     };
-    if resolved_authority_profile.existing_row_mode() != CoveringExistingRowMode::WitnessValidated {
-        return;
+
+    match resolved_authority_profile.existing_row_mode() {
+        CoveringExistingRowMode::WitnessValidated => {
+            covering.existing_row_mode = CoveringExistingRowMode::WitnessValidated;
+        }
+        CoveringExistingRowMode::StorageExistenceWitness => {
+            covering.existing_row_mode = CoveringExistingRowMode::StorageExistenceWitness;
+        }
+        CoveringExistingRowMode::ProvenByPlanner
+        | CoveringExistingRowMode::RequiresRowPresenceCheck => {}
     }
-
-    covering.existing_row_mode = CoveringExistingRowMode::WitnessValidated;
-}
-
-// Promote one narrow stale-fallback secondary covering cohort onto an
-// explicit storage-owned existence witness when the synchronized pair witness
-// is unavailable but the centralized route-owned authority profile resolves
-// this store pair onto the admitted stale witness mode.
-pub(in crate::db::executor) fn promote_load_terminal_fast_path_with_storage_existence_witness(
-    store: StoreHandle,
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
-) {
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-    let resolved_authority_profile = resolve_secondary_read_authority_profile(
-        model,
-        plan,
-        load_terminal_fast_path.as_ref(),
-        authority_snapshot,
-    );
-    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
-        return;
-    };
-    if resolved_authority_profile.existing_row_mode()
-        != CoveringExistingRowMode::StorageExistenceWitness
-    {
-        return;
-    }
-
-    covering.existing_row_mode = CoveringExistingRowMode::StorageExistenceWitness;
 }
 
 // Return whether the structural plan still carries a residual predicate.

@@ -63,11 +63,11 @@ pub(in crate::db::executor) use semantics::{
 pub(in crate::db::executor) use terminal::derive_load_terminal_fast_path_contract_for_model;
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
-    LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,
+    LoadTerminalFastPathContract,
+    apply_resolved_secondary_read_authority_profile_to_load_terminal_fast_path,
+    derive_count_terminal_fast_path_contract_for_model,
     derive_exists_terminal_fast_path_contract_for_model,
     derive_load_terminal_fast_path_contract_for_model_plan,
-    promote_load_terminal_fast_path_with_secondary_authority_witness,
-    promote_load_terminal_fast_path_with_storage_existence_witness,
 };
 
 #[cfg(test)]

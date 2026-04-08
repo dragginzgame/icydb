@@ -1009,18 +1009,14 @@ fn route_plan_single_component_store_witness_matches_resolved_authority_profile(
         .load_terminal_fast_path()
         .expect("single-component witness-backed route should retain a covering-read contract");
     let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-    let resolved_authority_profile = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        route_plan.load_terminal_fast_path(),
-        authority_snapshot,
-    );
+    let resolved_authority_profile = route_plan
+        .resolved_secondary_read_authority_profile()
+        .expect("store-backed witness route plan should carry the resolved authority profile for later EXPLAIN reuse");
 
     assert_eq!(
         covering.existing_row_mode,
         resolved_authority_profile.existing_row_mode(),
-        "single-component covering route promotion must match the resolved executor-owned authority profile exactly",
+        "single-component covering route promotion must match the stored resolved executor-owned authority profile exactly",
     );
 }
 
@@ -1135,18 +1131,14 @@ fn route_plan_composite_store_witness_matches_resolved_authority_profile() {
         .load_terminal_fast_path()
         .expect("composite witness-backed route should retain a covering-read contract");
     let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-    let resolved_authority_profile = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        route_plan.load_terminal_fast_path(),
-        authority_snapshot,
-    );
+    let resolved_authority_profile = route_plan
+        .resolved_secondary_read_authority_profile()
+        .expect("store-backed composite witness route plan should carry the resolved authority profile for later EXPLAIN reuse");
 
     assert_eq!(
         covering.existing_row_mode,
         resolved_authority_profile.existing_row_mode(),
-        "composite covering route promotion must match the resolved executor-owned authority profile exactly once the synchronized witness family is admitted",
+        "composite covering route promotion must match the stored resolved executor-owned authority profile exactly once the synchronized witness family is admitted",
     );
 }
 

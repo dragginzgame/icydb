@@ -23,4 +23,6 @@ pub use entity::EntityAuthority;
 // sibling executor modules can stay coupled to this boundary instead of the
 // file layout behind it.
 #[allow(unused_imports)]
+pub(in crate::db::executor) use read::ResolvedSecondaryReadAuthorityProfile;
+#[allow(unused_imports)]
 pub(in crate::db::executor) use read::resolve_secondary_read_authority_profile;

@@ -7,7 +7,6 @@ use crate::{
     db::{
         executor::{
             ExecutionPreparation,
-            authority::resolve_secondary_read_authority_profile,
             preparation::slot_map_for_model_plan,
             route::{
                 ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
@@ -55,14 +54,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
 
-    Ok(
-        assemble_load_execution_node_descriptor_with_model_and_route_plan(
-            model,
-            plan,
-            &route_plan,
-            None,
-        ),
-    )
+    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
 }
 
 // Assemble one canonical scalar load execution descriptor tree through one
@@ -77,14 +69,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_store_wi
         model, plan, None, store,
     )?;
 
-    Ok(
-        assemble_load_execution_node_descriptor_with_model_and_route_plan(
-            model,
-            plan,
-            &route_plan,
-            Some(store),
-        ),
-    )
+    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
 }
 
 // Assemble one canonical scalar load execution descriptor tree through one
@@ -93,7 +78,6 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
-    store: Option<StoreHandle>,
 ) -> ExplainExecutionNodeDescriptor {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let execution_preparation =
@@ -139,10 +123,7 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
     annotate_store_backed_secondary_authority_node_properties(
         &mut root,
-        model,
-        plan,
-        load_terminal_fast_path,
-        store,
+        route_plan.resolved_secondary_read_authority_profile(),
     );
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
@@ -387,15 +368,15 @@ fn annotate_covering_read_route_node_properties(
         .insert("cov_read_route", Value::from(route_label));
 }
 
-// Surface one store-backed secondary authority decision on EXPLAIN so route
-// promotion stays externally inspectable instead of only living in the
-// centralized authority classifier.
+// Surface one store-backed secondary authority decision on EXPLAIN so the
+// store-backed load route stays externally inspectable.
 //
 // `authority_decision` + `authority_reason` together encode the authority
 // classification. This is intentionally flat for now; normalization should
 // happen only once all index-backed execution paths, including aggregates,
 // share the same classification model. These labels must come from the
-// centralized classifier result, not from route-local reconstruction.
+// resolved authority profile already carried on the route plan, not from a
+// second authority resolution during descriptor assembly.
 //
 // Only classifier-owned secondary read families emit this flat authority
 // surface. Richer profile-owned covering routes, such as stale composite
@@ -403,21 +384,13 @@ fn annotate_covering_read_route_node_properties(
 // without inheriting flat classifier labels by accident.
 fn annotate_store_backed_secondary_authority_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
-    model: &'static crate::model::entity::EntityModel,
-    plan: &AccessPlannedQuery,
-    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
-    store: Option<StoreHandle>,
+    resolved_authority_profile: Option<
+        crate::db::executor::authority::ResolvedSecondaryReadAuthorityProfile,
+    >,
 ) {
-    let Some(store) = store else {
+    let Some(resolved_authority_profile) = resolved_authority_profile else {
         return;
     };
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-    let resolved_authority_profile = resolve_secondary_read_authority_profile(
-        model,
-        plan,
-        load_terminal_fast_path,
-        authority_snapshot,
-    );
     let Some((authority_decision, authority_reason)) =
         resolved_authority_profile.flat_explain_labels()
     else {

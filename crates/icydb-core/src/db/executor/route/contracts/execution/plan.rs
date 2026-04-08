@@ -8,6 +8,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         aggregate::AggregateFoldMode,
+        authority::ResolvedSecondaryReadAuthorityProfile,
         route::{
             LoadTerminalFastPathContract,
             contracts::{
@@ -50,6 +51,8 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor) grouped_execution_strategy: Option<GroupedExecutionStrategy>,
     pub(in crate::db::executor) load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
+    pub(in crate::db::executor) resolved_secondary_read_authority_profile:
+        Option<ResolvedSecondaryReadAuthorityProfile>,
 }
 
 impl ExecutionRoutePlan {
@@ -76,6 +79,7 @@ impl ExecutionRoutePlan {
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
             grouped_execution_strategy: None,
             load_terminal_fast_path: None,
+            resolved_secondary_read_authority_profile: None,
         }
     }
 
@@ -94,6 +98,13 @@ impl ExecutionRoutePlan {
         &self,
     ) -> Option<&LoadTerminalFastPathContract> {
         self.load_terminal_fast_path.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn resolved_secondary_read_authority_profile(
+        &self,
+    ) -> Option<ResolvedSecondaryReadAuthorityProfile> {
+        self.resolved_secondary_read_authority_profile
     }
 
     #[must_use]
