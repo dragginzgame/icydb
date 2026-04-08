@@ -330,16 +330,22 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         );
         simplify_limit_one_page_for_by_key_access(&mut plan);
 
+        // Phase 4: freeze the planner-owned route profile before validation so
+        // policy gates that depend on finalized access/order contracts, such as
+        // expression ORDER BY support, see the accepted route semantics.
+        plan.finalize_planner_route_profile_for_model(self.model);
+
+        // Phase 5: validate the assembled plan against schema, access-shape,
+        // and planner-policy contracts before projecting explain metadata.
         if plan.grouped_plan().is_some() {
             validate_group_query_semantics(&schema_info, self.model, &plan)?;
         } else {
             validate_query_semantics(&schema_info, self.model, &plan)?;
         }
 
-        // Phase 4: freeze planner-owned route and access-choice snapshots once
+        // Phase 6: freeze the access-choice explain snapshot after validation
         // so downstream execution and explain surfaces reuse the exact planner
-        // contracts already implied by this planning run.
-        plan.finalize_planner_route_profile_for_model(self.model);
+        // winner metadata for the accepted plan.
         let access_choice = project_access_choice_explain_snapshot_with_indexes(
             self.model,
             visible_indexes.as_slice(),

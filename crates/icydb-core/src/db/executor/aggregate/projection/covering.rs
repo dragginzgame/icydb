@@ -68,7 +68,7 @@ pub(super) fn dedup_values_preserving_first(
     values: Vec<Value>,
 ) -> Result<Vec<Value>, InternalError> {
     let mut seen = GroupKeySet::default();
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(values.len());
     for value in values {
         if !insert_materialized_distinct_value(&mut seen, &value)? {
             continue;

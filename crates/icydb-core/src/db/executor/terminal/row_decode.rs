@@ -107,9 +107,13 @@ impl RowDecoder {
         row: &RawRow,
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
-        let mut slots = Self::decode_retained_slots(layout, expected_key, row, &[required_slot])?;
+        // Phase 1: reuse the canonical row-open validation boundary once.
+        let reader = decode_row_fields(row, layout.model)?;
+        reader.validate_storage_key_value(expected_key)?;
 
-        Ok(slots.take_slot(required_slot))
+        // Phase 2: decode only the caller-requested slot instead of staging a
+        // one-entry retained-slot row that would be torn down immediately.
+        decode_required_structural_slot_value(reader, required_slot)
     }
 
     /// Decode one retained structural slot-row without materializing a dense
@@ -188,6 +192,15 @@ fn decode_required_structural_slots(
     }
 
     Ok(slots)
+}
+
+// Materialize one caller-declared slot value directly from the canonical row
+// reader without staging a retained-slot row or dense slot vector.
+fn decode_required_structural_slot_value(
+    reader: StructuralSlotReader<'_>,
+    required_slot: usize,
+) -> Result<Option<Value>, InternalError> {
+    Ok(Some(reader.required_value_by_contract(required_slot)?))
 }
 
 // Materialize only the caller-declared slot/value pairs while preserving the

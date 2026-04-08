@@ -866,17 +866,9 @@ where
 
         // Phase 3: realign to post-access order and apply prepared effective window.
         reorder_covering_projection_pairs(context.order_contract, projected_pairs.as_mut_slice());
+        apply_scalar_projection_window_in_place(&mut projected_pairs, window);
 
-        let windowed_pairs = match window.limit {
-            Some(limit) => projected_pairs
-                .into_iter()
-                .skip(window.offset)
-                .take(limit)
-                .collect(),
-            None => projected_pairs.into_iter().skip(window.offset).collect(),
-        };
-
-        Ok(Some(windowed_pairs))
+        Ok(Some(projected_pairs))
     }
 
     // Read one index-backed `(data_key, encoded_component)` stream for covering
@@ -941,7 +933,7 @@ fn project_distinct_field_values_from_structural_projection(
     projected_values: ValueProjection,
 ) -> Result<Vec<Value>, InternalError> {
     let mut distinct_values = GroupKeySet::default();
-    let mut distinct_projected_values = Vec::new();
+    let mut distinct_projected_values = Vec::with_capacity(projected_values.len());
 
     // Phase 1: preserve first-observed order while deduplicating on canonical
     // group-key equality over structural projection values.
@@ -953,4 +945,22 @@ fn project_distinct_field_values_from_structural_projection(
     }
 
     Ok(distinct_projected_values)
+}
+
+// Apply one prepared scalar projection page window in place so covering
+// projection paths do not allocate a second pair vector after reordering.
+fn apply_scalar_projection_window_in_place<T>(
+    projected_pairs: &mut Vec<(DataKey, T)>,
+    window: ScalarProjectionWindow,
+) {
+    let keep_start = window.offset.min(projected_pairs.len());
+    if keep_start > 0 {
+        projected_pairs.drain(..keep_start);
+    }
+
+    if let Some(limit) = window.limit
+        && projected_pairs.len() > limit
+    {
+        projected_pairs.truncate(limit);
+    }
 }
