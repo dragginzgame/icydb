@@ -14,9 +14,9 @@ use crate::{
     model::entity::EntityModel,
 };
 
-fn validated_secondary_order_contract<'a>(
-    planner_route_profile: &'a PlannerRouteProfile,
-) -> Option<&'a DeterministicSecondaryOrderContract> {
+fn validated_secondary_order_contract(
+    planner_route_profile: &PlannerRouteProfile,
+) -> Option<&DeterministicSecondaryOrderContract> {
     secondary_order_contract_active(planner_route_profile.logical_pushdown_eligibility())
         .then_some(())?;
 
@@ -72,7 +72,7 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_mode
         && !has_index_path;
     let prefix_order_contract_safe =
         index_prefix_details.is_none() || access_class.prefix_order_contract_safe();
-    let secondary_pushdown_eligible = validated_secondary_order_contract(&planner_route_profile)
+    let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
             access_class
                 .secondary_order_pushdown_applicability(order_contract)

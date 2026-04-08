@@ -147,7 +147,7 @@ pub(in crate::db) struct PlannerRouteProfile {
 impl PlannerRouteProfile {
     /// Construct one planner-projected route profile.
     #[must_use]
-    pub(in crate::db) fn new(
+    pub(in crate::db) const fn new(
         continuation_policy: ContinuationPolicy,
         logical_pushdown_eligibility: LogicalPushdownEligibility,
         secondary_order_contract: Option<DeterministicSecondaryOrderContract>,
@@ -184,7 +184,7 @@ impl PlannerRouteProfile {
 
     /// Borrow the planner-owned deterministic secondary-order contract, if one exists.
     #[must_use]
-    pub(in crate::db) fn secondary_order_contract(
+    pub(in crate::db) const fn secondary_order_contract(
         &self,
     ) -> Option<&DeterministicSecondaryOrderContract> {
         self.secondary_order_contract.as_ref()

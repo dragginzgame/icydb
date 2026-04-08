@@ -59,7 +59,7 @@ impl DeterministicSecondaryOrderContract {
 
     /// Borrow the normalized non-primary-key ORDER BY terms.
     #[must_use]
-    pub(in crate::db) fn non_primary_key_terms(&self) -> &[String] {
+    pub(in crate::db) const fn non_primary_key_terms(&self) -> &[String] {
         self.non_primary_key_terms.as_slice()
     }
 

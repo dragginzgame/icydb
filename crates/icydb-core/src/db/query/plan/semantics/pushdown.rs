@@ -56,7 +56,7 @@ impl LogicalPushdownEligibility {
 
 /// Derive planner-owned logical pushdown eligibility from validated semantics.
 #[must_use]
-pub(in crate::db) fn derive_logical_pushdown_eligibility(
+pub(in crate::db) const fn derive_logical_pushdown_eligibility(
     plan: &AccessPlannedQuery,
     secondary_order_contract: Option<&DeterministicSecondaryOrderContract>,
 ) -> LogicalPushdownEligibility {

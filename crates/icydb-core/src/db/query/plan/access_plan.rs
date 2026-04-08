@@ -176,6 +176,6 @@ fn seeded_access_choice_snapshot(access: &AccessPlan<Value>) -> AccessChoiceExpl
     }
 }
 
-fn seeded_planner_route_profile(plan: &AccessPlannedQuery) -> PlannerRouteProfile {
+const fn seeded_planner_route_profile(plan: &AccessPlannedQuery) -> PlannerRouteProfile {
     PlannerRouteProfile::seeded_unfinalized(plan.grouped_plan().is_some())
 }

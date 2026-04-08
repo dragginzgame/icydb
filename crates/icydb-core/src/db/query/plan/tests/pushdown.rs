@@ -627,12 +627,12 @@ fn secondary_order_pushdown_contract_cases() {
 #[test]
 fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     let model = model_with_index();
-    let plan = load_index_prefix_plan(
+    let mut plan = load_index_prefix_plan(
         vec![Value::Text("a".to_string())],
         Some(order_spec(&[("id", OrderDirection::Asc)])),
     );
-    let mut finalized = plan.clone();
-    finalized.finalize_planner_route_profile_for_model(model);
+    plan.finalize_planner_route_profile_for_model(model);
+    let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
     let gated_profile = PlannerRouteProfile::new(
         ContinuationPolicy::new(false, false, true),
@@ -641,7 +641,7 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     );
 
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(&plan, &gated_profile),
+        derive_secondary_pushdown_applicability_from_contract(&finalized, &gated_profile),
         PushdownApplicability::NotApplicable
     );
 }
@@ -649,12 +649,12 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
 #[test]
 fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape() {
     let model = model_with_index();
-    let plan = load_index_prefix_plan(
+    let mut plan = load_index_prefix_plan(
         vec![Value::Text("a".to_string())],
         Some(order_spec(&[("tag", OrderDirection::Asc)])),
     );
-    let mut finalized = plan.clone();
-    finalized.finalize_planner_route_profile_for_model(model);
+    plan.finalize_planner_route_profile_for_model(model);
+    let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
 
     assert_eq!(
@@ -667,15 +667,15 @@ fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape()
 #[test]
 fn secondary_order_pushdown_contract_rejects_mixed_direction_shape() {
     let model = model_with_index();
-    let plan = load_index_prefix_plan(
+    let mut plan = load_index_prefix_plan(
         vec![Value::Text("a".to_string())],
         Some(order_spec(&[
             ("tag", OrderDirection::Desc),
             ("id", OrderDirection::Asc),
         ])),
     );
-    let mut finalized = plan.clone();
-    finalized.finalize_planner_route_profile_for_model(model);
+    plan.finalize_planner_route_profile_for_model(model);
+    let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
 
     assert_eq!(
