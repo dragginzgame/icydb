@@ -207,33 +207,10 @@ impl<C: CanisterKind> Db<C> {
         executor::StoreResolver::new(self)
     }
 
-    /// Mark every registered store pair as synchronized for secondary
-    /// covering authority after a full authoritative rebuild.
-    pub(in crate::db) fn mark_all_registered_stores_secondary_covering_authoritative(&self) {
-        self.with_store_registry(|registry| {
-            for (_, handle) in registry.iter() {
-                handle.mark_secondary_covering_authoritative();
-            }
-        });
-    }
-
-    /// Mark every registered store pair as synchronized for the explicit
-    /// storage-owned secondary existence-witness contract.
-    pub(in crate::db) fn mark_all_registered_stores_secondary_existence_witness_authoritative(
-        &self,
-    ) {
-        self.with_store_registry(|registry| {
-            for (_, handle) in registry.iter() {
-                handle.mark_secondary_existence_witness_authoritative();
-            }
-        });
-    }
-
     /// Mark every registered index store as fully rebuilt and query-visible.
     ///
-    /// Validity is one additive gate on top of the narrower covering
-    /// authority witnesses. Recovery restores validity only after rebuild and
-    /// post-recovery integrity validation complete successfully.
+    /// Recovery restores visibility only after rebuild and post-recovery
+    /// integrity validation complete successfully.
     pub(in crate::db) fn mark_all_registered_index_stores_valid(&self) {
         self.with_store_registry(|registry| {
             for (_, handle) in registry.iter() {

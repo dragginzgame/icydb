@@ -30,6 +30,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsSink, with_metrics_sink},
     model::entity::EntityModel,
+    model::index::IndexModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
 };
@@ -266,6 +267,28 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|store| store.index_state())
     }
 
+    // Resolve the exact secondary-index set that is visible to planner-owned
+    // query planning for one recovered store/model pair.
+    fn visible_indexes_for_store_model(
+        &self,
+        store_path: &str,
+        model: &'static EntityModel,
+    ) -> Result<Vec<&'static IndexModel>, QueryError> {
+        // Phase 1: resolve the recovered store state once at the session
+        // boundary so query/executor planning does not reopen lifecycle checks.
+        let store = self
+            .db
+            .recovered_store(store_path)
+            .map_err(QueryError::execute)?;
+        if store.index_state() != IndexState::Valid {
+            return Ok(Vec::new());
+        }
+
+        // Phase 2: planner-visible indexes are exactly the model-owned index
+        // declarations once the recovered store is query-visible.
+        Ok(model.indexes().to_vec())
+    }
+
     /// Return one structured schema description for the entity.
     ///
     /// This is a typed `DESCRIBE`-style introspection surface consumed by
@@ -367,15 +390,14 @@ where
     let storage_key = data_key.storage_key();
 
     // Phase 3: preserve the secondary entries but mark any surviving raw
-    // memberships as explicitly missing so storage-owned existence-witness
-    // tests can exercise the stale path without lying about row existence.
+    // memberships as explicitly missing so stale-index fixtures can exercise
+    // impossible-state behavior without lying about row existence.
     let removed = store.with_data_mut(|data| data.remove(&raw_key).is_some());
     if !removed {
         return Ok(false);
     }
 
     store.with_index_mut(|index| index.mark_memberships_missing_for_storage_key(storage_key))?;
-    store.mark_secondary_existence_witness_authoritative();
 
     Ok(true)
 }

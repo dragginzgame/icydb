@@ -22,13 +22,14 @@ use crate::{
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
-    model::entity::EntityModel,
+    model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
 use std::ops::Bound;
 
 pub(super) fn plan_compare(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
@@ -52,6 +53,7 @@ pub(super) fn plan_compare(
             }
             if let Some(paths) = index_prefix_for_eq(
                 model,
+                visible_indexes,
                 schema,
                 &cmp.field,
                 &cmp.value,
@@ -79,6 +81,7 @@ pub(super) fn plan_compare(
                 }
                 if let Some(paths) = index_multi_lookup_for_in(
                     model,
+                    visible_indexes,
                     schema,
                     &cmp.field,
                     items,
@@ -105,7 +108,9 @@ pub(super) fn plan_compare(
             if cmp.coercion.id == CoercionId::TextCasefold && !field_type.is_text() {
                 return AccessPlan::full_scan();
             }
-            if let Some(path) = plan_ordered_compare(model, schema, cmp, query_predicate) {
+            if let Some(path) =
+                plan_ordered_compare(model, visible_indexes, schema, cmp, query_predicate)
+            {
                 return path;
             }
         }
@@ -124,7 +129,9 @@ pub(super) fn plan_compare(
             // - expression-key lookups still keep their lower-bounded shape
             //   because the derived expression ordering does not yet expose one
             //   tighter planner-owned upper-bound contract
-            if let Some(path) = plan_starts_with_compare(model, schema, cmp, query_predicate) {
+            if let Some(path) =
+                plan_starts_with_compare(model, visible_indexes, schema, cmp, query_predicate)
+            {
                 return path;
             }
         }
@@ -176,7 +183,8 @@ fn plan_pk_compare(
 }
 
 fn plan_starts_with_compare(
-    model: &EntityModel,
+    _model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
@@ -188,7 +196,7 @@ fn plan_starts_with_compare(
         return None;
     }
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };
@@ -225,7 +233,8 @@ fn plan_starts_with_compare(
 }
 
 fn plan_ordered_compare(
-    model: &EntityModel,
+    _model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
@@ -235,7 +244,7 @@ fn plan_ordered_compare(
     // the stored normalized index value order.
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
 
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };

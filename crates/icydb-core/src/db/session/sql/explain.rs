@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
-            EntityAuthority, assemble_load_execution_node_descriptor_with_model_store_witness,
+            EntityAuthority, assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
         },
         query::builder::aggregate::AggregateExpr,
         query::intent::StructuralQuery,
@@ -17,7 +17,7 @@ use crate::{
             LoweredSqlCommand, LoweredSqlQuery, SqlGlobalAggregateCommandCore,
             SqlGlobalAggregateTerminal, apply_lowered_select_shape,
             bind_lowered_sql_explain_global_aggregate_structural,
-            render_lowered_sql_explain_plan_or_json,
+            bind_lowered_sql_query_structural,
         },
         sql::parser::SqlExplainMode,
     },
@@ -81,14 +81,17 @@ fn sql_global_aggregate_terminal_to_expr_with_model(
     }
 }
 
-impl LoweredSqlCommand {
-    /// Render this lowered SQL command through the shared EXPLAIN surface for
-    /// one concrete model authority.
-    #[inline(never)]
-    pub fn explain_for_model(&self, model: &'static EntityModel) -> Result<String, QueryError> {
+impl<C: CanisterKind> DbSession<C> {
+    // Render one lowered SQL EXPLAIN payload through the session-owned planner
+    // visibility boundary for one resolved authority.
+    pub(in crate::db) fn explain_lowered_sql_for_authority(
+        &self,
+        lowered: &LoweredSqlCommand,
+        authority: EntityAuthority,
+    ) -> Result<String, QueryError> {
         // First validate lane selection once on the shared lowered-command path
         // so explain callers do not rebuild lane guards around the same shape.
-        let lane = session_sql_lane(self);
+        let lane = session_sql_lane(lowered);
         if lane != crate::db::session::sql::surface::SqlLaneKind::Explain {
             return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
                 SqlSurface::Explain,
@@ -96,11 +99,10 @@ impl LoweredSqlCommand {
             )));
         }
 
-        // Then prefer the structural renderer because plan/json explain output
-        // can stay generic-free all the way to the final render step.
+        // Then prefer the structural planner-owned renderer because plan/json
+        // explain output can stay generic-free all the way to the final render step.
         if let Some(rendered) =
-            render_lowered_sql_explain_plan_or_json(self, model, MissingRowPolicy::Ignore)
-                .map_err(QueryError::from_sql_lowering_error)?
+            self.render_lowered_sql_explain_plan_or_json_for_authority(lowered, authority)?
         {
             return Ok(rendered);
         }
@@ -108,23 +110,55 @@ impl LoweredSqlCommand {
         // Structural global aggregate explain is the remaining explain-only
         // shape that still needs dedicated aggregate descriptor rendering.
         if let Some((mode, command)) = bind_lowered_sql_explain_global_aggregate_structural(
-            self,
-            model,
+            lowered,
+            authority.model(),
             MissingRowPolicy::Ignore,
         ) {
-            return explain_sql_global_aggregate_structural(mode, command);
+            return self
+                .explain_sql_global_aggregate_structural_for_authority(mode, command, authority);
         }
 
         Err(QueryError::unsupported_query(
             "shared EXPLAIN dispatch could not classify lowered SQL shape",
         ))
     }
-}
 
-impl<C: CanisterKind> DbSession<C> {
-    // Render one SQL EXPLAIN EXECUTION payload through the store-backed route
-    // planner so witness-validated covering routes remain visible on the SQL
-    // surface even though generic query-builder explain stays conservative.
+    // Render one lowered SQL EXPLAIN PLAN / JSON payload through the session-
+    // owned planner visibility boundary for one resolved authority.
+    fn render_lowered_sql_explain_plan_or_json_for_authority(
+        &self,
+        lowered: &LoweredSqlCommand,
+        authority: EntityAuthority,
+    ) -> Result<Option<String>, QueryError> {
+        let Some((mode, query)) = lowered.explain_query() else {
+            return Ok(None);
+        };
+        if matches!(mode, SqlExplainMode::Execution) {
+            return Ok(None);
+        }
+
+        let structural = bind_lowered_sql_query_structural(
+            authority.model(),
+            query.clone(),
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        let explain = plan.explain_with_model(authority.model());
+        let rendered = match mode {
+            SqlExplainMode::Plan => explain.render_text_canonical(),
+            SqlExplainMode::Json => explain.render_json_canonical(),
+            SqlExplainMode::Execution => unreachable!("execution explain is handled separately"),
+        };
+
+        Ok(Some(rendered))
+    }
+
+    // Render one SQL EXPLAIN EXECUTION payload through the shared planner-owned
+    // covering contract. Covering visibility is now part of route planning, so
+    // SQL EXPLAIN does not need a separate store-backed authority pass.
     pub(in crate::db::session::sql) fn explain_lowered_sql_execution_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
@@ -142,56 +176,62 @@ impl<C: CanisterKind> DbSession<C> {
             select.clone(),
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let plan = structural.build_plan()?;
-        let store = self
-            .db
-            .recovered_store(authority.store_path())
-            .map_err(QueryError::execute)?;
-        let descriptor = assemble_load_execution_node_descriptor_with_model_store_witness(
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
+        let descriptor = assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
             authority.model(),
+            &visible_indexes,
             &plan,
-            store,
         )
         .map_err(QueryError::execute)?;
 
         Ok(Some(descriptor.render_text_tree()))
     }
-}
 
-// Render one EXPLAIN payload for constrained global aggregate SQL command
-// entirely through structural query and descriptor authority.
-#[inline(never)]
-fn explain_sql_global_aggregate_structural(
-    mode: SqlExplainMode,
-    command: SqlGlobalAggregateCommandCore,
-) -> Result<String, QueryError> {
-    let model = command.query().model();
+    // Render one EXPLAIN payload for constrained global aggregate SQL command
+    // entirely through the session-owned planner visibility boundary.
+    #[inline(never)]
+    fn explain_sql_global_aggregate_structural_for_authority(
+        &self,
+        mode: SqlExplainMode,
+        command: SqlGlobalAggregateCommandCore,
+        authority: EntityAuthority,
+    ) -> Result<String, QueryError> {
+        let model = command.query().model();
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
 
-    match mode {
-        SqlExplainMode::Plan => {
-            let _ = sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
+        match mode {
+            SqlExplainMode::Plan => {
+                let _ =
+                    sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
 
-            Ok(command
-                .query()
-                .build_plan()?
-                .explain_with_model(model)
-                .render_text_canonical())
-        }
-        SqlExplainMode::Execution => {
-            let aggregate =
-                sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
-            let plan = command.query().explain_aggregate_terminal(aggregate)?;
+                Ok(command
+                    .query()
+                    .build_plan_with_visible_indexes(&visible_indexes)?
+                    .explain_with_model(model)
+                    .render_text_canonical())
+            }
+            SqlExplainMode::Execution => {
+                let aggregate =
+                    sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
+                let plan = command
+                    .query()
+                    .explain_aggregate_terminal_with_visible_indexes(&visible_indexes, aggregate)?;
 
-            Ok(plan.execution_node_descriptor().render_text_tree())
-        }
-        SqlExplainMode::Json => {
-            let _ = sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
+                Ok(plan.execution_node_descriptor().render_text_tree())
+            }
+            SqlExplainMode::Json => {
+                let _ =
+                    sql_global_aggregate_terminal_to_expr_with_model(model, command.terminal())?;
 
-            Ok(command
-                .query()
-                .build_plan()?
-                .explain_with_model(model)
-                .render_json_canonical())
+                Ok(command
+                    .query()
+                    .build_plan_with_visible_indexes(&visible_indexes)?
+                    .explain_with_model(model)
+                    .render_json_canonical())
+            }
         }
     }
 }

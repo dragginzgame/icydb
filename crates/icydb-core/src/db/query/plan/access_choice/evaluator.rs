@@ -23,15 +23,12 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{
-        entity::EntityModel,
-        index::{IndexKeyItem, IndexModel},
-    },
+    model::index::{IndexKeyItem, IndexModel},
     value::Value,
 };
 
-pub(super) fn sorted_indexes(model: &EntityModel) -> Vec<&IndexModel> {
-    sorted_model_indexes(model)
+pub(super) fn sorted_indexes(indexes: &[&'static IndexModel]) -> Vec<&'static IndexModel> {
+    sorted_model_indexes(indexes)
 }
 
 pub(super) const fn chosen_access_shape_projection(

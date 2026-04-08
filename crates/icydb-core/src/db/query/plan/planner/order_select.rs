@@ -9,7 +9,7 @@ use crate::{
         predicate::Predicate,
         query::plan::{OrderSpec, index_order_terms, planner::sorted_indexes},
     },
-    model::entity::EntityModel,
+    model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
 use std::ops::Bound;
@@ -19,6 +19,7 @@ use std::ops::Bound;
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     order: Option<&OrderSpec>,
     query_predicate: Option<&Predicate>,
 ) -> Option<AccessPlan<Value>> {
@@ -34,7 +35,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     let true_predicate = Predicate::True;
     let query_predicate = query_predicate.unwrap_or(&true_predicate);
 
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let index_terms = index_order_terms(index);
         if !order.matches_expected_term_sequence_plus_primary_key(
             index_terms.iter().map(String::as_str),

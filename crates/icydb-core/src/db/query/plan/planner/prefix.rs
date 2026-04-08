@@ -34,8 +34,16 @@ fn leading_index_prefix_lookup_value(
     eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)
 }
 
+// This helper now carries one explicit planner-visible index slice in addition
+// to the existing predicate/order inputs so callers can keep lifecycle gating
+// at the planner boundary instead of reopening store state here.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "planner visibility is explicit input"
+)]
 pub(super) fn index_prefix_for_eq(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
@@ -46,7 +54,7 @@ pub(super) fn index_prefix_for_eq(
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
     let mut best: Option<(bool, &'static IndexModel, Value)> = None;
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(lookup_value) =
             leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
         else {
@@ -70,7 +78,8 @@ pub(super) fn index_prefix_for_eq(
 }
 
 pub(super) fn index_multi_lookup_for_in(
-    model: &EntityModel,
+    _model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     field: &str,
     values: &[Value],
@@ -78,7 +87,7 @@ pub(super) fn index_multi_lookup_for_in(
     query_predicate: &Predicate,
 ) -> Option<Vec<AccessPlan<Value>>> {
     let mut out = Vec::new();
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let mut lookup_values = Vec::with_capacity(values.len());
         for value in values {
             let literal_compatible = index_literal_matches_schema(schema, field, value);
@@ -107,6 +116,7 @@ pub(super) fn index_multi_lookup_for_in(
 
 pub(super) fn index_prefix_from_and(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     children: &[Predicate],
     query_predicate: &Predicate,
@@ -138,7 +148,7 @@ pub(super) fn index_prefix_from_and(
     }
 
     let mut best: Option<(usize, bool, bool, &IndexModel, Vec<Value>)> = None;
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
             continue;
         };

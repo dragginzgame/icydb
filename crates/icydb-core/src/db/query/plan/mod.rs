@@ -28,7 +28,7 @@ mod tests;
 pub(crate) mod validate;
 
 pub(in crate::db) use access_choice::{
-    AccessChoiceExplainSnapshot, project_access_choice_explain_snapshot,
+    AccessChoiceExplainSnapshot, project_access_choice_explain_snapshot_with_indexes,
 };
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db::query) use access_planner::{

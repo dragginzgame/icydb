@@ -11,7 +11,6 @@ use crate::{
             route::{
                 ExecutionRouteShape, LoadTerminalFastPathContract, TopNSeekSpec,
                 build_initial_execution_route_plan_for_load_with_model,
-                build_initial_execution_route_plan_for_load_with_model_store_witness,
             },
         },
         predicate::IndexPredicateCapability,
@@ -23,12 +22,12 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
-                CoveringReadFieldSource, project_access_choice_explain_snapshot,
+                CoveringReadFieldSource, project_access_choice_explain_snapshot_with_indexes,
             },
         },
-        registry::StoreHandle,
     },
     error::InternalError,
+    model::index::IndexModel,
     value::Value,
 };
 use std::borrow::Cow;
@@ -52,30 +51,36 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
-
-    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
+    assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
+        model,
+        model.indexes(),
+        plan,
+    )
 }
 
-// Assemble one canonical scalar load execution descriptor tree through one
-// store-backed route plan that may promote witness-validated covering
-// authority.
-pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_store_witness(
+#[inline(never)]
+pub(in crate::db) fn assemble_load_execution_node_descriptor_with_model_and_visible_indexes(
     model: &'static crate::model::entity::EntityModel,
+    visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
-    store: StoreHandle,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_plan = build_initial_execution_route_plan_for_load_with_model_store_witness(
-        model, plan, None, store,
-    )?;
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
 
-    Ok(assemble_load_execution_node_descriptor_with_model_and_route_plan(model, plan, &route_plan))
+    Ok(
+        assemble_load_execution_node_descriptor_with_model_and_route_plan(
+            model,
+            visible_indexes,
+            plan,
+            &route_plan,
+        ),
+    )
 }
 
 // Assemble one canonical scalar load execution descriptor tree through one
 // caller-supplied route plan.
 fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
+    visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
 ) -> ExplainExecutionNodeDescriptor {
@@ -95,7 +100,12 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     // Phase 2: derive one canonical access projection and reuse it across
     // descriptor assembly instead of re-projecting the chosen route again.
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
-    let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
+    let access_choice = project_access_choice_explain_snapshot_with_indexes(
+        model,
+        visible_indexes,
+        plan,
+        &access_strategy,
+    );
     let mut root =
         crate::db::executor::explain::descriptor::shared::access_execution_node_descriptor(
             access_strategy,
@@ -121,10 +131,6 @@ fn assemble_load_execution_node_descriptor_with_model_and_route_plan(
     }
     annotate_projection_pushdown_node_properties(&mut root, model, plan, covering_scan);
     annotate_covering_read_route_node_properties(&mut root, load_terminal_fast_path);
-    annotate_store_backed_secondary_authority_node_properties(
-        &mut root,
-        route_plan.resolved_secondary_read_authority_profile(),
-    );
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
@@ -212,11 +218,24 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
     model: &'static crate::model::entity::EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
+    assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
+        model,
+        model.indexes(),
+        plan,
+    )
+}
+
+pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes(
+    model: &'static crate::model::entity::EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    plan: &AccessPlannedQuery,
+) -> Result<Vec<String>, InternalError> {
     let route_plan = build_initial_execution_route_plan_for_load_with_model(model, plan, None)?;
 
     Ok(
         assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
             model,
+            visible_indexes,
             plan,
             &route_plan,
         ),
@@ -227,6 +246,7 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_with_model(
 // caller-supplied route plan.
 fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     model: &'static crate::model::entity::EntityModel,
+    visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
     route_plan: &crate::db::executor::route::ExecutionRoutePlan,
 ) -> Vec<String> {
@@ -247,7 +267,12 @@ fn assemble_load_execution_verbose_diagnostics_with_model_and_route_plan(
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
     let projection_pushdown = load_terminal_fast_path.is_some();
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
-    let access_choice = project_access_choice_explain_snapshot(model, plan, &access_strategy);
+    let access_choice = project_access_choice_explain_snapshot_with_indexes(
+        model,
+        visible_indexes,
+        plan,
+        &access_strategy,
+    );
     let mut chosen_label = String::new();
     write_access_strategy_label(&mut chosen_label, &access_strategy);
     let rejections = access_choice.rejected.into_iter().collect::<Vec<_>>();
@@ -366,45 +391,6 @@ fn annotate_covering_read_route_node_properties(
     };
     node.node_properties
         .insert("cov_read_route", Value::from(route_label));
-}
-
-// Surface one store-backed secondary authority decision on EXPLAIN so the
-// store-backed load route stays externally inspectable.
-//
-// `authority_decision` + `authority_reason` together encode the authority
-// classification. This is intentionally flat for now; normalization should
-// happen only once all index-backed execution paths, including aggregates,
-// share the same classification model. These labels must come from the
-// resolved authority profile already carried on the route plan, not from a
-// second authority resolution during descriptor assembly.
-//
-// Only classifier-owned secondary read families emit this flat authority
-// surface. Richer profile-owned covering routes, such as stale composite
-// storage-witness cohorts, keep their covering-specific `existing_row_mode`
-// without inheriting flat classifier labels by accident.
-fn annotate_store_backed_secondary_authority_node_properties(
-    node: &mut ExplainExecutionNodeDescriptor,
-    resolved_authority_profile: Option<
-        crate::db::executor::authority::ResolvedSecondaryReadAuthorityProfile,
-    >,
-) {
-    let Some(resolved_authority_profile) = resolved_authority_profile else {
-        return;
-    };
-    let Some((authority_decision, authority_reason)) =
-        resolved_authority_profile.flat_explain_labels()
-    else {
-        return;
-    };
-
-    node.node_properties
-        .insert("authority_decision", Value::from(authority_decision));
-    node.node_properties
-        .insert("authority_reason", Value::from(authority_reason));
-    node.node_properties.insert(
-        "index_state",
-        Value::from(resolved_authority_profile.index_state().as_str()),
-    );
 }
 
 // Emit one explicit projection terminal node when the scalar load route stays

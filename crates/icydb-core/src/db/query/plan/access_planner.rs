@@ -10,7 +10,7 @@ use crate::{
         query::plan::{OrderSpec, PlannerError, canonicalize_order_spec, plan_access_with_order},
         schema::{SchemaInfo, ValidateError, reject_unsupported_query_features},
     },
-    model::entity::EntityModel,
+    model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
 
@@ -82,19 +82,27 @@ pub(in crate::db::query) fn normalize_query_predicate(
 // Select one access plan from a normalized predicate.
 pub(in crate::db::query) fn plan_access_from_normalized_predicate(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let canonical_order = canonicalize_order_spec(model, order.cloned());
 
-    plan_access_with_order(model, schema_info, predicate, canonical_order.as_ref())
+    plan_access_with_order(
+        model,
+        visible_indexes,
+        schema_info,
+        predicate,
+        canonical_order.as_ref(),
+    )
 }
 
 // Select one access plan for a normalized query, honoring explicit key-access
 // overrides before falling back to predicate-derived access planning.
 pub(in crate::db::query) fn plan_query_access(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema_info: &SchemaInfo,
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
@@ -102,8 +110,12 @@ pub(in crate::db::query) fn plan_query_access(
 ) -> Result<AccessPlan<Value>, PlannerError> {
     match key_access_override {
         Some(plan) => Ok(plan),
-        None => {
-            plan_access_from_normalized_predicate(model, schema_info, normalized_predicate, order)
-        }
+        None => plan_access_from_normalized_predicate(
+            model,
+            visible_indexes,
+            schema_info,
+            normalized_predicate,
+            order,
+        ),
     }
 }

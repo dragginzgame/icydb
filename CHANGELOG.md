@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.70.x] 🧭 - 2026-04-07 - Centralized Read Authority
 
+- `0.70.5` completes the new Option A direction for session-backed reads by hiding non-`Valid` indexes from planning entirely, so execution no longer carries index-correctness checks and building indexes now fall back to ordinary full-scan/materialized routes across core tests, generated SQL parity, and PocketIC.
 - `0.70.4` keeps the current covering-authority rules unchanged but moves secondary-read authority resolution onto one immutable snapshot taken from the live registry/store boundary, while also broadening aggregate query coverage and PocketIC perf baselines so the typed aggregate lane now has locked success, empty-window, reject, and explain behavior without widening policy by analogy.
-- `0.70.0` starts the new read-authority line by giving indexes explicit `Building` / `Valid` / `Dropping` lifecycle states and by requiring a `Valid` index before any probe-free covering read may use the newer witness-backed execution paths, while leaving aggregate index shortcuts on their older rules for now.
-- `0.70.1` does not change query execution, but it makes the new index-validity authority rules much easier to inspect and safer to regress-test by surfacing covering-route downgrade reasons on `EXPLAIN`, showing runtime index state on inspection surfaces, and locking the invalid-index fallback across core tests, generated SQL parity, and PocketIC.
 - `0.70.3` keeps the new `0.70.2` authority cohorts intact but finishes the refactor by making one resolved profile the only production source of probe-free covering behavior, leaving the flat authority labels as an optional derived view instead of a second behavior source.
 - `0.70.2` centralizes the single-component covering line behind one shared flat classifier, extends that same flat authority surface to one proven witness-backed composite family, and keeps stale composite/storage-witness reads on their older conservative route instead of widening policy by resemblance.
+- `0.70.1` does not change query execution, but it makes the new index-validity authority rules much easier to inspect and safer to regress-test by surfacing covering-route downgrade reasons on `EXPLAIN`, showing runtime index state on inspection surfaces, and locking the invalid-index fallback across core tests, generated SQL parity, and PocketIC.
+- `0.70.0` starts the new read-authority line by giving indexes explicit `Building` / `Valid` / `Dropping` lifecycle states and by requiring a `Valid` index before any probe-free covering read may use the newer witness-backed execution paths, while leaving aggregate index shortcuts on their older rules for now.
 
 See detailed breakdown:
 [docs/changelog/0.70.md](docs/changelog/0.70.md)

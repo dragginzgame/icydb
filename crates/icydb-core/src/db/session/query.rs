@@ -14,14 +14,160 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionStrategy, GroupedCursorPage, LoadExecutor, PageCursor,
         },
+        query::builder::aggregate::AggregateExpr,
+        query::explain::{
+            ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
+        },
+        query::intent::{CompiledQuery, PlannedQuery},
         query::plan::QueryMode,
         session::{decode_optional_cursor_bytes, decode_optional_grouped_cursor},
     },
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
 
 impl<C: CanisterKind> DbSession<C> {
+    // Compile one typed query using only the indexes currently visible for the
+    // query's recovered store.
+    pub(in crate::db) fn compile_query_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<CompiledQuery<E>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.plan_with_visible_indexes(&visible_indexes)
+    }
+
+    // Build one logical planned-query shell using only the indexes currently
+    // visible for the query's recovered store.
+    pub(in crate::db) fn planned_query_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<PlannedQuery<E>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.planned_with_visible_indexes(&visible_indexes)
+    }
+
+    // Project one logical explain payload using only planner-visible indexes.
+    pub(in crate::db) fn explain_query_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<ExplainPlan, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_with_visible_indexes(&visible_indexes)
+    }
+
+    // Hash one typed query plan using only the indexes currently visible for
+    // the query's recovered store.
+    pub(in crate::db) fn query_plan_hash_hex_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.plan_hash_hex_with_visible_indexes(&visible_indexes)
+    }
+
+    // Explain one scalar load execution shape using only planner-visible
+    // indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_execution_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_execution_with_visible_indexes(&visible_indexes)
+    }
+
+    // Render one scalar load execution descriptor as deterministic text using
+    // only planner-visible indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_execution_text_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_execution_text_with_visible_indexes(&visible_indexes)
+    }
+
+    // Render one scalar load execution descriptor as canonical JSON using
+    // only planner-visible indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_execution_json_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_execution_json_with_visible_indexes(&visible_indexes)
+    }
+
+    // Render one scalar load execution descriptor plus route diagnostics using
+    // only planner-visible indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_execution_verbose_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_execution_verbose_with_visible_indexes(&visible_indexes)
+    }
+
+    // Explain one scalar aggregate terminal using only planner-visible indexes
+    // from the recovered store state.
+    pub(in crate::db) fn explain_query_aggregate_terminal_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+        aggregate: AggregateExpr,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_aggregate_terminal_with_visible_indexes(&visible_indexes, aggregate)
+    }
+
+    // Explain one `bytes_by(field)` terminal using only planner-visible
+    // indexes from the recovered store state.
+    pub(in crate::db) fn explain_query_bytes_by_with_visible_indexes<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue + EntityKind<Canister = C>,
+    {
+        let visible_indexes = self.visible_indexes_for_store_model(E::Store::PATH, E::MODEL)?;
+
+        query.explain_bytes_by_with_visible_indexes(&visible_indexes, target_field)
+    }
+
     // Validate that one execution strategy is admissible for scalar paged load
     // execution and fail closed on grouped/primary-key-only routes.
     fn ensure_scalar_paged_execution_strategy(
@@ -56,7 +202,9 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: compile typed intent into one executable plan contract.
         let mode = query.mode();
-        let plan = query.plan()?.into_executable();
+        let plan = self
+            .compile_query_with_visible_indexes(query)?
+            .into_executable();
 
         // Phase 2: delegate execution to the shared compiled-plan entry path.
         self.execute_query_dyn(mode, plan)
@@ -76,7 +224,9 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         // Phase 2: compile typed delete intent into one executable plan contract.
-        let plan = query.plan()?.into_executable();
+        let plan = self
+            .compile_query_with_visible_indexes(query)?
+            .into_executable();
 
         // Phase 3: execute the shared delete core while skipping response-row materialization.
         self.with_metrics(|| self.delete_executor::<E>().execute_count(plan))
@@ -113,7 +263,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?.into_executable();
+        let plan = self
+            .compile_query_with_visible_indexes(query)?
+            .into_executable();
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::execute)
@@ -127,7 +279,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let compiled = query.plan()?;
+        let compiled = self.compile_query_with_visible_indexes(query)?;
         let explain = compiled.explain();
         let plan_hash = compiled.plan_hash_hex();
 
@@ -160,7 +312,9 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: build/validate executable plan and reject grouped plans.
-        let plan = query.plan()?.into_executable();
+        let plan = self
+            .compile_query_with_visible_indexes(query)?
+            .into_executable();
         Self::ensure_scalar_paged_execution_strategy(
             plan.execution_strategy().map_err(QueryError::execute)?,
         )?;
@@ -267,7 +421,9 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: build/validate executable plan and require grouped shape.
-        let plan = query.plan()?.into_executable();
+        let plan = self
+            .compile_query_with_visible_indexes(query)?
+            .into_executable();
         Self::ensure_grouped_execution_strategy(
             plan.execution_strategy().map_err(QueryError::execute)?,
         )?;

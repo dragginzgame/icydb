@@ -8,13 +8,11 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation,
-            authority::resolve_secondary_read_authority_profile,
             continuation::ScalarContinuationContext,
             preparation::resolved_index_slots_for_access_path,
             route::{
                 ExecutionRoutePlan, LoadTerminalFastPathContract, RouteIntent,
                 aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
-                apply_resolved_secondary_read_authority_profile_to_load_terminal_fast_path,
                 derive_execution_capabilities_for_model,
                 derive_load_terminal_fast_path_contract_for_model_plan,
                 pk_order_stream_fast_path_shape_supported_for_model,
@@ -24,7 +22,6 @@ use crate::{
             builder::AggregateExpr,
             plan::{AccessPlannedQuery, PlannerRouteProfile},
         },
-        registry::StoreHandle,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -76,37 +73,6 @@ pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_
         probe_fetch_hint,
         RouteIntent::Load,
     ))
-}
-
-/// Build canonical execution routing for one initial load execution and then
-/// promote narrow witness-backed covering authority from the resolved store
-/// pair when it is explicitly synchronized.
-pub(in crate::db::executor) fn build_initial_execution_route_plan_for_load_with_model_store_witness(
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-    probe_fetch_hint: Option<usize>,
-    store: StoreHandle,
-) -> Result<ExecutionPlan, InternalError> {
-    let mut route_plan =
-        build_initial_execution_route_plan_for_load_with_model(model, plan, probe_fetch_hint)?;
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-
-    // Resolve the store-backed secondary-read authority once at the route
-    // boundary so route promotion and later EXPLAIN assembly can consume the
-    // same canonical profile instead of recomputing it independently.
-    let resolved_authority_profile = resolve_secondary_read_authority_profile(
-        model,
-        plan,
-        route_plan.load_terminal_fast_path(),
-        authority_snapshot,
-    );
-    route_plan.resolved_secondary_read_authority_profile = Some(resolved_authority_profile);
-    apply_resolved_secondary_read_authority_profile_to_load_terminal_fast_path(
-        resolved_authority_profile,
-        &mut route_plan.load_terminal_fast_path,
-    );
-
-    Ok(route_plan)
 }
 
 /// Build canonical execution routing for mutation execution from structural model authority.
@@ -261,6 +227,5 @@ fn assemble_execution_route_plan(
         aggregate_fold_mode: execution_stage.aggregate_fold_mode,
         grouped_execution_strategy: derivation.grouped_execution_strategy,
         load_terminal_fast_path,
-        resolved_secondary_read_authority_profile: None,
     }
 }

@@ -72,8 +72,9 @@ pub(in crate::db::executor) use executable_plan::{PreparedAggregatePlan, Prepare
 pub(in crate::db) use explain::{
     assemble_aggregate_terminal_execution_descriptor_with_model,
     assemble_load_execution_node_descriptor_with_model,
-    assemble_load_execution_node_descriptor_with_model_store_witness,
+    assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
     assemble_load_execution_verbose_diagnostics_with_model,
+    assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;

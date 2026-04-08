@@ -21,6 +21,7 @@ use crate::{
 
 pub(super) fn plan_predicate(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: &Predicate,
     query_predicate: &Predicate,
@@ -51,20 +52,39 @@ pub(super) fn plan_predicate(
         Predicate::And(children) => {
             let primary_key_range_access =
                 range::primary_key_range_from_and(model, schema, children);
-            if let Some(range_spec) =
-                range::index_range_from_and(model, schema, children, query_predicate)
-            {
+            if let Some(range_spec) = range::index_range_from_and(
+                model,
+                visible_indexes,
+                schema,
+                children,
+                query_predicate,
+            ) {
                 return Ok(AccessPlan::index_range(range_spec));
             }
 
-            let prefix_access =
-                prefix::index_prefix_from_and(model, schema, children, query_predicate, order);
+            let prefix_access = prefix::index_prefix_from_and(
+                model,
+                visible_indexes,
+                schema,
+                children,
+                query_predicate,
+                order,
+            );
             let mut plans = children
                 .iter()
                 .filter(|child| {
                     !eq_child_is_redundant_under_prefix(schema, prefix_access.as_ref(), child)
                 })
-                .map(|child| plan_predicate(model, schema, child, query_predicate, order))
+                .map(|child| {
+                    plan_predicate(
+                        model,
+                        visible_indexes,
+                        schema,
+                        child,
+                        query_predicate,
+                        order,
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Composite index planning phase:
@@ -82,11 +102,20 @@ pub(super) fn plan_predicate(
         Predicate::Or(children) => AccessPlan::union(
             children
                 .iter()
-                .map(|child| plan_predicate(model, schema, child, query_predicate, order))
+                .map(|child| {
+                    plan_predicate(
+                        model,
+                        visible_indexes,
+                        schema,
+                        child,
+                        query_predicate,
+                        order,
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         Predicate::Compare(cmp) => {
-            compare::plan_compare(model, schema, cmp, query_predicate, order)
+            compare::plan_compare(model, visible_indexes, schema, cmp, query_predicate, order)
         }
     };
 

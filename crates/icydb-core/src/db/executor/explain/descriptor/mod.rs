@@ -11,7 +11,8 @@ pub(in crate::db) use self::{
     aggregate::assemble_aggregate_terminal_execution_descriptor_with_model,
     load::{
         assemble_load_execution_node_descriptor_with_model,
-        assemble_load_execution_node_descriptor_with_model_store_witness,
+        assemble_load_execution_node_descriptor_with_model_and_visible_indexes,
         assemble_load_execution_verbose_diagnostics_with_model,
+        assemble_load_execution_verbose_diagnostics_with_model_and_visible_indexes,
     },
 };

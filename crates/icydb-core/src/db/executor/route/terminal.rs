@@ -7,14 +7,11 @@ use crate::{
     db::{
         access::single_path_capabilities,
         direction::Direction,
-        executor::{
-            ExecutionPreparation, authority::ResolvedSecondaryReadAuthorityProfile,
-            preparation::slot_map_for_model_plan,
-        },
+        executor::{ExecutionPreparation, preparation::slot_map_for_model_plan},
         predicate::IndexPredicateCapability,
         query::plan::{
-            AccessPlannedQuery, CoveringExistingRowMode, CoveringReadExecutionPlan,
-            covering_read_execution_plan, index_covering_existing_rows_terminal_eligible,
+            AccessPlannedQuery, CoveringReadExecutionPlan, covering_read_execution_plan,
+            index_covering_existing_rows_terminal_eligible,
         },
     },
     model::entity::EntityModel,
@@ -68,33 +65,6 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
     CoveringRead(CoveringReadExecutionPlan),
 }
 
-// Apply one already-resolved secondary-read authority profile to the route's
-// load-terminal fast path.
-//
-// Store-backed route builders use this after resolving one canonical profile
-// from the immutable authority snapshot so route promotion and EXPLAIN can
-// share the exact same decision instead of resolving secondary authority
-// independently at each consumer.
-pub(in crate::db::executor) const fn apply_resolved_secondary_read_authority_profile_to_load_terminal_fast_path(
-    resolved_authority_profile: ResolvedSecondaryReadAuthorityProfile,
-    load_terminal_fast_path: &mut Option<LoadTerminalFastPathContract>,
-) {
-    let Some(LoadTerminalFastPathContract::CoveringRead(covering)) = load_terminal_fast_path else {
-        return;
-    };
-
-    match resolved_authority_profile.existing_row_mode() {
-        CoveringExistingRowMode::WitnessValidated => {
-            covering.existing_row_mode = CoveringExistingRowMode::WitnessValidated;
-        }
-        CoveringExistingRowMode::StorageExistenceWitness => {
-            covering.existing_row_mode = CoveringExistingRowMode::StorageExistenceWitness;
-        }
-        CoveringExistingRowMode::ProvenByPlanner
-        | CoveringExistingRowMode::RequiresRowPresenceCheck => {}
-    }
-}
-
 // Return whether the structural plan still carries a residual predicate.
 fn plan_has_predicate(plan: &AccessPlannedQuery) -> bool {
     plan.has_residual_predicate()
@@ -124,10 +94,10 @@ fn unordered_or_primary_key_order_direction_for_model(
 
 /// Derive one route-owned `count()` terminal fast-path contract from structural plan state.
 ///
-/// `0.70` intentionally does not apply `IndexState::Valid` gating here yet.
-/// These aggregate existing-row shortcuts are a separate correctness problem
-/// from probe-free covering reads and still need their own missing-row
-/// sensitivity classification.
+/// Aggregate existing-row shortcuts are still a separate correctness problem
+/// from secondary covering. Planner-owned index visibility now owns lifecycle
+/// correctness globally, but COUNT/EXISTS missing-row sensitivity still needs
+/// its own classification before those terminals are simplified further.
 pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,

@@ -126,7 +126,8 @@ struct CachedCompare<'a> {
 // - For a chosen index: slots 0..k must be Eq, slot k must be Range,
 //   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
-    model: &EntityModel,
+    _model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     children: &[Predicate],
     query_predicate: &Predicate,
@@ -174,7 +175,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         Vec<Value>,
         RangeConstraint,
     )> = None;
-    for index in sorted_indexes(model, query_predicate) {
+    for index in sorted_indexes(visible_indexes, query_predicate) {
         let Some((range_slot, prefix, range)) =
             index_range_candidate_for_index(index, schema, &compares)
         else {

@@ -395,11 +395,10 @@ where
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
     let route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model_store_witness(
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
             authority.model(),
             &logical_plan,
             None,
-            store,
         )?;
 
     // Phase 2: keep the unpaged rows lane on the fixed initial continuation contract.
@@ -473,11 +472,10 @@ where
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
     let route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model_store_witness(
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
             authority.model(),
             &plan,
             None,
-            store,
         )?;
 
     // Phase 2: execute the shared scalar runtime on the fixed initial continuation contract.
@@ -536,11 +534,10 @@ where
     validate_executor_plan_for_authority(authority, &plan)?;
     let store = db.recovered_store(authority.store_path())?;
     let route_plan =
-        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model_store_witness(
+        crate::db::executor::route::build_initial_execution_route_plan_for_load_with_model(
             authority.model(),
             &plan,
             None,
-            store,
         )?;
 
     // Phase 2: execute the shared scalar runtime on the fixed initial

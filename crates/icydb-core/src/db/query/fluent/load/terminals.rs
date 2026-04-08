@@ -72,7 +72,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.query().explain_aggregate_terminal(aggregate)
+        self.session
+            .explain_query_aggregate_terminal_with_visible_indexes(self.query(), aggregate)
     }
 
     // ------------------------------------------------------------------
@@ -129,7 +130,8 @@ where
     where
         E: EntityValue,
     {
-        self.query().explain_execution()
+        self.session
+            .explain_query_execution_with_visible_indexes(self.query())
     }
 
     /// Explain scalar load execution shape as deterministic text.
@@ -137,7 +139,8 @@ where
     where
         E: EntityValue,
     {
-        self.query().explain_execution_text()
+        self.session
+            .explain_query_execution_text_with_visible_indexes(self.query())
     }
 
     /// Explain scalar load execution shape as canonical JSON.
@@ -145,7 +148,8 @@ where
     where
         E: EntityValue,
     {
-        self.query().explain_execution_json()
+        self.session
+            .explain_query_execution_json_with_visible_indexes(self.query())
     }
 
     /// Explain scalar load execution shape as verbose text with diagnostics.
@@ -153,7 +157,8 @@ where
     where
         E: EntityValue,
     {
-        self.query().explain_execution_verbose()
+        self.session
+            .explain_query_execution_verbose_with_visible_indexes(self.query())
     }
 
     /// Execute and return the number of matching rows.
@@ -203,7 +208,8 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         Self::with_slot(field, |target_slot| {
-            self.query().explain_bytes_by(target_slot.field())
+            self.session
+                .explain_query_bytes_by_with_visible_indexes(self.query(), target_slot.field())
         })
     }
 

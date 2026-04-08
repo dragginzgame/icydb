@@ -576,7 +576,7 @@ fn covering_read_plan_requires_strict_predicate_compatibility() {
 }
 
 #[test]
-fn covering_read_execution_plan_marks_current_load_shapes_as_row_check_required() {
+fn covering_read_execution_plan_marks_secondary_load_shapes_as_planner_proven() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -596,7 +596,7 @@ fn covering_read_execution_plan_marks_current_load_shapes_as_row_check_required(
     );
     assert_eq!(
         covering.existing_row_mode,
-        super::CoveringExistingRowMode::RequiresRowPresenceCheck,
+        super::CoveringExistingRowMode::ProvenByPlanner,
     );
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "rank");

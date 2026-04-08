@@ -320,7 +320,7 @@ fn plan_access_for_test(
 ) -> Result<AccessPlan<Value>, crate::db::query::plan::PlannerError> {
     let normalized = predicate.map(normalize);
 
-    plan_access(model, schema, normalized.as_ref())
+    plan_access(model, model.indexes(), schema, normalized.as_ref())
 }
 
 // Compile the runtime predicate program against one model so access-planning

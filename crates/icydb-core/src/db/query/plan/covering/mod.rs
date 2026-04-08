@@ -239,8 +239,10 @@ pub(in crate::db) fn covering_read_execution_plan(
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadExecutionPlan> {
-    // Phase 1: keep current secondary/index-backed shapes explicit but
-    // conservative until `0.69` ships a truly row-free runtime for them.
+    // Phase 1: secondary covering routes now inherit planner-owned authority
+    // directly. Once a secondary index-backed covering shape is admitted at
+    // planning time, execution may trust that visible index path without a
+    // separate executor-side authority resolver.
     if let Some(covering) =
         covering_read_plan(model, plan, primary_key_name, strict_predicate_compatible)
     {
@@ -248,7 +250,7 @@ pub(in crate::db) fn covering_read_execution_plan(
             fields: covering.fields,
             prefix_len: covering.prefix_len,
             order_contract: covering.order_contract,
-            existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
+            existing_row_mode: CoveringExistingRowMode::ProvenByPlanner,
         });
     }
 

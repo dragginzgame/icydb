@@ -129,12 +129,14 @@ where
 
     /// Build explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        self.query.explain()
+        self.session
+            .explain_query_with_visible_indexes(self.query())
     }
 
     /// Return the stable plan hash for this query.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        self.query.plan_hash_hex()
+        self.session
+            .query_plan_hash_hex_with_visible_indexes(self.query())
     }
 
     /// Build one trace payload without executing the query.
@@ -144,12 +146,14 @@ where
 
     /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
-        self.query.planned()
+        self.session
+            .planned_query_with_visible_indexes(self.query())
     }
 
     /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
-        self.query.plan()
+        self.session
+            .compile_query_with_visible_indexes(self.query())
     }
 
     // ------------------------------------------------------------------

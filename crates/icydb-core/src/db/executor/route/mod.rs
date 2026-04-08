@@ -51,7 +51,6 @@ pub(in crate::db::executor) use planner::build_execution_route_plan_for_grouped_
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_load_with_model;
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_mutation_with_model;
 pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load_with_model;
-pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load_with_model_store_witness;
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract_for_model;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
@@ -63,9 +62,7 @@ pub(in crate::db::executor) use semantics::{
 pub(in crate::db::executor) use terminal::derive_load_terminal_fast_path_contract_for_model;
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
-    LoadTerminalFastPathContract,
-    apply_resolved_secondary_read_authority_profile_to_load_terminal_fast_path,
-    derive_count_terminal_fast_path_contract_for_model,
+    LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,
     derive_exists_terminal_fast_path_contract_for_model,
     derive_load_terminal_fast_path_contract_for_model_plan,
 };

@@ -30,22 +30,22 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::entity::EntityModel,
+    model::{entity::EntityModel, index::IndexModel},
 };
 
 pub(in crate::db) use self::model::AccessChoiceExplainSnapshot;
 
 ///
-/// project_access_choice_explain_snapshot
+/// project_access_choice_explain_snapshot_with_indexes
 ///
-/// Project planner-owned access-choice candidate metadata for EXPLAIN.
-/// This keeps alternative/rejection reporting aligned to planner predicates
-/// instead of model-only index hints.
+/// Project planner-owned access-choice candidate metadata for EXPLAIN using
+/// one explicit planner-visible index set.
 ///
 
 #[must_use]
-pub(in crate::db) fn project_access_choice_explain_snapshot(
+pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
     access: &ExplainAccessPath,
 ) -> AccessChoiceExplainSnapshot {
@@ -83,7 +83,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot(
 
     // Phase 2: walk deterministic model order once so chosen-score recovery
     // and alternative/rejection projection stay under one evaluation owner.
-    for index in sorted_indexes(model) {
+    for index in sorted_indexes(visible_indexes) {
         let index_name = index.name();
         match evaluate_index_candidate(family, index, &schema_info, predicate) {
             self::model::CandidateEvaluation::Eligible(score)

@@ -10,7 +10,7 @@ use super::{
     build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
     build_execution_route_plan_for_mutation_with_model,
-    build_initial_execution_route_plan_for_load_with_model_store_witness,
+    build_initial_execution_route_plan_for_load_with_model,
     derive_load_terminal_fast_path_contract_for_model,
     grouped_ordered_runtime_revalidation_flag_count_guard,
     grouped_plan_metrics_strategy_for_execution_strategy, route_capability_flag_count_guard,
@@ -20,18 +20,16 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         cursor::CursorBoundary,
-        data::DataStore,
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation,
             aggregate::AggregateFoldMode,
             aggregate::capability::AggregateFieldExtremaIneligibilityReason,
-            authority::resolve_secondary_read_authority_profile,
             continuation::{ContinuationMode, ScalarContinuationContext},
             plan_metrics::GroupedPlanMetricsStrategy,
             preparation::slot_map_for_model_plan,
         },
-        index::{IndexCompilePolicy, IndexStore, compile_index_program},
+        index::{IndexCompilePolicy, compile_index_program},
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::builder::aggregate,
         query::explain::{
@@ -47,17 +45,15 @@ use crate::{
             expr::{FieldId, ProjectionSelection},
             grouped_executor_handoff, grouped_plan_strategy_hint,
         },
-        registry::StoreHandle,
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
-    testing::test_memory,
     traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, fs, ops::Bound};
+use std::{fs, ops::Bound};
 
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
 const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
@@ -148,13 +144,6 @@ static UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &UNIQUE_ROUTE_CAPABILITY_INDEX_FIELDS,
     true,
 )];
-
-thread_local! {
-    static ROUTE_AUTHORITY_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(test_memory(180)));
-    static ROUTE_AUTHORITY_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(181)));
-}
 
 crate::test_entity_schema! {
     ident = UniqueRouteCapabilityEntity,
@@ -264,25 +253,8 @@ fn build_aggregate_spec_route(
     )
 }
 
-// Build one direct store handle for route-level authority promotion tests.
-fn route_authority_store_handle() -> StoreHandle {
-    StoreHandle::new(&ROUTE_AUTHORITY_DATA_STORE, &ROUTE_AUTHORITY_INDEX_STORE)
-}
-
-// Reset the route-level authority fixture so covering promotion tests start
-// from one empty `Valid` index with no synchronized authority bits restored.
-fn reset_route_authority_store() {
-    ROUTE_AUTHORITY_DATA_STORE.with(|store| store.borrow_mut().clear());
-    ROUTE_AUTHORITY_INDEX_STORE.with(|store| {
-        let mut store = store.borrow_mut();
-        store.clear();
-        store.mark_valid();
-    });
-}
-
 // Build one narrow order-only covering plan used to prove that route-level
-// witness promotion now depends on index validity in addition to the older
-// synchronized authority bits.
+// planner-owned covering mode applies directly to admitted secondary routes.
 fn secondary_order_covering_plan() -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
@@ -308,8 +280,7 @@ fn secondary_order_covering_plan() -> AccessPlannedQuery {
 }
 
 // Build one explicit composite order-only covering plan used to prove that the
-// widened `0.70.x` classifier now owns the synchronized composite witness
-// family while stale composite siblings remain on the richer profile.
+// same planner-owned covering mode applies to admitted composite routes too.
 fn composite_secondary_order_covering_plan(direction: OrderDirection) -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
@@ -820,7 +791,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
     );
     assert_eq!(
         covering.existing_row_mode,
-        CoveringExistingRowMode::RequiresRowPresenceCheck,
+        CoveringExistingRowMode::ProvenByPlanner,
     );
 
     let materialized = AccessPlannedQuery::new(
@@ -875,270 +846,49 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
     );
     assert_eq!(
         covering.existing_row_mode,
-        CoveringExistingRowMode::RequiresRowPresenceCheck,
+        CoveringExistingRowMode::ProvenByPlanner,
     );
 }
 
 #[test]
-fn route_plan_store_witness_requires_valid_index_for_witness_validated_promotion() {
-    reset_route_authority_store();
+fn route_plan_initial_secondary_covering_is_planner_proven() {
     let plan = secondary_order_covering_plan();
-    let store = route_authority_store_handle();
-
-    store.mark_secondary_covering_authoritative();
-    let promoted_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(
         RouteCapabilityEntity::MODEL,
         &plan,
         None,
-        store,
     )
-    .expect("witness-valid route plan should build");
-    let covering = promoted_route
-        .load_terminal_fast_path()
-        .expect("witness-valid route should retain a covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    assert_eq!(
-        covering.existing_row_mode,
-        CoveringExistingRowMode::WitnessValidated,
-        "Valid indexes may promote one eligible covering cohort onto witness-backed authority",
-    );
-
-    store.mark_index_building();
-    let invalid_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        store,
-    )
-    .expect("invalid-index route plan should still build");
-    let covering = invalid_route
-        .load_terminal_fast_path()
-        .expect("invalid-index route should retain a covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    assert_eq!(
-        covering.existing_row_mode,
-        CoveringExistingRowMode::RequiresRowPresenceCheck,
-        "Building indexes must fail closed back to row_check_required even for one otherwise eligible witness-backed covering cohort",
-    );
-}
-
-#[test]
-fn route_plan_store_witness_requires_valid_index_for_storage_existence_witness_promotion() {
-    reset_route_authority_store();
-    let plan = secondary_order_covering_plan();
-    let store = route_authority_store_handle();
-
-    store.mark_secondary_existence_witness_authoritative();
-    let promoted_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        store,
-    )
-    .expect("storage-witness-valid route plan should build");
-    let covering = promoted_route
-        .load_terminal_fast_path()
-        .expect("storage-witness-valid route should retain a covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    assert_eq!(
-        covering.existing_row_mode,
-        CoveringExistingRowMode::StorageExistenceWitness,
-        "Valid indexes may promote one eligible stale covering cohort onto the storage existence witness route",
-    );
-
-    store.with_index_mut(IndexStore::mark_dropping);
-    let invalid_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        store,
-    )
-    .expect("dropping-index route plan should still build");
-    let covering = invalid_route
-        .load_terminal_fast_path()
-        .expect("dropping-index route should retain a covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    assert_eq!(
-        covering.existing_row_mode,
-        CoveringExistingRowMode::RequiresRowPresenceCheck,
-        "Dropping indexes must fail closed back to row_check_required even when the explicit stale storage witness was previously authoritative",
-    );
-}
-
-#[test]
-fn route_plan_store_witness_prefers_witness_validated_over_storage_existence_witness() {
-    reset_route_authority_store();
-    let plan = secondary_order_covering_plan();
-    let store = route_authority_store_handle();
-
-    store.mark_secondary_covering_authoritative();
-    store.mark_secondary_existence_witness_authoritative();
-    let promoted_route = build_initial_execution_route_plan_for_load_with_model_store_witness(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        store,
-    )
-    .expect("dual-authority route plan should build");
-    let covering = promoted_route
-        .load_terminal_fast_path()
-        .expect("dual-authority route should retain a covering-read contract");
-    let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    assert_eq!(
-        covering.existing_row_mode,
-        CoveringExistingRowMode::WitnessValidated,
-        "When both witness bits are present, the centralized authority profile must prefer the stronger synchronized pair witness over the narrower stale storage witness",
-    );
-}
-
-#[test]
-fn route_plan_single_component_store_witness_matches_resolved_authority_profile() {
-    reset_route_authority_store();
-    let plan = secondary_order_covering_plan();
-    let store = route_authority_store_handle();
-
-    store.mark_secondary_covering_authoritative();
-    let route_plan = build_initial_execution_route_plan_for_load_with_model_store_witness(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        store,
-    )
-    .expect("single-component witness-backed route plan should build");
+    .expect("initial secondary covering route plan should build");
     let covering = route_plan
         .load_terminal_fast_path()
-        .expect("single-component witness-backed route should retain a covering-read contract");
+        .expect("initial secondary covering route should retain a covering-read contract");
     let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    let resolved_authority_profile = route_plan
-        .resolved_secondary_read_authority_profile()
-        .expect("store-backed witness route plan should carry the resolved authority profile for later EXPLAIN reuse");
 
     assert_eq!(
         covering.existing_row_mode,
-        resolved_authority_profile.existing_row_mode(),
-        "single-component covering route promotion must match the stored resolved executor-owned authority profile exactly",
+        CoveringExistingRowMode::ProvenByPlanner,
+        "secondary covering routes should now carry planner-owned visibility semantics directly",
     );
 }
 
 #[test]
-fn route_plan_flat_classifier_projection_keeps_single_component_and_composite_separate() {
-    let single_component_plan = secondary_order_covering_plan();
-    let composite_plan = composite_secondary_order_covering_plan(OrderDirection::Asc);
-    let store = route_authority_store_handle();
-    let composite_load_terminal_fast_path = derive_load_terminal_fast_path_contract_for_model(
-        RouteCapabilityEntity::MODEL,
-        &composite_plan,
-        true,
-    );
-
-    reset_route_authority_store();
-    let single_component_snapshot = store.secondary_read_authority_snapshot();
-
-    let single_component_profile = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &single_component_plan,
-        None,
-        single_component_snapshot,
-    );
-    let composite_snapshot = store.secondary_read_authority_snapshot();
-    let composite_profile = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &composite_plan,
-        composite_load_terminal_fast_path.as_ref(),
-        composite_snapshot,
-    );
-
-    assert!(
-        single_component_profile.has_flat_classifier_projection(),
-        "single-component secondary routes should still expose one admitted flat classifier projection",
-    );
-    assert!(
-        !composite_profile.has_flat_classifier_projection(),
-        "without the synchronized pair witness bit, composite secondary routes must stay outside the flat classifier projection",
-    );
-
-    store.mark_secondary_existence_witness_authoritative();
-    let stale_composite_snapshot = store.secondary_read_authority_snapshot();
-    let stale_composite_profile = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &composite_plan,
-        composite_load_terminal_fast_path.as_ref(),
-        stale_composite_snapshot,
-    );
-
-    assert!(
-        !stale_composite_profile.has_flat_classifier_projection(),
-        "stale composite covering routes must stay outside the flat classifier projection and must not drift there from the storage witness alone",
-    );
-
-    store.mark_secondary_covering_authoritative();
-    let synchronized_composite_snapshot = store.secondary_read_authority_snapshot();
-    let synchronized_composite_profile = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &composite_plan,
-        composite_load_terminal_fast_path.as_ref(),
-        synchronized_composite_snapshot,
-    );
-
-    assert!(
-        synchronized_composite_profile.has_flat_classifier_projection(),
-        "the synchronized composite order-only witness family should expose one admitted flat classifier projection once the stronger witness is present",
-    );
-}
-
-#[test]
-fn route_plan_same_snapshot_yields_same_resolved_authority_profile() {
-    reset_route_authority_store();
-    let plan = secondary_order_covering_plan();
-    let store = route_authority_store_handle();
-
-    store.mark_secondary_covering_authoritative();
-    let authority_snapshot = store.secondary_read_authority_snapshot();
-    let first = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        authority_snapshot,
-    );
-    let second = resolve_secondary_read_authority_profile(
-        RouteCapabilityEntity::MODEL,
-        &plan,
-        None,
-        authority_snapshot,
-    );
-
-    assert_eq!(
-        first, second,
-        "the resolved authority profile must be deterministic for the same immutable snapshot and structural plan inputs",
-    );
-}
-
-#[test]
-fn route_plan_composite_store_witness_matches_resolved_authority_profile() {
-    reset_route_authority_store();
+fn route_plan_initial_composite_secondary_covering_is_planner_proven() {
     let plan = composite_secondary_order_covering_plan(OrderDirection::Asc);
-    let store = route_authority_store_handle();
-
-    store.mark_secondary_covering_authoritative();
-    let route_plan = build_initial_execution_route_plan_for_load_with_model_store_witness(
+    let route_plan = build_initial_execution_route_plan_for_load_with_model(
         RouteCapabilityEntity::MODEL,
         &plan,
         None,
-        store,
     )
-    .expect("composite witness-backed route plan should build");
-    let covering = route_plan
-        .load_terminal_fast_path()
-        .expect("composite witness-backed route should retain a covering-read contract");
+    .expect("initial composite secondary covering route plan should build");
+    let covering = route_plan.load_terminal_fast_path().expect(
+        "initial composite secondary covering route should retain a covering-read contract",
+    );
     let LoadTerminalFastPathContract::CoveringRead(covering) = covering;
-    let resolved_authority_profile = route_plan
-        .resolved_secondary_read_authority_profile()
-        .expect("store-backed composite witness route plan should carry the resolved authority profile for later EXPLAIN reuse");
 
     assert_eq!(
         covering.existing_row_mode,
-        resolved_authority_profile.existing_row_mode(),
-        "composite covering route promotion must match the stored resolved executor-owned authority profile exactly once the synchronized witness family is admitted",
+        CoveringExistingRowMode::ProvenByPlanner,
+        "admitted composite secondary covering should share the same planner-proven contract",
     );
 }
 

@@ -198,7 +198,7 @@ fn plan_access_for_test(
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let normalized = predicate.map(normalize);
 
-    plan_access(model, schema, normalized.as_ref())
+    plan_access(model, model.indexes(), schema, normalized.as_ref())
 }
 
 fn plan_access_for_test_with_order(
@@ -209,7 +209,13 @@ fn plan_access_for_test_with_order(
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let normalized = predicate.map(normalize);
 
-    plan_access_with_order(model, schema, normalized.as_ref(), order.as_ref())
+    plan_access_with_order(
+        model,
+        model.indexes(),
+        schema,
+        normalized.as_ref(),
+        order.as_ref(),
+    )
 }
 
 fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {

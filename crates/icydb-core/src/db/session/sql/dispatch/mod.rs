@@ -181,7 +181,9 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlProjectionPayload, QueryError> {
         // Phase 1: build the structural access plan once and reuse its
         // projection contract for both labels and row materialization.
-        let plan = query.build_plan()?;
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
         let projection = plan.projection_spec(authority.model());
         let columns = projection_labels_from_projection_spec(&projection);
 
@@ -211,7 +213,9 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlDispatchResult, QueryError> {
         // Phase 1: build the structural access plan once and reuse its
         // projection contract for both labels and text-row materialization.
-        let plan = query.build_plan()?;
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
         let projection = plan.projection_spec(authority.model());
         let columns = projection_labels_from_projection_spec(&projection);
 
@@ -242,7 +246,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?.into_executable();
+        let plan = self
+            .compile_query_with_visible_indexes(query)?
+            .into_executable();
         let deleted = self
             .with_metrics(|| self.delete_executor::<E>().execute_sql_projection(plan))
             .map_err(QueryError::execute)?;
@@ -385,7 +391,8 @@ impl<C: CanisterKind> DbSession<C> {
                 if let Some((mode, plan)) =
                     computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
                 {
-                    return Self::explain_computed_sql_projection_dispatch::<E>(mode, plan)
+                    return self
+                        .explain_computed_sql_projection_dispatch::<E>(mode, plan)
                         .map(SqlDispatchResult::Explain);
                 }
 
@@ -401,8 +408,7 @@ impl<C: CanisterKind> DbSession<C> {
                     return Ok(SqlDispatchResult::Explain(explain));
                 }
 
-                lowered
-                    .explain_for_model(E::MODEL)
+                self.explain_lowered_sql_for_authority(&lowered, EntityAuthority::for_type::<E>())
                     .map(SqlDispatchResult::Explain)
             }
             SqlStatementRoute::Describe { .. } => {
@@ -465,10 +471,11 @@ impl<C: CanisterKind> DbSession<C> {
                 if let Some((mode, plan)) =
                     computed_projection::computed_sql_projection_explain_plan(&parsed.statement)?
                 {
-                    return Self::explain_computed_sql_projection_dispatch_for_authority(
-                        mode, plan, authority,
-                    )
-                    .map(SqlDispatchResult::Explain);
+                    return self
+                        .explain_computed_sql_projection_dispatch_for_authority(
+                            mode, plan, authority,
+                        )
+                        .map(SqlDispatchResult::Explain);
                 }
 
                 let lowered = parsed.lower_query_lane_for_entity(
@@ -481,8 +488,7 @@ impl<C: CanisterKind> DbSession<C> {
                     return Ok(SqlDispatchResult::Explain(explain));
                 }
 
-                lowered
-                    .explain_for_model(authority.model())
+                self.explain_lowered_sql_for_authority(&lowered, authority)
                     .map(SqlDispatchResult::Explain)
             }
             SqlStatementRoute::Describe { .. }

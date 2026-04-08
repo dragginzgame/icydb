@@ -11,25 +11,25 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         schema::{SchemaInfo, literal_matches_type},
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::index::IndexModel,
     value::Value,
 };
 use std::cmp::Ordering;
 
 pub(in crate::db::query::plan) fn sorted_indexes(
-    model: &EntityModel,
+    indexes: &[&'static IndexModel],
     query_predicate: &Predicate,
 ) -> Vec<&'static IndexModel> {
-    sorted_model_indexes(model)
+    sorted_model_indexes(indexes)
         .into_iter()
         .filter(|index| index_predicate_implied_by_query(index, query_predicate))
         .collect()
 }
 
 pub(in crate::db::query::plan) fn sorted_model_indexes(
-    model: &EntityModel,
+    indexes: &[&'static IndexModel],
 ) -> Vec<&'static IndexModel> {
-    let mut indexes = model.indexes.to_vec();
+    let mut indexes = indexes.to_vec();
     // Schema validation rejects duplicate index names, so deterministic
     // lexicographic ordering does not require a stable sort here.
     indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));

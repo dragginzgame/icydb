@@ -24,7 +24,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, field::FieldKind},
+    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::FieldValue,
     value::Value,
 };
@@ -272,6 +272,16 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     pub(in crate::db::query::intent) fn build_plan_model(
         &self,
     ) -> Result<AccessPlannedQuery, QueryError> {
+        self.build_plan_model_with_indexes(self.model.indexes())
+    }
+
+    /// Build a model-level logical plan using one explicit planner-visible
+    /// secondary-index set.
+    #[inline(never)]
+    pub(in crate::db::query::intent) fn build_plan_model_with_indexes(
+        &self,
+        visible_indexes: &[&'static IndexModel],
+    ) -> Result<AccessPlannedQuery, QueryError> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.intent.validate_policy_shape()?;
@@ -291,6 +301,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         } else {
             plan_query_access(
                 self.model,
+                visible_indexes,
                 &schema_info,
                 normalized_predicate.as_ref(),
                 access_inputs.order(),

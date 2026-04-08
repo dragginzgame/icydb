@@ -97,10 +97,12 @@ impl<C: CanisterKind> DbSession<C> {
             delete.clone(),
             MissingRowPolicy::Ignore,
         );
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
         let deleted = execute_sql_delete_projection_for_canister(
             &self.db,
             authority,
-            structural.build_plan()?,
+            structural.build_plan_with_visible_indexes(&visible_indexes)?,
         )
         .map_err(QueryError::execute)?;
         let (rows, row_count) = deleted.into_parts();

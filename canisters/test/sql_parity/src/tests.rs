@@ -549,10 +549,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "Customer expression key-only order explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "Customer expression key-only order explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -589,10 +589,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "descending Customer expression key-only order explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "descending Customer expression key-only order explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -630,10 +630,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "Customer expression key-only strict text-range explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "Customer expression key-only strict text-range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -671,10 +671,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "descending Customer expression key-only strict text-range explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "descending Customer expression key-only strict text-range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -757,10 +757,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "secondary covering explain should report the witness-backed row mode: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "secondary covering explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -790,10 +790,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"storage_existence_witness\")")
-                && explain.contains("authority_decision=Text(\"storage_existence_witness\")")
-                && explain.contains("authority_reason=Text(\"stale_storage_existence_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "stale Customer name-only covering explain should report the storage-owned existence witness mode: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "stale Customer name-only covering explain should report the storage-owned existence witness mode without the removed flat authority labels: {explain}",
         );
         assert!(
             !explain.contains("row_check_required"),
@@ -812,7 +812,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_sql_dispatch_customer_secondary_covering_building_explain_reports_index_not_valid()
+    fn generated_sql_dispatch_customer_secondary_covering_building_explain_falls_back_to_full_scan()
     {
         reload_default_fixtures_with_customer_index_building();
 
@@ -821,20 +821,18 @@ mod tests {
         );
 
         assert!(
-            explain.contains("cov_read_route=Text(\"covering_read\")")
-                && explain.contains("covering_fields=List([Text(\"id\"), Text(\"name\")])"),
-            "building-index Customer covering explain should stay on the covering-read route contract while failing closed on authority: {explain}",
+            explain.contains("FullScan") && explain.contains("OrderByMaterializedSort"),
+            "building-index Customer explain should fall back to the planner-visible full-scan route: {explain}",
         );
         assert!(
-            explain.contains("existing_row_mode=Text(\"row_check_required\")")
-                && explain.contains("authority_decision=Text(\"row_check_required\")")
-                && explain.contains("authority_reason=Text(\"index_not_valid\")")
-                && explain.contains("index_state=Text(\"building\")"),
-            "building-index Customer covering explain should expose the explicit index_not_valid downgrade: {explain}",
-        );
-        assert!(
-            !explain.contains("witness_validated"),
-            "building-index Customer covering explain should not expose witness_validated authority: {explain}",
+            !explain.contains("CoveringRead")
+                && !explain.contains("existing_row_mode")
+                && !explain.contains("witness_validated")
+                && !explain.contains("storage_existence_witness")
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "building-index Customer explain should not expose the removed authority surface or any leftover covering authority labels: {explain}",
         );
     }
 
@@ -861,10 +859,10 @@ mod tests {
             "non-covering Customer explain should stay on the materialized route contract: {explain}",
         );
         assert!(
-            explain.contains("authority_decision=Text(\"row_check_required\")")
-                && explain.contains("authority_reason=Text(\"probe_required\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "non-covering Customer explain should expose the centralized probe_required authority classification: {explain}",
+            !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "non-covering Customer explain should stay off the removed flat authority surface: {explain}",
         );
         assert!(
             !explain.contains("witness_validated")
@@ -899,10 +897,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"storage_existence_witness\")")
-                && explain.contains("authority_decision=Text(\"storage_existence_witness\")")
-                && explain.contains("authority_reason=Text(\"stale_storage_existence_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "stale Customer PK-plus-name covering explain should report the storage-owned existence witness authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "stale Customer PK-plus-name covering explain should report the storage-owned existence witness row mode without the removed flat authority labels: {explain}",
         );
         assert!(
             !explain.contains("row_check_required"),
@@ -1240,10 +1238,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "secondary covering equality explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "secondary covering equality explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -1272,10 +1270,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "secondary covering equality desc explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "secondary covering equality desc explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -1303,10 +1301,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "secondary covering range explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "secondary covering range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -1335,10 +1333,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"witness_validated\")")
-                && explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "secondary covering desc range explain should report the witness-backed authority classification: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "secondary covering desc range explain should report the witness-backed row mode without the removed flat authority labels: {explain}",
         );
     }
 
@@ -1369,10 +1367,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"row_check_required\")")
-                && explain.contains("authority_decision=Text(\"row_check_required\")")
-                && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "stale secondary covering equality explain should expose the centralized authoritative_witness_unavailable downgrade: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "stale secondary covering equality explain should fall back to row-check mode without surfacing the removed flat authority labels: {explain}",
         );
         assert!(
             !explain.contains("witness_validated")
@@ -1408,10 +1406,10 @@ mod tests {
         );
         assert!(
             explain.contains("existing_row_mode=Text(\"row_check_required\")")
-                && explain.contains("authority_decision=Text(\"row_check_required\")")
-                && explain.contains("authority_reason=Text(\"authoritative_witness_unavailable\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "stale secondary covering range explain should expose the centralized authoritative_witness_unavailable downgrade: {explain}",
+                && !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "stale secondary covering range explain should fall back to row-check mode without surfacing the removed flat authority labels: {explain}",
         );
         assert!(
             !explain.contains("witness_validated")
@@ -1618,10 +1616,10 @@ mod tests {
             "CustomerOrder order-only composite explain should report the witness-backed row mode: {explain}",
         );
         assert!(
-            explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "CustomerOrder order-only composite explain should expose the centralized witness-backed authority classification: {explain}",
+            !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "CustomerOrder order-only composite explain should stay off the removed flat authority surface: {explain}",
         );
     }
 
@@ -1663,10 +1661,10 @@ mod tests {
             "descending CustomerOrder order-only composite explain should report the witness-backed row mode: {explain}",
         );
         assert!(
-            explain.contains("authority_decision=Text(\"witness_validated\")")
-                && explain.contains("authority_reason=Text(\"synchronized_pair_witness\")")
-                && explain.contains("index_state=Text(\"valid\")"),
-            "descending CustomerOrder order-only composite explain should expose the centralized witness-backed authority classification: {explain}",
+            !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "descending CustomerOrder order-only composite explain should stay off the removed flat authority surface: {explain}",
         );
     }
 
@@ -3850,6 +3848,25 @@ mod tests {
         assert_dispatch_result_matches_typed(
             "EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer",
             "typed execute_sql_dispatch and sql_dispatch should keep global aggregate EXPLAIN EXECUTION parity",
+        );
+    }
+
+    #[test]
+    fn generated_sql_dispatch_global_aggregate_explain_execution_stays_off_secondary_authority_surface()
+    {
+        let explain = match dispatch_result_for_sql("EXPLAIN EXECUTION SELECT COUNT(*) FROM Customer")
+        {
+            SqlQueryResult::Explain { explain, .. } => explain,
+            other => panic!(
+                "global aggregate EXPLAIN EXECUTION should return an explain payload: {other:?}"
+            ),
+        };
+
+        assert!(
+            !explain.contains("authority_decision")
+                && !explain.contains("authority_reason")
+                && !explain.contains("index_state"),
+            "aggregate EXPLAIN EXECUTION should stay off the secondary-read authority label surface until aggregate authority is classified separately",
         );
     }
 

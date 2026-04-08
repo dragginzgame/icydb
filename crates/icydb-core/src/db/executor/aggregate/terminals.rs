@@ -547,6 +547,9 @@ where
     }
 
     // Resolve one prepared COUNT strategy from one typed executable plan.
+    // This remains execution-strategy selection only. It must not be treated
+    // as aggregate authority classification; `COUNT` missing-row sensitivity
+    // still needs its own explicit authority model.
     fn prepare_scalar_count_terminal_strategy(
         plan: &PreparedAggregatePlan,
     ) -> PreparedScalarTerminalStrategy {
@@ -580,6 +583,9 @@ where
     }
 
     // Resolve one prepared EXISTS strategy from one typed executable plan.
+    // Like COUNT, this is current strategy selection rather than a proof that
+    // the aggregate shortcut has been classified under a dedicated authority
+    // model.
     fn prepare_scalar_exists_terminal_strategy(
         plan: &PreparedAggregatePlan,
     ) -> PreparedScalarTerminalStrategy {

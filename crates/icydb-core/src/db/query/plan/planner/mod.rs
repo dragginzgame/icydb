@@ -25,7 +25,7 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -70,23 +70,27 @@ impl From<InternalError> for PlannerError {
 #[cfg(test)]
 pub(crate) fn plan_access(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
-    plan_access_with_order(model, schema, predicate, None)
+    plan_access_with_order(model, visible_indexes, schema, predicate, None)
 }
 
 /// Planner entrypoint that also considers a pre-canonicalized ORDER BY
 /// fallback when predicate planning alone would full-scan.
 pub(crate) fn plan_access_with_order(
     model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let Some(predicate) = predicate else {
-        return Ok(order_select::index_range_from_order(model, order, None)
-            .unwrap_or_else(AccessPlan::full_scan));
+        return Ok(
+            order_select::index_range_from_order(model, visible_indexes, order, None)
+                .unwrap_or_else(AccessPlan::full_scan),
+        );
     };
 
     // Planner determinism guarantee:
@@ -99,13 +103,20 @@ pub(crate) fn plan_access_with_order(
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
     let plan = normalize_access_plan_value(predicate::plan_predicate(
-        model, schema, predicate, predicate, order,
+        model,
+        visible_indexes,
+        schema,
+        predicate,
+        predicate,
+        order,
     )?);
     if !plan.is_single_full_scan() {
         return Ok(plan);
     }
 
-    if let Some(order_plan) = order_select::index_range_from_order(model, order, Some(predicate)) {
+    if let Some(order_plan) =
+        order_select::index_range_from_order(model, visible_indexes, order, Some(predicate))
+    {
         return Ok(order_plan);
     }
 

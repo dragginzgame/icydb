@@ -402,35 +402,6 @@ fn is_sql_global_aggregate_select(statement: &SqlSelectStatement) -> bool {
     lower_global_aggregate_terminal(statement.projection.clone()).is_ok()
 }
 
-/// Render one lowered EXPLAIN command through the shared structural SQL path.
-#[inline(never)]
-pub(crate) fn render_lowered_sql_explain_plan_or_json(
-    lowered: &LoweredSqlCommand,
-    model: &'static crate::model::entity::EntityModel,
-    consistency: MissingRowPolicy,
-) -> Result<Option<String>, SqlLoweringError> {
-    let LoweredSqlCommandInner::Explain { mode, query } = &lowered.0 else {
-        return Ok(None);
-    };
-
-    let query = bind_lowered_sql_query_structural(model, query.clone(), consistency)?;
-    let rendered = match mode {
-        SqlExplainMode::Plan | SqlExplainMode::Json => {
-            let plan = query.build_plan()?;
-            let explain = plan.explain_with_model(model);
-
-            match mode {
-                SqlExplainMode::Plan => explain.render_text_canonical(),
-                SqlExplainMode::Json => explain.render_json_canonical(),
-                SqlExplainMode::Execution => unreachable!("execution mode handled above"),
-            }
-        }
-        SqlExplainMode::Execution => query.explain_execution_text()?,
-    };
-
-    Ok(Some(rendered))
-}
-
 /// Bind one lowered global aggregate EXPLAIN shape onto the structural query
 /// surface when the explain command carries that specialized form.
 pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(

@@ -54,8 +54,6 @@ pub struct IndexStore {
     pub(super) map: BTreeMap<RawIndexKey, RawIndexEntry, VirtualMemory<DefaultMemoryImpl>>,
     generation: u64,
     state: IndexState,
-    secondary_covering_authoritative: bool,
-    secondary_existence_witness_authoritative: bool,
 }
 
 impl IndexStore {
@@ -65,11 +63,8 @@ impl IndexStore {
             map: BTreeMap::init(memory),
             generation: 0,
             // Existing stores default to Valid until one explicit build/drop
-            // lifecycle is introduced. Probe-free routing still also requires
-            // the narrower authority witnesses below.
+            // lifecycle is introduced.
             state: IndexState::Valid,
-            secondary_covering_authoritative: false,
-            secondary_existence_witness_authoritative: false,
         }
     }
 
@@ -102,32 +97,21 @@ impl IndexStore {
         self.state
     }
 
-    /// Return whether this index store is query-visible for probe-free reads.
-    #[must_use]
-    pub(in crate::db) const fn is_valid(&self) -> bool {
-        matches!(self.state, IndexState::Valid)
-    }
-
     /// Mark this index store as in-progress and therefore ineligible for
-    /// probe-free covering authority until a full authoritative rebuild ends.
+    /// planner visibility until a full authoritative rebuild ends.
     pub(in crate::db) const fn mark_building(&mut self) {
         self.state = IndexState::Building;
-        self.invalidate_secondary_covering_authority();
-        self.invalidate_secondary_existence_witness_authority();
     }
 
     /// Mark this index store as fully built and eligible for later authority
-    /// promotion once the narrower synchronized witness bits are also restored.
+    /// use once lifecycle management makes it planner-visible again.
     pub(in crate::db) const fn mark_valid(&mut self) {
         self.state = IndexState::Valid;
     }
 
-    /// Mark this index store as dropping and therefore fail closed for
-    /// authority-sensitive covering execution.
+    /// Mark this index store as dropping and therefore not planner-visible.
     pub(in crate::db) const fn mark_dropping(&mut self) {
         self.state = IndexState::Dropping;
-        self.invalidate_secondary_covering_authority();
-        self.invalidate_secondary_existence_witness_authority();
     }
 
     pub(crate) fn insert(
@@ -137,58 +121,18 @@ impl IndexStore {
     ) -> Option<RawIndexEntry> {
         let previous = self.map.insert(key, entry);
         self.bump_generation();
-        self.invalidate_secondary_covering_authority();
-        self.invalidate_secondary_existence_witness_authority();
         previous
     }
 
     pub(crate) fn remove(&mut self, key: &RawIndexKey) -> Option<RawIndexEntry> {
         let previous = self.map.remove(key);
         self.bump_generation();
-        self.invalidate_secondary_covering_authority();
-        self.invalidate_secondary_existence_witness_authority();
         previous
     }
 
     pub fn clear(&mut self) {
         self.map.clear();
         self.bump_generation();
-        self.invalidate_secondary_covering_authority();
-        self.invalidate_secondary_existence_witness_authority();
-    }
-
-    /// Return whether this secondary-index store currently participates in a
-    /// synchronized covering-authority witness with its paired row store.
-    #[must_use]
-    pub(in crate::db) const fn secondary_covering_authoritative(&self) -> bool {
-        self.secondary_covering_authoritative
-    }
-
-    /// Mark this secondary-index store as synchronized with its paired row
-    /// store after successful commit or recovery.
-    pub(in crate::db) fn mark_secondary_covering_authoritative(&mut self) {
-        debug_assert!(
-            self.is_valid(),
-            "secondary covering authority must not be restored while the index is Building or Dropping",
-        );
-        self.secondary_covering_authoritative = true;
-    }
-
-    /// Return whether this secondary-index store currently carries explicit
-    /// per-entry row-existence witness state.
-    #[must_use]
-    pub(in crate::db) const fn secondary_existence_witness_authoritative(&self) -> bool {
-        self.secondary_existence_witness_authoritative
-    }
-
-    /// Mark this secondary-index store as synchronized with one explicit
-    /// storage-owned existence witness contract.
-    pub(in crate::db) fn mark_secondary_existence_witness_authoritative(&mut self) {
-        debug_assert!(
-            self.is_valid(),
-            "storage existence witness authority must not be restored while the index is Building or Dropping",
-        );
-        self.secondary_existence_witness_authoritative = true;
     }
 
     /// Mark one storage key as missing anywhere it still appears inside this
@@ -217,8 +161,6 @@ impl IndexStore {
 
         if marked > 0 {
             self.bump_generation();
-            self.invalidate_secondary_covering_authority();
-            self.invalidate_secondary_existence_witness_authority();
         }
 
         Ok(marked)
@@ -234,13 +176,5 @@ impl IndexStore {
 
     const fn bump_generation(&mut self) {
         self.generation = self.generation.saturating_add(1);
-    }
-
-    const fn invalidate_secondary_covering_authority(&mut self) {
-        self.secondary_covering_authoritative = false;
-    }
-
-    const fn invalidate_secondary_existence_witness_authority(&mut self) {
-        self.secondary_existence_witness_authoritative = false;
     }
 }

@@ -77,13 +77,14 @@ impl<C: CanisterKind> DbSession<C> {
     // EXPLAIN machinery by rewriting the narrowed session-owned lane back onto
     // its base field-only SELECT authority.
     pub(in crate::db::session::sql::dispatch) fn explain_computed_sql_projection_dispatch<E>(
+        &self,
         mode: SqlExplainMode,
         plan: computed_projection::SqlComputedProjectionPlan,
     ) -> Result<String, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Self::explain_computed_sql_projection_dispatch_for_authority(
+        self.explain_computed_sql_projection_dispatch_for_authority(
             mode,
             plan,
             EntityAuthority::for_type::<E>(),
@@ -93,6 +94,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Render one supported computed SQL projection explain for one already-
     // resolved dynamic authority on the generated canister SQL surface.
     pub(in crate::db::session::sql::dispatch) fn explain_computed_sql_projection_dispatch_for_authority(
+        &self,
         mode: SqlExplainMode,
         plan: computed_projection::SqlComputedProjectionPlan,
         authority: EntityAuthority,
@@ -113,6 +115,6 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
-        lowered.explain_for_model(authority.model())
+        self.explain_lowered_sql_for_authority(&lowered, authority)
     }
 }
