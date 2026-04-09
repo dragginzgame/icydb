@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
 
+- `0.74.9` finishes the grouped executor cleanup by collapsing grouped finalize onto one shared group table, fusing grouped paging into that path, and switching bounded grouped pages from full-result sorting to bounded selection, so grouped queries do less duplicate work before projection and cursor paging.
 - `0.74.8` cuts several hot query-path costs in grouped execution, sorting, ranking, and SQL row materialization, so grouped lookups and grouped `COUNT(*)` spend less time building temporary keys, ordered reads do less repeated slot work, bounded queries avoid more wasted rescans and full-result sorting, and ranking terminals stop cloning whole rows just to compare one field.
 - `0.74.7` expands the SQL perf-audit fixture cohort and removes a perf-harness wrapper tax that was making non-grouped queries pay grouped-metrics shaping cost even when no grouped execution happened, so the broader PocketIC benchmark surface is more representative and its non-grouped samples no longer carry that fake fixed overhead.
 - `0.74.6` continues the cleanup line in commit and mutation execution by trimming commit-guard payload retention, collapsing more commit/recovery forwarding shells, and flattening several `commit_window` helper seams so rollback, preflight, and delete-metric plumbing now live on fewer duplicated wrappers.
