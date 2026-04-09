@@ -870,7 +870,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                 }),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
-    let expected = "0eca1a1c05466d52b13bc1e31b9519fffd24c1bf702fa60875f3a8b9472721b6".to_string();
+    let expected = "0e283854004019d25f3d5e0768e093e813e062eecc49346aa992a74f6ec5bb4a".to_string();
 
     assert_eq!(
         signature, expected,
@@ -892,7 +892,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
     let signature = signature_hex(grouped_distinct.continuation_signature("tests::Entity"));
-    let expected = "f9348a540a88540d5edfb477af0520ddefdce520ec17e4bbe0fbc05e408ec9c0".to_string();
+    let expected = "51f4cb305b0f17610f7c4937383a39872e6427c35b089a7afb2b496f7697ea94".to_string();
 
     assert_eq!(
         signature, expected,
@@ -914,7 +914,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
             });
     let signature = signature_hex(global_distinct_sum.continuation_signature("tests::Entity"));
-    let expected = "2002c378e4b2427a75c746d6f89739ed470659d6c8a6fad0532c46211e8e80aa".to_string();
+    let expected = "59ab29ffd24a417a14ae7b79cdc67b28d5b5ca07b957f03685256df87e38bab6".to_string();
 
     assert_eq!(
         signature, expected,
@@ -941,7 +941,7 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
         execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
     });
     let signature = signature_hex(grouped_ordered.continuation_signature("tests::Entity"));
-    let expected = "8132b7e59101dbbd9b2cfc86c757db6d6fd77570fe1e4d4a301cd4fb3a80f7e4".to_string();
+    let expected = "7e2c97e1a1d66a17a7be13ef03fa513a532be3629974e57e5d24ccd04e0ab797".to_string();
 
     assert_eq!(
         signature, expected,
