@@ -123,11 +123,7 @@ fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldM
 /// snapshot.
 ///
 
-#[cfg(any(test, feature = "structural-read-metrics"))]
-#[cfg_attr(
-    all(test, not(feature = "structural-read-metrics")),
-    allow(unreachable_pub)
-)]
+#[cfg(feature = "structural-read-metrics")]
 pub fn with_grouped_count_fold_metrics<T>(f: impl FnOnce() -> T) -> (T, GroupedCountFoldMetrics) {
     GROUPED_COUNT_FOLD_METRICS.with(|metrics| {
         debug_assert!(

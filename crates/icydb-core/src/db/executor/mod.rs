@@ -41,8 +41,6 @@ pub(in crate::db) use crate::db::access::{
 };
 #[cfg(feature = "structural-read-metrics")]
 pub use aggregate::runtime::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
-#[cfg(all(test, not(feature = "structural-read-metrics")))]
-pub(crate) use aggregate::runtime::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
     ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
