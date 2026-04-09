@@ -2045,53 +2045,60 @@ mod tests {
         FieldStorageDecode::ByKind,
     )];
     static FIELD_MODELS: [FieldModel; 2] = [
-        FieldModel::new("name", FieldKind::Text),
-        FieldModel::new_with_storage_decode("payload", FieldKind::Text, FieldStorageDecode::Value),
+        FieldModel::generated("name", FieldKind::Text),
+        FieldModel::generated_with_storage_decode(
+            "payload",
+            FieldKind::Text,
+            FieldStorageDecode::Value,
+        ),
     ];
-    static LIST_FIELD_MODELS: [FieldModel; 1] =
-        [FieldModel::new("tags", FieldKind::List(&FieldKind::Text))];
-    static MAP_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
+    static LIST_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
+        "tags",
+        FieldKind::List(&FieldKind::Text),
+    )];
+    static MAP_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
         "props",
         FieldKind::Map {
             key: &FieldKind::Text,
             value: &FieldKind::Uint,
         },
     )];
-    static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
+    static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
         "state",
         FieldKind::Enum {
             path: "tests::State",
             variants: STATE_VARIANTS,
         },
     )];
-    static ACCOUNT_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new("owner", FieldKind::Account)];
+    static ACCOUNT_FIELD_MODELS: [FieldModel; 1] =
+        [FieldModel::generated("owner", FieldKind::Account)];
     static OPTIONAL_ACCOUNT_FIELD_MODELS: [FieldModel; 1] =
-        [FieldModel::new_with_storage_decode_and_nullability(
+        [FieldModel::generated_with_storage_decode_and_nullability(
             "from",
             FieldKind::Account,
             FieldStorageDecode::ByKind,
             true,
         )];
-    static REQUIRED_STRUCTURED_FIELD_MODELS: [FieldModel; 1] = [FieldModel::new(
+    static REQUIRED_STRUCTURED_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
         "profile",
         FieldKind::Structured { queryable: false },
     )];
     static OPTIONAL_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
-        [FieldModel::new_with_storage_decode_and_nullability(
+        [FieldModel::generated_with_storage_decode_and_nullability(
             "profile",
             FieldKind::Structured { queryable: false },
             FieldStorageDecode::ByKind,
             true,
         )];
     static VALUE_STORAGE_STRUCTURED_FIELD_MODELS: [FieldModel; 1] =
-        [FieldModel::new_with_storage_decode(
+        [FieldModel::generated_with_storage_decode(
             "manifest",
             FieldKind::Structured { queryable: false },
             FieldStorageDecode::Value,
         )];
     static STRUCTURED_MAP_VALUE_KIND: FieldKind = FieldKind::Structured { queryable: false };
     static STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS: [FieldModel; 1] =
-        [FieldModel::new_with_storage_decode(
+        [FieldModel::generated_with_storage_decode(
             "projects",
             FieldKind::Map {
                 key: &FieldKind::Principal,
@@ -2100,70 +2107,70 @@ mod tests {
             FieldStorageDecode::Value,
         )];
     static INDEX_MODELS: [&crate::model::index::IndexModel; 0] = [];
-    static TEST_MODEL: EntityModel = EntityModel::new(
+    static TEST_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowFieldCodecEntity",
         "persisted_row_field_codec_entity",
         &FIELD_MODELS[0],
         &FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static LIST_MODEL: EntityModel = EntityModel::new(
+    static LIST_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowListFieldCodecEntity",
         "persisted_row_list_field_codec_entity",
         &LIST_FIELD_MODELS[0],
         &LIST_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static MAP_MODEL: EntityModel = EntityModel::new(
+    static MAP_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowMapFieldCodecEntity",
         "persisted_row_map_field_codec_entity",
         &MAP_FIELD_MODELS[0],
         &MAP_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static ENUM_MODEL: EntityModel = EntityModel::new(
+    static ENUM_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowEnumFieldCodecEntity",
         "persisted_row_enum_field_codec_entity",
         &ENUM_FIELD_MODELS[0],
         &ENUM_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static ACCOUNT_MODEL: EntityModel = EntityModel::new(
+    static ACCOUNT_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowAccountFieldCodecEntity",
         "persisted_row_account_field_codec_entity",
         &ACCOUNT_FIELD_MODELS[0],
         &ACCOUNT_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static OPTIONAL_ACCOUNT_MODEL: EntityModel = EntityModel::new(
+    static OPTIONAL_ACCOUNT_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowOptionalAccountFieldCodecEntity",
         "persisted_row_optional_account_field_codec_entity",
         &OPTIONAL_ACCOUNT_FIELD_MODELS[0],
         &OPTIONAL_ACCOUNT_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::new(
+    static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowRequiredStructuredFieldCodecEntity",
         "persisted_row_required_structured_field_codec_entity",
         &REQUIRED_STRUCTURED_FIELD_MODELS[0],
         &REQUIRED_STRUCTURED_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static OPTIONAL_STRUCTURED_MODEL: EntityModel = EntityModel::new(
+    static OPTIONAL_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowOptionalStructuredFieldCodecEntity",
         "persisted_row_optional_structured_field_codec_entity",
         &OPTIONAL_STRUCTURED_FIELD_MODELS[0],
         &OPTIONAL_STRUCTURED_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static VALUE_STORAGE_STRUCTURED_MODEL: EntityModel = EntityModel::new(
+    static VALUE_STORAGE_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowValueStorageStructuredFieldCodecEntity",
         "persisted_row_value_storage_structured_field_codec_entity",
         &VALUE_STORAGE_STRUCTURED_FIELD_MODELS[0],
         &VALUE_STORAGE_STRUCTURED_FIELD_MODELS,
         &INDEX_MODELS,
     );
-    static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::new(
+    static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::generated(
         "tests::PersistedRowStructuredMapValueStorageEntity",
         "persisted_row_structured_map_value_storage_entity",
         &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS[0],

@@ -12,23 +12,19 @@ use crate::{
         relation::{model_has_strong_relation_targets, validate_save_strong_relations},
         schema::{SchemaInfo, literal_matches_type},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     model::{entity::resolve_primary_key_slot, field::FieldKind},
     sanitize::sanitize,
     traits::{EntityKind, EntityValue},
     validate::validate,
     value::Value,
 };
-use std::{
-    cmp::Ordering,
-    collections::BTreeMap,
-    sync::{Mutex, OnceLock},
-};
+use std::cmp::Ordering;
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Execute the canonical save preflight pipeline before commit planning.
     pub(super) fn preflight_entity(&self, entity: &mut E) -> Result<(), InternalError> {
-        let schema = Self::schema_info()?;
+        let schema = Self::schema_info();
         let validate_relations = model_has_strong_relation_targets(E::MODEL);
 
         self.preflight_entity_with_cached_schema(entity, schema, validate_relations)
@@ -40,39 +36,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
     ) -> Result<(), InternalError> {
-        let schema = Self::schema_info()?;
+        let schema = Self::schema_info();
         let row_fields = StructuralSlotReader::from_raw_row(row, E::MODEL)?;
         row_fields.validate_storage_key(data_key)?;
 
         Self::validate_structural_row_invariants(&row_fields, schema)
     }
 
-    // Cache schema validation results per entity type.
-    pub(in crate::db::executor::mutation) fn schema_info()
-    -> Result<&'static SchemaInfo, InternalError> {
-        type SchemaCache = BTreeMap<&'static str, Result<&'static SchemaInfo, CachedInvariant>>;
-        static CACHE: OnceLock<Mutex<SchemaCache>> = OnceLock::new();
-
-        let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
-        let mut cache_guard = cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let entry = cache_guard.entry(E::PATH).or_insert_with(|| {
-            SchemaInfo::from_entity_model(E::MODEL)
-                .map(|schema| Box::leak(Box::new(schema)) as &'static SchemaInfo)
-                .map_err(|err| {
-                    CachedInvariant::from_error(InternalError::mutation_entity_schema_invalid(
-                        E::PATH,
-                        err,
-                    ))
-                })
-        });
-
-        match entry {
-            Ok(schema) => Ok(*schema),
-            Err(err) => Err(err.to_error()),
-        }
+    // Load the trusted generated schema view for one entity type.
+    pub(in crate::db::executor::mutation) fn schema_info() -> &'static SchemaInfo {
+        SchemaInfo::cached_for_entity_model(E::MODEL)
     }
 
     // Execute save preflight using already-resolved schema and relation metadata.
@@ -359,31 +332,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         Ok(())
-    }
-}
-
-///
-/// CachedInvariant
-/// Persisted error metadata for schema validation results
-///
-
-struct CachedInvariant {
-    class: ErrorClass,
-    origin: ErrorOrigin,
-    message: String,
-}
-
-impl CachedInvariant {
-    fn from_error(err: InternalError) -> Self {
-        Self {
-            class: err.class,
-            origin: err.origin,
-            message: err.message,
-        }
-    }
-
-    fn to_error(&self) -> InternalError {
-        InternalError::classified(self.class, self.origin, self.message.clone())
     }
 }
 

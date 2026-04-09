@@ -579,11 +579,11 @@ mod tests {
     };
 
     static CAPABILITY_FIELDS: [FieldModel; 3] = [
-        FieldModel::new("score", FieldKind::Int),
-        FieldModel::new("name", FieldKind::Text),
-        FieldModel::new("tags", FieldKind::List(&FieldKind::Text)),
+        FieldModel::generated("score", FieldKind::Int),
+        FieldModel::generated("name", FieldKind::Text),
+        FieldModel::generated("tags", FieldKind::List(&FieldKind::Text)),
     ];
-    static CAPABILITY_MODEL: EntityModel = EntityModel::new(
+    static CAPABILITY_MODEL: EntityModel = EntityModel::generated(
         "PredicateCapabilityEntity",
         "PredicateCapabilityEntity",
         &CAPABILITY_FIELDS[0],

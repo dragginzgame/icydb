@@ -115,13 +115,6 @@ impl CursorPlanError {
         }
     }
 
-    /// Construct one schema-validation payload error for cursor boundaries.
-    pub(in crate::db) fn invalid_continuation_cursor_schema(
-        reason: impl std::fmt::Display,
-    ) -> Self {
-        Self::invalid_continuation_cursor_payload(reason.to_string())
-    }
-
     /// Construct one cursor-direction mismatch payload error.
     pub(in crate::db) fn continuation_cursor_direction_mismatch() -> Self {
         Self::invalid_continuation_cursor_payload(

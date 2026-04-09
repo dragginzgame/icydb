@@ -15,14 +15,25 @@ use crate::{
     },
     model::{
         field::{FieldKind, FieldModel},
-        index::{IndexExpression, IndexKeyItem, IndexModel},
+        index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::entity_model_from_static,
     types::Ulid,
 };
-use std::ops::Bound;
+use std::{ops::Bound, sync::LazyLock};
 
-static PLANNER_CANONICAL_FIELDS: [FieldModel; 1] = [FieldModel::new("id", FieldKind::Ulid)];
+static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+    LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+
+fn active_true_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_PREDICATE
+}
+
+const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
+
+static PLANNER_CANONICAL_FIELDS: [FieldModel; 1] = [FieldModel::generated("id", FieldKind::Ulid)];
 static PLANNER_CANONICAL_INDEXES: [&IndexModel; 0] = [];
 static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
     "planner::canonical_test_entity",
@@ -33,11 +44,11 @@ static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
 );
 
 static PLANNER_IN_EMPTY_FIELDS: [FieldModel; 2] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("email", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("email", FieldKind::Text),
 ];
 static PLANNER_IN_EMPTY_INDEX_FIELDS: [&str; 1] = ["email"];
-static PLANNER_IN_EMPTY_INDEXES: [IndexModel; 1] = [IndexModel::new(
+static PLANNER_IN_EMPTY_INDEXES: [IndexModel; 1] = [IndexModel::generated(
     "email_idx",
     "planner::in_empty_test_entity",
     &PLANNER_IN_EMPTY_INDEX_FIELDS,
@@ -52,12 +63,12 @@ static PLANNER_IN_EMPTY_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_IN_EMPTY_INDEX_REFS,
 );
 static PLANNER_ORDER_FIELDS: [FieldModel; 3] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("name", FieldKind::Text),
-    FieldModel::new("active", FieldKind::Bool),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("name", FieldKind::Text),
+    FieldModel::generated("active", FieldKind::Bool),
 ];
 static PLANNER_ORDER_INDEX_FIELDS: [&str; 1] = ["name"];
-static PLANNER_ORDER_INDEXES: [IndexModel; 1] = [IndexModel::new(
+static PLANNER_ORDER_INDEXES: [IndexModel; 1] = [IndexModel::generated(
     "name_idx",
     "planner::order_test_entity",
     &PLANNER_ORDER_INDEX_FIELDS,
@@ -71,12 +82,12 @@ static PLANNER_ORDER_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_ORDER_FIELDS,
     &PLANNER_ORDER_INDEX_REFS,
 );
-static PLANNER_ORDER_FILTERED_INDEXES: [IndexModel; 1] = [IndexModel::new_with_predicate(
+static PLANNER_ORDER_FILTERED_INDEXES: [IndexModel; 1] = [IndexModel::generated_with_predicate(
     "name_idx_active_only",
     "planner::order_filtered_test_entity",
     &PLANNER_ORDER_INDEX_FIELDS,
     false,
-    Some("active = true"),
+    Some(active_true_predicate_metadata()),
 )];
 static PLANNER_ORDER_FILTERED_INDEX_REFS: [&IndexModel; 1] = [&PLANNER_ORDER_FILTERED_INDEXES[0]];
 static PLANNER_ORDER_FILTERED_MODEL: EntityModel = entity_model_from_static(
@@ -87,20 +98,20 @@ static PLANNER_ORDER_FILTERED_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_ORDER_FILTERED_INDEX_REFS,
 );
 static PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS: [FieldModel; 5] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("name", FieldKind::Text),
-    FieldModel::new("active", FieldKind::Bool),
-    FieldModel::new("tier", FieldKind::Text),
-    FieldModel::new("handle", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("name", FieldKind::Text),
+    FieldModel::generated("active", FieldKind::Bool),
+    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("handle", FieldKind::Text),
 ];
 static PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static PLANNER_ORDER_FILTERED_COMPOSITE_INDEXES: [IndexModel; 1] =
-    [IndexModel::new_with_predicate(
+    [IndexModel::generated_with_predicate(
         "tier_handle_idx_active_only",
         "planner::order_filtered_composite_test_entity",
         &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS,
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_REFS: [&IndexModel; 1] =
     [&PLANNER_ORDER_FILTERED_COMPOSITE_INDEXES[0]];
@@ -112,13 +123,13 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_MODEL: EntityModel = entity_model_from_s
     &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_REFS,
 );
 static PLANNER_ORDER_COMPOSITE_FIELDS: [FieldModel; 4] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("code", FieldKind::Text),
-    FieldModel::new("serial", FieldKind::Uint),
-    FieldModel::new("note", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("code", FieldKind::Text),
+    FieldModel::generated("serial", FieldKind::Uint),
+    FieldModel::generated("note", FieldKind::Text),
 ];
 static PLANNER_ORDER_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["code", "serial"];
-static PLANNER_ORDER_COMPOSITE_INDEXES: [IndexModel; 1] = [IndexModel::new(
+static PLANNER_ORDER_COMPOSITE_INDEXES: [IndexModel; 1] = [IndexModel::generated(
     "code_serial_idx",
     "planner::order_composite_test_entity",
     &PLANNER_ORDER_COMPOSITE_INDEX_FIELDS,
@@ -134,7 +145,7 @@ static PLANNER_ORDER_COMPOSITE_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_ORDER_EXPRESSION_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
-static PLANNER_ORDER_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::new_with_key_items(
+static PLANNER_ORDER_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::generated_with_key_items(
     "name_lower_idx",
     "planner::order_expression_test_entity",
     &PLANNER_ORDER_INDEX_FIELDS,
@@ -151,13 +162,13 @@ static PLANNER_ORDER_EXPRESSION_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_ORDER_EXPRESSION_INDEX_REFS,
 );
 static PLANNER_ORDER_FILTERED_EXPRESSION_INDEXES: [IndexModel; 1] =
-    [IndexModel::new_with_key_items_and_predicate(
+    [IndexModel::generated_with_key_items_and_predicate(
         "name_lower_idx_active_only",
         "planner::order_filtered_expression_test_entity",
         &PLANNER_ORDER_INDEX_FIELDS,
         Some(&PLANNER_ORDER_EXPRESSION_KEY_ITEMS),
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static PLANNER_ORDER_FILTERED_EXPRESSION_INDEX_REFS: [&IndexModel; 1] =
     [&PLANNER_ORDER_FILTERED_EXPRESSION_INDEXES[0]];
@@ -173,13 +184,13 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_KEY_ITEMS: [IndexKeyItem; 2] 
     IndexKeyItem::Expression(IndexExpression::Lower("handle")),
 ];
 static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEXES: [IndexModel; 1] =
-    [IndexModel::new_with_key_items_and_predicate(
+    [IndexModel::generated_with_key_items_and_predicate(
         "tier_handle_lower_idx_active_only",
         "planner::order_filtered_composite_expression_test_entity",
         &PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS,
         Some(&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_KEY_ITEMS),
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS: [&IndexModel; 1] =
     [&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEXES[0]];
@@ -191,21 +202,21 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL: EntityModel = entity_m
     &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS,
 );
 static PLANNER_RANKING_FIELDS: [FieldModel; 4] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("tier", FieldKind::Text),
-    FieldModel::new("handle", FieldKind::Text),
-    FieldModel::new("label", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("handle", FieldKind::Text),
+    FieldModel::generated("label", FieldKind::Text),
 ];
 static PLANNER_RANKING_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
 static PLANNER_RANKING_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static PLANNER_RANKING_INDEXES: [IndexModel; 2] = [
-    IndexModel::new(
+    IndexModel::generated(
         "a_tier_label_idx",
         "planner::ranking_test_entity",
         &PLANNER_RANKING_LABEL_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new(
+    IndexModel::generated(
         "z_tier_handle_idx",
         "planner::ranking_test_entity",
         &PLANNER_RANKING_HANDLE_INDEX_FIELDS,
@@ -222,22 +233,22 @@ static PLANNER_RANKING_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_RANKING_INDEX_REFS,
 );
 static PLANNER_RANGE_RANKING_FIELDS: [FieldModel; 5] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("tier", FieldKind::Text),
-    FieldModel::new("score", FieldKind::Uint),
-    FieldModel::new("handle", FieldKind::Text),
-    FieldModel::new("label", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("score", FieldKind::Uint),
+    FieldModel::generated("handle", FieldKind::Text),
+    FieldModel::generated("label", FieldKind::Text),
 ];
 static PLANNER_RANGE_RANKING_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
 static PLANNER_RANGE_RANKING_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
 static PLANNER_RANGE_RANKING_INDEXES: [IndexModel; 2] = [
-    IndexModel::new(
+    IndexModel::generated(
         "a_tier_score_handle_idx",
         "planner::range_ranking_test_entity",
         &PLANNER_RANGE_RANKING_HANDLE_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new(
+    IndexModel::generated(
         "z_tier_score_label_idx",
         "planner::range_ranking_test_entity",
         &PLANNER_RANGE_RANKING_LABEL_INDEX_FIELDS,
@@ -256,20 +267,20 @@ static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_RANGE_RANKING_INDEX_REFS,
 );
 static PLANNER_ORDER_ONLY_RANKING_FIELDS: [FieldModel; 3] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("alpha", FieldKind::Text),
-    FieldModel::new("beta", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("alpha", FieldKind::Text),
+    FieldModel::generated("beta", FieldKind::Text),
 ];
 static PLANNER_ORDER_ONLY_RANKING_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
 static PLANNER_ORDER_ONLY_RANKING_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
 static PLANNER_ORDER_ONLY_RANKING_INDEXES: [IndexModel; 2] = [
-    IndexModel::new(
+    IndexModel::generated(
         "a_beta_idx",
         "planner::order_only_ranking_test_entity",
         &PLANNER_ORDER_ONLY_RANKING_BETA_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new(
+    IndexModel::generated(
         "z_alpha_idx",
         "planner::order_only_ranking_test_entity",
         &PLANNER_ORDER_ONLY_RANKING_ALPHA_INDEX_FIELDS,

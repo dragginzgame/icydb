@@ -3,7 +3,10 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::query::plan::expr::ast::{Alias, Expr, FieldId};
+use crate::{
+    db::query::plan::expr::ast::{Alias, Expr, FieldId},
+    model::entity::{EntityModel, resolve_field_slot},
+};
 
 ///
 /// ProjectionSelection
@@ -99,6 +102,34 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
         Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
         Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Aggregate(_) => None,
     }
+}
+
+/// Resolve one unique direct field-slot layout from canonical field names.
+///
+/// This helper centralizes the executor/planner rule for direct slot-copy
+/// projections: every projected output must map to one canonical field slot,
+/// and no source slot may be repeated because retained-slot readers consume
+/// values with `Option::take()`.
+#[must_use]
+pub(crate) fn collect_unique_direct_projection_slots<'a>(
+    model: &EntityModel,
+    field_names: impl IntoIterator<Item = &'a str>,
+) -> Option<Vec<usize>> {
+    let mut field_slots = Vec::new();
+
+    for field_name in field_names {
+        let slot = resolve_field_slot(model, field_name)?;
+        if field_slots
+            .iter()
+            .any(|existing_slot| *existing_slot == slot)
+        {
+            return None;
+        }
+
+        field_slots.push(slot);
+    }
+
+    Some(field_slots)
 }
 
 /// Return true when every projection expression references only fields in one

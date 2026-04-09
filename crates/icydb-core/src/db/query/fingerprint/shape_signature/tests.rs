@@ -943,7 +943,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
 fn signature_snapshot_ordered_group_hint_shape_is_stable() {
     let grouped_ordered: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: IndexModel::new("idx_tenant", "tests", &["tenant"], false),
+            index: IndexModel::generated("idx_tenant", "tests", &["tenant"], false),
             values: vec![],
         },
         MissingRowPolicy::Ignore,

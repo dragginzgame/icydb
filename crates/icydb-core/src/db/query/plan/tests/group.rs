@@ -35,7 +35,7 @@ use crate::{
 
 const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
-    IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
+    IndexModel::generated("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
 
 crate::test_entity! {
     ident = PlanValidateGroupedEntity,

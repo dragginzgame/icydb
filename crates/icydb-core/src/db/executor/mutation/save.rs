@@ -197,7 +197,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut out = Vec::with_capacity(iter.size_hint().0);
         let ctx = mutation_write_context::<E>(&self.db)?;
         let save_rule = SaveRule::from_mode(mode);
-        let schema = Self::schema_info()?;
+        let schema = Self::schema_info();
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
         let validate_relations = model_has_strong_relation_targets(E::MODEL);
         let mut batch_span = None;
@@ -353,7 +353,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut out = Vec::with_capacity(entities.len());
         let mut marker_row_ops = Vec::with_capacity(entities.len());
         let mut seen_row_keys = HashSet::with_capacity(entities.len());
-        let schema = Self::schema_info()?;
+        let schema = Self::schema_info();
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
         let validate_relations = model_has_strong_relation_targets(E::MODEL);
 
@@ -508,7 +508,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         save_rule: SaveRule,
         entity: E,
     ) -> Result<E, InternalError> {
-        let schema = Self::schema_info()?;
+        let schema = Self::schema_info();
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
         let validate_relations = model_has_strong_relation_targets(E::MODEL);
         self.save_entity_with_context_and_schema(

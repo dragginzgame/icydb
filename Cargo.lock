@@ -1438,6 +1438,7 @@ dependencies = [
  "candid",
  "darling",
  "derive_more",
+ "icydb-core",
  "icydb-schema",
  "icydb-utils",
  "proc-macro2",

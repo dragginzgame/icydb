@@ -14,12 +14,8 @@ use crate::{
 };
 
 // Load canonical executor-side schema info once for structural plan validation.
-fn executor_plan_schema(authority: EntityAuthority) -> Result<SchemaInfo, InternalError> {
-    let entity_path = authority.entity_path();
-
-    SchemaInfo::from_entity_model(authority.model()).map_err(|err| {
-        InternalError::query_invariant(format!("entity schema invalid for {entity_path}: {err}"))
-    })
+fn executor_plan_schema(authority: EntityAuthority) -> &'static SchemaInfo {
+    SchemaInfo::cached_for_entity_model(authority.model())
 }
 
 /// Validate plans at executor boundaries using structural entity authority.
@@ -27,7 +23,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError> {
-    let schema = executor_plan_schema(authority)?;
+    let schema = executor_plan_schema(authority);
 
     validate_access_structure_model(&schema, authority.model(), &plan.access)
         .map_err(AccessPlanError::into_internal_error)?;

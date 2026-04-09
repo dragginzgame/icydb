@@ -37,11 +37,11 @@ use crate::{
 
 const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
-    IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
+    IndexModel::generated("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
 const EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
 const EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
-const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
     "test::idx_name_lower",
     "test::ExpressionIndexStore",
     &EXPRESSION_INDEX_FIELDS,

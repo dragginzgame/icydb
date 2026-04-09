@@ -31,12 +31,12 @@ impl<C: CanisterKind> DbSession<C> {
     // both value-row and rendered-row dispatch surfaces reuse the same
     // lowered-to-structural binding boundary.
     fn structural_query_from_lowered_select(
-        select: &LoweredSelectShape,
+        select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<crate::db::query::intent::StructuralQuery, QueryError> {
         bind_lowered_sql_select_query_structural(
             authority.model(),
-            select.clone(),
+            select,
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)
@@ -47,7 +47,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[inline(never)]
     fn execute_lowered_sql_projection_core(
         &self,
-        select: &LoweredSelectShape,
+        select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
         let structural = Self::structural_query_from_lowered_select(select, authority)?;
@@ -61,7 +61,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[inline(never)]
     pub(in crate::db::session::sql::dispatch) fn execute_lowered_sql_dispatch_select_core(
         &self,
-        select: &LoweredSelectShape,
+        select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
         self.execute_lowered_sql_projection_core(select, authority)
@@ -75,7 +75,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[inline(never)]
     fn execute_lowered_sql_dispatch_select_text_core(
         &self,
-        select: &LoweredSelectShape,
+        select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
         let structural = Self::structural_query_from_lowered_select(select, authority)?;
@@ -118,7 +118,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[doc(hidden)]
     pub fn execute_lowered_sql_dispatch_query_for_authority(
         &self,
-        lowered: &LoweredSqlCommand,
+        lowered: LoweredSqlCommand,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
         self.execute_lowered_sql_dispatch_query_text_core(lowered, authority)
@@ -144,7 +144,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         match query {
             LoweredSqlQuery::Select(select) => self
-                .execute_lowered_sql_projection_core(select, authority)
+                .execute_lowered_sql_projection_core(select.clone(), authority)
                 .map(SqlProjectionPayload::into_parts),
             LoweredSqlQuery::Delete(delete) => self
                 .execute_lowered_sql_dispatch_delete_core(delete, authority)
@@ -171,13 +171,14 @@ impl<C: CanisterKind> DbSession<C> {
     // can prove them directly.
     fn execute_lowered_sql_dispatch_query_text_core(
         &self,
-        lowered: &LoweredSqlCommand,
+        lowered: LoweredSqlCommand,
         authority: EntityAuthority,
     ) -> Result<SqlDispatchResult, QueryError> {
-        let Some(query) = lowered.query() else {
+        let lane = session_sql_lane(&lowered);
+        let Some(query) = lowered.into_query() else {
             return Err(QueryError::unsupported_query(unsupported_sql_lane_message(
                 SqlSurface::QueryFrom,
-                session_sql_lane(lowered),
+                lane,
             )));
         };
 
@@ -186,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_lowered_sql_dispatch_select_text_core(select, authority)
             }
             LoweredSqlQuery::Delete(delete) => {
-                self.execute_lowered_sql_dispatch_delete_core(delete, authority)
+                self.execute_lowered_sql_dispatch_delete_core(&delete, authority)
             }
         }
     }

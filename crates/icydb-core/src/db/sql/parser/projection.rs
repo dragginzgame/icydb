@@ -82,7 +82,7 @@ impl Parser {
         &mut self,
         kind: SqlAggregateKind,
     ) -> Result<SqlAggregateCall, crate::db::reduced_sql::SqlParseError> {
-        self.bump();
+        let _ = self.cursor.advance();
         self.expect_lparen()?;
 
         if self.eat_keyword(Keyword::Distinct) {

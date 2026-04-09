@@ -107,30 +107,4 @@ impl ValidateError {
             message: msg.to_string(),
         }
     }
-
-    pub(crate) const fn invalid_index_predicate_syntax(
-        index: IndexModel,
-        predicate: &'static str,
-    ) -> Self {
-        Self::InvalidIndexPredicateSyntax { index, predicate }
-    }
-
-    pub(crate) const fn invalid_index_predicate_schema(
-        index: IndexModel,
-        predicate: &'static str,
-    ) -> Self {
-        Self::InvalidIndexPredicateSchema { index, predicate }
-    }
-
-    pub(crate) const fn invalid_index_expression_field_type(
-        index: IndexModel,
-        expression: IndexExpression,
-        expected: &'static str,
-    ) -> Self {
-        Self::IndexExpressionFieldTypeInvalid {
-            index: index.name(),
-            expression,
-            expected,
-        }
-    }
 }

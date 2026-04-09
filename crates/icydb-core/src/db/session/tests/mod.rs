@@ -39,7 +39,7 @@ use crate::{
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::{
         field::FieldKind,
-        index::{IndexExpression, IndexKeyItem, IndexModel},
+        index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     serialize::serialized_len,
     testing::test_memory,
@@ -49,7 +49,7 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{cell::RefCell, collections::BTreeMap, sync::LazyLock};
 
 crate::test_canister! {
     ident = SessionSqlCanister,
@@ -100,6 +100,8 @@ thread_local! {
 static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
 static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
     Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
+static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+    LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
 static FILTERED_EXPRESSION_SESSION_SQL_ROWS: [(u128, &str, bool, &str, &str, u64); 5] = [
     (9_231, "alpha", false, "gold", "bramble", 10),
     (9_232, "bravo-user", true, "gold", "bravo", 20),
@@ -107,6 +109,14 @@ static FILTERED_EXPRESSION_SESSION_SQL_ROWS: [(u128, &str, bool, &str, &str, u64
     (9_234, "brisk-user", true, "silver", "Brisk", 40),
     (9_235, "charlie-user", true, "gold", "charlie", 50),
 ];
+
+fn active_true_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_PREDICATE
+}
+
+const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
 
 ///
 /// SessionSqlEntity
@@ -312,62 +322,64 @@ struct SessionTemporalEntity {
 }
 
 static INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
-static INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "name",
     IndexedSessionSqlStore::PATH,
     &INDEXED_SESSION_SQL_INDEX_FIELDS,
     false,
 )];
 static FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_ordinal_and_predicate(
+    [IndexModel::generated_with_ordinal_and_predicate(
         0,
         "name_active_only",
         IndexedSessionSqlStore::PATH,
         &INDEXED_SESSION_SQL_INDEX_FIELDS,
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_ordinal_and_predicate(
+    [IndexModel::generated_with_ordinal_and_predicate(
         1,
         "tier_handle_active_only",
         IndexedSessionSqlStore::PATH,
         &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_INDEX_FIELDS,
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["handle"];
 static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("handle"))];
-static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_ordinal_and_key_items_and_predicate(
+static FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [
+    IndexModel::generated_with_ordinal_and_key_items_and_predicate(
         2,
         "handle_lower_active_only",
         IndexedSessionSqlStore::PATH,
         &FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_FIELDS,
         Some(&FILTERED_INDEXED_SESSION_SQL_EXPRESSION_INDEX_KEY_ITEMS),
         false,
-        Some("active = true"),
-    )];
+        Some(active_true_predicate_metadata()),
+    ),
+];
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_FIELDS: [&str; 2] =
     ["tier", "handle"];
 static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 2] = [
     IndexKeyItem::Field("tier"),
     IndexKeyItem::Expression(IndexExpression::Lower("handle")),
 ];
-static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_ordinal_and_key_items_and_predicate(
+static FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [
+    IndexModel::generated_with_ordinal_and_key_items_and_predicate(
         3,
         "tier_handle_lower_active_only",
         IndexedSessionSqlStore::PATH,
         &FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_FIELDS,
         Some(&FILTERED_INDEXED_SESSION_SQL_COMPOSITE_EXPRESSION_INDEX_KEY_ITEMS),
         false,
-        Some("active = true"),
-    )];
+        Some(active_true_predicate_metadata()),
+    ),
+];
 static COMPOSITE_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 2] = ["code", "serial"];
-static COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "code_serial",
     IndexedSessionSqlStore::PATH,
     &COMPOSITE_INDEXED_SESSION_SQL_INDEX_FIELDS,
@@ -377,7 +389,7 @@ static EXPRESSION_INDEXED_SESSION_SQL_INDEX_FIELDS: [&str; 1] = ["name"];
 static EXPRESSION_INDEXED_SESSION_SQL_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
 static EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_key_items(
+    [IndexModel::generated_with_key_items(
         "name_lower",
         IndexedSessionSqlStore::PATH,
         &EXPRESSION_INDEXED_SESSION_SQL_INDEX_FIELDS,
@@ -385,7 +397,7 @@ static EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS: [IndexModel; 1] =
         false,
     )];
 static SESSION_EXPLAIN_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-static SESSION_EXPLAIN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static SESSION_EXPLAIN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "group_rank",
     IndexedSessionSqlStore::PATH,
     &SESSION_EXPLAIN_INDEX_FIELDS,
@@ -394,14 +406,14 @@ static SESSION_EXPLAIN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
 static SESSION_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
 static SESSION_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
-    IndexModel::new_with_ordinal(
+    IndexModel::generated_with_ordinal(
         0,
         "a_tier_label_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new_with_ordinal(
+    IndexModel::generated_with_ordinal(
         1,
         "z_tier_handle_idx",
         IndexedSessionSqlStore::PATH,
@@ -412,14 +424,14 @@ static SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
 static SESSION_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
 static SESSION_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
 static SESSION_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
-    IndexModel::new_with_ordinal(
+    IndexModel::generated_with_ordinal(
         0,
         "a_tier_score_handle_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new_with_ordinal(
+    IndexModel::generated_with_ordinal(
         1,
         "z_tier_score_label_idx",
         IndexedSessionSqlStore::PATH,
@@ -428,7 +440,7 @@ static SESSION_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
     ),
 ];
 static SESSION_UNIQUE_PREFIX_OFFSET_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
-static SESSION_UNIQUE_PREFIX_OFFSET_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static SESSION_UNIQUE_PREFIX_OFFSET_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "tier_handle_unique",
     IndexedSessionSqlStore::PATH,
     &SESSION_UNIQUE_PREFIX_OFFSET_INDEX_FIELDS,
@@ -437,14 +449,14 @@ static SESSION_UNIQUE_PREFIX_OFFSET_INDEX_MODELS: [IndexModel; 1] = [IndexModel:
 static SESSION_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
 static SESSION_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
 static SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
-    IndexModel::new_with_ordinal(
+    IndexModel::generated_with_ordinal(
         0,
         "a_beta_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new_with_ordinal(
+    IndexModel::generated_with_ordinal(
         1,
         "z_alpha_idx",
         IndexedSessionSqlStore::PATH,

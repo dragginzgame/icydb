@@ -11,7 +11,8 @@ use crate::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
             ScalarPlan, derive_logical_pushdown_eligibility, expr::ProjectionSpec,
-            grouped_cursor_policy_violation, lower_projection_identity, lower_projection_intent,
+            grouped_cursor_policy_violation, lower_direct_projection_slots,
+            lower_projection_identity, lower_projection_intent,
             residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access,
         },
@@ -115,6 +116,13 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn projection_spec(&self, model: &EntityModel) -> ProjectionSpec {
         lower_projection_intent(model, &self.logical, &self.projection_selection)
+    }
+
+    /// Lower this plan into one direct slot projection layout when every
+    /// output remains a unique canonical field reference.
+    #[must_use]
+    pub(in crate::db) fn direct_projection_slots(&self, model: &EntityModel) -> Option<Vec<usize>> {
+        lower_direct_projection_slots(model, &self.logical, &self.projection_selection)
     }
 
     /// Lower this plan into one projection semantic shape for identity hashing.

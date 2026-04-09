@@ -22,11 +22,11 @@ use crate::{
 };
 
 static ACCESS_CHOICE_FIELDS: [FieldModel; 2] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("email", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("email", FieldKind::Text),
 ];
 static ACCESS_CHOICE_RAW_INDEX_FIELDS: [&str; 1] = ["email"];
-static ACCESS_CHOICE_RAW_INDEXES: [IndexModel; 1] = [IndexModel::new(
+static ACCESS_CHOICE_RAW_INDEXES: [IndexModel; 1] = [IndexModel::generated(
     "access_choice::email_raw",
     "access_choice::store",
     &ACCESS_CHOICE_RAW_INDEX_FIELDS,
@@ -35,7 +35,7 @@ static ACCESS_CHOICE_RAW_INDEXES: [IndexModel; 1] = [IndexModel::new(
 static ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["email"];
 static ACCESS_CHOICE_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
-static ACCESS_CHOICE_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::new_with_key_items(
+static ACCESS_CHOICE_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::generated_with_key_items(
     "access_choice::email_lower",
     "access_choice::store",
     &ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS,
@@ -44,19 +44,20 @@ static ACCESS_CHOICE_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::new_with
 )];
 static ACCESS_CHOICE_UPPER_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
-static ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES: [IndexModel; 1] = [IndexModel::new_with_key_items(
-    "access_choice::email_upper",
-    "access_choice::store",
-    &ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS,
-    &ACCESS_CHOICE_UPPER_EXPRESSION_INDEX_KEY_ITEMS,
-    false,
-)];
+static ACCESS_CHOICE_UPPER_EXPRESSION_INDEXES: [IndexModel; 1] =
+    [IndexModel::generated_with_key_items(
+        "access_choice::email_upper",
+        "access_choice::store",
+        &ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS,
+        &ACCESS_CHOICE_UPPER_EXPRESSION_INDEX_KEY_ITEMS,
+        false,
+    )];
 static ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::LowerTrim(
         "email",
     ))];
 static ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEXES: [IndexModel; 1] =
-    [IndexModel::new_with_key_items(
+    [IndexModel::generated_with_key_items(
         "access_choice::email_lower_trim",
         "access_choice::store",
         &ACCESS_CHOICE_EXPRESSION_INDEX_FIELDS,
@@ -75,12 +76,12 @@ static ACCESS_CHOICE_MODEL: EntityModel = entity_model_from_static(
     &ACCESS_CHOICE_INDEX_REFS,
 );
 static ACCESS_CHOICE_RANGE_FIELDS: [FieldModel; 3] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new("city", FieldKind::Text),
-    FieldModel::new("email", FieldKind::Text),
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("city", FieldKind::Text),
+    FieldModel::generated("email", FieldKind::Text),
 ];
 static ACCESS_CHOICE_RANGE_INDEX_FIELDS: [&str; 2] = ["city", "email"];
-static ACCESS_CHOICE_RANGE_INDEXES: [IndexModel; 1] = [IndexModel::new(
+static ACCESS_CHOICE_RANGE_INDEXES: [IndexModel; 1] = [IndexModel::generated(
     "access_choice::city_email",
     "access_choice::store",
     &ACCESS_CHOICE_RANGE_INDEX_FIELDS,

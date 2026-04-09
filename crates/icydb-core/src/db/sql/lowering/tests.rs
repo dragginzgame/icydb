@@ -60,7 +60,7 @@ crate::test_store! {
 static SQL_LOWER_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
 static SQL_LOWER_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
-static SQL_LOWER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
+static SQL_LOWER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated_with_key_items(
     "name_lower",
     SqlLowerDataStore::PATH,
     &SQL_LOWER_EXPRESSION_INDEX_FIELDS,

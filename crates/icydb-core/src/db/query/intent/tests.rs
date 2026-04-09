@@ -179,8 +179,8 @@ struct PlanEntity {
 }
 
 static MAP_PLAN_FIELDS: [FieldModel; 2] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new(
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated(
         "attributes",
         FieldKind::Map {
             key: &FieldKind::Text,
@@ -198,8 +198,8 @@ static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
 );
 
 static ENUM_PLAN_FIELDS: [FieldModel; 2] = [
-    FieldModel::new("id", FieldKind::Ulid),
-    FieldModel::new(
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated(
         "stage",
         FieldKind::Enum {
             path: "intent_tests::Stage",
@@ -380,7 +380,7 @@ crate::test_entity_schema! {
 }
 
 static PLAN_PUSHDOWN_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-static PLAN_PUSHDOWN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static PLAN_PUSHDOWN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "group_rank",
     PlanDataStore::PATH,
     &PLAN_PUSHDOWN_INDEX_FIELDS,
@@ -388,7 +388,7 @@ static PLAN_PUSHDOWN_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
 )];
 
 static PLAN_UNIQUE_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
-static PLAN_UNIQUE_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static PLAN_UNIQUE_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "code_unique",
     PlanDataStore::PATH,
     &PLAN_UNIQUE_RANGE_INDEX_FIELDS,
@@ -396,7 +396,7 @@ static PLAN_UNIQUE_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
 )];
 
 static PLAN_TEXT_PREFIX_INDEX_FIELDS: [&str; 1] = ["label"];
-static PLAN_TEXT_PREFIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static PLAN_TEXT_PREFIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "label",
     PlanDataStore::PATH,
     &PLAN_TEXT_PREFIX_INDEX_FIELDS,
@@ -406,23 +406,24 @@ static PLAN_TEXT_PREFIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
 static PLAN_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 static PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
-static PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
-    "email_expr",
-    PlanDataStore::PATH,
-    &PLAN_EXPRESSION_CASEFOLD_INDEX_FIELDS,
-    &PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS,
-    false,
-)];
+static PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::generated_with_key_items(
+        "email_expr",
+        PlanDataStore::PATH,
+        &PLAN_EXPRESSION_CASEFOLD_INDEX_FIELDS,
+        &PLAN_EXPRESSION_CASEFOLD_KEY_ITEMS,
+        false,
+    )];
 static PLAN_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
 static PLAN_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
-    IndexModel::new(
+    IndexModel::generated(
         "a_tier_label_idx",
         PlanDataStore::PATH,
         &PLAN_DETERMINISTIC_CHOICE_LABEL_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new(
+    IndexModel::generated(
         "z_tier_handle_idx",
         PlanDataStore::PATH,
         &PLAN_DETERMINISTIC_CHOICE_HANDLE_INDEX_FIELDS,
@@ -432,13 +433,13 @@ static PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
 static PLAN_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
 static PLAN_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
 static PLAN_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
-    IndexModel::new(
+    IndexModel::generated(
         "a_tier_score_handle_idx",
         PlanDataStore::PATH,
         &PLAN_DETERMINISTIC_RANGE_HANDLE_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new(
+    IndexModel::generated(
         "z_tier_score_label_idx",
         PlanDataStore::PATH,
         &PLAN_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS,
@@ -448,13 +449,13 @@ static PLAN_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
 static PLAN_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
 static PLAN_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];
 static PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS: [IndexModel; 2] = [
-    IndexModel::new(
+    IndexModel::generated(
         "a_beta_idx",
         PlanDataStore::PATH,
         &PLAN_ORDER_ONLY_CHOICE_BETA_INDEX_FIELDS,
         false,
     ),
-    IndexModel::new(
+    IndexModel::generated(
         "z_alpha_idx",
         PlanDataStore::PATH,
         &PLAN_ORDER_ONLY_CHOICE_ALPHA_INDEX_FIELDS,

@@ -1419,12 +1419,12 @@ mod tests {
     };
 
     static PREDICATE_FIELDS: [FieldModel; 4] = [
-        FieldModel::new("id", FieldKind::Ulid),
-        FieldModel::new("score", FieldKind::Int),
-        FieldModel::new("tags", FieldKind::List(&FieldKind::Text)),
-        FieldModel::new("name", FieldKind::Text),
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("score", FieldKind::Int),
+        FieldModel::generated("tags", FieldKind::List(&FieldKind::Text)),
+        FieldModel::generated("name", FieldKind::Text),
     ];
-    static PREDICATE_MODEL: EntityModel = EntityModel::new(
+    static PREDICATE_MODEL: EntityModel = EntityModel::generated(
         "PredicateTestEntity",
         "PredicateTestEntity",
         &PREDICATE_FIELDS[0],

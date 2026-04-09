@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, EntityRuntimeHooks,
+        Db, EntityRuntimeHooks, Predicate,
         codec::{ROW_FORMAT_VERSION_CURRENT, serialize_row_payload},
         commit::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
@@ -27,7 +27,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
         field::FieldKind,
-        index::{IndexExpression, IndexKeyItem, IndexModel},
+        index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     serialize::serialize,
     testing::test_memory,
@@ -37,9 +37,20 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::BTreeSet};
+use std::{cell::RefCell, collections::BTreeSet, sync::LazyLock};
 
 type RecoveryStoreSnapshot = (Vec<(Vec<u8>, Vec<u8>)>, Vec<(Vec<u8>, Vec<u8>)>);
+
+static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+    LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+
+fn active_true_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_PREDICATE
+}
+
+const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
 
 //
 // RecoveryTestCanister
@@ -181,14 +192,14 @@ impl Default for RecoveryConditionalUniqueEnumEntity {
 }
 
 static RECOVERY_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
-static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "group",
     RecoveryTestDataStore::PATH,
     &RECOVERY_INDEXED_INDEX_FIELDS,
     false,
 )];
 static RECOVERY_UNIQUE_INDEX_FIELDS: [&str; 1] = ["email"];
-static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "email_unique",
     RecoveryTestDataStore::PATH,
     &RECOVERY_UNIQUE_INDEX_FIELDS,
@@ -197,63 +208,65 @@ static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
 static RECOVERY_UNIQUE_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 static RECOVERY_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
-static RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
-    "email_unique_casefold",
-    RecoveryTestDataStore::PATH,
-    &RECOVERY_UNIQUE_CASEFOLD_INDEX_FIELDS,
-    &RECOVERY_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS,
-    true,
-)];
+static RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::generated_with_key_items(
+        "email_unique_casefold",
+        RecoveryTestDataStore::PATH,
+        &RECOVERY_UNIQUE_CASEFOLD_INDEX_FIELDS,
+        &RECOVERY_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS,
+        true,
+    )];
 static RECOVERY_UPPER_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["email"];
 static RECOVERY_UPPER_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
-static RECOVERY_UPPER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
-    "email_upper",
-    RecoveryTestDataStore::PATH,
-    &RECOVERY_UPPER_EXPRESSION_INDEX_FIELDS,
-    &RECOVERY_UPPER_EXPRESSION_INDEX_KEY_ITEMS,
-    false,
-)];
+static RECOVERY_UPPER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::generated_with_key_items(
+        "email_upper",
+        RecoveryTestDataStore::PATH,
+        &RECOVERY_UPPER_EXPRESSION_INDEX_FIELDS,
+        &RECOVERY_UPPER_EXPRESSION_INDEX_KEY_ITEMS,
+        false,
+    )];
 static RECOVERY_CONDITIONAL_INDEX_FIELDS: [&str; 1] = ["group"];
-static RECOVERY_CONDITIONAL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_predicate(
+static RECOVERY_CONDITIONAL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated_with_predicate(
     "group_active_only",
     RecoveryTestDataStore::PATH,
     &RECOVERY_CONDITIONAL_INDEX_FIELDS,
     false,
-    Some("active = true"),
+    Some(active_true_predicate_metadata()),
 )];
 static RECOVERY_CONDITIONAL_UNIQUE_INDEX_FIELDS: [&str; 1] = ["email"];
 static RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_predicate(
+    [IndexModel::generated_with_predicate(
         "email_unique_active_only",
         RecoveryTestDataStore::PATH,
         &RECOVERY_CONDITIONAL_UNIQUE_INDEX_FIELDS,
         true,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 static RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
 static RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_key_items_and_predicate(
+    [IndexModel::generated_with_key_items_and_predicate(
         "email_unique_casefold_active_only",
         RecoveryTestDataStore::PATH,
         &RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_FIELDS,
         Some(&RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS),
         true,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_FIELDS: [&str; 1] = ["status"];
 static RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS: [IndexModel; 1] =
-    [IndexModel::new_with_predicate(
+    [IndexModel::generated_with_predicate(
         "status_unique_active_only",
         RecoveryTestDataStore::PATH,
         &RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_FIELDS,
         true,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     )];
 static RECOVERY_INDEXED_MISSING_FIELD_INDEX_FIELDS: [&str; 1] = ["missing_group"];
-static RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL: IndexModel = IndexModel::new(
+static RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL: IndexModel = IndexModel::generated(
     "missing_group",
     RecoveryTestDataStore::PATH,
     &RECOVERY_INDEXED_MISSING_FIELD_INDEX_FIELDS,

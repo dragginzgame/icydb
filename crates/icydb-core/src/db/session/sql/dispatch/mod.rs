@@ -367,7 +367,7 @@ impl<C: CanisterKind> DbSession<C> {
                 // Phase 2: dispatch `SELECT` directly from the lowered shape so
                 // typed SQL projection does not rebuild and discard a typed
                 // `Query<E>` before returning to the structural executor path.
-                match lowered.query() {
+                match lowered.into_query() {
                     Some(LoweredSqlQuery::Select(select)) => self
                         .execute_lowered_sql_dispatch_select_core(
                             select,
@@ -465,7 +465,7 @@ impl<C: CanisterKind> DbSession<C> {
                     SqlGroupingSurface::GeneratedQuerySurface,
                 )?;
 
-                self.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+                self.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
             }
             SqlStatementRoute::Explain { .. } => {
                 if let Some((mode, plan)) =

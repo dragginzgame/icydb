@@ -40,7 +40,7 @@ use super::{
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
-const EMPTY_INDEX: IndexModel = IndexModel::new(
+const EMPTY_INDEX: IndexModel = IndexModel::generated(
     "query::executor::projection::idx_empty",
     "query::executor::projection::Store",
     &EMPTY_INDEX_FIELDS,

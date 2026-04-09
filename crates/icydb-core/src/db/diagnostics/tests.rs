@@ -71,7 +71,7 @@ struct IntegrityIndexedEntity {
 }
 
 static INTEGRITY_EMAIL_INDEX_FIELDS: [&str; 1] = ["email"];
-static INTEGRITY_EMAIL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static INTEGRITY_EMAIL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "email",
     STORE_A_PATH,
     &INTEGRITY_EMAIL_INDEX_FIELDS,

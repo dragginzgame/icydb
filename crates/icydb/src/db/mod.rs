@@ -8,14 +8,15 @@ pub mod sql;
 pub use icydb_core::db::Row;
 #[doc(hidden)]
 pub use icydb_core::db::{
-    EntityAuthority, InternalError, PersistedRow, PersistedScalar, ScalarSlotValueRef,
-    ScalarValueRef, SlotReader, SlotWriter, debug_remove_entity_row_data_only,
-    decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
-    decode_persisted_non_null_slot_payload, decode_persisted_option_scalar_slot_payload,
-    decode_persisted_option_slot_payload, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload, encode_persisted_custom_many_slot_payload,
-    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload,
+    CoercionId, CompareOp, ComparePredicate, EntityAuthority, InternalError, PersistedRow,
+    PersistedScalar, Predicate, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
+    debug_remove_entity_row_data_only, decode_persisted_custom_many_slot_payload,
+    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload,
+    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload,
+    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload,
 };
 pub use icydb_core::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,

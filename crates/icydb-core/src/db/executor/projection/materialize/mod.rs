@@ -90,10 +90,10 @@ pub(in crate::db::executor) fn validate_projection_over_slot_rows(
 /// copy values directly from retained slots without reopening generic scalar
 /// expression evaluation.
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn direct_projection_field_slots(
+pub(in crate::db::executor) fn direct_projection_slots(
     model: &'static EntityModel,
     projection: &ProjectionSpec,
-) -> Option<Vec<(String, usize)>> {
+) -> Option<Vec<usize>> {
     let mut field_slots = Vec::with_capacity(projection.len());
 
     for field in projection.fields() {
@@ -111,14 +111,36 @@ pub(in crate::db::executor) fn direct_projection_field_slots(
                 // times without consuming it.
                 if field_slots
                     .iter()
-                    .any(|(_, existing_slot)| *existing_slot == slot)
+                    .any(|existing_slot| *existing_slot == slot)
                 {
                     return None;
                 }
 
-                field_slots.push((field_name.to_string(), slot));
+                field_slots.push(slot);
             }
         }
+    }
+
+    Some(field_slots)
+}
+
+/// Resolve one direct field-slot projection layout when every output stays on
+/// one unique canonical field reference.
+///
+/// SQL structural fast paths use this to detect projection shapes that can
+/// copy values directly from retained slots without reopening generic scalar
+/// expression evaluation.
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) fn direct_projection_field_slots(
+    model: &'static EntityModel,
+    projection: &ProjectionSpec,
+) -> Option<Vec<(String, usize)>> {
+    let slot_indexes = direct_projection_slots(model, projection)?;
+    let mut field_slots = Vec::with_capacity(slot_indexes.len());
+
+    for (field, slot) in projection.fields().zip(slot_indexes) {
+        let field_name = projection_field_direct_field_name(field)?;
+        field_slots.push((field_name.to_string(), slot));
     }
 
     Some(field_slots)

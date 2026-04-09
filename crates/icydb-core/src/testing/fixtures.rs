@@ -23,62 +23,6 @@ pub(crate) const fn entity_model_from_static(
 }
 
 ///
-/// InvalidEntityModelBuilder
-///
-/// Test-only helper for constructing intentionally invalid `EntityModel` values.
-/// Use this for negative tests that must bypass schema invariants.
-///
-
-pub(crate) struct InvalidEntityModelBuilder;
-
-impl InvalidEntityModelBuilder {
-    ///
-    /// from_fields
-    ///
-    /// Build an invalid test `EntityModel` with default identity and no indexes.
-    /// Leaks field storage to satisfy static lifetime requirements.
-    ///
-    pub(crate) fn from_fields(fields: Vec<FieldModel>, pk_index: usize) -> EntityModel {
-        Self::from_fields_and_indexes("test_fixtures::Entity", "TestEntity", fields, pk_index, &[])
-    }
-
-    ///
-    /// from_fields_and_indexes
-    ///
-    /// Build an invalid test `EntityModel` with explicit identity and indexes.
-    /// Leaks field storage to satisfy static lifetime requirements.
-    ///
-    pub(crate) fn from_fields_and_indexes(
-        path: &'static str,
-        entity_name: &'static str,
-        fields: Vec<FieldModel>,
-        pk_index: usize,
-        indexes: &'static [&'static IndexModel],
-    ) -> EntityModel {
-        // Leak the fields to satisfy the static lifetime required by EntityModel.
-        let fields: &'static [FieldModel] = Box::leak(fields.into_boxed_slice());
-        let primary_key = &fields[pk_index];
-
-        entity_model_from_static(path, entity_name, primary_key, fields, indexes)
-    }
-
-    ///
-    /// from_static
-    ///
-    /// Build an invalid test `EntityModel` from pre-allocated static slices.
-    ///
-    pub(crate) const fn from_static(
-        path: &'static str,
-        entity_name: &'static str,
-        primary_key: &'static FieldModel,
-        fields: &'static [FieldModel],
-        indexes: &'static [&'static IndexModel],
-    ) -> EntityModel {
-        entity_model_from_static(path, entity_name, primary_key, fields, indexes)
-    }
-}
-
-///
 /// impl_test_entity_markers
 ///
 /// Test-only helper macro for the common marker-trait boilerplate used by
@@ -213,7 +157,6 @@ macro_rules! impl_test_entity_model_storage {
 /// test_entity
 ///
 /// Test-only helper to define a test entity type and derive its schema model.
-/// Prefer this over `InvalidEntityModelBuilder` when the model is valid.
 ///
 #[macro_export]
 macro_rules! test_entity {
@@ -233,7 +176,7 @@ macro_rules! test_entity {
             $pk_index,
             fields = [
                 $(
-                    $crate::model::field::FieldModel::new($field_name, $field_kind)
+                    $crate::model::field::FieldModel::generated($field_name, $field_kind)
                 ),+
             ],
             indexes = [ $( $index ),* ],
@@ -252,10 +195,10 @@ macro_rules! test_entity {
 #[macro_export]
 macro_rules! test_entity_schema {
     (@field_model $field_name:expr, $field_kind:expr) => {
-        $crate::model::field::FieldModel::new($field_name, $field_kind)
+        $crate::model::field::FieldModel::generated($field_name, $field_kind)
     };
     (@field_model $field_name:expr, $field_kind:expr, $field_decode:expr) => {
-        $crate::model::field::FieldModel::new_with_storage_decode(
+        $crate::model::field::FieldModel::generated_with_storage_decode(
             $field_name,
             $field_kind,
             $field_decode,

@@ -31,11 +31,21 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
         .name
         .as_ref()
         .map_or_else(|| node.def.ident().to_string(), LitStr::value);
-    let index_exprs = node
+    let index_parts = node
         .indexes
         .iter()
         .enumerate()
-        .map(|(ordinal, index)| index.runtime_part(&resolved_entity_name, &node.store, ordinal))
+        .map(|(ordinal, index)| {
+            index.runtime_part(node, &resolved_entity_name, &node.store, ordinal)
+        })
+        .collect::<Vec<_>>();
+    let index_support_items = index_parts
+        .iter()
+        .flat_map(|(support_items, _)| support_items.iter().cloned())
+        .collect::<Vec<_>>();
+    let index_exprs = index_parts
+        .iter()
+        .map(|(_, model_expr)| model_expr.clone())
         .collect::<Vec<_>>();
     let fields_len = LitInt::new(&node.fields.len().to_string(), Span::call_site());
     let indexes_len = LitInt::new(&index_exprs.len().to_string(), Span::call_site());
@@ -43,6 +53,7 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
     let indexes_ident = indexes_ident(&ident);
 
     quote! {
+        #(#index_support_items)*
         const #model_fields_ident:
             [::icydb::model::field::FieldModel; #fields_len] = [
                 #(#model_fields_exprs),*
@@ -72,7 +83,7 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
 
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
-            ::icydb::model::entity::EntityModel::new(
+            ::icydb::model::entity::EntityModel::generated(
                 <#ident as ::icydb::traits::Path>::PATH,
                 #entity_name,
                 &#model_fields_ident[#pk_index],

@@ -365,8 +365,9 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        String::from_utf8(self.bytes[start..self.pos].to_vec())
+        std::str::from_utf8(&self.bytes[start..self.pos])
             .expect("numeric token bytes must remain utf-8")
+            .to_owned()
     }
 
     fn lex_identifier_or_keyword(&mut self) -> TokenKind {
@@ -375,8 +376,9 @@ impl<'a> Lexer<'a> {
         while self.peek_byte().is_some_and(is_identifier_continue) {
             self.pos += 1;
         }
-        let out = String::from_utf8(self.bytes[start..self.pos].to_vec())
-            .expect("identifier token bytes must remain utf-8");
+        let out = std::str::from_utf8(&self.bytes[start..self.pos])
+            .expect("identifier token bytes must remain utf-8")
+            .to_owned();
         match keyword_from_ident(out.as_str()) {
             Some(keyword) => TokenKind::Keyword(keyword),
             None => TokenKind::Identifier(out),
@@ -419,50 +421,50 @@ const fn is_identifier_continue(byte: u8) -> bool {
 }
 
 fn keyword_from_ident(value: &str) -> Option<Keyword> {
-    match value.to_ascii_uppercase().as_str() {
-        "AND" => Some(Keyword::And),
-        "AS" => Some(Keyword::As),
-        "ASC" => Some(Keyword::Asc),
-        "AVG" => Some(Keyword::Avg),
-        "BETWEEN" => Some(Keyword::Between),
-        "BY" => Some(Keyword::By),
-        "COLUMNS" => Some(Keyword::Columns),
-        "COUNT" => Some(Keyword::Count),
-        "DELETE" => Some(Keyword::Delete),
-        "DESCRIBE" => Some(Keyword::Describe),
-        "DESC" => Some(Keyword::Desc),
-        "DISTINCT" => Some(Keyword::Distinct),
-        "EXCEPT" => Some(Keyword::Except),
-        "EXECUTION" => Some(Keyword::Execution),
-        "EXPLAIN" => Some(Keyword::Explain),
-        "ENTITIES" => Some(Keyword::Entities),
-        "FALSE" => Some(Keyword::False),
-        "FROM" => Some(Keyword::From),
-        "GROUP" => Some(Keyword::Group),
-        "HAVING" => Some(Keyword::Having),
-        "IN" => Some(Keyword::In),
-        "INDEXES" => Some(Keyword::Indexes),
-        "INSERT" => Some(Keyword::Insert),
-        "INTERSECT" => Some(Keyword::Intersect),
-        "IS" => Some(Keyword::Is),
-        "JOIN" => Some(Keyword::Join),
-        "JSON" => Some(Keyword::Json),
-        "LIMIT" => Some(Keyword::Limit),
-        "MAX" => Some(Keyword::Max),
-        "MIN" => Some(Keyword::Min),
-        "NOT" => Some(Keyword::Not),
-        "NULL" => Some(Keyword::Null),
-        "OFFSET" => Some(Keyword::Offset),
-        "OR" => Some(Keyword::Or),
-        "ORDER" => Some(Keyword::Order),
-        "SELECT" => Some(Keyword::Select),
-        "SHOW" => Some(Keyword::Show),
-        "SUM" => Some(Keyword::Sum),
-        "TRUE" => Some(Keyword::True),
-        "UNION" => Some(Keyword::Union),
-        "UPDATE" => Some(Keyword::Update),
-        "WHERE" => Some(Keyword::Where),
-        "WITH" => Some(Keyword::With),
+    match value.len() {
+        2 if value.eq_ignore_ascii_case("AS") => Some(Keyword::As),
+        2 if value.eq_ignore_ascii_case("BY") => Some(Keyword::By),
+        2 if value.eq_ignore_ascii_case("IN") => Some(Keyword::In),
+        2 if value.eq_ignore_ascii_case("IS") => Some(Keyword::Is),
+        2 if value.eq_ignore_ascii_case("OR") => Some(Keyword::Or),
+        3 if value.eq_ignore_ascii_case("AND") => Some(Keyword::And),
+        3 if value.eq_ignore_ascii_case("ASC") => Some(Keyword::Asc),
+        3 if value.eq_ignore_ascii_case("AVG") => Some(Keyword::Avg),
+        3 if value.eq_ignore_ascii_case("MAX") => Some(Keyword::Max),
+        3 if value.eq_ignore_ascii_case("MIN") => Some(Keyword::Min),
+        3 if value.eq_ignore_ascii_case("NOT") => Some(Keyword::Not),
+        3 if value.eq_ignore_ascii_case("SUM") => Some(Keyword::Sum),
+        4 if value.eq_ignore_ascii_case("DESC") => Some(Keyword::Desc),
+        4 if value.eq_ignore_ascii_case("FROM") => Some(Keyword::From),
+        4 if value.eq_ignore_ascii_case("JOIN") => Some(Keyword::Join),
+        4 if value.eq_ignore_ascii_case("JSON") => Some(Keyword::Json),
+        4 if value.eq_ignore_ascii_case("NULL") => Some(Keyword::Null),
+        4 if value.eq_ignore_ascii_case("SHOW") => Some(Keyword::Show),
+        4 if value.eq_ignore_ascii_case("TRUE") => Some(Keyword::True),
+        4 if value.eq_ignore_ascii_case("WITH") => Some(Keyword::With),
+        5 if value.eq_ignore_ascii_case("COUNT") => Some(Keyword::Count),
+        5 if value.eq_ignore_ascii_case("FALSE") => Some(Keyword::False),
+        5 if value.eq_ignore_ascii_case("GROUP") => Some(Keyword::Group),
+        5 if value.eq_ignore_ascii_case("LIMIT") => Some(Keyword::Limit),
+        5 if value.eq_ignore_ascii_case("ORDER") => Some(Keyword::Order),
+        5 if value.eq_ignore_ascii_case("UNION") => Some(Keyword::Union),
+        5 if value.eq_ignore_ascii_case("WHERE") => Some(Keyword::Where),
+        6 if value.eq_ignore_ascii_case("DELETE") => Some(Keyword::Delete),
+        6 if value.eq_ignore_ascii_case("EXCEPT") => Some(Keyword::Except),
+        6 if value.eq_ignore_ascii_case("HAVING") => Some(Keyword::Having),
+        6 if value.eq_ignore_ascii_case("INSERT") => Some(Keyword::Insert),
+        6 if value.eq_ignore_ascii_case("OFFSET") => Some(Keyword::Offset),
+        6 if value.eq_ignore_ascii_case("SELECT") => Some(Keyword::Select),
+        6 if value.eq_ignore_ascii_case("UPDATE") => Some(Keyword::Update),
+        7 if value.eq_ignore_ascii_case("BETWEEN") => Some(Keyword::Between),
+        7 if value.eq_ignore_ascii_case("COLUMNS") => Some(Keyword::Columns),
+        7 if value.eq_ignore_ascii_case("EXPLAIN") => Some(Keyword::Explain),
+        7 if value.eq_ignore_ascii_case("INDEXES") => Some(Keyword::Indexes),
+        8 if value.eq_ignore_ascii_case("DESCRIBE") => Some(Keyword::Describe),
+        8 if value.eq_ignore_ascii_case("DISTINCT") => Some(Keyword::Distinct),
+        8 if value.eq_ignore_ascii_case("ENTITIES") => Some(Keyword::Entities),
+        8 if value.eq_ignore_ascii_case("EXECUTION") => Some(Keyword::Execution),
+        9 if value.eq_ignore_ascii_case("INTERSECT") => Some(Keyword::Intersect),
         _ => None,
     }
 }
@@ -498,19 +500,23 @@ impl SqlTokenCursor {
             }
         };
 
-        self.bump();
+        self.advance();
         Ok(op)
     }
 
     pub(crate) fn parse_literal(&mut self) -> Result<Value, SqlParseError> {
-        match self.bump() {
-            Some(TokenKind::StringLiteral(value)) => Ok(Value::Text(value)),
-            Some(TokenKind::Number(value)) => parse_number_literal(value.as_str()),
-            Some(TokenKind::Keyword(Keyword::Null)) => Ok(Value::Null),
-            Some(TokenKind::Keyword(Keyword::True)) => Ok(Value::Bool(true)),
-            Some(TokenKind::Keyword(Keyword::False)) => Ok(Value::Bool(false)),
-            _ => Err(SqlParseError::expected("literal", self.peek_kind())),
-        }
+        let literal = match self.peek_kind() {
+            Some(TokenKind::StringLiteral(value)) => Value::Text(value.clone()),
+            Some(TokenKind::Number(value)) => parse_number_literal(value.as_str())?,
+            Some(TokenKind::Keyword(Keyword::Null)) => Value::Null,
+            Some(TokenKind::Keyword(Keyword::True)) => Value::Bool(true),
+            Some(TokenKind::Keyword(Keyword::False)) => Value::Bool(false),
+            _ => return Err(SqlParseError::expected("literal", self.peek_kind())),
+        };
+
+        self.advance();
+
+        Ok(literal)
     }
 
     pub(crate) fn expect_keyword(&mut self, keyword: Keyword) -> Result<(), SqlParseError> {
@@ -522,17 +528,21 @@ impl SqlTokenCursor {
     }
 
     pub(crate) fn expect_identifier(&mut self) -> Result<String, SqlParseError> {
-        let Some(TokenKind::Identifier(mut name)) = self.bump() else {
+        let Some(TokenKind::Identifier(name)) = self.peek_kind() else {
             return Err(SqlParseError::expected("identifier", self.peek_kind()));
         };
+        let mut name = name.clone();
+        self.advance();
 
         while self.eat_dot() {
-            let Some(TokenKind::Identifier(part)) = self.bump() else {
+            let Some(TokenKind::Identifier(part)) = self.peek_kind() else {
                 return Err(SqlParseError::expected(
                     "identifier after '.'",
                     self.peek_kind(),
                 ));
             };
+            let part = part.clone();
+            self.advance();
             name.push('.');
             name.push_str(part.as_str());
         }
@@ -664,10 +674,13 @@ impl SqlTokenCursor {
         }
     }
 
-    pub(crate) fn bump(&mut self) -> Option<TokenKind> {
-        let token = self.tokens.get(self.pos)?;
+    pub(in crate::db) fn advance(&mut self) -> bool {
+        if self.is_eof() {
+            return false;
+        }
+
         self.pos += 1;
-        Some(token.kind.clone())
+        true
     }
 
     pub(in crate::db) fn peek_kind(&self) -> Option<&TokenKind> {
@@ -701,4 +714,93 @@ fn parse_number_literal(raw: &str) -> Result<Value, SqlParseError> {
     }
 
     Err(SqlParseError::invalid_numeric_literal(raw))
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{Keyword, TokenKind, tokenize_sql};
+
+    #[test]
+    fn tokenize_sql_classifies_mixed_case_keywords_without_normalization_changes() {
+        let tokens = tokenize_sql("SeLeCt id FrOm Customer OrDeR By id aSc LiMiT 1")
+            .expect("mixed-case keyword SQL should tokenize");
+
+        let kinds = tokens
+            .into_iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            kinds.first(),
+            Some(TokenKind::Keyword(Keyword::Select))
+        ));
+        assert!(matches!(
+            kinds.get(2),
+            Some(TokenKind::Keyword(Keyword::From))
+        ));
+        assert!(matches!(
+            kinds.get(4),
+            Some(TokenKind::Keyword(Keyword::Order))
+        ));
+        assert!(matches!(
+            kinds.get(5),
+            Some(TokenKind::Keyword(Keyword::By))
+        ));
+        assert!(matches!(
+            kinds.get(7),
+            Some(TokenKind::Keyword(Keyword::Asc))
+        ));
+        assert!(matches!(
+            kinds.get(8),
+            Some(TokenKind::Keyword(Keyword::Limit))
+        ));
+    }
+
+    #[test]
+    fn tokenize_sql_preserves_non_keyword_identifiers() {
+        let tokens = tokenize_sql("selectivity customer_order order_total")
+            .expect("identifiers should tokenize");
+
+        let kinds = tokens
+            .into_iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            kinds.first(),
+            Some(TokenKind::Identifier(value)) if value == "selectivity"
+        ));
+        assert!(matches!(
+            kinds.get(1),
+            Some(TokenKind::Identifier(value)) if value == "customer_order"
+        ));
+        assert!(matches!(
+            kinds.get(2),
+            Some(TokenKind::Identifier(value)) if value == "order_total"
+        ));
+    }
+
+    #[test]
+    fn tokenize_sql_preserves_qualified_identifier_segments() {
+        let tokens = tokenize_sql("public.Customer").expect("qualified identifier should tokenize");
+
+        let kinds = tokens
+            .into_iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            kinds.first(),
+            Some(TokenKind::Identifier(value)) if value == "public"
+        ));
+        assert!(matches!(kinds.get(1), Some(TokenKind::Dot)));
+        assert!(matches!(
+            kinds.get(2),
+            Some(TokenKind::Identifier(value)) if value == "Customer"
+        ));
+    }
 }

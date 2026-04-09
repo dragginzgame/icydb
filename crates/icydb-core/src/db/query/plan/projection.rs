@@ -8,10 +8,13 @@ use crate::{
         builder::aggregate::AggregateExpr,
         plan::{
             FieldSlot, GroupAggregateSpec, GroupPlan, LogicalPlan,
-            expr::{Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec},
+            expr::{
+                Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
+                direct_projection_expr_field_name,
+            },
         },
     },
-    model::entity::EntityModel,
+    model::entity::{EntityModel, resolve_field_slot},
 };
 
 /// Lower one logical plan into the canonical planner-owned projection semantic shape.
@@ -52,6 +55,50 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
     };
 
     ProjectionSpec::new(fields)
+}
+
+/// Lower one logical plan into one direct slot projection layout when every
+/// output remains a unique canonical field reference.
+#[must_use]
+pub(crate) fn lower_direct_projection_slots(
+    model: &EntityModel,
+    logical: &LogicalPlan,
+    selection: &ProjectionSelection,
+) -> Option<Vec<usize>> {
+    match logical {
+        LogicalPlan::Scalar(_) => lower_scalar_direct_projection_slots(model, selection),
+        LogicalPlan::Grouped(_) => None,
+    }
+}
+
+// Lower one scalar logical plan into a unique direct field-slot layout when
+// the projection never leaves canonical field references.
+fn lower_scalar_direct_projection_slots(
+    model: &EntityModel,
+    selection: &ProjectionSelection,
+) -> Option<Vec<usize>> {
+    match selection {
+        ProjectionSelection::All => Some((0..model.fields.len()).collect()),
+        ProjectionSelection::Fields(field_ids) => {
+            let mut slots = Vec::with_capacity(field_ids.len());
+
+            for field_id in field_ids {
+                let slot = resolve_field_slot(model, field_id.as_str())?;
+                if slots.iter().any(|existing_slot| *existing_slot == slot) {
+                    return None;
+                }
+                slots.push(slot);
+            }
+
+            Some(slots)
+        }
+        ProjectionSelection::Expression(expr) => {
+            let field_name = direct_projection_expr_field_name(expr)?;
+            let slot = resolve_field_slot(model, field_name)?;
+
+            Some(vec![slot])
+        }
+    }
 }
 
 /// Lower one logical plan into the identity projection used by hash/fingerprint

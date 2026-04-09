@@ -70,10 +70,7 @@ pub(in crate::db) fn residual_query_predicate_after_filtered_access(
     if index.predicate().is_none() {
         return Some(query_predicate.clone());
     }
-    let Ok(index_predicate) = canonical_index_predicate(index) else {
-        return Some(query_predicate.clone());
-    };
-    let Some(index_predicate) = index_predicate else {
+    let Some(index_predicate) = canonical_index_predicate(index) else {
         return Some(query_predicate.clone());
     };
 
@@ -125,10 +122,7 @@ fn filtered_index_predicate_query_relation(
     if index.predicate().is_none() {
         return false;
     }
-    let Ok(index_predicate) = canonical_index_predicate(index) else {
-        return false;
-    };
-    let Some(index_predicate) = index_predicate else {
+    let Some(index_predicate) = canonical_index_predicate(index) else {
         return false;
     };
 

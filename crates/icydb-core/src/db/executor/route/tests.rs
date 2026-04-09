@@ -90,13 +90,13 @@ struct RouteCapabilityEntity {
 static ROUTE_CAPABILITY_SCORE_KIND: FieldKind = FieldKind::Uint;
 static ROUTE_CAPABILITY_INDEX_FIELDS: [&str; 1] = ["rank"];
 static ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["rank", "label"];
-static ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "rank_idx",
     RouteCapabilityTestStore::PATH,
     &ROUTE_CAPABILITY_INDEX_FIELDS,
     false,
 )];
-static ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::new(
+static ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL: IndexModel = IndexModel::generated(
     "rank_label_idx",
     RouteCapabilityTestStore::PATH,
     &ROUTE_CAPABILITY_COMPOSITE_INDEX_FIELDS,
@@ -137,7 +137,7 @@ struct UniqueRouteCapabilityEntity {
 }
 
 static UNIQUE_ROUTE_CAPABILITY_INDEX_FIELDS: [&str; 1] = ["code"];
-static UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "code_idx",
     RouteCapabilityTestStore::PATH,
     &UNIQUE_ROUTE_CAPABILITY_INDEX_FIELDS,

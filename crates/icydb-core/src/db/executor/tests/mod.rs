@@ -148,7 +148,7 @@ struct IndexedMetricsEntity {
 }
 
 static INDEXED_METRICS_INDEX_FIELDS: [&str; 1] = ["tag"];
-static INDEXED_METRICS_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static INDEXED_METRICS_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "tag",
     TestDataStore::PATH,
     &INDEXED_METRICS_INDEX_FIELDS,
@@ -187,7 +187,7 @@ struct PushdownParityEntity {
 }
 
 static PUSHDOWN_PARITY_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-static PUSHDOWN_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static PUSHDOWN_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "group_rank",
     TestDataStore::PATH,
     &PUSHDOWN_PARITY_INDEX_FIELDS,
@@ -230,7 +230,7 @@ struct UniqueIndexRangeEntity {
 }
 
 static UNIQUE_INDEX_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
-static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "code_unique",
     TestDataStore::PATH,
     &UNIQUE_INDEX_RANGE_INDEX_FIELDS,
@@ -278,16 +278,16 @@ crate::impl_test_entity_model_storage!(
     "PhaseEntity",
     0,
     fields = [
-        crate::model::field::FieldModel::new("id", FieldKind::Ulid),
-        crate::model::field::FieldModel::new_with_storage_decode_and_nullability(
+        crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "opt_rank",
             FieldKind::Uint,
             crate::model::field::FieldStorageDecode::ByKind,
             true,
         ),
-        crate::model::field::FieldModel::new("rank", FieldKind::Uint),
-        crate::model::field::FieldModel::new("tags", FieldKind::List(&PHASE_TAG_KIND)),
-        crate::model::field::FieldModel::new("label", FieldKind::Text)
+        crate::model::field::FieldModel::generated("rank", FieldKind::Uint),
+        crate::model::field::FieldModel::generated("tags", FieldKind::List(&PHASE_TAG_KIND)),
+        crate::model::field::FieldModel::generated("label", FieldKind::Text)
     ],
     indexes = [],
 );

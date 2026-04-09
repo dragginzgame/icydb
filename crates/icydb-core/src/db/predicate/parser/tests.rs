@@ -4,8 +4,9 @@
 //! Boundary: verifies the predicate-owned reduced SQL parser contract.
 
 use crate::{
-    db::predicate::{
-        CoercionId, CompareOp, ComparePredicate, Predicate, SqlParseError, parse_sql_predicate,
+    db::{
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, parse_sql_predicate},
+        reduced_sql::SqlParseError,
     },
     value::Value,
 };

@@ -45,7 +45,7 @@ fn access_strategy_debug_summary_reports_composite_shape() {
 
 #[test]
 fn access_strategy_debug_summary_reports_index_multi_lookup_shape() {
-    let index = IndexModel::new(
+    let index = IndexModel::generated(
         "tests::idx_group",
         "tests::store",
         &INDEX_MULTI_LOOKUP_TEST_FIELDS,

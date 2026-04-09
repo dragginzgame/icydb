@@ -310,18 +310,13 @@ fn read_index_storage_keys_in_raw_range(
 /// Compile the optional conditional-index predicate from structural entity
 /// authority only.
 pub(in crate::db) fn compile_index_membership_predicate_structural(
-    entity_path: &'static str,
+    _entity_path: &'static str,
     model: &'static EntityModel,
     index: &IndexModel,
 ) -> Result<Option<PredicateProgram>, InternalError> {
-    let Some(predicate_sql) = index.predicate() else {
+    let Some(predicate) = canonical_index_predicate(index) else {
         return Ok(None);
     };
-
-    let predicate = canonical_index_predicate(index).map_err(|err| {
-        InternalError::index_predicate_parse_failed(entity_path, index.name(), predicate_sql, err)
-    })?;
-    let predicate = predicate.expect("index predicate metadata was checked above");
 
     Ok(Some(PredicateProgram::compile_with_model(model, predicate)))
 }

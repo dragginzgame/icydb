@@ -19,7 +19,7 @@ use crate::{
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
-const EMPTY_INDEX: IndexModel = IndexModel::new(
+const EMPTY_INDEX: IndexModel = IndexModel::generated(
     "query::plan::validate::grouped::projection_expr::idx_empty",
     "query::plan::validate::grouped::projection_expr::Store",
     &EMPTY_INDEX_FIELDS,

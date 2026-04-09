@@ -18,7 +18,7 @@ use crate::{
 use super::{BinaryOp, Expr, ExprType, FieldId, NumericSubtype, UnaryOp, infer_expr_type};
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
-const EMPTY_INDEX: IndexModel = IndexModel::new(
+const EMPTY_INDEX: IndexModel = IndexModel::generated(
     "query::plan::expr::idx_empty",
     "query::plan::expr::Store",
     &EMPTY_INDEX_FIELDS,

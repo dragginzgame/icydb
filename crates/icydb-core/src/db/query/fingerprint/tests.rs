@@ -570,13 +570,13 @@ fn fingerprint_is_deterministic_for_by_keys() {
 #[test]
 fn fingerprint_changes_with_index_choice() {
     const INDEX_FIELDS: [&str; 1] = ["idx_a"];
-    const INDEX_A: IndexModel = IndexModel::new(
+    const INDEX_A: IndexModel = IndexModel::generated(
         "fingerprint::idx_a",
         "fingerprint::store",
         &INDEX_FIELDS,
         false,
     );
-    const INDEX_B: IndexModel = IndexModel::new(
+    const INDEX_B: IndexModel = IndexModel::generated(
         "fingerprint::idx_b",
         "fingerprint::store",
         &INDEX_FIELDS,
@@ -850,7 +850,7 @@ fn fingerprint_is_stable_for_full_scan() {
 #[test]
 fn fingerprint_is_stable_for_equivalent_index_range_bounds() {
     const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-    const INDEX: IndexModel = IndexModel::new(
+    const INDEX: IndexModel = IndexModel::generated(
         "fingerprint::group_rank",
         "fingerprint::store",
         &INDEX_FIELDS,
@@ -876,7 +876,7 @@ fn fingerprint_is_stable_for_equivalent_index_range_bounds() {
 #[test]
 fn fingerprint_changes_when_index_range_bound_discriminant_changes() {
     const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-    const INDEX: IndexModel = IndexModel::new(
+    const INDEX: IndexModel = IndexModel::generated(
         "fingerprint::group_rank",
         "fingerprint::store",
         &INDEX_FIELDS,
@@ -902,7 +902,7 @@ fn fingerprint_changes_when_index_range_bound_discriminant_changes() {
 #[test]
 fn fingerprint_changes_when_index_range_bound_value_changes() {
     const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-    const INDEX: IndexModel = IndexModel::new(
+    const INDEX: IndexModel = IndexModel::generated(
         "fingerprint::group_rank",
         "fingerprint::store",
         &INDEX_FIELDS,

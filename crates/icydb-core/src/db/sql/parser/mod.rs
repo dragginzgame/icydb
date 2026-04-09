@@ -85,13 +85,13 @@ impl Parser {
     }
 
     fn parse_u32_literal(&mut self, clause: &str) -> Result<u32, SqlParseError> {
-        let token = self.bump();
-        let Some(TokenKind::Number(value)) = token else {
+        let Some(TokenKind::Number(value)) = self.peek_kind() else {
             return Err(SqlParseError::expected(
                 &format!("integer literal after {clause}"),
                 self.peek_kind(),
             ));
         };
+        let value = value.as_str();
 
         if value.contains('.') || value.starts_with('-') {
             return Err(SqlParseError::invalid_syntax(format!(
@@ -99,9 +99,12 @@ impl Parser {
             )));
         }
 
-        value.parse::<u32>().map_err(|_| {
+        let parsed = value.parse::<u32>().map_err(|_| {
             SqlParseError::invalid_syntax(format!("{clause} value exceeds supported u32 bound"))
-        })
+        })?;
+        self.cursor.advance();
+
+        Ok(parsed)
     }
 
     fn expect_keyword(&mut self, keyword: Keyword) -> Result<(), SqlParseError> {
@@ -146,10 +149,6 @@ impl Parser {
 
     fn peek_unsupported_feature(&self) -> Option<&'static str> {
         self.cursor.peek_unsupported_feature()
-    }
-
-    fn bump(&mut self) -> Option<TokenKind> {
-        self.cursor.bump()
     }
 
     fn peek_kind(&self) -> Option<&TokenKind> {

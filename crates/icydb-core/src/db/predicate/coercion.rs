@@ -56,6 +56,18 @@ impl CoercionSpec {
             params: Vec::new(),
         }
     }
+
+    /// Return the canonical coercion identifier.
+    #[must_use]
+    pub const fn id(&self) -> CoercionId {
+        self.id
+    }
+
+    /// Borrow any attached coercion parameters.
+    #[must_use]
+    pub fn params(&self) -> &[(String, String)] {
+        self.params.as_slice()
+    }
 }
 
 impl fmt::Debug for CoercionSpec {

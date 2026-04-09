@@ -98,6 +98,7 @@ impl Entity {
             self.validate_index_fields(index)?;
             Self::validate_index_key_items(index)?;
             Self::validate_index_name(index, entity_name, def_ident)?;
+            self.validate_index_predicate(index)?;
             canonical_index_terms.push(index.validated_key_item_terms());
         }
 
@@ -149,6 +150,13 @@ impl Entity {
                 .with_span(field));
             }
         }
+
+        Ok(())
+    }
+
+    // Validate any filtered-index predicate against the generated field surface.
+    fn validate_index_predicate(&self, index: &Index) -> Result<(), DarlingError> {
+        let _ = index.validated_generated_predicate(self)?;
 
         Ok(())
     }

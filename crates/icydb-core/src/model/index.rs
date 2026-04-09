@@ -3,6 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+use crate::db::Predicate;
 use std::fmt::{self, Display};
 
 ///
@@ -123,6 +124,57 @@ pub enum IndexKeyItemsRef {
 }
 
 ///
+/// GeneratedIndexPredicateResolver
+///
+/// Generated filtered indexes resolve canonical predicate semantics through
+/// one zero-argument function so runtime planning can borrow a shared static
+/// AST without reparsing SQL text.
+///
+pub type GeneratedIndexPredicateResolver = fn() -> &'static Predicate;
+
+///
+/// IndexPredicateMetadata
+///
+/// Canonical generated filtered-index predicate metadata.
+/// Raw SQL text is retained for diagnostics/display only.
+/// Runtime semantics always flow through `semantics()`.
+///
+#[derive(Clone, Copy, Debug)]
+pub struct IndexPredicateMetadata {
+    sql: &'static str,
+    semantics: GeneratedIndexPredicateResolver,
+}
+
+impl IndexPredicateMetadata {
+    /// Build one generated filtered-index predicate metadata bundle.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated(sql: &'static str, semantics: GeneratedIndexPredicateResolver) -> Self {
+        Self { sql, semantics }
+    }
+
+    /// Borrow the original schema-declared predicate text for diagnostics.
+    #[must_use]
+    pub const fn sql(&self) -> &'static str {
+        self.sql
+    }
+
+    /// Borrow the canonical generated predicate semantics.
+    #[must_use]
+    pub fn semantics(&self) -> &'static Predicate {
+        (self.semantics)()
+    }
+}
+
+impl PartialEq for IndexPredicateMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.sql == other.sql && std::ptr::fn_addr_eq(self.semantics, other.semantics)
+    }
+}
+
+impl Eq for IndexPredicateMetadata {}
+
+///
 /// IndexModel
 ///
 /// Runtime-only descriptor for an index used by the executor and stores.
@@ -142,77 +194,87 @@ pub struct IndexModel {
     fields: &'static [&'static str],
     key_items: Option<&'static [IndexKeyItem]>,
     unique: bool,
-    // Raw schema-declared predicate text is input metadata only.
-    // Runtime/planner semantics must flow through canonical_index_predicate(...).
-    predicate: Option<&'static str>,
+    // Raw schema text remains for diagnostics/display only.
+    // Runtime/planner semantics must use the generated canonical predicate AST.
+    predicate: Option<IndexPredicateMetadata>,
 }
 
 impl IndexModel {
+    /// Construct one generated index descriptor.
+    ///
+    /// This constructor exists for derive/codegen output and trusted test
+    /// fixtures. Runtime planning and execution treat `IndexModel` values as
+    /// build-time-validated metadata.
     #[must_use]
-    pub const fn new(
+    #[doc(hidden)]
+    pub const fn generated(
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         unique: bool,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             0, name, store, fields, None, unique, None,
         )
     }
 
     /// Construct one index descriptor with one explicit stable ordinal.
     #[must_use]
-    pub const fn new_with_ordinal(
+    #[doc(hidden)]
+    pub const fn generated_with_ordinal(
         ordinal: u16,
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         unique: bool,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             ordinal, name, store, fields, None, unique, None,
         )
     }
 
     /// Construct one index descriptor with an optional conditional predicate.
     #[must_use]
-    pub const fn new_with_predicate(
+    #[doc(hidden)]
+    pub const fn generated_with_predicate(
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         unique: bool,
-        predicate: Option<&'static str>,
+        predicate: Option<IndexPredicateMetadata>,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             0, name, store, fields, None, unique, predicate,
         )
     }
 
     /// Construct one index descriptor with an explicit stable ordinal and optional predicate.
     #[must_use]
-    pub const fn new_with_ordinal_and_predicate(
+    #[doc(hidden)]
+    pub const fn generated_with_ordinal_and_predicate(
         ordinal: u16,
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         unique: bool,
-        predicate: Option<&'static str>,
+        predicate: Option<IndexPredicateMetadata>,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             ordinal, name, store, fields, None, unique, predicate,
         )
     }
 
     /// Construct one index descriptor with explicit canonical key-item metadata.
     #[must_use]
-    pub const fn new_with_key_items(
+    #[doc(hidden)]
+    pub const fn generated_with_key_items(
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         key_items: &'static [IndexKeyItem],
         unique: bool,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             0,
             name,
             store,
@@ -225,7 +287,8 @@ impl IndexModel {
 
     /// Construct one index descriptor with an explicit stable ordinal and key-item metadata.
     #[must_use]
-    pub const fn new_with_ordinal_and_key_items(
+    #[doc(hidden)]
+    pub const fn generated_with_ordinal_and_key_items(
         ordinal: u16,
         name: &'static str,
         store: &'static str,
@@ -233,7 +296,7 @@ impl IndexModel {
         key_items: &'static [IndexKeyItem],
         unique: bool,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             ordinal,
             name,
             store,
@@ -246,29 +309,31 @@ impl IndexModel {
 
     /// Construct one index descriptor with explicit key-item + predicate metadata.
     #[must_use]
-    pub const fn new_with_key_items_and_predicate(
+    #[doc(hidden)]
+    pub const fn generated_with_key_items_and_predicate(
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         key_items: Option<&'static [IndexKeyItem]>,
         unique: bool,
-        predicate: Option<&'static str>,
+        predicate: Option<IndexPredicateMetadata>,
     ) -> Self {
-        Self::new_with_ordinal_and_key_items_and_predicate(
+        Self::generated_with_ordinal_and_key_items_and_predicate(
             0, name, store, fields, key_items, unique, predicate,
         )
     }
 
     /// Construct one index descriptor with full explicit runtime identity metadata.
     #[must_use]
-    pub const fn new_with_ordinal_and_key_items_and_predicate(
+    #[doc(hidden)]
+    pub const fn generated_with_ordinal_and_key_items_and_predicate(
         ordinal: u16,
         name: &'static str,
         store: &'static str,
         fields: &'static [&'static str],
         key_items: Option<&'static [IndexKeyItem]>,
         unique: bool,
-        predicate: Option<&'static str>,
+        predicate: Option<IndexPredicateMetadata>,
     ) -> Self {
         Self {
             ordinal,
@@ -341,11 +406,19 @@ impl IndexModel {
 
     /// Return optional schema-declared conditional index predicate text metadata.
     ///
-    /// This string is input-only and must be lowered through the canonical
-    /// index-predicate boundary before semantic use.
+    /// Runtime planning and execution treat this as display metadata only.
     #[must_use]
     pub const fn predicate(&self) -> Option<&'static str> {
-        self.predicate
+        match self.predicate {
+            Some(predicate) => Some(predicate.sql()),
+            None => None,
+        }
+    }
+
+    /// Return the canonical generated conditional index predicate semantics.
+    #[must_use]
+    pub fn predicate_semantics(&self) -> Option<&'static Predicate> {
+        self.predicate.map(|predicate| predicate.semantics())
     }
 
     /// Whether this index's field prefix matches the start of another index.
@@ -410,19 +483,36 @@ impl Display for IndexModel {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel};
+    use crate::{
+        db::Predicate,
+        model::index::{
+            IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel, IndexPredicateMetadata,
+        },
+    };
+    use std::sync::LazyLock;
+
+    static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+        LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+
+    fn active_true_predicate() -> &'static Predicate {
+        &ACTIVE_TRUE_PREDICATE
+    }
 
     #[test]
     fn index_model_with_predicate_exposes_predicate_metadata() {
-        let model = IndexModel::new_with_predicate(
+        let model = IndexModel::generated_with_predicate(
             "users|email|active",
             "users::index",
             &["email"],
             false,
-            Some("active = true"),
+            Some(IndexPredicateMetadata::generated(
+                "active = true",
+                active_true_predicate,
+            )),
         );
 
         assert_eq!(model.predicate(), Some("active = true"));
+        assert_eq!(model.predicate_semantics(), Some(active_true_predicate()),);
         assert_eq!(
             model.to_string(),
             "users|email|active: users::index(email) WHERE active = true"
@@ -431,7 +521,7 @@ mod tests {
 
     #[test]
     fn index_model_without_predicate_preserves_display_shape() {
-        let model = IndexModel::new("users|email", "users::index", &["email"], true);
+        let model = IndexModel::generated("users|email", "users::index", &["email"], true);
 
         assert_eq!(model.predicate(), None);
         assert_eq!(model.to_string(), "users|email: UNIQUE users::index(email)");
@@ -443,7 +533,7 @@ mod tests {
             IndexKeyItem::Field("tenant_id"),
             IndexKeyItem::Expression(IndexExpression::Lower("email")),
         ];
-        let model = IndexModel::new_with_key_items(
+        let model = IndexModel::generated_with_key_items(
             "users|tenant|email_expr",
             "users::index",
             &["tenant_id"],

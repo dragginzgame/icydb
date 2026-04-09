@@ -24,7 +24,6 @@ const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
 
 const INDEX_PREDICATE_NONE_TAG: u8 = 0x00;
 const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
-const INDEX_PREDICATE_RAW_SQL_FALLBACK_TAG: u8 = 0x02;
 
 /// Compute one deterministic schema/index fingerprint for an entity commit planner.
 #[must_use]
@@ -106,27 +105,14 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
 
 fn hash_index_predicate_contract(hasher: &mut Xxh3, index: &IndexModel) {
     match canonical_index_predicate(index) {
-        Ok(None) => hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_NONE_TAG),
-        Ok(Some(predicate)) => {
+        None => hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_NONE_TAG),
+        Some(predicate) => {
             hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_SEMANTIC_TAG);
             let mut predicate_hasher = Sha256::new();
             hash_predicate(&mut predicate_hasher, predicate);
             let digest = predicate_hasher.finalize();
             hash_labeled_len(hasher, "index_predicate_semantic_hash_len", digest.len());
             hasher.update(digest.as_slice());
-        }
-        Err(_) => {
-            // Defensive fallback for malformed static schema metadata.
-            // This keeps commit fingerprinting deterministic even when predicate
-            // parsing fails unexpectedly before schema validation catches it.
-            hash_labeled_tag(
-                hasher,
-                "index_predicate_kind",
-                INDEX_PREDICATE_RAW_SQL_FALLBACK_TAG,
-            );
-            if let Some(predicate_sql) = index.predicate() {
-                hash_labeled_str(hasher, "index_predicate_raw_sql", predicate_sql);
-            }
         }
     }
 }
@@ -153,62 +139,86 @@ fn hash_labeled_len(hasher: &mut Xxh3, label: &str, len: usize) {
 #[cfg(test)]
 mod tests {
     use crate::{
+        db::Predicate,
         db::schema::fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
         model::{
             entity::EntityModel,
             field::{FieldKind, FieldModel},
-            index::{IndexExpression, IndexKeyItem, IndexModel},
+            index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
         },
     };
     use icydb_utils::Xxh3;
+    use std::sync::LazyLock;
 
     const INDEX_FIELDS: [&str; 1] = ["active"];
 
     static FIELD_MODELS: [FieldModel; 2] = [
-        FieldModel::new("id", FieldKind::Ulid),
-        FieldModel::new("active", FieldKind::Bool),
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("active", FieldKind::Bool),
     ];
+    static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+        LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+    static ACTIVE_FALSE_PREDICATE: LazyLock<Predicate> =
+        LazyLock::new(|| Predicate::eq("active".to_string(), false.into()));
 
-    static INDEX_MODEL_PRED_TRUE_A: IndexModel = IndexModel::new_with_predicate(
+    fn active_true_predicate() -> &'static Predicate {
+        &ACTIVE_TRUE_PREDICATE
+    }
+
+    fn active_false_predicate() -> &'static Predicate {
+        &ACTIVE_FALSE_PREDICATE
+    }
+
+    const fn active_true_predicate_metadata(sql: &'static str) -> IndexPredicateMetadata {
+        IndexPredicateMetadata::generated(sql, active_true_predicate)
+    }
+
+    const fn active_false_predicate_metadata() -> IndexPredicateMetadata {
+        IndexPredicateMetadata::generated("active = false", active_false_predicate)
+    }
+
+    static INDEX_MODEL_PRED_TRUE_A: IndexModel = IndexModel::generated_with_predicate(
         "entity|active",
         "entity::store",
         &INDEX_FIELDS,
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata("active = true")),
     );
-    static INDEX_MODEL_PRED_TRUE_B: IndexModel = IndexModel::new_with_predicate(
+    static INDEX_MODEL_PRED_TRUE_B: IndexModel = IndexModel::generated_with_predicate(
         "entity|active",
         "entity::store",
         &INDEX_FIELDS,
         false,
-        Some("active=true"),
+        Some(active_true_predicate_metadata("active=true")),
     );
-    static INDEX_MODEL_PRED_FALSE: IndexModel = IndexModel::new_with_predicate(
+    static INDEX_MODEL_PRED_FALSE: IndexModel = IndexModel::generated_with_predicate(
         "entity|active",
         "entity::store",
         &INDEX_FIELDS,
         false,
-        Some("active = false"),
+        Some(active_false_predicate_metadata()),
     );
     static INDEX_KEY_ITEMS_FIELD: [IndexKeyItem; 1] = [IndexKeyItem::Field("active")];
-    static INDEX_MODEL_KEY_ITEMS_FIELD: IndexModel = IndexModel::new_with_key_items_and_predicate(
-        "entity|active",
-        "entity::store",
-        &INDEX_FIELDS,
-        Some(&INDEX_KEY_ITEMS_FIELD),
-        false,
-        Some("active=true"),
-    );
+    static INDEX_MODEL_KEY_ITEMS_FIELD: IndexModel =
+        IndexModel::generated_with_key_items_and_predicate(
+            "entity|active",
+            "entity::store",
+            &INDEX_FIELDS,
+            Some(&INDEX_KEY_ITEMS_FIELD),
+            false,
+            Some(active_true_predicate_metadata("active=true")),
+        );
     static INDEX_KEY_ITEMS_EXPR: [IndexKeyItem; 1] =
         [IndexKeyItem::Expression(IndexExpression::Lower("active"))];
-    static INDEX_MODEL_KEY_ITEMS_EXPR: IndexModel = IndexModel::new_with_key_items_and_predicate(
-        "entity|active",
-        "entity::store",
-        &INDEX_FIELDS,
-        Some(&INDEX_KEY_ITEMS_EXPR),
-        false,
-        Some("active=true"),
-    );
+    static INDEX_MODEL_KEY_ITEMS_EXPR: IndexModel =
+        IndexModel::generated_with_key_items_and_predicate(
+            "entity|active",
+            "entity::store",
+            &INDEX_FIELDS,
+            Some(&INDEX_KEY_ITEMS_EXPR),
+            false,
+            Some(active_true_predicate_metadata("active=true")),
+        );
 
     static INDEX_REFS_TRUE_A: [&IndexModel; 1] = [&INDEX_MODEL_PRED_TRUE_A];
     static INDEX_REFS_TRUE_B: [&IndexModel; 1] = [&INDEX_MODEL_PRED_TRUE_B];
@@ -216,35 +226,35 @@ mod tests {
     static INDEX_REFS_KEY_ITEMS_FIELD: [&IndexModel; 1] = [&INDEX_MODEL_KEY_ITEMS_FIELD];
     static INDEX_REFS_KEY_ITEMS_EXPR: [&IndexModel; 1] = [&INDEX_MODEL_KEY_ITEMS_EXPR];
 
-    static MODEL_TRUE_A: EntityModel = EntityModel::new(
+    static MODEL_TRUE_A: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
         &FIELD_MODELS,
         &INDEX_REFS_TRUE_A,
     );
-    static MODEL_TRUE_B: EntityModel = EntityModel::new(
+    static MODEL_TRUE_B: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
         &FIELD_MODELS,
         &INDEX_REFS_TRUE_B,
     );
-    static MODEL_FALSE: EntityModel = EntityModel::new(
+    static MODEL_FALSE: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
         &FIELD_MODELS,
         &INDEX_REFS_FALSE,
     );
-    static MODEL_KEY_ITEMS_FIELD: EntityModel = EntityModel::new(
+    static MODEL_KEY_ITEMS_FIELD: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],
         &FIELD_MODELS,
         &INDEX_REFS_KEY_ITEMS_FIELD,
     );
-    static MODEL_KEY_ITEMS_EXPR: EntityModel = EntityModel::new(
+    static MODEL_KEY_ITEMS_EXPR: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
         "Entity",
         &FIELD_MODELS[0],

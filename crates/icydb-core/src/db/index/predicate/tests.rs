@@ -11,21 +11,32 @@ use crate::{
         },
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate, ExecutablePredicate,
-            IndexCompileTarget, compare_eq, compare_order,
+            IndexCompileTarget, Predicate, compare_eq, compare_order,
         },
     },
     error::{ErrorClass, ErrorOrigin},
-    model::index::{IndexExpression, IndexKeyItem, IndexModel},
+    model::index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     types::Decimal,
     types::EntityTag,
     value::Value,
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, sync::LazyLock};
 
 use super::{
     IndexCompilePolicy, canonical_index_predicate, compile_index_program,
     compile_index_program_for_targets, eval_index_compare, eval_index_program_on_decoded_key,
 };
+
+static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+    LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+
+fn active_true_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_PREDICATE
+}
+
+const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
 
 // Match index compare operations to strict predicate semantics for expected results.
 fn expected_strict_compare(
@@ -49,30 +60,24 @@ fn expected_strict_compare(
 
 #[test]
 fn canonical_index_predicate_reuses_parsed_predicate_for_equivalent_sql_text() {
-    static INDEX_A: IndexModel = IndexModel::new_with_predicate(
+    static INDEX_A: IndexModel = IndexModel::generated_with_predicate(
         "entity|active",
         "entity::index",
         &["active"],
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     );
-    static INDEX_B: IndexModel = IndexModel::new_with_predicate(
+    static INDEX_B: IndexModel = IndexModel::generated_with_predicate(
         "entity|active|alt",
         "entity::index",
         &["active"],
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     );
 
-    let first = canonical_index_predicate(&INDEX_A)
-        .expect("predicate parse should succeed")
-        .expect("predicate should exist");
-    let second = canonical_index_predicate(&INDEX_A)
-        .expect("cached predicate parse should succeed")
-        .expect("predicate should exist");
-    let third = canonical_index_predicate(&INDEX_B)
-        .expect("equivalent sql predicate parse should reuse cache entry")
-        .expect("predicate should exist");
+    let first = canonical_index_predicate(&INDEX_A).expect("predicate should exist");
+    let second = canonical_index_predicate(&INDEX_A).expect("predicate should exist");
+    let third = canonical_index_predicate(&INDEX_B).expect("predicate should exist");
 
     assert!(
         std::ptr::eq(first, second),
@@ -85,22 +90,11 @@ fn canonical_index_predicate_reuses_parsed_predicate_for_equivalent_sql_text() {
 }
 
 #[test]
-fn canonical_index_predicate_caches_parse_failures_for_invalid_sql() {
-    static INDEX_BAD: IndexModel = IndexModel::new_with_predicate(
-        "entity|active|broken",
-        "entity::index",
-        &["active"],
-        false,
-        Some("active ="),
-    );
+fn canonical_index_predicate_is_absent_for_unfiltered_index() {
+    static INDEX: IndexModel =
+        IndexModel::generated("entity|active", "entity::index", &["active"], false);
 
-    let first = canonical_index_predicate(&INDEX_BAD).expect_err("invalid SQL should fail");
-    let second = canonical_index_predicate(&INDEX_BAD).expect_err("cached invalid SQL should fail");
-
-    assert_eq!(
-        first, second,
-        "invalid predicate parsing should be stable and cached",
-    );
+    assert!(canonical_index_predicate(&INDEX).is_none());
 }
 
 #[test]

@@ -85,7 +85,7 @@ mod tests {
     const EXPRESSION_INDEX_FIELDS: [&str; 1] = ["name"];
     const EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
         [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
-    const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+    const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
         "order_term_tests::idx_name_lower",
         "order_term_tests::Store",
         &EXPRESSION_INDEX_FIELDS,

@@ -83,7 +83,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Apply a dynamic filter expression using the model schema.
     pub(crate) fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let schema = SchemaInfo::from_entity_model(self.model)?;
+        let schema = SchemaInfo::cached_for_entity_model(self.model);
         let predicate = expr.lower_with(&schema).map_err(QueryError::validate)?;
 
         Ok(self.filter(predicate))
@@ -91,7 +91,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Apply a dynamic sort expression using the model schema.
     pub(crate) fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let schema = SchemaInfo::from_entity_model(self.model)?;
+        let schema = SchemaInfo::cached_for_entity_model(self.model);
         let order = expr.lower_with(&schema).map_err(QueryError::from)?;
 
         validate_order_shape(Some(&order))
@@ -284,7 +284,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         // Phase 1: schema surface and intent validation.
-        let schema_info = SchemaInfo::from_entity_model(self.model)?;
+        let schema_info = SchemaInfo::cached_for_entity_model(self.model);
         self.intent.validate_policy_shape()?;
 
         // Phase 2: normalize scalar predicate and fold constant predicates

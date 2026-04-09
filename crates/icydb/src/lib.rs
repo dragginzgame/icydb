@@ -87,7 +87,9 @@ pub mod model {
     }
 
     pub mod index {
-        pub use icydb_core::model::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel};
+        pub use icydb_core::model::{
+            IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel, IndexPredicateMetadata,
+        };
     }
 
     pub use entity::EntityModel;

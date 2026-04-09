@@ -40,16 +40,6 @@ impl AccessChoiceExplainSnapshot {
             rejected: Vec::new(),
         }
     }
-
-    /// Construct one fail-closed snapshot when schema projection was not available.
-    #[must_use]
-    pub(in crate::db) const fn schema_unavailable() -> Self {
-        Self {
-            chosen_reason: AccessChoiceSelectedReason::SchemaUnavailable,
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        }
-    }
 }
 
 ///
@@ -88,7 +78,6 @@ impl AccessChoiceRankingReason {
 pub(in crate::db) enum AccessChoiceSelectedReason {
     NonIndexAccess,
     SelectedIndexUnavailable,
-    SchemaUnavailable,
     SingleCandidate,
     BestPrefixLen,
     Ranked(AccessChoiceRankingReason),
@@ -100,7 +89,6 @@ impl AccessChoiceSelectedReason {
         match self {
             Self::NonIndexAccess => "non_index_access",
             Self::SelectedIndexUnavailable => "selected_index_unavailable",
-            Self::SchemaUnavailable => "schema_unavailable",
             Self::SingleCandidate => "single_candidate",
             Self::BestPrefixLen => "best_prefix_len",
             Self::Ranked(reason) => reason.code(),

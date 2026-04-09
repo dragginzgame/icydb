@@ -264,7 +264,7 @@ fn parse_like_prefix_predicate(
     cursor: &mut SqlTokenCursor,
     operand: PredicateFieldOperand,
 ) -> Result<Predicate, SqlParseError> {
-    let Some(TokenKind::StringLiteral(pattern)) = cursor.bump() else {
+    let Some(TokenKind::StringLiteral(pattern)) = cursor.peek_kind() else {
         return Err(SqlParseError::expected(
             "string literal pattern after LIKE",
             cursor.peek_kind(),
@@ -275,12 +275,14 @@ fn parse_like_prefix_predicate(
             "LIKE patterns beyond trailing '%' prefix form",
         ));
     };
+    let prefix = prefix.to_string();
+    let _ = cursor.advance();
     let (field, coercion) = operand.into_field_and_coercion();
 
     Ok(Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::StartsWith,
-        Value::Text(prefix.to_string()),
+        Value::Text(prefix),
         coercion,
     )))
 }
@@ -304,12 +306,14 @@ fn parse_starts_with_predicate(cursor: &mut SqlTokenCursor) -> Result<Predicate,
     }
     expect_predicate_argument_comma(cursor, "',' between STARTS_WITH arguments")?;
 
-    let Some(TokenKind::StringLiteral(prefix)) = cursor.bump() else {
+    let Some(TokenKind::StringLiteral(prefix)) = cursor.peek_kind() else {
         return Err(SqlParseError::expected(
             "string literal second argument to STARTS_WITH",
             cursor.peek_kind(),
         ));
     };
+    let prefix = prefix.clone();
+    let _ = cursor.advance();
     cursor.expect_rparen()?;
     let (field, coercion) = operand.into_field_and_coercion();
 
@@ -325,7 +329,7 @@ fn parse_wrapped_field_operand(
     cursor: &mut SqlTokenCursor,
     wrapper: TextPredicateWrapper,
 ) -> Result<PredicateFieldOperand, SqlParseError> {
-    let _ = cursor.bump();
+    let _ = cursor.advance();
     cursor.expect_lparen()?;
     let field = cursor.expect_identifier()?;
     cursor.expect_rparen()?;

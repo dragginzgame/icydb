@@ -22,7 +22,7 @@ use crate::value::Value;
 use std::ops::Bound;
 
 const PUSHDOWN_INDEX_FIELDS: [&str; 1] = ["tag"];
-const PUSHDOWN_INDEX: IndexModel = IndexModel::new(
+const PUSHDOWN_INDEX: IndexModel = IndexModel::generated(
     "explain::pushdown_tag",
     "explain::pushdown_store",
     &PUSHDOWN_INDEX_FIELDS,
@@ -126,9 +126,9 @@ fn explain_is_deterministic_for_by_keys() {
 fn explain_reports_deterministic_index_choice() {
     const INDEX_FIELDS: [&str; 1] = ["idx_a"];
     const INDEX_A: IndexModel =
-        IndexModel::new("explain::idx_a", "explain::store", &INDEX_FIELDS, false);
+        IndexModel::generated("explain::idx_a", "explain::store", &INDEX_FIELDS, false);
     const INDEX_B: IndexModel =
-        IndexModel::new("explain::idx_a_alt", "explain::store", &INDEX_FIELDS, false);
+        IndexModel::generated("explain::idx_a_alt", "explain::store", &INDEX_FIELDS, false);
 
     let mut indexes = [INDEX_B, INDEX_A];
     indexes.sort_by(|left, right| left.name().cmp(right.name()));

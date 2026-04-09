@@ -94,6 +94,10 @@ pub use migration::{
 pub use predicate::{
     CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, UnsupportedQueryFeature,
 };
+#[doc(hidden)]
+pub use predicate::{
+    parse_generated_index_predicate_sql, validate_generated_index_predicate_fields,
+};
 pub use query::{
     api::ResponseCardinalityExt,
     builder::{

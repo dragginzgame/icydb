@@ -318,7 +318,7 @@ fn attribute_generated_dispatch_surface(sql: &str) -> Result<SqlPerfAttributionS
     let lowered = lowered_result?;
 
     let (execute_local_instructions, execute_result) = measure_result(|| {
-        core.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+        core.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
             .map_err(Error::from)
     });
     let _execute_result = execute_result?;
@@ -383,7 +383,7 @@ where
     let lowered = lowered_result?;
 
     let (execute_local_instructions, execute_result) = measure_result(|| {
-        core.execute_lowered_sql_dispatch_query_for_authority(&lowered, authority)
+        core.execute_lowered_sql_dispatch_query_for_authority(lowered, authority)
             .map_err(Error::from)
     });
     let _execute_result = execute_result?;

@@ -843,7 +843,7 @@ mod tests {
     use std::borrow::Cow;
 
     const TEST_SCAN_INDEX_FIELDS: &[&str] = &["name"];
-    const TEST_SCAN_INDEX: IndexModel = IndexModel::new(
+    const TEST_SCAN_INDEX: IndexModel = IndexModel::generated(
         "scan::idx_name",
         "scan::IndexStore",
         TEST_SCAN_INDEX_FIELDS,

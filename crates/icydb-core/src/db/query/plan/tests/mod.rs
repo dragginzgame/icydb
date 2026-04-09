@@ -19,48 +19,69 @@ use crate::{
     model::{
         entity::EntityModel,
         field::FieldKind,
-        index::{IndexExpression, IndexKeyItem, IndexModel},
+        index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
-use std::ops::Bound;
+use std::{ops::Bound, sync::LazyLock};
+
+static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
+    LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+static SCORE_GTE_10_PREDICATE: LazyLock<Predicate> =
+    LazyLock::new(|| Predicate::gte("score".to_string(), 10u64.into()));
+
+fn active_true_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_PREDICATE
+}
+
+fn score_gte_10_predicate() -> &'static Predicate {
+    &SCORE_GTE_10_PREDICATE
+}
+
+const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
+
+const fn score_gte_10_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated("score >= 10", score_gte_10_predicate)
+}
 
 const INDEX_FIELDS: [&str; 1] = ["tag"];
-const INDEX_MODEL: IndexModel = IndexModel::new(
+const INDEX_MODEL: IndexModel = IndexModel::generated(
     "plan_tests::idx_tag",
     "plan_tests::IndexStore",
     &INDEX_FIELDS,
     false,
 );
 const RANGE_INDEX_FIELDS: [&str; 3] = ["a", "b", "c"];
-const RANGE_INDEX_MODEL: IndexModel = IndexModel::new(
+const RANGE_INDEX_MODEL: IndexModel = IndexModel::generated(
     "plan_tests::idx_abc",
     "plan_tests::RangeIndexStore",
     &RANGE_INDEX_FIELDS,
     false,
 );
 const FILTERED_INDEX_FIELDS: [&str; 1] = ["tag"];
-const FILTERED_INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+const FILTERED_INDEX_MODEL: IndexModel = IndexModel::generated_with_predicate(
     "plan_tests::idx_tag_active_only",
     "plan_tests::FilteredIndexStore",
     &FILTERED_INDEX_FIELDS,
     false,
-    Some("active = true"),
+    Some(active_true_predicate_metadata()),
 );
 const FILTERED_NUMERIC_INDEX_FIELDS: [&str; 1] = ["score"];
-const FILTERED_NUMERIC_INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+const FILTERED_NUMERIC_INDEX_MODEL: IndexModel = IndexModel::generated_with_predicate(
     "plan_tests::idx_score_ge_10",
     "plan_tests::FilteredNumericIndexStore",
     &FILTERED_NUMERIC_INDEX_FIELDS,
     false,
-    Some("score >= 10"),
+    Some(score_gte_10_predicate_metadata()),
 );
 const EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 const EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
-const EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+const EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
     "plan_tests::idx_email_lower",
     "plan_tests::ExpressionCasefoldIndexStore",
     &EXPRESSION_CASEFOLD_INDEX_FIELDS,
@@ -70,7 +91,7 @@ const EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel = IndexModel::new_with_key_ite
 const EXPRESSION_UPPER_INDEX_FIELDS: [&str; 1] = ["email"];
 const EXPRESSION_UPPER_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
-const EXPRESSION_UPPER_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+const EXPRESSION_UPPER_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
     "plan_tests::idx_email_upper",
     "plan_tests::ExpressionUpperIndexStore",
     &EXPRESSION_UPPER_INDEX_FIELDS,
@@ -81,7 +102,7 @@ const EXPRESSION_UNSUPPORTED_INDEX_FIELDS: [&str; 1] = ["email"];
 const EXPRESSION_UNSUPPORTED_INDEX_KEY_ITEMS: [IndexKeyItem; 1] = [IndexKeyItem::Expression(
     IndexExpression::LowerTrim("email"),
 )];
-const EXPRESSION_UNSUPPORTED_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+const EXPRESSION_UNSUPPORTED_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
     "plan_tests::idx_email_lower_trim",
     "plan_tests::ExpressionUnsupportedIndexStore",
     &EXPRESSION_UNSUPPORTED_INDEX_FIELDS,
@@ -92,13 +113,13 @@ const FILTERED_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 const FILTERED_EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
 const FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel =
-    IndexModel::new_with_key_items_and_predicate(
+    IndexModel::generated_with_key_items_and_predicate(
         "plan_tests::idx_email_lower_active_only",
         "plan_tests::FilteredExpressionCasefoldIndexStore",
         &FILTERED_EXPRESSION_CASEFOLD_INDEX_FIELDS,
         Some(&FILTERED_EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS),
         false,
-        Some("active = true"),
+        Some(active_true_predicate_metadata()),
     );
 
 crate::test_entity! {

@@ -16,11 +16,15 @@ mod runtime;
 mod semantics;
 mod simplify;
 
+use crate::{
+    db::schema::{SchemaInfo, reject_unsupported_query_features, validate},
+    model::field::FieldModel,
+};
+
 pub use coercion::CoercionId;
 pub use model::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use row_policy::MissingRowPolicy;
 
-pub(crate) use crate::db::reduced_sql::SqlParseError;
 pub(in crate::db) use capability::{
     IndexCompileTarget, IndexPredicateCapability, PredicateCapabilityContext,
     PredicateCapabilityProfile, ScalarPredicateCapability, classify_index_compare_component,
@@ -43,3 +47,20 @@ pub(in crate::db) use semantics::{
     TextOp, canonical_cmp, compare_eq, compare_order, compare_text,
     evaluate_grouped_having_compare_v1, grouped_having_compare_op_supported,
 };
+
+/// Parse one generated filtered-index predicate at macro/build time.
+#[doc(hidden)]
+pub fn parse_generated_index_predicate_sql(predicate_sql: &str) -> Result<Predicate, String> {
+    parse_sql_predicate(predicate_sql).map_err(|error| error.to_string())
+}
+
+/// Validate one generated filtered-index predicate against trusted field metadata.
+#[doc(hidden)]
+pub fn validate_generated_index_predicate_fields(
+    fields: &[FieldModel],
+    predicate: &Predicate,
+) -> Result<(), String> {
+    let schema = SchemaInfo::from_field_models(fields);
+    reject_unsupported_query_features(predicate).map_err(|error| error.to_string())?;
+    validate(&schema, predicate).map_err(|error| error.to_string())
+}

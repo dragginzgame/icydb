@@ -57,9 +57,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
         return AccessChoiceExplainSnapshot::selected_index_unavailable();
     };
 
-    let Ok(schema_info) = SchemaInfo::from_entity_model(model) else {
-        return AccessChoiceExplainSnapshot::schema_unavailable();
-    };
+    let schema_info = SchemaInfo::cached_for_entity_model(model);
 
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();

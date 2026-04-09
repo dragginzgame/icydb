@@ -480,14 +480,14 @@ mod tests {
     };
 
     const TEST_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-    const TEST_INDEX: IndexModel = IndexModel::new(
+    const TEST_INDEX: IndexModel = IndexModel::generated(
         "canonical::group_rank",
         "canonical::store",
         &TEST_INDEX_FIELDS,
         false,
     );
     const TEST_INDEX_FIELDS_ALT: [&str; 2] = ["group", "score"];
-    const TEST_INDEX_SAME_NAME_ALT_FIELDS: IndexModel = IndexModel::new(
+    const TEST_INDEX_SAME_NAME_ALT_FIELDS: IndexModel = IndexModel::generated(
         "canonical::group_rank",
         "canonical::store",
         &TEST_INDEX_FIELDS_ALT,

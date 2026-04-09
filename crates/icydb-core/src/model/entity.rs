@@ -51,9 +51,14 @@ pub struct EntityModel {
 }
 
 impl EntityModel {
-    /// Build one runtime entity schema descriptor.
+    /// Construct one generated runtime entity descriptor.
+    ///
+    /// This constructor exists for derive/codegen output. Runtime query and
+    /// executor code treat `EntityModel` values as already validated build-time
+    /// artifacts and do not perform defensive model-shape validation per call.
     #[must_use]
-    pub const fn new(
+    #[doc(hidden)]
+    pub const fn generated(
         path: &'static str,
         entity_name: &'static str,
         primary_key: &'static FieldModel,

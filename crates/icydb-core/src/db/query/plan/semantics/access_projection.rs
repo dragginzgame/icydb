@@ -173,7 +173,7 @@ mod access_projection_tests {
     use crate::{model::index::IndexModel, value::Value};
 
     const TEST_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
-    const TEST_INDEX: IndexModel = IndexModel::new(
+    const TEST_INDEX: IndexModel = IndexModel::generated(
         "tests::group_rank",
         "tests::store",
         &TEST_INDEX_FIELDS,

@@ -169,9 +169,8 @@ pub(in crate::db) fn validate_cursor_boundary_for_order<K: FieldValue>(
 }
 
 // Load canonical schema information for cursor boundary validation.
-fn boundary_schema(model: &EntityModel) -> Result<SchemaInfo, CursorPlanError> {
-    SchemaInfo::from_entity_model(model)
-        .map_err(CursorPlanError::invalid_continuation_cursor_schema)
+fn boundary_schema(model: &EntityModel) -> &'static SchemaInfo {
+    SchemaInfo::cached_for_entity_model(model)
 }
 
 // Resolve one order field type from canonical schema info.
@@ -207,7 +206,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<(), CursorPlanError> {
-    let schema = boundary_schema(model)?;
+    let schema = boundary_schema(model);
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
         let field_type = boundary_order_field_type(&schema, field)?;
@@ -267,7 +266,7 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
 ) -> Result<K, CursorPlanError> {
     let pk_field = model.primary_key.name;
     let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let schema = boundary_schema(model)?;
+    let schema = boundary_schema(model);
     let expected = boundary_order_field_type(&schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 
@@ -297,7 +296,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot(
 ) -> Result<StorageKey, CursorPlanError> {
     let pk_field = model.primary_key.name;
     let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let schema = boundary_schema(model)?;
+    let schema = boundary_schema(model);
     let expected = boundary_order_field_type(&schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 

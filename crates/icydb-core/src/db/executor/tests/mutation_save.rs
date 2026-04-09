@@ -266,7 +266,7 @@ struct UniqueEmailEntity {
 }
 
 static UNIQUE_EMAIL_INDEX_FIELDS: [&str; 1] = ["email"];
-static UNIQUE_EMAIL_INDEX: IndexModel = IndexModel::new(
+static UNIQUE_EMAIL_INDEX: IndexModel = IndexModel::generated(
     "save_tests::UniqueEmailEntity::email",
     UNIQUE_INDEX_STORE_PATH,
     &UNIQUE_EMAIL_INDEX_FIELDS,
@@ -413,14 +413,14 @@ crate::impl_test_entity_model_storage!(
     "NullableAccountEventEntity",
     0,
     fields = [
-        crate::model::field::FieldModel::new("id", FieldKind::Ulid),
-        crate::model::field::FieldModel::new_with_storage_decode_and_nullability(
+        crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "from",
             FieldKind::Account,
             crate::model::field::FieldStorageDecode::ByKind,
             true,
         ),
-        crate::model::field::FieldModel::new_with_storage_decode_and_nullability(
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "to",
             FieldKind::Account,
             crate::model::field::FieldStorageDecode::ByKind,

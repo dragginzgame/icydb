@@ -324,14 +324,6 @@ impl InternalError {
         )
     }
 
-    /// Construct an executor-origin save-preflight schema invariant.
-    pub(crate) fn mutation_entity_schema_invalid(
-        entity_path: &str,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::executor_invariant(format!("entity schema invalid for {entity_path}: {detail}"))
-    }
-
     /// Construct an executor-origin save-preflight primary-key missing invariant.
     pub(crate) fn mutation_entity_primary_key_missing(entity_path: &str, field_name: &str) -> Self {
         Self::executor_invariant(format!(
@@ -959,18 +951,6 @@ impl InternalError {
     /// Construct the canonical unique-validation missing-row corruption error.
     pub(crate) fn index_unique_validation_row_required(data_key: impl fmt::Display) -> Self {
         Self::index_plan_store_corruption(format!("missing row: {data_key}"))
-    }
-
-    /// Construct the canonical structural index-predicate parse invariant.
-    pub(crate) fn index_predicate_parse_failed(
-        entity_path: &str,
-        index_name: &str,
-        predicate_sql: &str,
-        err: impl fmt::Display,
-    ) -> Self {
-        Self::index_invariant(format!(
-            "index predicate parse failed: {entity_path} ({index_name}) WHERE {predicate_sql} -> {err}",
-        ))
     }
 
     /// Construct the canonical index-only predicate missing-component invariant.

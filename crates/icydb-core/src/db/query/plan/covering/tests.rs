@@ -31,7 +31,7 @@ const INDEX_KEY_ITEMS_GROUP_LOWER_LABEL: [IndexKeyItem; 2] = [
     IndexKeyItem::Expression(IndexExpression::Lower("label")),
 ];
 const COVERING_READ_FIELDS_GROUP_RANK: [&str; 2] = ["group", "rank"];
-const COVERING_READ_INDEX: IndexModel = IndexModel::new(
+const COVERING_READ_INDEX: IndexModel = IndexModel::generated(
     "covering::tests::idx_group_rank",
     "covering::tests::CoveringReadEntity",
     &COVERING_READ_FIELDS_GROUP_RANK,
@@ -80,7 +80,7 @@ fn index_covering_existing_rows_terminal_requires_index_shape() {
 fn index_covering_existing_rows_terminal_requires_no_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new(
+            index: crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_RANK,
@@ -104,7 +104,7 @@ fn index_covering_existing_rows_terminal_requires_no_order() {
 fn index_covering_existing_rows_terminal_accepts_unordered_no_predicate() {
     let plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new(
+            index: crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_RANK,
@@ -125,7 +125,7 @@ fn index_covering_existing_rows_terminal_accepts_unordered_no_predicate() {
 fn index_covering_existing_rows_terminal_requires_strict_predicate_when_residual_present() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new(
+            index: crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_RANK,
@@ -151,7 +151,7 @@ fn index_covering_existing_rows_terminal_requires_strict_predicate_when_residual
 fn covering_projection_context_accepts_suffix_index_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new(
+            index: crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_GROUP_RANK,
@@ -192,7 +192,7 @@ fn covering_projection_context_accepts_suffix_index_order() {
 fn covering_projection_context_accepts_primary_key_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new(
+            index: crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_GROUP_RANK,
@@ -228,7 +228,7 @@ fn covering_projection_context_accepts_primary_key_order() {
 fn covering_projection_context_rejects_mixed_order_directions() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new(
+            index: crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_GROUP_RANK,
@@ -261,7 +261,7 @@ fn covering_projection_context_rejects_mixed_order_directions() {
 fn covering_projection_context_rejects_range_full_order_contract() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::index_range(
-            crate::model::index::IndexModel::new(
+            crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
                 &INDEX_FIELDS_GROUP_RANK,
@@ -296,7 +296,7 @@ fn covering_projection_context_rejects_range_full_order_contract() {
 #[test]
 fn constant_covering_projection_value_from_access_resolves_prefix_binding() {
     let access = AccessPath::<u64>::IndexPrefix {
-        index: crate::model::index::IndexModel::new(
+        index: crate::model::index::IndexModel::generated(
             "idx",
             "tests::Entity",
             &INDEX_FIELDS_GROUP_RANK,
@@ -313,7 +313,7 @@ fn constant_covering_projection_value_from_access_resolves_prefix_binding() {
 #[test]
 fn constant_covering_projection_value_from_access_uses_range_prefix_components() {
     let access = AccessPath::<u64>::index_range(
-        crate::model::index::IndexModel::new(
+        crate::model::index::IndexModel::generated(
             "idx",
             "tests::Entity",
             &INDEX_FIELDS_GROUP_RANK,
@@ -332,7 +332,7 @@ fn constant_covering_projection_value_from_access_uses_range_prefix_components()
 #[test]
 fn constant_covering_projection_value_from_access_returns_none_when_target_unbound() {
     let access = AccessPath::<u64>::IndexPrefix {
-        index: crate::model::index::IndexModel::new(
+        index: crate::model::index::IndexModel::generated(
             "idx",
             "tests::Entity",
             &INDEX_FIELDS_GROUP_RANK,
@@ -459,7 +459,7 @@ fn covering_read_plan_accepts_prefix_bound_constant_projection() {
 fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new_with_key_items(
+            index: crate::model::index::IndexModel::generated_with_key_items(
                 "idx_expr",
                 "tests::Entity",
                 &INDEX_FIELDS_GROUP_LABEL,
@@ -504,7 +504,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
 fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::model::index::IndexModel::new_with_key_items(
+            index: crate::model::index::IndexModel::generated_with_key_items(
                 "idx_expr",
                 "tests::Entity",
                 &INDEX_FIELDS_GROUP_LABEL,

@@ -142,25 +142,37 @@ pub struct FieldModel {
 }
 
 impl FieldModel {
-    /// Build one runtime field descriptor.
+    /// Build one generated runtime field descriptor.
+    ///
+    /// This constructor exists for derive/codegen output and trusted test
+    /// fixtures. Runtime planning and execution treat `FieldModel` values as
+    /// build-time-validated metadata.
     #[must_use]
-    pub const fn new(name: &'static str, kind: FieldKind) -> Self {
-        Self::new_with_storage_decode_and_nullability(name, kind, FieldStorageDecode::ByKind, false)
+    #[doc(hidden)]
+    pub const fn generated(name: &'static str, kind: FieldKind) -> Self {
+        Self::generated_with_storage_decode_and_nullability(
+            name,
+            kind,
+            FieldStorageDecode::ByKind,
+            false,
+        )
     }
 
     /// Build one runtime field descriptor with an explicit persisted decode contract.
     #[must_use]
-    pub const fn new_with_storage_decode(
+    #[doc(hidden)]
+    pub const fn generated_with_storage_decode(
         name: &'static str,
         kind: FieldKind,
         storage_decode: FieldStorageDecode,
     ) -> Self {
-        Self::new_with_storage_decode_and_nullability(name, kind, storage_decode, false)
+        Self::generated_with_storage_decode_and_nullability(name, kind, storage_decode, false)
     }
 
     /// Build one runtime field descriptor with an explicit decode contract and nullability.
     #[must_use]
-    pub const fn new_with_storage_decode_and_nullability(
+    #[doc(hidden)]
+    pub const fn generated_with_storage_decode_and_nullability(
         name: &'static str,
         kind: FieldKind,
         storage_decode: FieldStorageDecode,

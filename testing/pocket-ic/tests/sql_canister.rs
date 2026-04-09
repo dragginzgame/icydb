@@ -999,6 +999,22 @@ const SCALAR_SELECT_ATTRIBUTION_CASES: &[(
         1,
     ),
     (
+        "user_id_order_id_limit1",
+        FixtureCanister::SqlParity,
+        "SELECT id FROM Customer ORDER BY id ASC LIMIT 1",
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
+        "Customer",
+        1,
+    ),
+    (
+        "user_name_order_id_name_limit2",
+        FixtureCanister::SqlParity,
+        "SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2",
+        SqlPerfAttributionSurface::TypedDispatchCustomer,
+        "Customer",
+        2,
+    ),
+    (
         "user_full_row_limit2",
         FixtureCanister::SqlParity,
         "SELECT * FROM Customer ORDER BY id LIMIT 2",

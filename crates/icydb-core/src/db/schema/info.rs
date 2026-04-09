@@ -4,19 +4,16 @@
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
 use crate::{
-    db::{
-        identity::{EntityName, IndexName},
-        index::canonical_index_predicate,
-        schema::{FieldType, ValidateError, field_type_from_model_kind, validate},
-    },
+    db::schema::{FieldType, ValidateError, field_type_from_model_kind},
     model::{
         entity::EntityModel,
-        field::FieldKind,
-        index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
+        field::{FieldKind, FieldModel},
     },
 };
+use std::sync::{Mutex, OnceLock};
 
 type SchemaFieldEntry = (&'static str, SchemaFieldInfo);
+type CachedSchemaEntries = Vec<(&'static str, &'static SchemaInfo)>;
 
 fn schema_field_info<'a>(
     fields: &'a [SchemaFieldEntry],
@@ -26,154 +23,6 @@ fn schema_field_info<'a>(
         .binary_search_by_key(&name, |(field_name, _)| *field_name)
         .ok()
         .map(|index| &fields[index].1)
-}
-
-// Resolve one index field reference and enforce baseline queryability invariants.
-fn index_field_type<'a>(
-    fields: &'a [SchemaFieldEntry],
-    index: &IndexModel,
-    field: &'static str,
-) -> Result<&'a FieldType, ValidateError> {
-    let Some(field_info) = schema_field_info(fields, field) else {
-        return Err(ValidateError::IndexFieldUnknown {
-            index: *index,
-            field: field.to_string(),
-        });
-    };
-    let field_type = &field_info.ty;
-
-    // Guardrail: map fields are deterministic stored values but remain
-    // non-queryable and non-indexable in 0.7.
-    if matches!(field_type, FieldType::Map { .. }) {
-        return Err(ValidateError::IndexFieldMapNotQueryable {
-            index: *index,
-            field: field.to_string(),
-        });
-    }
-    if !field_type.value_kind().is_queryable() {
-        return Err(ValidateError::IndexFieldNotQueryable {
-            index: *index,
-            field: field.to_string(),
-        });
-    }
-
-    Ok(field_type)
-}
-
-// Validate one field key item, including duplicate-field rejection for one index.
-fn validate_index_field_reference(
-    fields: &[SchemaFieldEntry],
-    index: &IndexModel,
-    field: &'static str,
-    seen: &mut Vec<&'static str>,
-) -> Result<(), ValidateError> {
-    index_field_type(fields, index, field)?;
-
-    if seen.contains(&field) {
-        return Err(ValidateError::IndexFieldDuplicate {
-            index: *index,
-            field: field.to_string(),
-        });
-    }
-    seen.push(field);
-
-    Ok(())
-}
-
-// Validate one expression key item against declared schema field types.
-fn validate_index_expression_reference(
-    fields: &[SchemaFieldEntry],
-    index: &IndexModel,
-    expression: IndexExpression,
-) -> Result<(), ValidateError> {
-    let field = expression.field();
-    let field_type = index_field_type(fields, index, field)?;
-
-    match expression {
-        IndexExpression::Lower(_)
-        | IndexExpression::Upper(_)
-        | IndexExpression::Trim(_)
-        | IndexExpression::LowerTrim(_) => {
-            if !field_type.is_text() {
-                return Err(ValidateError::invalid_index_expression_field_type(
-                    *index,
-                    expression,
-                    "a text field",
-                ));
-            }
-        }
-        IndexExpression::Date(_)
-        | IndexExpression::Year(_)
-        | IndexExpression::Month(_)
-        | IndexExpression::Day(_) => {
-            if !field_type.is_date_or_timestamp() {
-                return Err(ValidateError::invalid_index_expression_field_type(
-                    *index,
-                    expression,
-                    "a date or timestamp field",
-                ));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_index_fields(
-    fields: &[SchemaFieldEntry],
-    indexes: &[&IndexModel],
-) -> Result<(), ValidateError> {
-    let mut seen_names = Vec::with_capacity(indexes.len());
-    for index in indexes {
-        if seen_names.contains(&index.name()) {
-            return Err(ValidateError::DuplicateIndexName {
-                name: index.name().to_string(),
-            });
-        }
-        seen_names.push(index.name());
-
-        let mut seen = Vec::new();
-        match index.key_items() {
-            IndexKeyItemsRef::Fields(fields_ref) => {
-                for field in fields_ref {
-                    validate_index_field_reference(fields, index, field, &mut seen)?;
-                }
-            }
-            IndexKeyItemsRef::Items(items) => {
-                for &item in items {
-                    match item {
-                        IndexKeyItem::Field(field) => {
-                            validate_index_field_reference(fields, index, field, &mut seen)?;
-                        }
-                        IndexKeyItem::Expression(expression) => {
-                            validate_index_expression_reference(fields, index, expression)?;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_index_predicates(
-    schema: &SchemaInfo,
-    indexes: &[&IndexModel],
-) -> Result<(), ValidateError> {
-    for index in indexes {
-        let Some(predicate_sql) = index.predicate() else {
-            continue;
-        };
-
-        let predicate = canonical_index_predicate(index)
-            .map_err(|_| ValidateError::invalid_index_predicate_syntax(**index, predicate_sql))?;
-        let predicate = predicate.expect("index predicate metadata was checked above");
-        validate(schema, predicate)
-            .map_err(|_| ValidateError::invalid_index_predicate_schema(**index, predicate_sql))?;
-    }
-
-    Ok(())
 }
 
 ///
@@ -203,6 +52,31 @@ pub(crate) struct SchemaInfo {
 }
 
 impl SchemaInfo {
+    // Build one compact field table from trusted generated field metadata.
+    fn from_trusted_field_models(fields: &[FieldModel]) -> Self {
+        let mut fields = fields
+            .iter()
+            .map(|field| {
+                (
+                    field.name(),
+                    SchemaFieldInfo {
+                        ty: field_type_from_model_kind(&field.kind()),
+                        kind: field.kind(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        fields.sort_unstable_by_key(|(field_name, _)| *field_name);
+
+        Self { fields }
+    }
+
+    // Build one compact field table from trusted generated entity metadata.
+    fn from_trusted_entity_model(model: &EntityModel) -> Self {
+        Self::from_trusted_field_models(model.fields())
+    }
+
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.ty)
@@ -213,70 +87,86 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
     }
 
-    /// Builds runtime predicate schema information from an entity model.
+    /// Build runtime predicate schema information from one trusted entity model.
+    ///
+    /// Tests still use this compatibility shim when they want one owned schema
+    /// value without going through the global cache.
+    #[allow(dead_code)]
     pub(crate) fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
-        // Phase 1: validate identity constraints before building schema tables.
-        let entity_name = EntityName::try_from_str(model.entity_name).map_err(|err| {
-            ValidateError::InvalidEntityName {
-                name: model.entity_name.to_string(),
-                source: err,
-            }
-        })?;
+        Ok(Self::from_trusted_entity_model(model))
+    }
 
-        if !model
-            .fields
+    /// Build one owned schema view from trusted generated field metadata.
+    #[must_use]
+    pub(crate) fn from_field_models(fields: &[FieldModel]) -> Self {
+        Self::from_trusted_field_models(fields)
+    }
+
+    /// Return one cached schema view for a trusted generated entity model.
+    pub(crate) fn cached_for_entity_model(model: &EntityModel) -> &'static Self {
+        static CACHE: OnceLock<Mutex<CachedSchemaEntries>> = OnceLock::new();
+
+        let cache = CACHE.get_or_init(|| Mutex::new(CachedSchemaEntries::new()));
+        if let Some(cached) = cache
+            .lock()
+            .expect("schema info cache mutex poisoned")
             .iter()
-            .any(|field| std::ptr::eq(field, model.primary_key))
+            .find(|(entity_path, _)| *entity_path == model.path())
+            .map(|(_, schema)| *schema)
         {
-            return Err(ValidateError::InvalidPrimaryKey {
-                field: model.primary_key.name.to_string(),
-            });
+            return cached;
         }
 
-        // Phase 2: build one compact field table sorted by field name so
-        // downstream lookups can stay deterministic without tree maps.
-        let mut fields = Vec::with_capacity(model.fields.len());
-        for field in model.fields {
-            let info = SchemaFieldInfo {
-                ty: field_type_from_model_kind(&field.kind),
-                kind: field.kind,
-            };
-
-            match fields.binary_search_by_key(&field.name, |(name, _)| *name) {
-                Ok(_) => {
-                    return Err(ValidateError::DuplicateField {
-                        field: field.name.to_string(),
-                    });
-                }
-                Err(index) => fields.insert(index, (field.name, info)),
-            }
+        let schema = Box::leak(Box::new(Self::from_trusted_entity_model(model)));
+        let mut guard = cache.lock().expect("schema info cache mutex poisoned");
+        if let Some((_, cached)) = guard
+            .iter()
+            .find(|(entity_path, _)| *entity_path == model.path())
+        {
+            return *cached;
         }
 
-        // Phase 3: verify primary-key and index contracts against the compact table.
-        let pk_field_type = &schema_field_info(fields.as_slice(), model.primary_key.name)
-            .expect("primary key verified above")
-            .ty;
-        if !pk_field_type.is_keyable() {
-            return Err(ValidateError::InvalidPrimaryKeyType {
-                field: model.primary_key.name.to_string(),
-            });
-        }
+        guard.push((model.path(), schema));
+        schema
+    }
+}
 
-        validate_index_fields(&fields, model.indexes)?;
-        for index in model.indexes {
-            IndexName::try_from_parts(&entity_name, index.fields()).map_err(|err| {
-                ValidateError::InvalidIndexName {
-                    index: **index,
-                    source: err,
-                }
-            })?;
-        }
+///
+/// TESTS
+///
 
-        // Phase 4: validate predicate-bearing index metadata against the same
-        // schema surface reused by planners and executors.
-        let schema = Self { fields };
-        validate_index_predicates(&schema, model.indexes)?;
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::schema::SchemaInfo,
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel},
+            index::IndexModel,
+        },
+        testing::entity_model_from_static,
+    };
 
-        Ok(schema)
+    static FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("name", FieldKind::Text),
+        FieldModel::generated("id", FieldKind::Ulid),
+    ];
+    static INDEXES: [&IndexModel; 0] = [];
+    static MODEL: EntityModel = entity_model_from_static(
+        "schema::info::tests::Entity",
+        "Entity",
+        &FIELDS[1],
+        &FIELDS,
+        &INDEXES,
+    );
+
+    #[test]
+    fn cached_for_entity_model_reuses_one_schema_instance() {
+        let first = SchemaInfo::cached_for_entity_model(&MODEL);
+        let second = SchemaInfo::cached_for_entity_model(&MODEL);
+
+        assert!(std::ptr::eq(first, second));
+        assert!(first.field("id").is_some());
+        assert!(first.field("name").is_some());
     }
 }
