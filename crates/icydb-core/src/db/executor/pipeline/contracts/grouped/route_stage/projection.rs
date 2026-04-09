@@ -34,16 +34,6 @@ impl GroupedRouteStage {
         ))
     }
 
-    /// Construct one grouped route invariant for field-target aggregates that
-    /// should already have been removed before grouped executor handoff.
-    pub(in crate::db::executor) fn field_target_aggregate_reached_executor(
-        aggregate_kind: crate::db::query::plan::AggregateKind,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped field-target aggregate reached executor after planning: {aggregate_kind:?}",
-        ))
-    }
-
     /// Construct one grouped route invariant for grouped fold runtimes that
     /// reached candidate-row collection without any aggregate terminals.
     pub(in crate::db::executor) fn aggregate_terminal_required() -> InternalError {

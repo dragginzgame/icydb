@@ -343,6 +343,56 @@ fn query_from_sql_indexed_grouped_avg_field_explain_and_execution_project_ordere
 }
 
 #[test]
+fn query_from_sql_indexed_grouped_mixed_count_and_sum_explain_and_execution_project_ordered_group_publicly()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("alpha", 10), ("alpha", 20), ("bravo", 30), ("charlie", 40)],
+    );
+
+    let query = session
+        .query_from_sql::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*), SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+        )
+        .expect("indexed grouped mixed COUNT(*) + SUM(field) explain SQL query should lower");
+    let explain = query
+        .explain()
+        .expect("indexed grouped mixed COUNT(*) + SUM(field) logical explain should succeed");
+
+    assert!(matches!(
+        explain.grouping(),
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            fallback_reason: None,
+            ..
+        }
+    ));
+
+    let descriptor = query
+        .explain_execution()
+        .expect("indexed grouped mixed COUNT(*) + SUM(field) execution explain should succeed");
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_plan_fallback_reason"),
+        Some(&Value::from("none")),
+        "indexed grouped mixed COUNT(*) + SUM(field) execution explain root should stay on the ordered grouped planner path",
+    );
+    assert_eq!(
+        descriptor
+            .node_properties()
+            .get("grouped_execution_strategy"),
+        Some(&Value::from("ordered_materialized")),
+        "indexed grouped mixed COUNT(*) + SUM(field) execution explain root should surface the ordered grouped execution strategy",
+    );
+}
+
+#[test]
 fn execute_sql_grouped_indexed_count_by_name_preserves_ordered_group_rows() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -577,6 +627,74 @@ fn execute_sql_grouped_indexed_avg_age_by_name_preserves_ordered_group_rows() {
     assert!(
         execution.continuation_cursor().is_none(),
         "indexed grouped AVG(field) should fully materialize under LIMIT 10",
+    );
+}
+
+#[test]
+fn execute_sql_grouped_indexed_count_and_sum_age_by_name_preserves_ordered_group_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed deterministic indexed rows for one mixed grouped ordered cohort.
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+            ("charlie", 50),
+        ],
+    );
+
+    // Phase 2: execute the admitted indexed grouped mixed shape on the public SQL grouped lane.
+    let execution = session
+        .execute_sql_grouped::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*), SUM(age) \
+             FROM IndexedSessionSqlEntity \
+             GROUP BY name \
+             ORDER BY name ASC LIMIT 10",
+            None,
+        )
+        .expect("indexed grouped COUNT(*) + SUM(field) SQL execution should succeed");
+
+    // Phase 3: assert ordered grouped output stays in grouped-key order.
+    let actual_rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.aggregate_values()[0].clone(),
+                row.aggregate_values()[1].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = vec![
+        (
+            Value::Text("alpha".to_string()),
+            Value::Uint(2),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("bravo".to_string()),
+            Value::Uint(1),
+            Value::Decimal(crate::types::Decimal::from(30_u64)),
+        ),
+        (
+            Value::Text("charlie".to_string()),
+            Value::Uint(2),
+            Value::Decimal(crate::types::Decimal::from(90_u64)),
+        ),
+    ];
+
+    assert_eq!(
+        actual_rows, expected_rows,
+        "indexed grouped COUNT(*) + SUM(field) should preserve grouped-key order on the admitted ordered grouped lane",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "indexed grouped COUNT(*) + SUM(field) should fully materialize under LIMIT 10",
     );
 }
 

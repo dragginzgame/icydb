@@ -4,16 +4,13 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        executor::{
-            aggregate::{
-                AggregateKind, ExecutionContext, GroupedAggregateEngine,
-                runtime::grouped_distinct::global_distinct_field_execution_spec,
-            },
-            pipeline::contracts::GroupedRouteStage,
-            route::aggregate_materialized_fold_direction,
+    db::executor::{
+        aggregate::{
+            ExecutionContext, GroupedAggregateEngine,
+            runtime::grouped_distinct::global_distinct_field_execution_spec,
         },
-        query::plan::GroupedPlanAggregateFamily,
+        pipeline::contracts::GroupedRouteStage,
+        route::aggregate_materialized_fold_direction,
     },
     error::InternalError,
     value::Value,
@@ -29,7 +26,6 @@ pub(super) fn build_grouped_engines(
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let grouped_plan_strategy = route.grouped_plan_strategy();
     let grouped_engines = route
         .projection_layout()
         .aggregate_positions()
@@ -45,34 +41,16 @@ pub(super) fn build_grouped_engines(
                         aggregate_index,
                     )
                 })?;
-            let field_target_family_selected = matches!(
-                grouped_plan_strategy.aggregate_family(),
-                GroupedPlanAggregateFamily::FieldTargetRows
-            );
-            if aggregate_spec.target_field().is_some() && !field_target_family_selected {
-                return Err(GroupedRouteStage::field_target_aggregate_reached_executor(
-                    aggregate_spec.kind(),
-                ));
-            }
-            if field_target_family_selected
-                && !matches!(
-                    aggregate_spec.kind(),
-                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
-                )
-            {
-                return Err(GroupedRouteStage::field_target_aggregate_reached_executor(
-                    aggregate_spec.kind(),
-                ));
-            }
 
-            Ok(
-                Box::new(grouped_execution_context.create_grouped_state_with_target(
+            Ok::<Box<dyn GroupedAggregateEngine>, InternalError>(Box::new(
+                grouped_execution_context.create_grouped_state_with_target(
                     aggregate_spec.kind(),
                     aggregate_materialized_fold_direction(aggregate_spec.kind()),
                     aggregate_spec.distinct(),
                     aggregate_spec.target_field().cloned(),
-                )) as Box<dyn GroupedAggregateEngine>,
+                ),
             )
+                as Box<dyn GroupedAggregateEngine>)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];

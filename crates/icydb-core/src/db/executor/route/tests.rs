@@ -2922,6 +2922,58 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
 }
 
 #[test]
+fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and_sum_shapes() {
+    let group_field = grouped_field_slot("rank");
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![group_field],
+        aggregates: vec![
+            GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            },
+            GroupAggregateSpec {
+                kind: AggregateKind::Sum,
+                target_field: Some("rank".to_string()),
+                distinct: false,
+            },
+        ],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("mixed grouped plans should build handoff");
+    assert_eq!(
+        grouped_handoff.grouped_plan_strategy(),
+        GroupedPlanStrategy::ordered_group_with_aggregate_family(
+            GroupedPlanAggregateFamily::GenericRows,
+        ),
+        "mixed grouped count+sum shapes should stay on the generic grouped family without losing ordered-group admission",
+    );
+
+    let route_plan = build_execution_route_plan_for_grouped_plan(
+        RouteCapabilityEntity::MODEL,
+        grouped_handoff.base(),
+        grouped_handoff.grouped_plan_strategy(),
+    );
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("mixed grouped route should always project grouped observability");
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized,
+        "mixed grouped count+sum shapes should keep the ordered grouped execution family when group-key order is proven",
+    );
+}
+
+#[test]
 fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     let group_field = grouped_field_slot("rank");
     let grouped = AccessPlannedQuery::new(
