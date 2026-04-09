@@ -223,7 +223,7 @@ fn assemble_execution_route_plan(
         scan_hints: derivation.scan_hints,
         aggregate_fold_mode: execution_stage.aggregate_fold_mode,
         grouped_plan_strategy: intent_stage.grouped_plan_strategy,
-        grouped_execution_strategy: derivation.grouped_execution_strategy,
+        grouped_execution_mode: derivation.grouped_execution_mode,
         load_terminal_fast_path,
     }
 }

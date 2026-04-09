@@ -73,7 +73,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
         ProjectionMaterializationMode::SharedValidation,
         true,
     )?;
-    record_grouped_plan_metrics(&route.plan().access, route.grouped_plan_metrics_strategy());
+    record_grouped_plan_metrics(&route.plan().access, route.grouped_metrics_execution_mode());
     let resolved = ExecutionKernel::resolve_execution_key_stream_without_distinct(
         &execution_inputs,
         route.grouped_route_plan(),

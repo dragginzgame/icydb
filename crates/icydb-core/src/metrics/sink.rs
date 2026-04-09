@@ -41,13 +41,13 @@ pub enum PlanKind {
 }
 
 ///
-/// GroupedPlanStrategy
+/// GroupedExecutionMode
 ///
-/// Grouped execution strategy classification emitted with plan metrics.
+/// Grouped execution mode classification emitted with plan metrics.
 ///
 
 #[derive(Clone, Copy, Debug)]
-pub enum GroupedPlanStrategy {
+pub enum GroupedExecutionMode {
     HashMaterialized,
     OrderedMaterialized,
 }
@@ -108,7 +108,7 @@ pub enum MetricsEvent {
     },
     Plan {
         kind: PlanKind,
-        grouped_strategy: Option<GroupedPlanStrategy>,
+        grouped_execution_mode: Option<GroupedExecutionMode>,
     },
 }
 
@@ -330,7 +330,7 @@ impl MetricsSink for GlobalMetricsSink {
 
             MetricsEvent::Plan {
                 kind,
-                grouped_strategy,
+                grouped_execution_mode,
             } => {
                 metrics::with_state_mut(|m| {
                     match kind {
@@ -342,12 +342,12 @@ impl MetricsSink for GlobalMetricsSink {
                         }
                     }
 
-                    match grouped_strategy {
-                        Some(GroupedPlanStrategy::HashMaterialized) => {
+                    match grouped_execution_mode {
+                        Some(GroupedExecutionMode::HashMaterialized) => {
                             m.ops.plan_grouped_hash_materialized =
                                 m.ops.plan_grouped_hash_materialized.saturating_add(1);
                         }
-                        Some(GroupedPlanStrategy::OrderedMaterialized) => {
+                        Some(GroupedExecutionMode::OrderedMaterialized) => {
                             m.ops.plan_grouped_ordered_materialized =
                                 m.ops.plan_grouped_ordered_materialized.saturating_add(1);
                         }
@@ -574,7 +574,7 @@ mod tests {
         // No override installed yet.
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
-            grouped_strategy: None,
+            grouped_execution_mode: None,
         });
         assert_eq!(outer_calls.load(Ordering::SeqCst), 0);
         assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
@@ -582,7 +582,7 @@ mod tests {
         with_metrics_sink(&outer, || {
             record(MetricsEvent::Plan {
                 kind: PlanKind::Index,
-                grouped_strategy: None,
+                grouped_execution_mode: None,
             });
             assert_eq!(outer_calls.load(Ordering::SeqCst), 1);
             assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
@@ -590,14 +590,14 @@ mod tests {
             with_metrics_sink(&inner, || {
                 record(MetricsEvent::Plan {
                     kind: PlanKind::Range,
-                    grouped_strategy: None,
+                    grouped_execution_mode: None,
                 });
             });
 
             // Inner override was restored to outer override.
             record(MetricsEvent::Plan {
                 kind: PlanKind::FullScan,
-                grouped_strategy: None,
+                grouped_execution_mode: None,
             });
         });
 
@@ -611,7 +611,7 @@ mod tests {
 
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
-            grouped_strategy: None,
+            grouped_execution_mode: None,
         });
         assert_eq!(outer_calls.load(Ordering::SeqCst), 2);
         assert_eq!(inner_calls.load(Ordering::SeqCst), 1);
@@ -630,7 +630,7 @@ mod tests {
             with_metrics_sink(&sink, || {
                 record(MetricsEvent::Plan {
                     kind: PlanKind::Index,
-                    grouped_strategy: None,
+                    grouped_execution_mode: None,
                 });
                 panic!("intentional panic for guard test");
             });
@@ -646,7 +646,7 @@ mod tests {
 
         record(MetricsEvent::Plan {
             kind: PlanKind::Range,
-            grouped_strategy: None,
+            grouped_execution_mode: None,
         });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -656,7 +656,7 @@ mod tests {
         metrics_reset_all();
         record(MetricsEvent::Plan {
             kind: PlanKind::Index,
-            grouped_strategy: None,
+            grouped_execution_mode: None,
         });
 
         let report = metrics_report(None);
@@ -672,7 +672,7 @@ mod tests {
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
-            grouped_strategy: None,
+            grouped_execution_mode: None,
         });
 
         let report = metrics_report(Some(window_start.saturating_sub(1)));
@@ -688,7 +688,7 @@ mod tests {
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
             kind: PlanKind::FullScan,
-            grouped_strategy: None,
+            grouped_execution_mode: None,
         });
 
         let report = metrics_report(Some(window_start.saturating_add(1)));
@@ -697,15 +697,15 @@ mod tests {
     }
 
     #[test]
-    fn metrics_report_grouped_plan_strategy_counters_accumulate() {
+    fn metrics_report_grouped_execution_mode_counters_accumulate() {
         metrics_reset_all();
         record(MetricsEvent::Plan {
             kind: PlanKind::Index,
-            grouped_strategy: Some(GroupedPlanStrategy::HashMaterialized),
+            grouped_execution_mode: Some(GroupedExecutionMode::HashMaterialized),
         });
         record(MetricsEvent::Plan {
             kind: PlanKind::Range,
-            grouped_strategy: Some(GroupedPlanStrategy::OrderedMaterialized),
+            grouped_execution_mode: Some(GroupedExecutionMode::OrderedMaterialized),
         });
 
         let report = metrics_report(None);

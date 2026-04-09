@@ -372,8 +372,8 @@ fn append_grouped_route_verbose_diagnostics(
             .map_or("none", |reason| reason.code()),
     ));
     lines.push(descriptor_route_property_line(
-        "diag.r.grouped_execution_strategy",
-        grouped_observability.grouped_execution_strategy().code(),
+        "diag.r.grouped_execution_mode",
+        grouped_observability.grouped_execution_mode().code(),
     ));
 }
 
@@ -488,8 +488,8 @@ fn annotate_grouped_route_node_properties(
         Value::from(grouped_observability.eligible()),
     );
     node.node_properties.insert(
-        "grouped_execution_strategy",
-        Value::from(grouped_observability.grouped_execution_strategy().code()),
+        "grouped_execution_mode",
+        Value::from(grouped_observability.grouped_execution_mode().code()),
     );
 }
 
@@ -500,11 +500,11 @@ fn grouped_aggregate_execution_node_descriptor(
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let grouped_observability = route_plan.grouped_observability()?;
-    let node_type = match grouped_observability.grouped_execution_strategy() {
-        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized => {
+    let node_type = match grouped_observability.grouped_execution_mode() {
+        crate::db::executor::route::GroupedExecutionMode::HashMaterialized => {
             ExplainExecutionNodeType::GroupedAggregateHashMaterialized
         }
-        crate::db::executor::route::GroupedExecutionStrategy::OrderedMaterialized => {
+        crate::db::executor::route::GroupedExecutionMode::OrderedMaterialized => {
             ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized
         }
     };
@@ -538,8 +538,8 @@ fn grouped_aggregate_execution_node_descriptor(
         Value::from(grouped_observability.eligible()),
     );
     node.node_properties.insert(
-        "grouped_execution_strategy",
-        Value::from(grouped_observability.grouped_execution_strategy().code()),
+        "grouped_execution_mode",
+        Value::from(grouped_observability.grouped_execution_mode().code()),
     );
 
     Some(node)

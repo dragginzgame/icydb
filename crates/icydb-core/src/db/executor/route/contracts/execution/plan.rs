@@ -14,10 +14,9 @@ use crate::db::{
                 RouteCapabilities, RouteContinuationPlan,
                 execution::{
                     AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRouteShape,
-                    GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
-                    GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
-                    LoadOrderRouteContract, LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan,
-                    TopNSeekSpec,
+                    GroupedExecutionMode, GroupedRouteDecisionOutcome, GroupedRouteObservability,
+                    GroupedRouteRejectionReason, IndexRangeLimitSpec, LoadOrderRouteContract,
+                    LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
                 },
                 shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
             },
@@ -51,7 +50,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor) grouped_plan_strategy: Option<GroupedPlanStrategy>,
-    pub(in crate::db::executor) grouped_execution_strategy: Option<GroupedExecutionStrategy>,
+    pub(in crate::db::executor) grouped_execution_mode: Option<GroupedExecutionMode>,
     pub(in crate::db::executor) load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 }
 
@@ -78,7 +77,7 @@ impl ExecutionRoutePlan {
             },
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
             grouped_plan_strategy: None,
-            grouped_execution_strategy: None,
+            grouped_execution_mode: None,
             load_terminal_fast_path: None,
         }
     }
@@ -141,10 +140,9 @@ impl ExecutionRoutePlan {
                 let grouped_plan_strategy = self
                     .grouped_plan_strategy
                     .expect("grouped route observability requires planner-owned grouped strategy");
-                let grouped_execution_strategy = match self.grouped_execution_strategy {
-                    Some(strategy) => strategy,
-                    None => GroupedExecutionStrategy::HashMaterialized,
-                };
+                let grouped_execution_mode = self.grouped_execution_mode.expect(
+                    "grouped route observability requires route-projected grouped execution mode",
+                );
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if eligible {
                     match self.execution_mode {
@@ -168,7 +166,7 @@ impl ExecutionRoutePlan {
                     planner_fallback_reason: grouped_plan_strategy.fallback_reason(),
                     eligible,
                     execution_mode: self.execution_mode,
-                    grouped_execution_strategy,
+                    grouped_execution_mode,
                 })
             }
             ExecutionModeRouteCase::Load

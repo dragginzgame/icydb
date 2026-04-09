@@ -66,9 +66,8 @@ where
         let grouped_route_observability =
             grouped_route_observability_for_runtime(&grouped_route_plan)?;
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
-        let grouped_plan_metrics_strategy = grouped_route_observability
-            .grouped_execution_strategy()
-            .into();
+        let grouped_metrics_execution_mode =
+            grouped_route_observability.grouped_execution_mode().into();
         debug_assert!(
             matches!(
                 grouped_route_execution_mode,
@@ -119,7 +118,7 @@ where
             execution_context: GroupedExecutionContext::new(
                 continuation,
                 direction,
-                grouped_plan_metrics_strategy,
+                grouped_metrics_execution_mode,
                 execution_trace,
             ),
         })

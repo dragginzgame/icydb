@@ -6,7 +6,7 @@
 use crate::{
     db::executor::{
         aggregate::{
-            AggregateKind, ExecutionContext, GroupedAggregateEngine,
+            ExecutionContext, GroupedAggregateEngine,
             runtime::grouped_distinct::global_distinct_field_execution_spec,
         },
         pipeline::contracts::GroupedRouteStage,
@@ -41,16 +41,6 @@ pub(super) fn build_grouped_engines(
                         aggregate_index,
                     )
                 })?;
-            if aggregate_spec.target_field().is_some()
-                && !matches!(
-                    aggregate_spec.kind(),
-                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
-                )
-            {
-                return Err(GroupedRouteStage::field_target_aggregate_reached_executor(
-                    aggregate_spec.kind(),
-                ));
-            }
 
             Ok::<Box<dyn GroupedAggregateEngine>, InternalError>(Box::new(
                 grouped_execution_context.create_grouped_state_with_target(
@@ -58,7 +48,7 @@ pub(super) fn build_grouped_engines(
                     aggregate_materialized_fold_direction(aggregate_spec.kind()),
                     aggregate_spec.distinct(),
                     aggregate_spec.target_field().cloned(),
-                ),
+                )?,
             )
                 as Box<dyn GroupedAggregateEngine>)
         })

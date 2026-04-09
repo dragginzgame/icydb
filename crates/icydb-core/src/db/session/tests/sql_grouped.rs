@@ -104,9 +104,7 @@ fn query_from_sql_grouped_explain_and_execution_project_grouped_fallback_publicl
         "grouped execution explain root should surface the grouped route outcome",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("hash_materialized")),
         "grouped execution explain root should surface the grouped execution strategy",
     );
@@ -171,9 +169,7 @@ fn query_from_sql_indexed_grouped_explain_and_execution_project_ordered_group_pu
         "indexed grouped execution explain root should surface the grouped route outcome",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed grouped execution explain root should surface the ordered grouped execution strategy",
     );
@@ -236,9 +232,7 @@ fn query_from_sql_indexed_grouped_count_field_explain_and_execution_project_orde
         "indexed grouped COUNT(field) execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed grouped COUNT(field) execution explain root should surface the ordered grouped execution strategy",
     );
@@ -285,9 +279,7 @@ fn query_from_sql_indexed_grouped_sum_field_explain_and_execution_project_ordere
         "indexed grouped SUM(field) execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed grouped SUM(field) execution explain root should surface the ordered grouped execution strategy",
     );
@@ -334,9 +326,7 @@ fn query_from_sql_indexed_grouped_avg_field_explain_and_execution_project_ordere
         "indexed grouped AVG(field) execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed grouped AVG(field) execution explain root should surface the ordered grouped execution strategy",
     );
@@ -384,9 +374,7 @@ fn query_from_sql_indexed_grouped_mixed_count_and_sum_explain_and_execution_proj
         "indexed grouped mixed COUNT(*) + SUM(field) execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed grouped mixed COUNT(*) + SUM(field) execution explain root should surface the ordered grouped execution strategy",
     );
@@ -740,9 +728,7 @@ fn query_from_sql_indexed_filtered_grouped_explain_and_execution_project_ordered
         "indexed filtered grouped execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed filtered grouped execution explain root should surface the ordered grouped execution strategy",
     );
@@ -804,9 +790,7 @@ fn query_from_sql_indexed_filtered_grouped_sum_field_explain_and_execution_proje
         "indexed filtered grouped SUM(field) execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed filtered grouped SUM(field) execution explain root should surface the ordered grouped execution strategy",
     );
@@ -855,9 +839,7 @@ fn query_from_sql_indexed_filtered_grouped_avg_field_explain_and_execution_proje
         "indexed filtered grouped AVG(field) execution explain root should stay on the ordered grouped planner path",
     );
     assert_eq!(
-        descriptor
-            .node_properties()
-            .get("grouped_execution_strategy"),
+        descriptor.node_properties().get("grouped_execution_mode"),
         Some(&Value::from("ordered_materialized")),
         "indexed filtered grouped AVG(field) execution explain root should surface the ordered grouped execution strategy",
     );

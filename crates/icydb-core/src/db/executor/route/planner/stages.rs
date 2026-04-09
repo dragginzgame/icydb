@@ -10,8 +10,8 @@ use crate::db::{
         aggregate::{AggregateFoldMode, AggregateKind},
         route::{
             AggregateRouteShape, AggregateSeekSpec, ExecutionModeRouteCase, FastPathOrder,
-            GroupedExecutionStrategy, IndexRangeLimitSpec, RouteCapabilities,
-            RouteContinuationPlan, RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
+            GroupedExecutionMode, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan,
+            RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
         },
     },
     query::plan::GroupedPlanStrategy,
@@ -35,8 +35,8 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
     pub(in crate::db::executor::route::planner) count_pushdown_eligible: bool,
     pub(in crate::db::executor::route::planner) aggregate_physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor::route::planner) aggregate_seek_spec: Option<AggregateSeekSpec>,
-    pub(in crate::db::executor::route::planner) grouped_execution_strategy:
-        Option<GroupedExecutionStrategy>,
+    pub(in crate::db::executor::route::planner) grouped_execution_mode:
+        Option<GroupedExecutionMode>,
 }
 
 ///

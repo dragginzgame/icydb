@@ -1,15 +1,15 @@
 //! Module: db::executor::route::grouped_runtime
 //! Responsibility: grouped route runtime projection helpers owned by route authority.
 //! Does not own: grouped stream folding or grouped output materialization.
-//! Boundary: route-to-runtime grouped observability + metrics strategy mapping.
+//! Boundary: route-to-runtime grouped observability + metrics execution-mode mapping.
 
 use crate::{
     db::executor::{
         ExecutionPlan,
-        route::{GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability},
+        route::{GroupedExecutionMode, GroupedRouteDecisionOutcome, GroupedRouteObservability},
     },
     error::InternalError,
-    metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy,
+    metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode,
 };
 
 pub(in crate::db::executor) fn grouped_route_observability_for_runtime(
@@ -38,11 +38,11 @@ pub(in crate::db::executor) fn grouped_route_observability_for_runtime(
     Ok(grouped_route_observability)
 }
 
-impl From<GroupedExecutionStrategy> for MetricsGroupedPlanStrategy {
-    fn from(grouped_execution_strategy: GroupedExecutionStrategy) -> Self {
-        match grouped_execution_strategy {
-            GroupedExecutionStrategy::HashMaterialized => Self::HashMaterialized,
-            GroupedExecutionStrategy::OrderedMaterialized => Self::OrderedMaterialized,
+impl From<GroupedExecutionMode> for MetricsGroupedExecutionMode {
+    fn from(grouped_execution_mode: GroupedExecutionMode) -> Self {
+        match grouped_execution_mode {
+            GroupedExecutionMode::HashMaterialized => Self::HashMaterialized,
+            GroupedExecutionMode::OrderedMaterialized => Self::OrderedMaterialized,
         }
     }
 }

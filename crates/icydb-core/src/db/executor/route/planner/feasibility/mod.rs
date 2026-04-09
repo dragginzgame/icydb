@@ -4,7 +4,6 @@
 //! Boundary: staged feasibility derivation for route planning.
 
 mod gates;
-mod grouped_strategy;
 
 use crate::{
     db::{
@@ -12,11 +11,12 @@ use crate::{
             aggregate::AggregateKind,
             continuation::ScalarContinuationContext,
             route::{
-                AggregateRouteShape, RouteContinuationPlan, ScanHintPlan,
-                aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model,
-                assess_index_range_limit_pushdown_for_model, count_pushdown_fetch_hint,
-                derive_aggregate_route_direction, derive_execution_capabilities_for_model,
-                derive_load_route_direction, load_scan_budget_hint,
+                AggregateRouteShape, GroupedExecutionMode, GroupedExecutionModeProjection,
+                RouteContinuationPlan, ScanHintPlan, aggregate_probe_fetch_hint_for_model,
+                aggregate_seek_spec_for_model, assess_index_range_limit_pushdown_for_model,
+                count_pushdown_fetch_hint, derive_aggregate_route_direction,
+                derive_execution_capabilities_for_model, derive_load_route_direction,
+                load_scan_budget_hint,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
                 top_n_seek_spec_for_model,
             },
@@ -29,7 +29,6 @@ use crate::{
 use crate::db::executor::route::planner::feasibility::gates::{
     index_range_limit_pushdown_allowed_for_grouped, load_scan_hints_allowed_for_intent,
 };
-use crate::db::executor::route::planner::feasibility::grouped_strategy::grouped_execution_strategy_for_runtime;
 
 pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stage_for_model(
     model: &EntityModel,
@@ -196,7 +195,7 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
     let load_scan_budget_hint = load_scan_hints_enabled
         .then(|| load_scan_budget_hint(plan, continuation, capabilities))
         .flatten();
-    let grouped_execution_strategy = grouped.then(|| {
+    let grouped_execution_mode = grouped.then(|| {
         debug_assert!(
             grouped_plan_strategy.is_some(),
             "route invariant: grouped feasibility derivation requires planner-projected grouped strategy",
@@ -208,11 +207,9 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
         let planner_grouped_strategy = grouped_plan_strategy
             .expect("grouped feasibility derivation requires planner-projected grouped strategy");
 
-        grouped_execution_strategy_for_runtime(
+        GroupedExecutionMode::from_planner_strategy(
             planner_grouped_strategy,
-            direction,
-            capabilities.desc_physical_reverse_supported,
-            capabilities.load_order_route_contract.allows_streaming_load(),
+            GroupedExecutionModeProjection::from_route_capabilities(direction, capabilities),
         )
     });
 
@@ -228,6 +225,6 @@ pub(in crate::db::executor::route::planner) fn derive_route_derivation_context_f
         count_pushdown_eligible,
         aggregate_physical_fetch_hint,
         aggregate_seek_spec,
-        grouped_execution_strategy,
+        grouped_execution_mode,
     }
 }

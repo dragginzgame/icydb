@@ -3,9 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::route::contracts::execution::{
-    GroupedExecutionStrategy, RouteExecutionMode,
-};
+use crate::db::executor::route::contracts::execution::{GroupedExecutionMode, RouteExecutionMode};
 use crate::db::query::plan::GroupedPlanFallbackReason;
 
 ///
@@ -72,7 +70,7 @@ pub(in crate::db::executor) struct GroupedRouteObservability {
     pub(in crate::db::executor::route) planner_fallback_reason: Option<GroupedPlanFallbackReason>,
     pub(in crate::db::executor::route) eligible: bool,
     pub(in crate::db::executor::route) execution_mode: RouteExecutionMode,
-    pub(in crate::db::executor::route) grouped_execution_strategy: GroupedExecutionStrategy,
+    pub(in crate::db::executor::route) grouped_execution_mode: GroupedExecutionMode,
 }
 
 impl GroupedRouteObservability {
@@ -106,9 +104,7 @@ impl GroupedRouteObservability {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn grouped_execution_strategy(
-        self,
-    ) -> GroupedExecutionStrategy {
-        self.grouped_execution_strategy
+    pub(in crate::db::executor) const fn grouped_execution_mode(self) -> GroupedExecutionMode {
+        self.grouped_execution_mode
     }
 }

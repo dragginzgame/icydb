@@ -89,19 +89,27 @@ pub(in crate::db::executor) struct GroupedAggregateState {
 }
 
 impl GroupedAggregateState {
+    // Build the canonical grouped-state invariant for unsupported field-target
+    // aggregate kinds that should already have been removed before grouped
+    // state construction.
+    fn unsupported_field_target_aggregate(kind: AggregateKind) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped field-target aggregate reached executor after planning: {kind:?}",
+        ))
+    }
+
     /// Build one empty grouped aggregate state container.
     #[cfg(test)]
     #[expect(
         dead_code,
         reason = "grouped contract tests still exercise the compatibility constructor"
     )]
-    #[must_use]
-    pub(in crate::db::executor::aggregate) const fn new(
+    pub(in crate::db::executor::aggregate) fn new(
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
         max_distinct_values_per_group: u64,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         Self::new_with_target(
             kind,
             direction,
@@ -113,22 +121,30 @@ impl GroupedAggregateState {
 
     /// Build one empty grouped aggregate state container with one optional
     /// grouped field-target slot.
-    #[must_use]
-    pub(in crate::db::executor::aggregate) const fn new_with_target(
+    pub(in crate::db::executor::aggregate) fn new_with_target(
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
         target_field: Option<FieldSlot>,
         max_distinct_values_per_group: u64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        if target_field.is_some()
+            && !matches!(
+                kind,
+                AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+            )
+        {
+            return Err(Self::unsupported_field_target_aggregate(kind));
+        }
+
+        Ok(Self {
             kind,
             direction,
             distinct,
             target_field,
             max_distinct_values_per_group,
             groups: BTreeMap::new(),
-        }
+        })
     }
 
     // Apply one `(group_key, data_key)` row into grouped aggregate state using

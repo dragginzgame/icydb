@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.74.x] 🧹 - 2026-04-09 - Redundancy and Ownership Audit
 
+- `0.74.2` continues the grouped cleanup by tightening the planner-versus-route boundary, so grouped route observability and metrics now consume one explicit route-owned execution mode projected from planner strategy and route capabilities, and grouped routes fail closed instead of silently inventing missing grouped mode labels.
 - `0.74.1` follows the grouped audit with the first real cleanup pass, trimming leftover grouped planner/runtime compatibility seams so grouped strategy, grouped aggregate-family routing, metrics, and fingerprint hashing now flow through fewer parallel abstractions without widening grouped query behavior.
 - `0.74.0` starts the cleanup line by inventorying the grouped planning stack, classifying which planner/runtime/explain/fingerprint seams are canonical versus transitional, and naming the first grouped cleanup targets so later deletions stay surgical instead of becoming a vague refactor bucket.
 

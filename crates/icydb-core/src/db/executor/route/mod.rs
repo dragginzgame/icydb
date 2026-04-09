@@ -84,6 +84,6 @@ const fn route_shape_kind_count_guard() -> usize {
 #[cfg(test)]
 const fn grouped_ordered_runtime_revalidation_flag_count_guard() -> usize {
     // Runtime grouped revalidation should stay capability-focused and consume
-    // only eligibility, rejection reason, and grouped execution strategy.
+    // only eligibility, rejection reason, and grouped execution mode.
     3
 }

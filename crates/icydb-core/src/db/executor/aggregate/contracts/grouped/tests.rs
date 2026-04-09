@@ -150,12 +150,14 @@ fn grouped_count_rows_for_order(order: &[usize]) -> Vec<(Value, u32)> {
 #[test]
 fn grouped_count_field_skips_null_slot_values() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context.create_grouped_state_with_target(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-        Some(FieldSlot::from_parts_for_test(0, "id")),
-    );
+    let mut grouped = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Count,
+            Direction::Asc,
+            false,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped COUNT(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
     let non_null_row = RowView::new(vec![Some(Value::Uint(7))]);
     let null_row = RowView::new(vec![Some(Value::Null)]);
@@ -188,12 +190,14 @@ fn grouped_count_field_skips_null_slot_values() {
 #[test]
 fn grouped_sum_field_skips_null_slot_values_and_accumulates_numeric_rows() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context.create_grouped_state_with_target(
-        AggregateKind::Sum,
-        Direction::Asc,
-        false,
-        Some(FieldSlot::from_parts_for_test(0, "id")),
-    );
+    let mut grouped = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Sum,
+            Direction::Asc,
+            false,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped SUM(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
     let numeric_row = RowView::new(vec![Some(Value::Uint(7))]);
     let second_numeric_row = RowView::new(vec![Some(Value::Uint(9))]);
@@ -238,12 +242,14 @@ fn grouped_sum_field_skips_null_slot_values_and_accumulates_numeric_rows() {
 #[test]
 fn grouped_avg_field_skips_null_slot_values_and_accumulates_numeric_rows() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context.create_grouped_state_with_target(
-        AggregateKind::Avg,
-        Direction::Asc,
-        false,
-        Some(FieldSlot::from_parts_for_test(0, "id")),
-    );
+    let mut grouped = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Avg,
+            Direction::Asc,
+            false,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped AVG(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
     let numeric_row = RowView::new(vec![Some(Value::Uint(6))]);
     let second_numeric_row = RowView::new(vec![Some(Value::Uint(12))]);

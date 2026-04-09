@@ -6,7 +6,7 @@
 use crate::{
     db::access::AccessPlan,
     metrics::sink::{
-        GroupedPlanStrategy as MetricsGroupedPlanStrategy, MetricsEvent, PlanKind, Span, record,
+        GroupedExecutionMode as MetricsGroupedExecutionMode, MetricsEvent, PlanKind, Span, record,
     },
     traits::EntityKind,
 };
@@ -18,21 +18,21 @@ pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
 
     record(MetricsEvent::Plan {
         kind,
-        grouped_strategy: None,
+        grouped_execution_mode: None,
     });
 }
 
-/// Records metrics for one grouped execution plan with explicit grouped strategy.
+/// Records metrics for one grouped execution plan with explicit grouped execution mode.
 /// Must be called exactly once per grouped execution.
 pub(super) fn record_grouped_plan_metrics<K>(
     access: &AccessPlan<K>,
-    grouped_strategy: MetricsGroupedPlanStrategy,
+    grouped_execution_mode: MetricsGroupedExecutionMode,
 ) {
     let kind = access_plan_kind(access);
 
     record(MetricsEvent::Plan {
         kind,
-        grouped_strategy: Some(grouped_strategy),
+        grouped_execution_mode: Some(grouped_execution_mode),
     });
 }
 

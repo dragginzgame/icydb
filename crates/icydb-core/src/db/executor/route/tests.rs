@@ -5,7 +5,7 @@
 
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, ExecutionModeRouteCase, FastPathOrder,
-    GroupedExecutionStrategy, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
+    GroupedExecutionMode, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
     LoadOrderRouteContract, LoadOrderRouteReason, LoadTerminalFastPathContract, RouteExecutionMode,
     TopNSeekSpec, build_execution_route_plan_for_aggregate_spec_with_model,
     build_execution_route_plan_for_grouped_plan, build_execution_route_plan_for_load_with_model,
@@ -44,7 +44,7 @@ use crate::{
             grouped_executor_handoff, grouped_plan_strategy,
         },
     },
-    metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy,
+    metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::{EntitySchema, Path},
     types::Ulid,
@@ -438,8 +438,8 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
             grouped_observability.planner_fallback_reason()
         ),
         format!(
-            "grouped_execution_strategy={:?}",
-            grouped_observability.grouped_execution_strategy()
+            "grouped_execution_mode={:?}",
+            grouped_observability.grouped_execution_mode()
         ),
         format!("fold_mode={:?}", route_plan.aggregate_fold_mode),
     ]
@@ -451,7 +451,7 @@ fn grouped_policy_snapshot(
 ) -> (
     GroupedPlanStrategy,
     Option<crate::db::query::plan::GroupDistinctPolicyReason>,
-    GroupedExecutionStrategy,
+    GroupedExecutionMode,
     bool,
 ) {
     let planner_strategy =
@@ -470,7 +470,7 @@ fn grouped_policy_snapshot(
     (
         planner_strategy,
         distinct_violation,
-        grouped_observability.grouped_execution_strategy(),
+        grouped_observability.grouped_execution_mode(),
         grouped_observability.eligible(),
     )
 }
@@ -2251,8 +2251,8 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         RouteExecutionMode::Materialized
     );
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::HashMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::HashMaterialized
     );
 }
 
@@ -2304,8 +2304,8 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         RouteExecutionMode::Materialized
     );
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::HashMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::HashMaterialized
     );
 }
 
@@ -2333,8 +2333,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
     assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
@@ -2367,8 +2367,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_ind
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
     assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
@@ -2401,8 +2401,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
     assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
@@ -2435,8 +2435,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
     assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
@@ -2470,8 +2470,8 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
     assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
@@ -2506,8 +2506,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
     assert_eq!(grouped_observability.planner_fallback_reason(), None);
     assert_eq!(
@@ -2541,8 +2541,8 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
         .expect("grouped route should project grouped observability payload");
 
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::HashMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::HashMaterialized
     );
     assert_eq!(
         grouped_observability.planner_fallback_reason(),
@@ -2590,8 +2590,8 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
         "unsupported grouped HAVING operators should be planner-policy rejected from ordered-group strategy",
     );
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::HashMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::HashMaterialized
     );
     assert_eq!(
         grouped_observability.planner_fallback_reason(),
@@ -2737,14 +2737,14 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
         observability.rejection_reason(),
         observability.eligible(),
         observability.execution_mode(),
-        observability.grouped_execution_strategy(),
+        observability.grouped_execution_mode(),
     );
     let expected = (
         GroupedRouteDecisionOutcome::MaterializedFallback,
         None,
         true,
         RouteExecutionMode::Materialized,
-        GroupedExecutionStrategy::HashMaterialized,
+        GroupedExecutionMode::HashMaterialized,
     );
 
     assert_eq!(actual, expected);
@@ -2773,7 +2773,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         (
             GroupedPlanStrategy::ordered_group(),
             None,
-            GroupedExecutionStrategy::OrderedMaterialized,
+            GroupedExecutionMode::OrderedMaterialized,
             true,
         )
     );
@@ -2808,7 +2808,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         (
             GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
             None,
-            GroupedExecutionStrategy::HashMaterialized,
+            GroupedExecutionMode::HashMaterialized,
             true,
         )
     );
@@ -2830,7 +2830,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         (
             GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::DistinctGroupingNotAdmitted),
             Some(GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired),
-            GroupedExecutionStrategy::HashMaterialized,
+            GroupedExecutionMode::HashMaterialized,
             true,
         )
     );
@@ -2859,7 +2859,7 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
                     GroupedPlanAggregateFamily::FieldTargetRows,
                 ),
                 None,
-                GroupedExecutionStrategy::HashMaterialized,
+                GroupedExecutionMode::HashMaterialized,
                 true,
             ),
             "global DISTINCT grouped strategy snapshot should stay stable for {kind:?}",
@@ -2888,7 +2888,7 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                 GroupedPlanAggregateFamily::GenericRows,
             ),
             None,
-            GroupedExecutionStrategy::HashMaterialized,
+            GroupedExecutionMode::HashMaterialized,
             true,
         ),
         "storage-key grouped aggregates should stay on the generic grouped rows family",
@@ -2920,7 +2920,7 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                 GroupedPlanAggregateFamily::GenericRows,
             ),
             None,
-            GroupedExecutionStrategy::HashMaterialized,
+            GroupedExecutionMode::HashMaterialized,
             true,
         ),
         "mixed grouped aggregate sets should collapse to the generic grouped rows family",
@@ -2973,8 +2973,8 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
         .grouped_observability()
         .expect("mixed grouped route should always project grouped observability");
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized,
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized,
         "mixed grouped count+sum shapes should keep the ordered grouped execution family when group-key order is proven",
     );
 }
@@ -3057,27 +3057,30 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         RouteExecutionMode::Materialized
     );
     assert_eq!(
-        grouped_observability.grouped_execution_strategy(),
-        GroupedExecutionStrategy::OrderedMaterialized
+        grouped_observability.grouped_execution_mode(),
+        GroupedExecutionMode::OrderedMaterialized
     );
 }
 
 #[test]
-fn grouped_route_strategy_to_metrics_strategy_mapping_is_stable() {
-    for (route_strategy, expected_metrics_strategy) in [
+fn grouped_execution_mode_to_metrics_execution_mode_mapping_is_stable() {
+    for (route_execution_mode, expected_metrics_execution_mode) in [
         (
-            GroupedExecutionStrategy::HashMaterialized,
-            MetricsGroupedPlanStrategy::HashMaterialized,
+            GroupedExecutionMode::HashMaterialized,
+            MetricsGroupedExecutionMode::HashMaterialized,
         ),
         (
-            GroupedExecutionStrategy::OrderedMaterialized,
-            MetricsGroupedPlanStrategy::OrderedMaterialized,
+            GroupedExecutionMode::OrderedMaterialized,
+            MetricsGroupedExecutionMode::OrderedMaterialized,
         ),
     ] {
         assert_eq!(
-            format!("{:?}", MetricsGroupedPlanStrategy::from(route_strategy)),
-            format!("{expected_metrics_strategy:?}"),
-            "grouped route strategy must map to stable grouped metrics strategy labels",
+            format!(
+                "{:?}",
+                MetricsGroupedExecutionMode::from(route_execution_mode)
+            ),
+            format!("{expected_metrics_execution_mode:?}"),
+            "grouped execution mode must map to stable grouped metrics execution-mode labels",
         );
     }
 }
@@ -3178,7 +3181,7 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
         "route_strategy=AggregateGrouped".to_string(),
         "execution_mode=Materialized".to_string(),
         "planner_fallback_reason=Some(GroupKeyOrderUnavailable)".to_string(),
-        "grouped_execution_strategy=HashMaterialized".to_string(),
+        "grouped_execution_mode=HashMaterialized".to_string(),
         "fold_mode=ExistingRows".to_string(),
     ]
     .join("\n");

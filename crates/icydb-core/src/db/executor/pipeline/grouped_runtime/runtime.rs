@@ -7,20 +7,20 @@ use crate::db::{
     direction::Direction,
     executor::{ExecutionTrace, GroupedContinuationContext},
 };
-use crate::metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy;
+use crate::metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode;
 
 ///
 /// GroupedExecutionContext
 ///
 /// Grouped runtime execution context artifacts derived at grouped route stage.
 /// Keeps cursor/runtime direction, continuation signature, trace, and grouped
-/// metrics strategy together for grouped stream/fold/output stages.
+/// metrics execution mode together for grouped stream/fold/output stages.
 ///
 
 pub(in crate::db::executor) struct GroupedExecutionContext {
     continuation: GroupedContinuationContext,
     direction: Direction,
-    grouped_plan_metrics_strategy: MetricsGroupedPlanStrategy,
+    grouped_metrics_execution_mode: MetricsGroupedExecutionMode,
     execution_trace: Option<ExecutionTrace>,
 }
 
@@ -30,13 +30,13 @@ impl GroupedExecutionContext {
     pub(in crate::db::executor) const fn new(
         continuation: GroupedContinuationContext,
         direction: Direction,
-        grouped_plan_metrics_strategy: MetricsGroupedPlanStrategy,
+        grouped_metrics_execution_mode: MetricsGroupedExecutionMode,
         execution_trace: Option<ExecutionTrace>,
     ) -> Self {
         Self {
             continuation,
             direction,
-            grouped_plan_metrics_strategy,
+            grouped_metrics_execution_mode,
             execution_trace,
         }
     }
@@ -47,12 +47,12 @@ impl GroupedExecutionContext {
         self.direction
     }
 
-    /// Return grouped plan-metrics strategy for grouped stream observability.
+    /// Return grouped metrics execution mode for grouped stream observability.
     #[must_use]
-    pub(in crate::db::executor) const fn grouped_plan_metrics_strategy(
+    pub(in crate::db::executor) const fn grouped_metrics_execution_mode(
         &self,
-    ) -> MetricsGroupedPlanStrategy {
-        self.grouped_plan_metrics_strategy
+    ) -> MetricsGroupedExecutionMode {
+        self.grouped_metrics_execution_mode
     }
 
     /// Borrow grouped continuation context.

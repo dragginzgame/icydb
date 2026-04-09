@@ -18,7 +18,7 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::sink::GroupedPlanStrategy as MetricsGroupedPlanStrategy,
+    metrics::sink::GroupedExecutionMode as MetricsGroupedExecutionMode,
     value::Value,
 };
 
@@ -31,16 +31,6 @@ impl GroupedRouteStage {
     ) -> InternalError {
         InternalError::query_executor_invariant(format!(
             "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}",
-        ))
-    }
-
-    /// Construct one grouped route invariant for unsupported field-target
-    /// aggregates that should already have been removed before grouped executor handoff.
-    pub(in crate::db::executor) fn field_target_aggregate_reached_executor(
-        aggregate_kind: crate::db::query::plan::AggregateKind,
-    ) -> InternalError {
-        InternalError::query_executor_invariant(format!(
-            "grouped field-target aggregate reached executor after planning: {aggregate_kind:?}",
         ))
     }
 
@@ -192,11 +182,11 @@ impl GroupedRouteStage {
         self.execution_context.direction()
     }
 
-    /// Return grouped plan-metrics strategy for grouped stream observability.
-    pub(in crate::db::executor) const fn grouped_plan_metrics_strategy(
+    /// Return grouped metrics execution mode for grouped stream observability.
+    pub(in crate::db::executor) const fn grouped_metrics_execution_mode(
         &self,
-    ) -> MetricsGroupedPlanStrategy {
-        self.execution_context.grouped_plan_metrics_strategy()
+    ) -> MetricsGroupedExecutionMode {
+        self.execution_context.grouped_metrics_execution_mode()
     }
 
     /// Borrow grouped runtime pagination projection.

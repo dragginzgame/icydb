@@ -12,6 +12,7 @@ use crate::{
         },
         query::plan::FieldSlot,
     },
+    error::InternalError,
     value::Value,
 };
 use std::mem::size_of;
@@ -257,20 +258,20 @@ impl ExecutionContext {
         distinct: bool,
     ) -> GroupedAggregateState {
         self.create_grouped_state_with_target(kind, direction, distinct, None)
+            .expect("grouped test helper should only construct admitted grouped state kinds")
     }
 
     /// Build one grouped aggregate state with one optional field-target slot.
     ///
     /// This keeps grouped field-target widening structural without forcing
     /// existing grouped callers to thread unused target-slot inputs.
-    #[must_use]
     pub(in crate::db::executor) fn create_grouped_state_with_target(
         &self,
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
         target_field: Option<FieldSlot>,
-    ) -> GroupedAggregateState {
+    ) -> Result<GroupedAggregateState, InternalError> {
         debug_assert!(
             self.config.max_groups() > 0 || self.config.max_group_bytes() > 0,
             "grouped execution config must expose at least one positive hard limit"

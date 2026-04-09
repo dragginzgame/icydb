@@ -6,7 +6,11 @@
 mod observability;
 mod plan;
 
-use crate::db::executor::route::contracts::shape::RouteShapeKind;
+use crate::db::{
+    direction::Direction,
+    executor::route::{RouteCapabilities, contracts::shape::RouteShapeKind},
+    query::plan::GroupedPlanStrategy,
+};
 
 pub(in crate::db::executor) use observability::{
     GroupedRouteDecisionOutcome, GroupedRouteObservability, GroupedRouteRejectionReason,
@@ -48,8 +52,44 @@ impl LoadOrderRouteContract {
     }
 
     #[must_use]
+    pub(in crate::db) const fn allows_ordered_group_projection(self) -> bool {
+        matches!(self, Self::DirectStreaming)
+    }
+
+    #[must_use]
     pub(in crate::db) const fn allows_top_n_seek(self) -> bool {
         matches!(self, Self::DirectStreaming)
+    }
+}
+
+///
+/// GroupedExecutionModeProjection
+///
+/// Route-owned capability bundle for projecting planner-owned grouped strategy
+/// into one canonical grouped execution mode. This keeps grouped execution-mode
+/// selection on one explicit route contract instead of loose booleans.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct GroupedExecutionModeProjection {
+    direction: Direction,
+    desc_physical_reverse_supported: bool,
+    ordered_group_projection_safe: bool,
+}
+
+impl GroupedExecutionModeProjection {
+    #[must_use]
+    pub(in crate::db::executor) const fn from_route_capabilities(
+        direction: Direction,
+        capabilities: RouteCapabilities,
+    ) -> Self {
+        Self {
+            direction,
+            desc_physical_reverse_supported: capabilities.desc_physical_reverse_supported,
+            ordered_group_projection_safe: capabilities
+                .load_order_route_contract
+                .allows_ordered_group_projection(),
+        }
     }
 }
 
@@ -101,19 +141,39 @@ pub(in crate::db::executor) enum RouteExecutionMode {
 }
 
 ///
-/// GroupedExecutionStrategy
+/// GroupedExecutionMode
 ///
-/// Canonical grouped execution strategy label selected by route planning.
-/// Variants are runtime-truthful and explicitly mark materialized execution.
+/// Canonical grouped execution mode label selected by route planning.
+/// Variants are route-owned and runtime-truthful: they describe only the
+/// grouped execution mode that survived planner semantics plus route
+/// capability gating.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum GroupedExecutionStrategy {
+pub(in crate::db::executor) enum GroupedExecutionMode {
     HashMaterialized,
     OrderedMaterialized,
 }
 
-impl GroupedExecutionStrategy {
+impl GroupedExecutionMode {
+    #[must_use]
+    pub(in crate::db::executor) const fn from_planner_strategy(
+        plan_strategy: GroupedPlanStrategy,
+        projection: GroupedExecutionModeProjection,
+    ) -> Self {
+        let direction_compatible = !matches!(projection.direction, Direction::Desc)
+            || projection.desc_physical_reverse_supported;
+        let ordered_route_eligible = plan_strategy.ordered_group_admitted()
+            && direction_compatible
+            && projection.ordered_group_projection_safe;
+
+        if ordered_route_eligible {
+            Self::OrderedMaterialized
+        } else {
+            Self::HashMaterialized
+        }
+    }
+
     #[must_use]
     pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
