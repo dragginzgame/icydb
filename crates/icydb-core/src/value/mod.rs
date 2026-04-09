@@ -28,6 +28,7 @@ use std::cmp::Ordering;
 
 // re-exports
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
+pub(crate) use hash::ValueHashWriter;
 pub(crate) use hash::hash_value;
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;

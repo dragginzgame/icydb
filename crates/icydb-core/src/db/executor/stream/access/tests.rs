@@ -5,6 +5,7 @@
 
 use std::{
     collections::BTreeSet,
+    fmt::Write as _,
     fs,
     path::{Path, PathBuf},
 };
@@ -35,6 +36,21 @@ fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+// Render one deterministic path list without materializing an intermediate Vec
+// solely for separator joining in assertion messages.
+fn join_display_paths(paths: &[PathBuf]) -> String {
+    let mut joined = String::new();
+
+    for path in paths {
+        if !joined.is_empty() {
+            joined.push_str(", ");
+        }
+        write!(&mut joined, "{}", path.display()).expect("writing to String should succeed");
+    }
+
+    joined
 }
 
 // Strip top-level `#[cfg(test)]` items from source text using a lightweight
@@ -154,11 +170,7 @@ fn executor_runtime_modules_have_no_raw_access_path_variant_matching() {
     assert!(
         violations.is_empty(),
         "executor runtime modules must not pattern-match raw AccessPath variants; violations: {}",
-        violations
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", "),
+        join_display_paths(&violations),
     );
 }
 
@@ -248,11 +260,7 @@ fn grouped_order_limit_policy_symbols_remain_planner_owned() {
     assert!(
         violations.is_empty(),
         "grouped order/limit policy legality must remain planner-owned; executor runtime must consume projected contracts only. Violations: {}",
-        violations
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", "),
+        join_display_paths(&violations),
     );
 }
 
@@ -296,11 +304,7 @@ fn runtime_route_capability_helpers_are_not_reintroduced() {
     assert!(
         violations.is_empty(),
         "executor runtime must consume direct capability snapshots instead of reintroducing route-capability forwarding helpers. Violations: {}",
-        violations
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", "),
+        join_display_paths(&violations),
     );
 }
 
@@ -428,14 +432,17 @@ fn route_hints_use_route_window_and_budget_safety_filter_gates() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/load.rs"),
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/aggregate.rs"),
     ];
-    let source = source_paths
-        .iter()
-        .map(|source_path| {
-            fs::read_to_string(source_path)
+    let mut source = String::new();
+    for source_path in source_paths {
+        if !source.is_empty() {
+            source.push('\n');
+        }
+        source.push_str(
+            fs::read_to_string(&source_path)
                 .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+                .as_str(),
+        );
+    }
     let runtime_source = strip_cfg_test_items(source.as_str());
 
     assert!(

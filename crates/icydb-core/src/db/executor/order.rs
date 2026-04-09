@@ -155,16 +155,41 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
             rows.clear();
             return;
         }
-
-        if rows.len() > keep_count {
-            rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-                compare_orderable_rows(left, right, resolved_order)
-            });
-            rows.truncate(keep_count);
-        }
     }
 
-    sort_structural_rows(rows.as_mut_slice(), resolved_order);
+    if rows.len() <= 1 {
+        return;
+    }
+
+    // Phase 1: cache resolved order values once per row so bounded selection
+    // and final sort do not re-read sparse slots or re-run expression-order
+    // derivation inside comparator hot loops.
+    let mut cached_rows = std::mem::take(rows)
+        .into_iter()
+        .map(|row| {
+            let cached_values = cache_order_values_from_row(&row, resolved_order);
+
+            (row, cached_values)
+        })
+        .collect::<Vec<_>>();
+
+    // Phase 2: retain only the bounded canonical window when pagination
+    // exposes one, using the cached order keys instead of live row reads.
+    if let Some(keep_count) = keep_count
+        && cached_rows.len() > keep_count
+    {
+        cached_rows.select_nth_unstable_by(keep_count - 1, |left, right| {
+            compare_cached_orderable_rows(left.1.as_slice(), right.1.as_slice(), resolved_order)
+        });
+        cached_rows.truncate(keep_count);
+    }
+
+    // Phase 3: sort the retained rows into final canonical order using the
+    // precomputed key values.
+    cached_rows.sort_by(|left, right| {
+        compare_cached_orderable_rows(left.1.as_slice(), right.1.as_slice(), resolved_order)
+    });
+    rows.extend(cached_rows.into_iter().map(|(row, _)| row));
 }
 
 /// Compare one structural row against one cursor boundary under the canonical order contract.
@@ -190,26 +215,48 @@ where
     })
 }
 
-// Compare two structural rows according to the resolved canonical order.
-fn compare_orderable_rows(
-    left: &dyn OrderReadableRow,
-    right: &dyn OrderReadableRow,
+// Compare two cached structural ordering tuples according to the resolved
+// canonical order without re-reading row slots inside the comparator.
+fn compare_cached_orderable_rows(
+    left: &[Option<Value>],
+    right: &[Option<Value>],
     resolved_order: &ResolvedOrder,
 ) -> Ordering {
     compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
-        let left_slot = order_value_from_row(left, field_index);
-        let right_slot = order_value_from_row(right, field_index);
+        let left_slot = left.get(_slot_index).and_then(Option::as_ref);
+        let right_slot = right.get(_slot_index).and_then(Option::as_ref);
 
-        apply_order_direction(compare_order_values(left_slot, right_slot), direction)
+        debug_assert!(
+            matches!(field_index, ResolvedOrderValueSource::Missing)
+                || left.get(_slot_index).is_some() && right.get(_slot_index).is_some(),
+            "cached order values must align with resolved order fields",
+        );
+        apply_order_direction(
+            compare_cached_order_values(left_slot, right_slot),
+            direction,
+        )
     })
 }
 
-// Apply the canonical shared in-memory sort contract over one structural row slice.
-fn sort_structural_rows<R>(rows: &mut [R], resolved_order: &ResolvedOrder)
+// Cache one row's order values once so sort/select hot loops can compare
+// cheap owned key tuples instead of re-deriving them repeatedly.
+fn cache_order_values_from_row<R>(row: &R, resolved_order: &ResolvedOrder) -> Vec<Option<Value>>
 where
     R: OrderReadableRow,
 {
-    rows.sort_by(|left, right| compare_orderable_rows(left, right, resolved_order));
+    resolved_order
+        .iter()
+        .map(|field| match field.source {
+            ResolvedOrderValueSource::Missing => None,
+            ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot(slot),
+            ResolvedOrderValueSource::ExpressionLower(slot) => {
+                derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Lower(""))
+            }
+            ResolvedOrderValueSource::ExpressionUpper(slot) => {
+                derive_expression_order_row_value(row, slot, ExpressionOrderTerm::Upper(""))
+            }
+        })
+        .collect()
 }
 
 // Compare one structural ordering tuple by resolving slot pairs lazily in canonical field order.
@@ -260,14 +307,13 @@ fn derive_expression_order_row_value(
     derive_expression_order_value(term, value.as_ref())
 }
 
-// Compare two optional structural ordering values under cursor boundary
-// semantics without forcing row paths to materialize owned `Value`s first.
-fn compare_order_values(left: Option<Cow<'_, Value>>, right: Option<Cow<'_, Value>>) -> Ordering {
+// Compare two cached owned ordering values after key precomputation.
+fn compare_cached_order_values(left: Option<&Value>, right: Option<&Value>) -> Ordering {
     match (left, right) {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Less,
         (Some(_), None) => Ordering::Greater,
-        (Some(left), Some(right)) => canonical_value_compare(left.as_ref(), right.as_ref()),
+        (Some(left), Some(right)) => canonical_value_compare(left, right),
     }
 }
 
@@ -294,6 +340,7 @@ fn compare_order_value_with_boundary(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{borrow::Cow, cell::Cell, rc::Rc};
 
     struct TestRow {
         slots: Vec<Option<Value>>,
@@ -307,6 +354,27 @@ mod tests {
 
     impl OrderReadableRow for TestRow {
         fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            self.slots
+                .get(slot)
+                .and_then(Option::as_ref)
+                .map(Cow::Borrowed)
+        }
+    }
+
+    struct CountingRow {
+        reads: Rc<Cell<usize>>,
+        slots: Vec<Option<Value>>,
+    }
+
+    impl CountingRow {
+        fn new(reads: Rc<Cell<usize>>, slots: Vec<Option<Value>>) -> Self {
+            Self { reads, slots }
+        }
+    }
+
+    impl OrderReadableRow for CountingRow {
+        fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            self.reads.set(self.reads.get().saturating_add(1));
             self.slots
                 .get(slot)
                 .and_then(Option::as_ref)
@@ -392,5 +460,27 @@ mod tests {
         );
 
         assert_eq!(ordering, Ordering::Less);
+    }
+
+    #[test]
+    fn apply_structural_order_window_caches_slot_reads_once_per_row() {
+        let left_reads = Rc::new(Cell::new(0));
+        let middle_reads = Rc::new(Cell::new(0));
+        let right_reads = Rc::new(Cell::new(0));
+        let mut rows = vec![
+            CountingRow::new(left_reads.clone(), vec![Some(Value::Uint(3))]),
+            CountingRow::new(middle_reads.clone(), vec![Some(Value::Uint(1))]),
+            CountingRow::new(right_reads.clone(), vec![Some(Value::Uint(2))]),
+        ];
+
+        apply_structural_order_window(
+            &mut rows,
+            &resolved_order(&[(Some(0), OrderDirection::Asc)]),
+            Some(2),
+        );
+
+        assert_eq!(left_reads.get(), 1);
+        assert_eq!(middle_reads.get(), 1);
+        assert_eq!(right_reads.get(), 1);
     }
 }

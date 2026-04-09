@@ -357,11 +357,18 @@ impl IndexModel {
     fn joined_key_items(&self) -> String {
         match self.key_items() {
             IndexKeyItemsRef::Fields(fields) => fields.join(", "),
-            IndexKeyItemsRef::Items(items) => items
-                .iter()
-                .map(IndexKeyItem::canonical_text)
-                .collect::<Vec<_>>()
-                .join(", "),
+            IndexKeyItemsRef::Items(items) => {
+                let mut joined = String::new();
+
+                for item in items {
+                    if !joined.is_empty() {
+                        joined.push_str(", ");
+                    }
+                    joined.push_str(item.canonical_text().as_str());
+                }
+
+                joined
+            }
         }
     }
 }

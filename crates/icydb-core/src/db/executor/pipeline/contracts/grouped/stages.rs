@@ -41,10 +41,28 @@ impl RowView {
         Self { slots }
     }
 
+    /// Borrow one slot by index without cloning the underlying value.
+    #[must_use]
+    pub(in crate::db::executor) fn borrow_slot(&self, index: usize) -> Option<&Value> {
+        self.slots.get(index).and_then(Option::as_ref)
+    }
+
     /// Read one slot by index, cloning the value when present.
     #[must_use]
     pub(in crate::db::executor) fn read_slot(&self, index: usize) -> Option<Value> {
-        self.slots.get(index).cloned().flatten()
+        self.borrow_slot(index).cloned()
+    }
+
+    /// Borrow one required slot and fail closed when it is missing.
+    pub(in crate::db::executor) fn require_slot_ref(
+        &self,
+        index: usize,
+    ) -> Result<&Value, InternalError> {
+        self.borrow_slot(index).ok_or_else(|| {
+            InternalError::query_executor_invariant(format!(
+                "grouped row view missing required slot value: index={index}",
+            ))
+        })
     }
 
     /// Read one required slot and fail closed when it is missing.
@@ -52,11 +70,7 @@ impl RowView {
         &self,
         index: usize,
     ) -> Result<Value, InternalError> {
-        self.read_slot(index).ok_or_else(|| {
-            InternalError::query_executor_invariant(format!(
-                "grouped row view missing required slot value: index={index}",
-            ))
-        })
+        self.require_slot_ref(index).cloned()
     }
 
     /// Evaluate one compiled predicate program against this structural row.
@@ -86,7 +100,7 @@ impl RowView {
     ) -> Result<Vec<Value>, InternalError> {
         group_fields
             .iter()
-            .map(|field| self.require_slot(field.index()))
+            .map(|field| self.require_slot_ref(field.index()).cloned())
             .collect()
     }
 }

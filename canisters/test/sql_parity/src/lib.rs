@@ -94,6 +94,21 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
     Ok(())
 }
 
+/// Load one larger deterministic fixture dataset for perf audits.
+#[update]
+fn fixtures_load_perf_audit() -> Result<(), icydb::Error> {
+    fixtures_reset()?;
+
+    db().insert_many_atomic(fixtures::perf_audit_customers())?;
+    db().insert_many_atomic(fixtures::perf_audit_customer_accounts())?;
+    db().insert_many_atomic(fixtures::planner_unique_prefix_choices())?;
+    db().insert_many_atomic(fixtures::planner_prefix_choices())?;
+    db().insert_many_atomic(fixtures::planner_choices())?;
+    db().insert_many_atomic(fixtures::perf_audit_customer_orders())?;
+
+    Ok(())
+}
+
 /// Mark the shared sql_parity store index state as Building so canister-level
 /// tests can lock the fail-closed explain surface for previously probe-free
 /// covering cohorts.

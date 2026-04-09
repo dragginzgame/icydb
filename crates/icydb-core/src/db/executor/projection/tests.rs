@@ -34,9 +34,9 @@ use std::cmp::Ordering;
 #[cfg(feature = "sql")]
 use super::project_rows_from_projection;
 use super::{
-    GroupedRowView, compile_scalar_projection_expr, eval_canonical_scalar_projection_expr,
-    eval_expr_grouped, eval_expr_with_required_value_reader, eval_expr_with_slot_reader,
-    eval_scalar_projection_expr, evaluate_grouped_projection_values,
+    GroupedRowView, compile_grouped_projection_plan, compile_scalar_projection_expr,
+    eval_canonical_scalar_projection_expr, eval_expr_grouped, eval_expr_with_required_value_reader,
+    eval_expr_with_slot_reader, eval_scalar_projection_expr, evaluate_grouped_projection_values,
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
@@ -682,7 +682,13 @@ fn grouped_projection_column_order_is_stable() {
         },
     ]);
 
-    let values = evaluate_grouped_projection_values(&projection, &grouped_row)
+    let compiled = compile_grouped_projection_plan(
+        &projection,
+        group_fields.as_slice(),
+        aggregate_execution_specs.as_slice(),
+    )
+    .expect("grouped projection should compile once");
+    let values = evaluate_grouped_projection_values(compiled.as_slice(), &grouped_row)
         .expect("grouped projection vector should evaluate");
 
     assert_eq!(
@@ -808,6 +814,12 @@ fn grouped_projection_ordering_preserves_input_group_order() {
         (vec![Value::Int(3)], vec![Value::Int(30)]),
     ];
     let mut observed = Vec::new();
+    let compiled = compile_grouped_projection_plan(
+        &projection,
+        group_fields.as_slice(),
+        aggregate_execution_specs.as_slice(),
+    )
+    .expect("grouped projection should compile once");
     for (key_values, aggregate_values) in grouped_inputs {
         let row_view = GroupedRowView::new(
             key_values.as_slice(),
@@ -815,7 +827,7 @@ fn grouped_projection_ordering_preserves_input_group_order() {
             group_fields.as_slice(),
             aggregate_execution_specs.as_slice(),
         );
-        let evaluated = evaluate_grouped_projection_values(&projection, &row_view)
+        let evaluated = evaluate_grouped_projection_values(compiled.as_slice(), &row_view)
             .expect("grouped projection should evaluate per-row");
         observed.push(evaluated[0].clone());
     }

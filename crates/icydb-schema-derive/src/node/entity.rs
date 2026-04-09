@@ -447,7 +447,7 @@ impl HasTraits for Entity {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
 
-        traits.extend(vec![
+        traits.extend([
             TraitKind::CandidType,
             TraitKind::Inherent,
             TraitKind::EntityKind,

@@ -6,7 +6,11 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{error::InternalError, traits::Repr, value::Value};
+use crate::{
+    error::InternalError,
+    traits::Repr,
+    value::{Value, ValueTag},
+};
 use icydb_utils::Xxh3;
 
 /// Value-hash format version byte used by canonical digest encoding.
@@ -38,6 +42,59 @@ fn feed_u128(h: &mut Xxh3, x: u128) {
 }
 fn feed_bytes(h: &mut Xxh3, b: &[u8]) {
     h.update(b);
+}
+
+///
+/// ValueHashWriter
+///
+/// ValueHashWriter incrementally encodes canonical value-hash bytes so hot
+/// runtime loops can hash virtual list shapes without first materializing an
+/// owned `Value::List`.
+///
+
+pub(crate) struct ValueHashWriter {
+    hasher: Xxh3,
+}
+
+impl ValueHashWriter {
+    /// Build one canonical value-hash writer with the stable hash version header.
+    #[must_use]
+    pub(crate) fn new() -> Self {
+        let mut hasher = Xxh3::with_seed(VALUE_HASH_SEED);
+        feed_u8(&mut hasher, VALUE_HASH_VERSION);
+
+        Self { hasher }
+    }
+
+    /// Write one virtual list prefix so callers can hash grouped key slots
+    /// without building an owned `Value::List`.
+    #[expect(clippy::cast_possible_truncation)]
+    pub(crate) fn write_list_prefix(&mut self, len: usize) {
+        feed_u8(&mut self.hasher, ValueTag::List.to_u8());
+        feed_u32(&mut self.hasher, len as u32);
+    }
+
+    /// Write one virtual list element using the canonical list-item framing.
+    pub(crate) fn write_list_value(&mut self, value: &Value) -> Result<(), InternalError> {
+        feed_u8(&mut self.hasher, 0xFF);
+        write_to_hasher(value, &mut self.hasher)
+    }
+
+    /// Write one canonical value payload into this hash stream.
+    pub(crate) fn write_value(&mut self, value: &Value) -> Result<(), InternalError> {
+        write_to_hasher(value, &mut self.hasher)
+    }
+
+    /// Finish this hash stream and return the canonical 128-bit digest bytes.
+    #[must_use]
+    pub(crate) fn finish(self) -> [u8; 16] {
+        #[cfg(test)]
+        if let Some(override_hash) = test_hash_override() {
+            return override_hash;
+        }
+
+        self.hasher.digest128().to_be_bytes()
+    }
 }
 
 #[cfg(test)]
@@ -220,9 +277,8 @@ pub(crate) fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
         return Ok(override_hash);
     }
 
-    let mut h = Xxh3::with_seed(VALUE_HASH_SEED);
-    feed_u8(&mut h, VALUE_HASH_VERSION); // version
+    let mut writer = ValueHashWriter::new();
+    writer.write_value(value)?;
 
-    write_to_hasher(value, &mut h)?;
-    Ok(h.digest128().to_be_bytes())
+    Ok(writer.finish())
 }

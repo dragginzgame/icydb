@@ -8,7 +8,7 @@ use crate::{
         direction::Direction,
         executor::{
             aggregate::contracts::{error::GroupError, spec::AggregateKind},
-            group::{CanonicalKey, GroupKey, GroupKeySet, StableHash},
+            group::{CanonicalKey, GroupKey, GroupKeySet},
         },
         query::plan::FieldSlot,
     },
@@ -17,8 +17,8 @@ use crate::{
 };
 use std::mem::size_of;
 
-use crate::db::executor::aggregate::contracts::grouped::engine::{
-    GroupedAggregateState, GroupedAggregateStateSlot,
+use crate::db::executor::aggregate::contracts::{
+    grouped::engine::GroupedAggregateState, state::GroupedTerminalAggregateState,
 };
 
 ///
@@ -73,9 +73,8 @@ impl ExecutionBudget {
         &mut self,
         config: &ExecutionConfig,
         new_group_key: bool,
-        created_bucket: bool,
-        bucket_len: usize,
-        bucket_capacity: usize,
+        group_count_before_insert: usize,
+        group_capacity_before_insert: usize,
     ) -> Result<(), GroupError> {
         let next_groups = if new_group_key {
             self.groups.saturating_add(1)
@@ -90,7 +89,8 @@ impl ExecutionBudget {
             });
         }
 
-        let bytes_delta = estimated_new_group_bytes(created_bucket, bucket_len, bucket_capacity);
+        let bytes_delta =
+            estimated_new_group_bytes(group_count_before_insert, group_capacity_before_insert);
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
             return Err(GroupError::MemoryLimitExceeded {
@@ -227,7 +227,7 @@ impl ExecutionConfig {
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
     #[must_use]
-    pub(in crate::db::executor) const fn new(config: ExecutionConfig) -> Self {
+    pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
         Self {
             config,
             budget: ExecutionBudget::new(),
@@ -288,9 +288,8 @@ impl ExecutionContext {
     pub(in crate::db::executor::aggregate) fn record_new_group(
         &mut self,
         group_key: &GroupKey,
-        created_bucket: bool,
-        bucket_len: usize,
-        bucket_capacity: usize,
+        group_count_before_insert: usize,
+        group_capacity_before_insert: usize,
     ) -> Result<(), GroupError> {
         // Count `max_groups` against unique canonical group keys across the
         // full grouped query, not per-aggregate state machine instance.
@@ -298,9 +297,8 @@ impl ExecutionContext {
         self.budget.record_new_group_state(
             &self.config,
             new_group_key,
-            created_bucket,
-            bucket_len,
-            bucket_capacity,
+            group_count_before_insert,
+            group_capacity_before_insert,
         )?;
         if new_group_key {
             let inserted = self.seen_groups.insert_key(group_key.clone());
@@ -370,32 +368,25 @@ impl ExecutionContext {
             .canonical_key()
             .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
 
-        self.record_new_group(&implicit_group_key, true, 0, 0)
+        self.record_new_group(&implicit_group_key, 0, 0)
     }
 }
 
 fn estimated_new_group_bytes(
-    created_bucket: bool,
-    bucket_len: usize,
-    bucket_capacity: usize,
+    group_count_before_insert: usize,
+    group_capacity_before_insert: usize,
 ) -> u64 {
-    let slot_size = size_of::<GroupedAggregateStateSlot>();
-    let map_entry_size = if created_bucket {
-        size_of::<(StableHash, Vec<GroupedAggregateStateSlot>)>()
+    let entry_size = size_of::<(GroupKey, GroupedTerminalAggregateState)>();
+    let entry_growth = if group_count_before_insert < group_capacity_before_insert {
+        entry_size
     } else {
-        0
-    };
-
-    let slot_growth = if bucket_len < bucket_capacity {
-        slot_size
-    } else {
-        let projected_capacity = projected_vec_capacity_after_push(bucket_capacity);
+        let projected_capacity = projected_capacity_after_insert(group_capacity_before_insert);
         projected_capacity
-            .saturating_sub(bucket_capacity)
-            .saturating_mul(slot_size)
+            .saturating_sub(group_capacity_before_insert)
+            .saturating_mul(entry_size)
     };
 
-    saturating_u64_from_usize(map_entry_size.saturating_add(slot_growth))
+    saturating_u64_from_usize(entry_growth)
 }
 
 const fn derived_max_distinct_values_per_group(max_group_bytes: u64) -> u64 {
@@ -403,7 +394,7 @@ const fn derived_max_distinct_values_per_group(max_group_bytes: u64) -> u64 {
     if derived == 0 { 1 } else { derived }
 }
 
-const fn projected_vec_capacity_after_push(current_capacity: usize) -> usize {
+const fn projected_capacity_after_insert(current_capacity: usize) -> usize {
     if current_capacity == 0 {
         1
     } else {

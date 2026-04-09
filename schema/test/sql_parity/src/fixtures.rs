@@ -3,6 +3,25 @@ use crate::schema::{
     PlannerPrefixChoice, PlannerUniquePrefixChoice,
 };
 
+const PERF_CUSTOMER_NAMES: &[&str] = &[
+    "alice", "bob", "charlie", "diana", "eve", "frank", "grace", "heidi", "ivan", "judy",
+    "mallory", "niaj", "olivia", "peggy", "trent", "victor",
+];
+const PERF_CUSTOMER_AGES: &[i32] = &[21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54];
+const PERF_ACCOUNT_TIERS: &[&str] = &["bronze", "silver", "gold", "platinum"];
+const PERF_ACCOUNT_HANDLES: &[&str] = &[
+    "amber", "bramble", "bravo", "brisk", "bristle", "cinder", "delta", "ember",
+];
+const PERF_ORDER_STATUSES: &[&str] = &[
+    "Alpha",
+    "Backlog",
+    "Billing",
+    "Closed",
+    "Draft",
+    "Escalated",
+];
+const PERF_ORDER_PRIORITIES: &[u16] = &[10, 20, 20, 30, 40, 50];
+
 /// Build one deterministic baseline customer fixture batch.
 #[must_use]
 pub fn customers() -> Vec<Customer> {
@@ -23,6 +42,26 @@ pub fn customers() -> Vec<Customer> {
             ..Default::default()
         },
     ]
+}
+
+/// Build one larger deterministic customer fixture batch for perf audits.
+#[must_use]
+pub fn perf_audit_customers() -> Vec<Customer> {
+    let cohort_count = 4usize;
+    let mut rows = Vec::with_capacity(PERF_CUSTOMER_NAMES.len() * cohort_count);
+
+    for cohort in 0..cohort_count {
+        for (name_index, name) in PERF_CUSTOMER_NAMES.iter().enumerate() {
+            let age = PERF_CUSTOMER_AGES[(cohort + name_index) % PERF_CUSTOMER_AGES.len()];
+            rows.push(Customer {
+                name: (*name).to_string(),
+                age,
+                ..Default::default()
+            });
+        }
+    }
+
+    rows
 }
 
 /// Build one deterministic baseline customer-account fixture batch.
@@ -65,6 +104,32 @@ pub fn customer_accounts() -> Vec<CustomerAccount> {
             ..Default::default()
         },
     ]
+}
+
+/// Build one larger deterministic customer-account fixture batch for perf audits.
+#[must_use]
+pub fn perf_audit_customer_accounts() -> Vec<CustomerAccount> {
+    let row_count = 24usize;
+    let mut rows = Vec::with_capacity(row_count);
+
+    for offset in 0..row_count {
+        let tier = PERF_ACCOUNT_TIERS[(offset / 8) % PERF_ACCOUNT_TIERS.len()];
+        let handle_seed = PERF_ACCOUNT_HANDLES[offset % PERF_ACCOUNT_HANDLES.len()];
+        let handle = if offset % 5 == 0 {
+            handle_seed.to_ascii_uppercase()
+        } else {
+            format!("{handle_seed}-{offset:03}")
+        };
+        rows.push(CustomerAccount {
+            name: format!("acct-{offset:03}"),
+            active: offset % 4 != 0,
+            tier: tier.to_string(),
+            handle,
+            ..Default::default()
+        });
+    }
+
+    rows
 }
 
 /// Build one deterministic baseline customer-order fixture batch.
@@ -138,6 +203,35 @@ pub fn customer_orders() -> Vec<CustomerOrder> {
             ..Default::default()
         },
     ]
+}
+
+/// Build one larger deterministic customer-order fixture batch for perf audits.
+#[must_use]
+pub fn perf_audit_customer_orders() -> Vec<CustomerOrder> {
+    let row_count = 36usize;
+    let mut rows = Vec::with_capacity(row_count);
+
+    for offset in 0..row_count {
+        let status = PERF_ORDER_STATUSES[offset % PERF_ORDER_STATUSES.len()];
+        let priority = PERF_ORDER_PRIORITIES[offset % PERF_ORDER_PRIORITIES.len()];
+        rows.push(CustomerOrder {
+            name: format!("P-{offset:04}"),
+            priority,
+            status: status.to_string(),
+            labels: vec![
+                format!("priority-{priority}"),
+                status.to_ascii_lowercase(),
+                format!("bucket-{}", offset % 12),
+            ],
+            profile: CustomerOrderProfile {
+                summary: format!("order-{offset:04}"),
+                bucket: u16::try_from(offset % 12).expect("perf order bucket must fit in u16"),
+            },
+            ..Default::default()
+        });
+    }
+
+    rows
 }
 
 /// Build one deterministic planner-choice fixture batch.

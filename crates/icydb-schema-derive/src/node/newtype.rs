@@ -76,16 +76,12 @@ impl HasTraits for Newtype {
         let mut traits = self.traits.with_type_traits().build();
 
         // all newtypes
-        traits.extend(vec![
-            TraitKind::FieldValue,
-            TraitKind::Inherent,
-            TraitKind::Inner,
-        ]);
+        traits.extend([TraitKind::FieldValue, TraitKind::Inherent, TraitKind::Inner]);
 
         // primitive traits
         if let Some(primitive) = self.primitive {
             if primitive.supports_arithmetic() {
-                traits.extend(vec![
+                traits.extend([
                     TraitKind::Add,
                     TraitKind::AddAssign,
                     TraitKind::Div,

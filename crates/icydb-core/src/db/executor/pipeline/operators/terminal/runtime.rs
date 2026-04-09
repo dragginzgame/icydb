@@ -883,9 +883,9 @@ fn try_materialize_sql_covering_slot_rows(
                     continue;
                 }
 
-                // Build one sparse retained-slot row from the constant
-                // template and primary key instead of carrying a dense slot
-                // vector through the structural page.
+                // Build one dense retained execution row from the constant
+                // template and primary key so downstream slot reads stay on
+                // direct indexing through projection and predicate paths.
                 let mut row = slot_template.clone();
                 row[primary_key_slot] = Some(key.storage_key().as_primary_key_value());
 
@@ -897,15 +897,7 @@ fn try_materialize_sql_covering_slot_rows(
                     continue;
                 }
 
-                let slot_count = row.len();
-                let entries = row
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(slot, value)| value.map(|value| (slot, value)))
-                    .collect::<Vec<_>>();
-                rows.push(crate::db::executor::RetainedSlotRow::new(
-                    slot_count, entries,
-                ));
+                rows.push(crate::db::executor::RetainedSlotRow::from_dense_slots(row));
             }
         } else {
             while let Some(key) = key_stream.next_key()? {
@@ -920,9 +912,9 @@ fn try_materialize_sql_covering_slot_rows(
                     continue;
                 }
 
-                // Build one sparse retained-slot row from the constant
-                // template and primary key instead of carrying a dense slot
-                // vector through the structural page.
+                // Build one dense retained execution row from the constant
+                // template and primary key so downstream slot reads stay on
+                // direct indexing through projection and predicate paths.
                 let mut row = slot_template.clone();
                 row[primary_key_slot] = Some(key.storage_key().as_primary_key_value());
 
@@ -934,15 +926,7 @@ fn try_materialize_sql_covering_slot_rows(
                     continue;
                 }
 
-                let slot_count = row.len();
-                let entries = row
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(slot, value)| value.map(|value| (slot, value)))
-                    .collect::<Vec<_>>();
-                rows.push(crate::db::executor::RetainedSlotRow::new(
-                    slot_count, entries,
-                ));
+                rows.push(crate::db::executor::RetainedSlotRow::from_dense_slots(row));
             }
         }
 
@@ -1476,7 +1460,7 @@ fn sql_route_covering_slot_layout(
     let mut covered_slots = vec![false; model.fields.len()];
     let mut component_slots = Vec::<CoveringComponentSlotGroup>::new();
 
-    // Phase 1: project one sparse slot layout from the planner-owned contract and
+    // Phase 1: project one dense slot layout from the planner-owned contract and
     // group decoded component fields by their index component position.
     covered_slots[primary_key_slot] = true;
     for field in &covering.fields {
@@ -1774,22 +1758,13 @@ fn sql_route_covering_slot_rows_from_decoded(
     let mut rows = Vec::with_capacity(decoded_rows.len());
 
     for (data_key, component_values) in decoded_rows {
-        // Phase 1: build one fresh sparse slot row from the immutable covering
-        // layout instead of cloning a full slot template per decoded key.
-        let mut row = Vec::with_capacity(
-            1 + layout.constant_slots.len()
-                + layout
-                    .component_slots
-                    .iter()
-                    .map(|(_, slots)| slots.len())
-                    .sum::<usize>(),
-        );
-        row.push((
-            layout.primary_key_slot,
-            data_key.storage_key().as_primary_key_value(),
-        ));
+        // Phase 1: build one fresh dense retained row from the immutable
+        // covering layout so every downstream slot read stays on indexing.
+        let mut retained_slots = vec![None; layout.slot_count];
+        retained_slots[layout.primary_key_slot] =
+            Some(data_key.storage_key().as_primary_key_value());
         for (slot, value) in &layout.constant_slots {
-            row.push((*slot, value.clone()));
+            retained_slots[*slot] = Some(value.clone());
         }
 
         // Phase 2: fill decoded component values, cloning only when one
@@ -1804,26 +1779,22 @@ fn sql_route_covering_slot_rows_from_decoded(
             };
 
             for slot in prefix_slots {
-                row.push((*slot, component_value.clone()));
+                retained_slots[*slot] = Some(component_value.clone());
             }
-            row.push((*last_slot, component_value));
+            retained_slots[*last_slot] = Some(component_value);
         }
+        let retained_row = crate::db::executor::RetainedSlotRow::from_dense_slots(retained_slots);
 
         // Phase 3: preserve the residual predicate contract before staging the
         // row into the SQL projection output.
         if let Some(predicate_program) = predicate_slots
-            && !predicate_program.eval_with_slot_value_ref_reader(&mut |slot| {
-                row.iter()
-                    .find_map(|(index, value)| (*index == slot).then_some(value))
-            })
+            && !predicate_program
+                .eval_with_slot_value_ref_reader(&mut |slot| retained_row.slot_ref(slot))
         {
             continue;
         }
 
-        rows.push((
-            data_key,
-            crate::db::executor::RetainedSlotRow::new(layout.slot_count, row),
-        ));
+        rows.push((data_key, retained_row));
     }
 
     rows

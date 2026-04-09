@@ -18,7 +18,7 @@ use crate::{
                     ScalarAggregateState, ScalarTerminalAggregateState,
                 },
             },
-            group::{GroupKey, StableHash, canonical_group_key_equals},
+            group::{GroupKey, StableHash},
             pipeline::contracts::RowView,
         },
         query::plan::FieldSlot,
@@ -26,7 +26,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 type ScalarAggregateIngestAllFn<'f> =
     dyn FnMut(&mut ScalarAggregateEngine) -> Result<(), InternalError> + 'f;
@@ -51,32 +51,12 @@ impl GroupedAggregateOutput {
 }
 
 ///
-/// GroupedAggregateStateSlot
-///
-/// GroupedAggregateStateSlot stores one canonical group key with one
-/// group-local structural terminal aggregate state machine.
-/// Slots remain bucket-local and are finalized deterministically.
-///
-
-pub(in crate::db::executor::aggregate::contracts::grouped) struct GroupedAggregateStateSlot {
-    group_key: GroupKey,
-    state: GroupedTerminalAggregateState,
-}
-
-impl GroupedAggregateStateSlot {
-    #[must_use]
-    const fn group_key(&self) -> &GroupKey {
-        &self.group_key
-    }
-}
-
-///
 /// GroupedAggregateState
 ///
 /// GroupedAggregateState stores per-group grouped aggregate state machines
-/// keyed by canonical group keys and stable-hash buckets.
-/// Group-local states are built by `AggregateStateFactory` and finalized in a
-/// deterministic order independent of insertion order.
+/// keyed directly by canonical group keys.
+/// Group-local states are built by `AggregateStateFactory` and finalized in
+/// canonical key order independent of hash-table insertion order.
 ///
 
 pub(in crate::db::executor) struct GroupedAggregateState {
@@ -85,7 +65,8 @@ pub(in crate::db::executor) struct GroupedAggregateState {
     distinct: bool,
     target_field: Option<FieldSlot>,
     max_distinct_values_per_group: u64,
-    groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot>>,
+    borrowed_lookup_keys: HashMap<StableHash, Vec<GroupKey>>,
+    groups: HashMap<GroupKey, GroupedTerminalAggregateState>,
 }
 
 impl GroupedAggregateState {
@@ -143,8 +124,63 @@ impl GroupedAggregateState {
             distinct,
             target_field,
             max_distinct_values_per_group,
-            groups: BTreeMap::new(),
+            borrowed_lookup_keys: HashMap::new(),
+            groups: HashMap::new(),
         })
+    }
+
+    // Return true when one canonical grouped key matches the borrowed grouped
+    // slot values from this row under the grouped executor equality contract.
+    fn group_key_matches_row_view(
+        group_key: &GroupKey,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+    ) -> Result<bool, InternalError> {
+        let Value::List(canonical_group_values) = group_key.canonical_value() else {
+            return Err(InternalError::query_executor_invariant(
+                "grouped aggregate key must remain a canonical Value::List".to_string(),
+            ));
+        };
+        if canonical_group_values.len() != group_fields.len() {
+            return Err(InternalError::query_executor_invariant(format!(
+                "grouped aggregate key field count drifted from route group fields: key_len={} group_fields_len={}",
+                canonical_group_values.len(),
+                group_fields.len(),
+            )));
+        }
+
+        for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
+            if canonical_value_compare(
+                row_view.require_slot_ref(field.index())?,
+                canonical_group_value,
+            ) != std::cmp::Ordering::Equal
+            {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    // Search one borrowed stable-hash bucket for a canonical grouped key that
+    // matches the current row without first materializing an owned `GroupKey`.
+    fn find_matching_borrowed_group_key(
+        &self,
+        borrowed_group_hash: StableHash,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+    ) -> Result<Option<GroupKey>, GroupError> {
+        let Some(bucket) = self.borrowed_lookup_keys.get(&borrowed_group_hash) else {
+            return Ok(None);
+        };
+
+        for group_key in bucket {
+            if Self::group_key_matches_row_view(group_key, row_view, group_fields)? {
+                return Ok(Some(group_key.clone()));
+            }
+        }
+
+        Ok(None)
     }
 
     // Apply one `(group_key, data_key)` row into grouped aggregate state using
@@ -168,42 +204,15 @@ impl GroupedAggregateState {
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
-        // Phase 1: resolve updates for existing buckets/groups.
-        let hash = group_key.hash();
-        if let Some(bucket) = self.groups.get_mut(&hash) {
-            if let Some(slot) = bucket
-                .iter_mut()
-                .find(|slot| canonical_group_key_equals(slot.group_key(), group_key))
-            {
-                return slot
-                    .state
-                    .apply_with_row_view(data_key, row_view, execution_context);
-            }
-
-            // New group in an existing bucket.
-            let mut state = AggregateStateFactory::create_grouped_terminal(
-                self.kind,
-                self.direction,
-                self.distinct,
-                self.target_field.clone(),
-                self.max_distinct_values_per_group,
-            );
-            let fold_control = state.apply_with_row_view(data_key, row_view, execution_context)?;
-            execution_context.record_new_group(
-                group_key,
-                false,
-                bucket.len(),
-                bucket.capacity(),
-            )?;
-            bucket.push(GroupedAggregateStateSlot {
-                group_key: group_key.clone(),
-                state,
-            });
-
-            return Ok(fold_control);
+        // Phase 1: resolve updates for existing groups directly by canonical
+        // grouped key instead of routing through a stable-hash bucket scan.
+        if let Some(state) = self.groups.get_mut(group_key) {
+            return state.apply_with_row_view(data_key, row_view, execution_context);
         }
 
-        // Phase 2: create a new bucket + group when hash was unseen.
+        // Phase 2: create a new group when the canonical key is unseen.
+        let group_count_before_insert = self.groups.len();
+        let group_capacity_before_insert = self.groups.capacity();
         let mut state = AggregateStateFactory::create_grouped_terminal(
             self.kind,
             self.direction,
@@ -212,41 +221,79 @@ impl GroupedAggregateState {
             self.max_distinct_values_per_group,
         );
         let fold_control = state.apply_with_row_view(data_key, row_view, execution_context)?;
-        execution_context.record_new_group(group_key, true, 0, 0)?;
-        self.groups.insert(
-            hash,
-            vec![GroupedAggregateStateSlot {
-                group_key: group_key.clone(),
-                state,
-            }],
-        );
+        execution_context.record_new_group(
+            group_key,
+            group_count_before_insert,
+            group_capacity_before_insert,
+        )?;
+        self.groups.insert(group_key.clone(), state);
+        self.borrowed_lookup_keys
+            .entry(group_key.hash())
+            .or_default()
+            .push(group_key.clone());
 
         Ok(fold_control)
+    }
+
+    // Apply one grouped row while probing existing groups from borrowed row
+    // slots first and materializing an owned canonical key only on misses.
+    pub(in crate::db::executor::aggregate) fn apply_with_borrowed_group_probe(
+        &mut self,
+        data_key: &DataKey,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+        borrowed_group_hash: Option<StableHash>,
+        owned_group_key: &mut Option<GroupKey>,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<FoldControl, GroupError> {
+        // Phase 1: keep existing-group hits on borrowed row-slot hashing and
+        // equality so the generic grouped ingest path matches the specialized
+        // grouped-count fast path.
+        if let Some(borrowed_group_hash) = borrowed_group_hash
+            && let Some(matched_group_key) =
+                self.find_matching_borrowed_group_key(borrowed_group_hash, row_view, group_fields)?
+        {
+            let state = self.groups.get_mut(&matched_group_key).ok_or_else(|| {
+                GroupError::from(InternalError::query_executor_invariant(format!(
+                    "grouped aggregate state missing borrowed-probed group key: hash={borrowed_group_hash}",
+                )))
+            })?;
+
+            return state.apply_with_row_view(data_key, Some(row_view), execution_context);
+        }
+
+        // Phase 2: fall back to one lazily materialized canonical grouped key
+        // when the row opens a new group or uses structured grouped values.
+        let group_key = match owned_group_key {
+            Some(group_key) => group_key,
+            None => {
+                let group_values = row_view.group_values(group_fields)?;
+                let group_key = GroupKey::from_group_values(group_values)
+                    .map_err(crate::db::executor::group::KeyCanonicalError::into_group_error)?;
+                owned_group_key.insert(group_key)
+            }
+        };
+
+        self.apply_borrowed_with_row_view(group_key, data_key, Some(row_view), execution_context)
     }
 
     /// Finalize all groups into deterministic grouped aggregate outputs.
     #[must_use]
     pub(in crate::db::executor::aggregate) fn finalize(self) -> Vec<GroupedAggregateOutput> {
-        let expected_output_count = self
-            .groups
-            .values()
-            .fold(0usize, |count, bucket| count.saturating_add(bucket.len()));
+        let expected_output_count = self.groups.len();
         let mut out = Vec::with_capacity(expected_output_count);
 
-        // Phase 1: finalize every grouped state slot into one flat output
-        // buffer without treating stable-hash bucket order as output order.
-        for (_, bucket) in self.groups {
-            for slot in bucket {
-                out.push(GroupedAggregateOutput {
-                    group_key: slot.group_key,
-                    output: slot.state.finalize(),
-                });
-            }
+        // Phase 1: finalize every grouped state into one flat output buffer.
+        for (group_key, state) in self.groups {
+            out.push(GroupedAggregateOutput {
+                group_key,
+                output: state.finalize(),
+            });
         }
 
         // Phase 2: sort finalized rows globally by canonical grouped-key
-        // value so ordered grouped execution never inherits stable-hash
-        // bucket order as an accidental output contract.
+        // value so ordered grouped execution never inherits hash-table
+        // iteration order as an accidental output contract.
         out.sort_by(|left, right| {
             canonical_value_compare(
                 left.group_key.canonical_value(),
@@ -278,8 +325,10 @@ pub(in crate::db::executor) trait GroupedAggregateEngine {
         &mut self,
         execution_context: &mut ExecutionContext,
         data_key: &DataKey,
-        group_key: &GroupKey,
         row_view: &RowView,
+        group_fields: &[FieldSlot],
+        borrowed_group_hash: Option<StableHash>,
+        owned_group_key: &mut Option<GroupKey>,
     ) -> Result<FoldControl, GroupError>;
 
     /// Finalize one grouped aggregate engine into structural `(group_key, value)` pairs.
@@ -291,10 +340,19 @@ impl GroupedAggregateEngine for GroupedAggregateState {
         &mut self,
         execution_context: &mut ExecutionContext,
         data_key: &DataKey,
-        group_key: &GroupKey,
         row_view: &RowView,
+        group_fields: &[FieldSlot],
+        borrowed_group_hash: Option<StableHash>,
+        owned_group_key: &mut Option<GroupKey>,
     ) -> Result<FoldControl, GroupError> {
-        self.apply_borrowed_with_row_view(group_key, data_key, Some(row_view), execution_context)
+        self.apply_with_borrowed_group_probe(
+            data_key,
+            row_view,
+            group_fields,
+            borrowed_group_hash,
+            owned_group_key,
+            execution_context,
+        )
     }
 
     fn finalize(self: Box<Self>) -> Result<Vec<(Value, Value)>, InternalError> {
@@ -320,10 +378,7 @@ pub(in crate::db::executor) struct ScalarAggregateEngine {
 impl ScalarAggregateEngine {
     /// Build one scalar aggregate engine.
     #[must_use]
-    pub(in crate::db::executor) const fn new_scalar(
-        kind: AggregateKind,
-        direction: Direction,
-    ) -> Self {
+    pub(in crate::db::executor) fn new_scalar(kind: AggregateKind, direction: Direction) -> Self {
         Self {
             state: AggregateStateFactory::create_scalar_terminal(kind, direction, false),
         }

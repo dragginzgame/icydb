@@ -29,7 +29,8 @@ pub use icydb_core::db::{
 #[cfg(feature = "structural-read-metrics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
-    RowCheckMetrics, StructuralReadMetrics, with_row_check_metrics, with_structural_read_metrics,
+    GroupedCountFoldMetrics, RowCheckMetrics, StructuralReadMetrics,
+    with_grouped_count_fold_metrics, with_row_check_metrics, with_structural_read_metrics,
 };
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 #[doc(hidden)]

@@ -128,8 +128,9 @@ impl RowDecoder {
         let reader = decode_row_fields(row, layout.model)?;
         reader.validate_storage_key_value(expected_key)?;
 
-        // Phase 2: retain only the caller-declared slot/value pairs so the
-        // slot-only SQL path stays sparse through later projection stages.
+        // Phase 2: retain only the caller-declared slot/value pairs while
+        // placing them straight into the dense execution-row shape used by the
+        // slot-only SQL path.
         decode_retained_structural_slots(reader, layout, required_slots)
     }
 }
@@ -210,13 +211,13 @@ fn decode_retained_structural_slots(
     layout: &RowLayout,
     required_slots: &[usize],
 ) -> Result<RetainedSlotRow, InternalError> {
-    let mut entries = Vec::with_capacity(required_slots.len());
+    let mut slots = vec![None; layout.field_count];
 
     for &slot in required_slots {
-        entries.push((slot, reader.required_value_by_contract(slot)?));
+        slots[slot] = Some(reader.required_value_by_contract(slot)?);
     }
 
-    Ok(RetainedSlotRow::new(layout.field_count, entries))
+    Ok(RetainedSlotRow::from_dense_slots(slots))
 }
 
 // Decode the persisted row envelope into slot-aligned encoded field payload spans.

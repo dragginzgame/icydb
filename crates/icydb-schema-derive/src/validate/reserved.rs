@@ -9,7 +9,7 @@ static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     let mut words = Vec::new();
 
     // candid
-    words.extend(vec![
+    words.extend([
         "blob",
         "bool",
         "composite_query",
@@ -44,7 +44,7 @@ static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 
     // rust
     // https://doc.rust-lang.org/reference/keywords.html
-    words.extend(vec![
+    words.extend([
         "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
         "for", "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
         "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type",

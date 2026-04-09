@@ -695,7 +695,7 @@ pub(in crate::db::executor) struct AggregateStateFactory;
 impl AggregateStateFactory {
     /// Build one scalar terminal aggregate state machine for kernel reducers.
     #[must_use]
-    pub(in crate::db::executor) const fn create_scalar_terminal(
+    pub(in crate::db::executor) fn create_scalar_terminal(
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
@@ -717,7 +717,7 @@ impl AggregateStateFactory {
 
     /// Build one grouped terminal aggregate state machine for grouped reducers.
     #[must_use]
-    pub(in crate::db::executor) const fn create_grouped_terminal(
+    pub(in crate::db::executor) fn create_grouped_terminal(
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,

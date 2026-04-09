@@ -32,35 +32,40 @@ use std::{borrow::Cow, marker::PhantomData, ptr};
 ///
 /// RetainedSlotRow keeps only the caller-declared decoded slot values for one
 /// SQL-only structural row.
-/// The slot-only execution path uses this sparse retained shape so it does not
-/// collapse back into full-width `Vec<Option<Value>>` buffers before
-/// projection materialization.
+/// The slot-only execution path keeps those retained values in one dense
+/// optional slot image so hot slot reads stay on direct indexing instead of
+/// per-access scans across sparse `(slot, value)` pairs.
 ///
 
 pub(in crate::db::executor) struct RetainedSlotRow {
-    slot_count: usize,
-    entries: Vec<(usize, Value)>,
+    slots: Vec<Option<Value>>,
 }
 
 impl RetainedSlotRow {
     /// Build one retained slot row from sparse decoded `(slot, value)` pairs.
+    #[cfg(test)]
     #[must_use]
-    pub(in crate::db::executor) const fn new(
-        slot_count: usize,
-        entries: Vec<(usize, Value)>,
-    ) -> Self {
-        Self {
-            slot_count,
-            entries,
+    pub(in crate::db::executor) fn new(slot_count: usize, entries: Vec<(usize, Value)>) -> Self {
+        let mut slots = vec![None; slot_count];
+        for (slot, value) in entries {
+            if let Some(entry) = slots.get_mut(slot) {
+                *entry = Some(value);
+            }
         }
+
+        Self { slots }
+    }
+
+    /// Build one retained slot row from an already-dense slot image.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_dense_slots(slots: Vec<Option<Value>>) -> Self {
+        Self { slots }
     }
 
     /// Borrow one retained slot value without cloning it back out of the row.
     #[must_use]
     pub(in crate::db::executor) fn slot_ref(&self, slot: usize) -> Option<&Value> {
-        self.entries
-            .iter()
-            .find_map(|(index, value)| (*index == slot).then_some(value))
+        self.slots.get(slot).and_then(Option::as_ref)
     }
 
     /// Clone one retained slot value for generic projection readers.
@@ -72,24 +77,14 @@ impl RetainedSlotRow {
     /// Remove one retained slot value by slot index while consuming the row in
     /// direct field-projection paths.
     pub(in crate::db::executor) fn take_slot(&mut self, slot: usize) -> Option<Value> {
-        let position = self.entries.iter().position(|(index, _)| *index == slot)?;
-
-        Some(self.entries.swap_remove(position).1)
+        self.slots.get_mut(slot)?.take()
     }
 
     /// Expand this retained row back into one dense slot vector only when a
     /// caller still requires the legacy full-width slot image.
     #[must_use]
     pub(in crate::db::executor) fn into_dense_slots(self) -> Vec<Option<Value>> {
-        let mut slots = vec![None; self.slot_count];
-
-        for (slot, value) in self.entries {
-            if let Some(entry) = slots.get_mut(slot) {
-                *entry = Some(value);
-            }
-        }
-
-        slots
+        self.slots
     }
 }
 
@@ -161,16 +156,7 @@ impl KernelRow {
 
     pub(in crate::db::executor) fn into_retained_slot_row(self) -> RetainedSlotRow {
         match self.slots {
-            KernelRowSlots::Dense(slots) => {
-                let slot_count = slots.len();
-                let entries = slots
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(slot, value)| value.map(|value| (slot, value)))
-                    .collect();
-
-                RetainedSlotRow::new(slot_count, entries)
-            }
+            KernelRowSlots::Dense(slots) => RetainedSlotRow::from_dense_slots(slots),
             KernelRowSlots::Retained(slots) => slots,
         }
     }
@@ -707,4 +693,33 @@ fn apply_pagination_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>
 fn apply_delete_limit_window<T>(rows: &mut Vec<T>, max_rows: u32) {
     let limit = usize::min(rows.len(), max_rows as usize);
     rows.truncate(limit);
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retained_slot_row_slot_ref_and_take_slot_use_indexed_lookup() {
+        let mut row = RetainedSlotRow::new(
+            8,
+            vec![
+                (1, Value::Text("alpha".to_string())),
+                (5, Value::Uint(7)),
+                (3, Value::Bool(true)),
+            ],
+        );
+
+        assert_eq!(row.slot_ref(5), Some(&Value::Uint(7)));
+        assert_eq!(row.take_slot(1), Some(Value::Text("alpha".to_string())));
+        assert_eq!(row.slot_ref(1), None);
+        assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
+        assert_eq!(row.take_slot(5), Some(Value::Uint(7)));
+        assert_eq!(row.slot_ref(5), None);
+        assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
+    }
 }

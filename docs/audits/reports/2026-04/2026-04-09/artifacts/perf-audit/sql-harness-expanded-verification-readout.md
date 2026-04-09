@@ -1,0 +1,21 @@
+# Verification Readout
+
+- current-tree command:
+  - `POCKET_IC_BIN=/tmp/pocket-ic-server-13.0.0/pocket-ic CARGO_TARGET_DIR=/tmp/icydb-sql-expanded-current-target cargo test -p icydb-testing-integration --test sql_canister sql_canister_perf_harness_reports_positive_instruction_samples -- --nocapture`
+- current-tree status:
+  - passed
+- baseline preparation:
+  - copied the benchmark-only files from the current tree into `/tmp/icydb-head-bench`:
+    - `testing/pocket-ic/tests/sql_canister.rs`
+    - `canisters/test/sql_parity/src/lib.rs`
+    - `schema/test/sql_parity/src/fixtures.rs`
+- baseline command:
+  - `cd /tmp/icydb-head-bench && POCKET_IC_BIN=/tmp/pocket-ic-server-13.0.0/pocket-ic CARGO_TARGET_DIR=/tmp/icydb-sql-expanded-head-target cargo test -p icydb-testing-integration --test sql_canister sql_canister_perf_harness_reports_positive_instruction_samples -- --nocapture`
+- baseline status:
+  - passed
+- baseline revision:
+  - `31e27185fb4b746c7023a2b28186cf6bfd9aef95`
+- extraction notes:
+  - both successful runs emitted `139` scenario rows
+  - the JSON arrays were extracted directly from the checked-in perf harness output
+  - the full comparison table was written to `sql-harness-expanded-delta.tsv`

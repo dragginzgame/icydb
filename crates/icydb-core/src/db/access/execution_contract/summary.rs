@@ -10,7 +10,7 @@ use crate::{
     model::index::IndexModel,
     value::Value,
 };
-use std::{fmt, ops::Bound};
+use std::{fmt, fmt::Write as _, ops::Bound};
 
 pub(in crate::db::access::execution_contract) fn summarize_executable_access_plan<K>(
     plan: &ExecutableAccessPlan<'_, K>,
@@ -116,13 +116,17 @@ fn summarize_index_range_with_model(
 }
 
 fn summarize_index_prefix_terms(index_fields: &[&'static str], values: &[Value]) -> String {
-    index_fields
-        .iter()
-        .copied()
-        .zip(values.iter())
-        .map(|(field, value)| format!("{field}={}", summarize_value(value)))
-        .collect::<Vec<_>>()
-        .join(", ")
+    let mut summary = String::new();
+
+    for (field, value) in index_fields.iter().copied().zip(values.iter()) {
+        if !summary.is_empty() {
+            summary.push_str(", ");
+        }
+        write!(&mut summary, "{field}={}", summarize_value(value),)
+            .expect("writing to String should succeed");
+    }
+
+    summary
 }
 
 fn summarize_interval(lower: &Bound<Value>, upper: &Bound<Value>) -> String {

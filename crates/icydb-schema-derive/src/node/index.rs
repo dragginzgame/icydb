@@ -57,10 +57,14 @@ impl Index {
     /// Build the canonical index name (`entity|key_item|...`) shared across
     /// validation and codegen.
     pub fn generated_name(&self, entity_name: &str) -> String {
-        std::iter::once(entity_name.to_string())
-            .chain(self.generated_name_segments())
-            .collect::<Vec<_>>()
-            .join("|")
+        let mut name = entity_name.to_string();
+
+        for segment in self.generated_name_segments() {
+            name.push('|');
+            name.push_str(segment.as_str());
+        }
+
+        name
     }
 
     pub fn runtime_part(&self, entity_name: &str, store: &Path, ordinal: usize) -> TokenStream {

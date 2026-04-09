@@ -18,12 +18,10 @@ pub(in crate::db::executor) use materialize::mark_projection_referenced_slots;
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 #[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
 pub(in crate::db::executor) use materialize::record_sql_projection_full_row_decode_materialization;
+pub(in crate::db::executor) use materialize::validate_projection_over_slot_rows;
 #[cfg(all(feature = "sql", feature = "structural-read-metrics"))]
 pub use materialize::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
-pub(in crate::db::executor) use materialize::{
-    evaluate_grouped_projection_values, validate_projection_over_slot_rows,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use materialize::{

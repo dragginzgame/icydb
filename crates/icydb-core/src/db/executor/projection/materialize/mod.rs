@@ -21,13 +21,10 @@ use crate::{
     types::Id,
 };
 
-use crate::db::executor::projection::{
-    eval::{
-        ProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
-        eval_expr_grouped, eval_expr_with_required_value_reader, eval_expr_with_slot_reader,
-        eval_scalar_projection_expr_with_value_reader,
-    },
-    grouped::GroupedRowView,
+use crate::db::executor::projection::eval::{
+    ProjectionEvalError, ScalarProjectionExpr, compile_scalar_projection_expr,
+    eval_expr_with_required_value_reader, eval_expr_with_slot_reader,
+    eval_scalar_projection_expr_with_value_reader,
 };
 #[cfg(all(feature = "sql", any(test, feature = "structural-read-metrics")))]
 pub(in crate::db::executor) use structural::record_sql_projection_full_row_decode_materialization;
@@ -81,23 +78,6 @@ pub(in crate::db::executor) fn validate_projection_over_slot_rows(
     }
 
     Ok(())
-}
-
-/// Evaluate one grouped projection spec into ordered projected values.
-pub(in crate::db::executor) fn evaluate_grouped_projection_values(
-    projection: &ProjectionSpec,
-    grouped_row: &GroupedRowView<'_>,
-) -> Result<Vec<Value>, ProjectionEvalError> {
-    let mut projected_values = Vec::with_capacity(projection.len());
-    for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                projected_values.push(eval_expr_grouped(expr, grouped_row)?);
-            }
-        }
-    }
-
-    Ok(projected_values)
 }
 
 /// Resolve one direct field-slot projection layout when every output stays on

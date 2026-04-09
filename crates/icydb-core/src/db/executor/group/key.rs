@@ -11,7 +11,11 @@ use crate::{
     error::InternalError,
     value::{MapValueError, Value},
 };
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::HashSet,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 ///
 /// KeyCanonicalError
@@ -85,7 +89,16 @@ pub(in crate::db) struct GroupKey {
     hash: StableHash,
 }
 
+impl Hash for GroupKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Group keys cache one stable canonical hash so hash-table probes do
+        // not need to rehash the full canonical `Value` tree in hot paths.
+        state.write_u64(self.hash);
+    }
+}
+
 /// Compare two grouped keys with canonical grouped-equality semantics.
+#[cfg(test)]
 #[must_use]
 pub(in crate::db) fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
     left == right
@@ -163,54 +176,39 @@ impl CanonicalKey for &Value {
 ///
 /// GroupKeySet
 ///
-/// GroupKeySet tracks canonical distinct keys by stable-hash bucket while
-/// preserving canonical-value equality checks inside each bucket.
+/// GroupKeySet tracks canonical distinct keys directly by canonical grouped
+/// key identity.
 ///
 
 #[derive(Debug)]
 pub(in crate::db) struct GroupKeySet {
-    buckets: BTreeMap<StableHash, Vec<GroupKey>>,
+    keys: HashSet<GroupKey>,
 }
 
 impl GroupKeySet {
     /// Construct one empty canonical grouped-key set.
     #[must_use]
-    pub(in crate::db) const fn new() -> Self {
+    pub(in crate::db) fn new() -> Self {
         Self {
-            buckets: BTreeMap::new(),
+            keys: HashSet::new(),
         }
     }
 
     /// Return true when this canonical key is already present.
     #[must_use]
     pub(in crate::db) fn contains_key(&self, key: &GroupKey) -> bool {
-        self.buckets.get(&key.hash()).is_some_and(|bucket| {
-            bucket
-                .iter()
-                .any(|existing| canonical_group_key_equals(existing, key))
-        })
+        self.keys.contains(key)
     }
 
     /// Return the total number of canonical keys tracked by this set.
     #[must_use]
     pub(in crate::db) fn len(&self) -> usize {
-        self.buckets
-            .values()
-            .fold(0usize, |count, bucket| count.saturating_add(bucket.len()))
+        self.keys.len()
     }
 
     /// Insert one canonical key and return true if it was newly observed.
     pub(in crate::db) fn insert_key(&mut self, key: GroupKey) -> bool {
-        let bucket = self.buckets.entry(key.hash()).or_default();
-        if bucket
-            .iter()
-            .any(|existing| canonical_group_key_equals(existing, &key))
-        {
-            return false;
-        }
-
-        bucket.push(key);
-        true
+        self.keys.insert(key)
     }
 
     /// Canonicalize+insert one raw value and return true when it is new.
@@ -293,10 +291,9 @@ fn canonicalize_owned_map_entries(
 
 #[cfg(test)]
 mod tests {
+    use super::canonical_group_key_equals;
     use crate::{
-        db::executor::group::{
-            CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError, canonical_group_key_equals,
-        },
+        db::executor::group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
         types::Decimal,
         value::{MapValueError, Value, with_test_hash_override},
     };

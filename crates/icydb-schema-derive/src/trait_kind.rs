@@ -268,14 +268,14 @@ pub struct TraitBuilder {
 impl TraitBuilder {
     pub(crate) fn with_type_traits(&self) -> Self {
         let mut clone = self.clone();
-        clone.add.extend(TYPE_TRAITS.to_vec());
+        clone.add.extend(TYPE_TRAITS.iter().copied());
 
         clone
     }
 
     pub(crate) fn validate(&self) -> Result<(), DarlingError> {
         let mut set = TraitSet::new();
-        set.extend(DEFAULT_TRAITS.to_vec());
+        set.extend(DEFAULT_TRAITS.iter().copied());
 
         for tr in self.add.iter() {
             if !set.insert(*tr) {
@@ -302,7 +302,7 @@ impl TraitBuilder {
         let mut set = TraitSet::new();
 
         // always set defaults
-        set.extend(DEFAULT_TRAITS.to_vec());
+        set.extend(DEFAULT_TRAITS.iter().copied());
 
         // self.add
         for tr in self.add.iter() {

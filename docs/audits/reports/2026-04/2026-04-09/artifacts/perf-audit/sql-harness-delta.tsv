@@ -1,0 +1,135 @@
+scenario_key	head_avg_local_instructions	current_avg_local_instructions	delta_local_instructions	delta_pct	sql
+typed.insert_many_non_atomic.user_1000	1085258032	1088089046	2831014	0.26	INSERT MANY Customer NON_ATOMIC x1000
+typed.insert_many_atomic.user_1000	868988660	871310625	2321965	0.27	INSERT MANY Customer ATOMIC x1000
+typed.insert_many_non_atomic.user_100	87559756	87769797	210041	0.24	INSERT MANY Customer NON_ATOMIC x100
+typed.insert_many_atomic.user_100	78375227	78582213	206986	0.26	INSERT MANY Customer ATOMIC x100
+typed.insert_many_atomic.user_10	7535849	7558649	22800	0.3	INSERT MANY Customer ATOMIC x10
+typed.insert_many_non_atomic.user_10	7670709	7693368	22659	0.3	INSERT MANY Customer NON_ATOMIC x10
+typed.update.user_single	1172550	1177215	4665	0.4	UPDATE Customer
+typed.insert.user_single	664437	666607	2170	0.33	INSERT Customer
+fluent.delete.user_order_id_limit1.count	1185275	1186885	1610	0.14	DELETE FROM Customer ORDER BY id LIMIT 1
+typed.dispatch.delete	1235585	1237144	1559	0.13	DELETE FROM Customer ORDER BY id LIMIT 1
+generated.dispatch.delete	1213597	1215102	1505	0.12	DELETE FROM Customer ORDER BY id LIMIT 1
+typed.dispatch.computed_projection.lower_name_limit2	473589	472289	-1300	-0.27	SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2
+generated.dispatch.computed_projection.lower_name_limit2	473957	472657	-1300	-0.27	SELECT LOWER(name) FROM Customer ORDER BY id LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.desc	1540611	1539478	-1133	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.desc	1518180	1517063	-1117	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+typed.execute_sql_grouped.user_age_count.having_empty	652040	653096	1056	0.16	SELECT age, COUNT(*) FROM Customer GROUP BY age HAVING COUNT(*) > 1000 ORDER BY age ASC LIMIT 10
+typed.execute_sql_grouped.user_age_count.limit2.second_page	654284	655321	1037	0.16	SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2
+typed.execute_sql_grouped.user_age_count.limit2.first_page	645167	646204	1037	0.16	SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2
+typed.execute_sql_grouped.user_age_count	615505	616542	1037	0.17	SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10
+fluent.paged.user_order_id_limit2.second_page	691177	690160	-1017	-0.15	SELECT * FROM Customer ORDER BY id LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.asc	1540216	1539246	-970	-0.06	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_strict_range_handle_limit2.asc	1519486	1518532	-954	-0.06	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_key_only_strict_range_tier_limit2.asc	1560781	1559847	-934	-0.06	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+generated.dispatch.primary_key_covering.user_id_limit1	336364	335445	-919	-0.27	SELECT id FROM Customer ORDER BY id ASC LIMIT 1
+generated.dispatch.customer_account_filtered_composite_expression_strict_like_handle_limit2.desc	1386404	1385486	-918	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.desc	1388064	1387146	-918	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_key_only_strict_range_tier_limit2.asc	1519296	1518386	-910	-0.06	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) >= 'br' AND LOWER(handle) < 'bs' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.dispatch.primary_key_covering.user_id_limit1	328853	327950	-903	-0.27	SELECT id FROM Customer ORDER BY id ASC LIMIT 1
+typed.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.desc	1369242	1368340	-902	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+generated.dispatch.customer_order_strict_range_name_limit2.desc	767161	767997	836	0.11	SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name DESC, id DESC LIMIT 2
+typed.dispatch.secondary_covering.user_name_strict_range_limit2.desc	712172	712977	805	0.11	SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2
+typed.dispatch.secondary_covering.user_name_strict_range_limit2.asc	706505	707308	803	0.11	SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2
+generated.dispatch.customer_order_strict_range_name_limit2.asc	756601	757402	801	0.11	SELECT id, name FROM CustomerOrder WHERE name >= 'A' AND name < 'B' ORDER BY name ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.desc	1191042	1190245	-797	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.desc	1178624	1177843	-781	-0.07	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_strict_like_handle_limit2.asc	1383595	1382840	-755	-0.05	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.asc	1385688	1384933	-755	-0.05	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_strict_range_name_limit1.asc	942046	942799	753	0.08	SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name ASC, id ASC LIMIT 1
+generated.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.asc	1193187	1192437	-750	-0.06	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.dispatch.secondary_covering.user_name_order_only_limit2.desc	493338	494080	742	0.15	SELECT id, name FROM Customer ORDER BY name DESC, id DESC LIMIT 2
+generated.dispatch.customer_order_strict_like_name_limit2.desc	640518	641259	741	0.12	SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name DESC, id DESC LIMIT 2
+generated.dispatch.customer_order_direct_starts_with_name_limit2.desc	642388	643129	741	0.12	SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name DESC, id DESC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_direct_starts_with_handle_limit2.asc	1366124	1365385	-739	-0.05	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_order_only_name_limit2.asc	653980	654715	735	0.11	SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_order_only_handle_limit2.asc	1176347	1175613	-734	-0.06	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.execute_sql_aggregate.user_min_age	704772	704043	-729	-0.1	SELECT MIN(age) FROM Customer
+typed.execute_sql_aggregate.user_max_age	708357	707628	-729	-0.1	SELECT MAX(age) FROM Customer
+generated.dispatch.customer_account_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc	1414157	1413438	-719	-0.05	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_order_only_name_limit2.desc	655145	655863	718	0.11	SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2
+fluent.paged.user_order_id_limit2.first_page	627945	627228	-717	-0.11	SELECT * FROM Customer ORDER BY id LIMIT 2
+generated.dispatch.customer_account_filtered_strict_like_name_limit1.asc	770330	771042	712	0.09	SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name ASC, id ASC LIMIT 1
+generated.dispatch.customer_account_filtered_direct_starts_with_name_limit1.asc	774217	774929	712	0.09	SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name ASC, id ASC LIMIT 1
+typed.dispatch.secondary_covering.user_name_order_only_limit2.asc	494139	494845	706	0.14	SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2
+generated.dispatch.customer_order_strict_like_name_limit2.asc	630594	631300	706	0.11	SELECT id, name FROM CustomerOrder WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 2
+generated.dispatch.customer_order_direct_starts_with_name_limit2.asc	631035	631741	706	0.11	SELECT id, name FROM CustomerOrder WHERE STARTS_WITH(name, 'A') ORDER BY name ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_key_only_direct_starts_with_tier_limit2.asc	1374655	1373960	-695	-0.05	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(LOWER(handle), 'br') ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+generated.dispatch.secondary_covering.user_name_strict_range_limit2.desc	707228	707917	689	0.1	SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name DESC, id DESC LIMIT 2
+generated.dispatch.secondary_covering.user_name_strict_range_limit2.asc	703510	704197	687	0.1	SELECT id, name FROM Customer WHERE name >= 'a' AND name < 'c' ORDER BY name ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_strict_range_name_limit1.desc	937351	937987	636	0.07	SELECT id, name FROM CustomerAccount WHERE active = true AND name >= 'br' AND name < 'bs' ORDER BY name DESC, id DESC LIMIT 1
+typed.dispatch.customer_order_order_only_composite.priority_status_id_limit2.asc	635718	636344	626	0.1	SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2
+generated.dispatch.secondary_covering.user_name_order_only_limit2.desc	488856	489482	626	0.13	SELECT id, name FROM Customer ORDER BY name DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_order_only_name_limit2.asc	650803	651422	619	0.1	SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name ASC, id ASC LIMIT 2
+generated.dispatch.customer_order_order_only_composite.priority_status_id_limit2.asc	632772	633390	618	0.1	SELECT id, priority, status FROM CustomerOrder ORDER BY priority ASC, status ASC, id ASC LIMIT 2
+typed.dispatch.customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.asc	951562	952174	612	0.06	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2
+typed.dispatch.predicate.upper_starts_with_name_limit2	715164	715774	610	0.09	SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2
+typed.dispatch.predicate.lower_starts_with_name_limit2	715132	715742	610	0.09	SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2
+generated.dispatch.predicate.upper_starts_with_name_limit2	715901	716511	610	0.09	SELECT id, name FROM Customer WHERE STARTS_WITH(UPPER(name), 'A') ORDER BY id LIMIT 2
+generated.dispatch.predicate.lower_starts_with_name_limit2	715869	716479	610	0.09	SELECT id, name FROM Customer WHERE STARTS_WITH(LOWER(name), 'a') ORDER BY id LIMIT 2
+generated.dispatch.customer_account_filtered_order_only_name_limit2.desc	651933	652535	602	0.09	SELECT id, name FROM CustomerAccount WHERE active = true ORDER BY name DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_strict_like_name_limit1.desc	771878	772473	595	0.08	SELECT id, name FROM CustomerAccount WHERE active = true AND name LIKE 'br%' ORDER BY name DESC, id DESC LIMIT 1
+generated.dispatch.customer_account_filtered_direct_starts_with_name_limit1.desc	771877	772472	595	0.08	SELECT id, name FROM CustomerAccount WHERE active = true AND STARTS_WITH(name, 'br') ORDER BY name DESC, id DESC LIMIT 1
+generated.dispatch.secondary_covering.user_name_order_only_limit2.asc	490448	491038	590	0.12	SELECT id, name FROM Customer ORDER BY name ASC, id ASC LIMIT 2
+typed.dispatch.customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.desc	953936	954491	555	0.06	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2
+typed.dispatch.customer_order_order_only_composite.priority_status_id_limit2.desc	639011	639538	527	0.08	SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2
+fluent.load.user_order_id_limit2	474807	474287	-520	-0.11	SELECT * FROM Customer ORDER BY id LIMIT 2
+generated.dispatch.customer_order_order_only_composite.priority_status_id_limit2.desc	636786	637305	519	0.08	SELECT id, priority, status FROM CustomerOrder ORDER BY priority DESC, status DESC, id DESC LIMIT 2
+typed.query_from_sql.execute.scalar_limit	521624	521115	-509	-0.1	SELECT * FROM Customer ORDER BY id LIMIT 2
+typed.execute_sql.scalar_limit	520290	519781	-509	-0.1	SELECT * FROM Customer ORDER BY id LIMIT 2
+typed.dispatch.customer_order_numeric_equality.priority_eq20_status_id_limit2.desc	687243	687747	504	0.07	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2
+typed.execute_sql_grouped.user_age_count.invalid_cursor	212897	213370	473	0.22	SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 2
+generated.dispatch.user_expression_order.lower_name_id_limit2.desc	703989	703517	-472	-0.07	SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2
+typed.dispatch.user_expression_order.lower_name_id_limit2.desc	703421	702959	-462	-0.07	SELECT id, name FROM Customer ORDER BY LOWER(name) DESC, id DESC LIMIT 2
+generated.dispatch.customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.asc	955252	955691	439	0.05	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status ASC, id ASC LIMIT 2
+typed.execute_sql_aggregate.user_count	199321	199753	432	0.22	SELECT COUNT(*) FROM Customer
+generated.dispatch.explain.grouped.user_age_count	218909	219338	429	0.2	EXPLAIN SELECT age, COUNT(*) FROM Customer GROUP BY age ORDER BY age ASC LIMIT 10
+fluent.paged.user_order_id_limit2.invalid_cursor	118915	119338	423	0.36	SELECT * FROM Customer ORDER BY id LIMIT 2
+typed.dispatch.predicate.starts_with_name_limit2	653456	653874	418	0.06	SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2
+generated.dispatch.predicate.starts_with_name_limit2	654044	654462	418	0.06	SELECT id, name FROM Customer WHERE STARTS_WITH(name, 'a') ORDER BY id LIMIT 2
+typed.dispatch.predicate.upper_strict_range_name_limit2	848970	849387	417	0.05	SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2
+typed.dispatch.predicate.lower_strict_range_name_limit2	848906	849323	417	0.05	SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2
+generated.dispatch.predicate.upper_strict_range_name_limit2	850353	850770	417	0.05	SELECT id, name FROM Customer WHERE UPPER(name) >= 'A' AND UPPER(name) < 'B' ORDER BY id LIMIT 2
+generated.dispatch.predicate.lower_strict_range_name_limit2	850289	850706	417	0.05	SELECT id, name FROM Customer WHERE LOWER(name) >= 'a' AND LOWER(name) < 'b' ORDER BY id LIMIT 2
+typed.dispatch.customer_account_filtered_composite_order_only_handle_limit2.asc	913667	914077	410	0.04	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_strict_range_handle_limit2.asc	1180371	1180780	409	0.03	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_order_only_handle_limit2.desc	917881	918289	408	0.04	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_strict_range_handle_limit2.desc	1182159	1182560	401	0.03	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle >= 'br' AND handle < 'bs' ORDER BY handle DESC, id DESC LIMIT 2
+generated.dispatch.user_expression_order.lower_name_id_limit2.asc	700519	700129	-390	-0.06	SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2
+generated.dispatch.customer_order_numeric_equality_bounded_status.priority_eq20_status_bd_limit2.desc	952964	953346	382	0.04	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 AND status >= 'B' AND status < 'D' ORDER BY status DESC, id DESC LIMIT 2
+typed.dispatch.user_expression_order.lower_name_id_limit2.asc	698881	698501	-380	-0.05	SELECT id, name FROM Customer ORDER BY LOWER(name) ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_strict_like_handle_limit2.asc	1007398	1007766	368	0.04	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_direct_starts_with_handle_limit2.asc	1009643	1010011	368	0.04	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_strict_like_handle_limit2.desc	1009581	1009941	360	0.04	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_direct_starts_with_handle_limit2.desc	1015543	1015903	360	0.04	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' AND STARTS_WITH(handle, 'br') ORDER BY handle DESC, id DESC LIMIT 2
+generated.dispatch.explain_delete	131546	131898	352	0.27	EXPLAIN DELETE FROM Customer ORDER BY id LIMIT 1
+generated.dispatch.explain.aggregate.user_count	113360	113696	336	0.3	EXPLAIN SELECT COUNT(*) FROM Customer
+typed.dispatch.customer_order_numeric_equality.priority_eq20_status_id_limit2.asc	650392	650724	332	0.05	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2
+generated.dispatch.explain.user_name_eq_limit	244257	244568	311	0.13	EXPLAIN SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1
+generated.dispatch.customer_account_filtered_composite_order_only_handle_limit2.asc	910340	910634	294	0.03	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_order_only_handle_limit2.desc	915033	915325	292	0.03	SELECT id, tier, handle FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY handle DESC, id DESC LIMIT 2
+fluent.aggregate.explain.customer.sum_by_age	122175	122467	292	0.24	FLUENT EXPLAIN Customer SUM BY age
+fluent.aggregate.explain.customer.min	126168	126460	292	0.23	FLUENT EXPLAIN Customer MIN
+fluent.aggregate.explain.customer.last	120850	121142	292	0.24	FLUENT EXPLAIN Customer LAST
+fluent.aggregate.explain.customer.exists	121792	122084	292	0.24	FLUENT EXPLAIN Customer EXISTS
+fluent.aggregate.explain.customer.avg_distinct_by_age	122750	123042	292	0.24	FLUENT EXPLAIN Customer AVG DISTINCT BY age
+fluent.aggregate.explain.customer.last_value_by_age	298697	298977	280	0.09	FLUENT EXPLAIN Customer LAST VALUE BY age
+fluent.aggregate.explain.customer.count_distinct_by_age	298727	299007	280	0.09	FLUENT EXPLAIN Customer COUNT DISTINCT BY age
+generated.dispatch.customer_order_numeric_equality.priority_eq20_status_id_limit2.desc	690199	690475	276	0.04	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status DESC, id DESC LIMIT 2
+generated.dispatch.projection.user_name_eq_limit	571269	571027	-242	-0.04	SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1
+typed.dispatch.projection.user_name_eq_limit	560667	560441	-226	-0.04	SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1
+generated.dispatch.customer_order_numeric_equality.priority_eq20_status_id_limit2.asc	649726	649942	216	0.03	SELECT id, priority, status FROM CustomerOrder WHERE priority = 20 ORDER BY status ASC, id ASC LIMIT 2
+generated.dispatch.projection.user_name_eq_limit.desc	582361	582172	-189	-0.03	SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1
+typed.dispatch.projection.user_name_eq_limit.desc	572291	572118	-173	-0.03	SELECT id, name FROM Customer WHERE name = 'alice' ORDER BY id DESC LIMIT 1
+fluent.load.user_name_eq_limit1	564927	565100	173	0.03	SELECT * FROM Customer WHERE name = 'alice' ORDER BY id LIMIT 1
+generated.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.desc	1004066	1003945	-121	-0.01	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.desc	988284	988175	-109	-0.01	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) DESC, id DESC LIMIT 2
+generated.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.asc	1001737	1001663	-74	-0.01	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.dispatch.customer_account_filtered_composite_expression_key_only_order_only_tier_limit2.asc	985772	985710	-62	-0.01	SELECT id, tier FROM CustomerAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 2
+typed.execute_sql_aggregate.user_count_age	424133	424072	-61	-0.01	SELECT COUNT(age) FROM Customer
+typed.execute_sql_aggregate.user_sum_age	431437	431381	-56	-0.01	SELECT SUM(age) FROM Customer
+typed.execute_sql_aggregate.user_avg_age	433879	433823	-56	-0.01	SELECT AVG(age) FROM Customer
+generated.dispatch.show_indexes.user	42062	42048	-14	-0.03	SHOW INDEXES Customer
+generated.dispatch.show_entities	23909	23909	0	0	SHOW ENTITIES
+generated.dispatch.show_columns.user	44885	44885	0	0	SHOW COLUMNS Customer
+generated.dispatch.describe.user	36855	36855	0	0	DESCRIBE Customer

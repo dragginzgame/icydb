@@ -6,14 +6,19 @@
 mod operators;
 mod scalar;
 
+#[cfg(test)]
+use crate::db::executor::projection::grouped::{
+    GroupedRowView, compile_grouped_projection_expr, eval_grouped_projection_expr,
+};
 use crate::{
-    db::{executor::projection::grouped::GroupedRowView, query::plan::expr::Expr},
+    db::query::plan::expr::Expr,
     error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
 use thiserror::Error as ThisError;
 
+pub(in crate::db::executor) use operators::{eval_binary_expr, eval_unary_expr};
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(any(test, feature = "sql"))]
@@ -173,58 +178,16 @@ pub(in crate::db::executor) fn eval_expr_with_required_value_reader(
 }
 
 /// Evaluate one projection expression against one grouped output row view.
+#[cfg(test)]
 pub(in crate::db::executor) fn eval_expr_grouped(
     expr: &Expr,
     grouped_row: &GroupedRowView<'_>,
 ) -> Result<Value, ProjectionEvalError> {
-    match expr {
-        Expr::Field(field_id) => {
-            let Some(group_field_offset) =
-                super::grouped::resolve_group_field_offset(grouped_row, field_id.as_str())
-            else {
-                return Err(ProjectionEvalError::UnknownField {
-                    field: field_id.as_str().to_string(),
-                });
-            };
-            let Some(value) = grouped_row.key_values.get(group_field_offset) else {
-                return Err(ProjectionEvalError::MissingFieldValue {
-                    field: field_id.as_str().to_string(),
-                    index: group_field_offset,
-                });
-            };
+    let compiled = compile_grouped_projection_expr(
+        expr,
+        grouped_row.group_fields,
+        grouped_row.aggregate_execution_specs,
+    )?;
 
-            Ok(value.clone())
-        }
-        Expr::Literal(value) => Ok(value.clone()),
-        Expr::Unary { op, expr } => {
-            let operand = eval_expr_grouped(expr.as_ref(), grouped_row)?;
-            operators::eval_unary_expr(*op, operand)
-        }
-        Expr::Binary { op, left, right } => {
-            let left_value = eval_expr_grouped(left.as_ref(), grouped_row)?;
-            let right_value = eval_expr_grouped(right.as_ref(), grouped_row)?;
-
-            operators::eval_binary_expr(*op, left_value, right_value)
-        }
-        Expr::Aggregate(aggregate_expr) => {
-            let Some(aggregate_index) =
-                super::grouped::resolve_grouped_aggregate_index(grouped_row, aggregate_expr)
-            else {
-                return Err(ProjectionEvalError::UnknownGroupedAggregateExpression {
-                    kind: format!("{:?}", aggregate_expr.kind()),
-                    target_field: aggregate_expr.target_field().map(str::to_string),
-                    distinct: aggregate_expr.is_distinct(),
-                });
-            };
-            let Some(value) = grouped_row.aggregate_values.get(aggregate_index) else {
-                return Err(ProjectionEvalError::MissingGroupedAggregateValue {
-                    aggregate_index,
-                    aggregate_count: grouped_row.aggregate_values.len(),
-                });
-            };
-
-            Ok(value.clone())
-        }
-        Expr::Alias { expr, .. } => eval_expr_grouped(expr.as_ref(), grouped_row),
-    }
+    eval_grouped_projection_expr(&compiled, grouped_row)
 }

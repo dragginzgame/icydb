@@ -117,11 +117,7 @@ impl HasTraits for Enum {
 
         // extra traits
         if self.is_unit_enum() {
-            traits.extend(vec![
-                TraitKind::Copy,
-                TraitKind::Hash,
-                TraitKind::PartialOrd,
-            ]);
+            traits.extend([TraitKind::Copy, TraitKind::Hash, TraitKind::PartialOrd]);
         }
 
         traits.into_vec()

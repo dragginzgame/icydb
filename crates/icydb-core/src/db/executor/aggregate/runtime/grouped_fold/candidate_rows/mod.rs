@@ -111,7 +111,10 @@ where
                 continue;
             }
 
-            if grouped_candidate_sink.push_candidate(group_key_value, vec![aggregate_value])? {
+            if grouped_candidate_sink.push_candidate_from_slice(
+                group_key_value,
+                std::slice::from_ref(&aggregate_value),
+            )? {
                 break;
             }
         }
@@ -163,11 +166,15 @@ fn collect_grouped_candidate_rows_from_finalized(
         .next()
         .ok_or_else(GroupedRouteStage::missing_primary_aggregate_iterator)?;
     let mut grouped_candidate_sink = GroupedCandidateSink::new(selection_bound, max_groups_bound);
+    let mut aggregate_values = Vec::with_capacity(aggregate_count);
     let mut selection_saturated = false;
 
     if limit.is_none_or(|limit| limit != 0) {
         for (group_key_value, primary_value) in primary_iter.by_ref() {
-            let mut aggregate_values = Vec::with_capacity(aggregate_count);
+            // Reuse one aggregate scratch buffer across groups so sibling
+            // alignment does not allocate a fresh `Vec` before HAVING/resume
+            // filters reject the row.
+            aggregate_values.clear();
             aggregate_values.push(primary_value);
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                 let (sibling_group_key, sibling_value) = sibling_iter.next().ok_or_else(|| {
@@ -204,7 +211,9 @@ fn collect_grouped_candidate_rows_from_finalized(
                 continue;
             }
 
-            if grouped_candidate_sink.push_candidate(group_key_value, aggregate_values)? {
+            if grouped_candidate_sink
+                .push_candidate_from_slice(group_key_value, aggregate_values.as_slice())?
+            {
                 selection_saturated = true;
                 break;
             }

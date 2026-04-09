@@ -7,16 +7,16 @@ use candid::{CandidType, Deserialize};
 use icydb::{
     Error,
     db::{
-        EntityAuthority, ExplainExecutionNodeDescriptor, PersistedRow, RowCheckMetrics,
-        SqlProjectionMaterializationMetrics, SqlStatementRoute, StructuralReadMetrics,
-        identifiers_tail_match,
+        EntityAuthority, ExplainExecutionNodeDescriptor, GroupedCountFoldMetrics, PersistedRow,
+        RowCheckMetrics, SqlProjectionMaterializationMetrics, SqlStatementRoute,
+        StructuralReadMetrics, identifiers_tail_match,
         query::Predicate,
         response::{
             PagedGroupedResponse, PagedResponse, Response, WriteBatchResponse, WriteResponse,
         },
         sql::SqlQueryResult,
-        with_row_check_metrics, with_sql_projection_materialization_metrics,
-        with_structural_read_metrics,
+        with_grouped_count_fold_metrics, with_row_check_metrics,
+        with_sql_projection_materialization_metrics, with_structural_read_metrics,
     },
     error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
     traits::{EntitySchema, EntityValue},
@@ -111,6 +111,7 @@ pub struct SqlPerfOutcome {
     pub structural_read_metrics: Option<SqlPerfStructuralReadMetrics>,
     pub projection_materialization_metrics: Option<SqlPerfProjectionMaterializationMetrics>,
     pub row_check_metrics: Option<SqlPerfRowCheckMetrics>,
+    pub grouped_count_fold_metrics: Option<SqlPerfGroupedCountFoldMetrics>,
 }
 
 //
@@ -202,6 +203,73 @@ pub struct SqlPerfRowCheckMetrics {
     pub row_presence_probe_borrowed_data_store_count: u64,
     pub row_presence_probe_store_handle_count: u64,
     pub row_presence_key_to_raw_encodes: u64,
+}
+
+//
+// SqlPerfGroupedCountFoldMetrics
+//
+// Compact dedicated grouped `COUNT(*)` fold metrics mirror attached to one
+// perf outcome. This keeps grouped perf triage focused on the executor-owned
+// grouped fold path without exposing unrelated runtime internals.
+//
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct SqlPerfGroupedCountFoldMetrics {
+    pub fold_stage_runs: u64,
+    pub rows_folded: u64,
+    pub borrowed_probe_rows: u64,
+    pub borrowed_hash_computations: u64,
+    pub owned_group_fallback_rows: u64,
+    pub owned_key_materializations: u64,
+    pub bucket_candidate_checks: u64,
+    pub existing_group_hits: u64,
+    pub new_group_inserts: u64,
+    pub finalize_stage_runs: u64,
+    pub finalized_group_count: u64,
+    pub window_rows_considered: u64,
+    pub having_rows_rejected: u64,
+    pub resume_boundary_rows_rejected: u64,
+    pub candidate_rows_qualified: u64,
+    pub bounded_selection_candidates_seen: u64,
+    pub bounded_selection_heap_replacements: u64,
+    pub bounded_selection_rows_sorted: u64,
+    pub unbounded_selection_rows_sorted: u64,
+    pub page_rows_skipped_for_offset: u64,
+    pub projection_rows_input: u64,
+    pub page_rows_emitted: u64,
+    pub cursor_construction_attempts: u64,
+    pub next_cursor_emitted: u64,
+}
+
+impl From<GroupedCountFoldMetrics> for SqlPerfGroupedCountFoldMetrics {
+    fn from(metrics: GroupedCountFoldMetrics) -> Self {
+        Self {
+            fold_stage_runs: metrics.fold_stage_runs,
+            rows_folded: metrics.rows_folded,
+            borrowed_probe_rows: metrics.borrowed_probe_rows,
+            borrowed_hash_computations: metrics.borrowed_hash_computations,
+            owned_group_fallback_rows: metrics.owned_group_fallback_rows,
+            owned_key_materializations: metrics.owned_key_materializations,
+            bucket_candidate_checks: metrics.bucket_candidate_checks,
+            existing_group_hits: metrics.existing_group_hits,
+            new_group_inserts: metrics.new_group_inserts,
+            finalize_stage_runs: metrics.finalize_stage_runs,
+            finalized_group_count: metrics.finalized_group_count,
+            window_rows_considered: metrics.window_rows_considered,
+            having_rows_rejected: metrics.having_rows_rejected,
+            resume_boundary_rows_rejected: metrics.resume_boundary_rows_rejected,
+            candidate_rows_qualified: metrics.candidate_rows_qualified,
+            bounded_selection_candidates_seen: metrics.bounded_selection_candidates_seen,
+            bounded_selection_heap_replacements: metrics.bounded_selection_heap_replacements,
+            bounded_selection_rows_sorted: metrics.bounded_selection_rows_sorted,
+            unbounded_selection_rows_sorted: metrics.unbounded_selection_rows_sorted,
+            page_rows_skipped_for_offset: metrics.page_rows_skipped_for_offset,
+            projection_rows_input: metrics.projection_rows_input,
+            page_rows_emitted: metrics.page_rows_emitted,
+            cursor_construction_attempts: metrics.cursor_construction_attempts,
+            next_cursor_emitted: metrics.next_cursor_emitted,
+        }
+    }
 }
 
 impl From<RowCheckMetrics> for SqlPerfRowCheckMetrics {
@@ -902,6 +970,7 @@ fn outcome_from_explain_execution_descriptor(
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1063,7 +1132,7 @@ fn measure_once(
         SqlPerfSurface::FluentDeletePerfCustomerCount => {
             measure_fluent_delete_perf_customer_count()
         }
-        SqlPerfSurface::TypedExecuteSqlGroupedCustomer => measure_surface_call(|| {
+        SqlPerfSurface::TypedExecuteSqlGroupedCustomer => measure_grouped_surface_call(|| {
             db().execute_sql_grouped::<Customer>(sql, cursor_token)
                 .map_or_else(outcome_from_error, outcome_from_grouped_response)
         }),
@@ -1140,6 +1209,24 @@ fn measure_surface_call(run: impl FnOnce() -> SqlPerfOutcome) -> (u64, SqlPerfOu
     (delta, outcome)
 }
 
+fn measure_grouped_surface_call(run: impl FnOnce() -> SqlPerfOutcome) -> (u64, SqlPerfOutcome) {
+    let start = read_local_instruction_counter();
+    let ((((outcome, structural_metrics), projection_metrics), row_check_metrics), grouped_metrics) =
+        with_grouped_count_fold_metrics(|| {
+            with_row_check_metrics(|| {
+                with_sql_projection_materialization_metrics(|| with_structural_read_metrics(run))
+            })
+        });
+    let delta = read_local_instruction_counter().saturating_sub(start);
+
+    let outcome = attach_structural_read_metrics(outcome, structural_metrics);
+    let outcome = attach_projection_materialization_metrics(outcome, projection_metrics);
+    let outcome = attach_row_check_metrics(outcome, row_check_metrics);
+    let outcome = attach_grouped_count_fold_metrics(outcome, grouped_metrics);
+
+    (delta, outcome)
+}
+
 fn attach_structural_read_metrics(
     mut outcome: SqlPerfOutcome,
     metrics: StructuralReadMetrics,
@@ -1163,6 +1250,22 @@ fn attach_row_check_metrics(
     metrics: RowCheckMetrics,
 ) -> SqlPerfOutcome {
     outcome.row_check_metrics = Some(metrics.into());
+
+    outcome
+}
+
+fn attach_grouped_count_fold_metrics(
+    mut outcome: SqlPerfOutcome,
+    metrics: GroupedCountFoldMetrics,
+) -> SqlPerfOutcome {
+    // Keep grouped fold observability absent on non-grouped surfaces so the
+    // perf harness does not pay a fixed wire-shaping cost for a metrics object
+    // that carries only zeroes.
+    if metrics == GroupedCountFoldMetrics::default() {
+        return outcome;
+    }
+
+    outcome.grouped_count_fold_metrics = Some(metrics.into());
 
     outcome
 }
@@ -1195,6 +1298,7 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             structural_read_metrics: None,
             projection_materialization_metrics: None,
             row_check_metrics: None,
+            grouped_count_fold_metrics: None,
         },
         SqlQueryResult::Explain { entity, explain } => SqlPerfOutcome {
             success: true,
@@ -1213,6 +1317,7 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             structural_read_metrics: None,
             projection_materialization_metrics: None,
             row_check_metrics: None,
+            grouped_count_fold_metrics: None,
         },
         SqlQueryResult::Describe(description) => SqlPerfOutcome {
             success: true,
@@ -1231,6 +1336,7 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             structural_read_metrics: None,
             projection_materialization_metrics: None,
             row_check_metrics: None,
+            grouped_count_fold_metrics: None,
         },
         SqlQueryResult::ShowIndexes { entity, indexes } => SqlPerfOutcome {
             success: true,
@@ -1246,6 +1352,7 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             structural_read_metrics: None,
             projection_materialization_metrics: None,
             row_check_metrics: None,
+            grouped_count_fold_metrics: None,
         },
         SqlQueryResult::ShowColumns { entity, columns } => SqlPerfOutcome {
             success: true,
@@ -1261,6 +1368,7 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             structural_read_metrics: None,
             projection_materialization_metrics: None,
             row_check_metrics: None,
+            grouped_count_fold_metrics: None,
         },
         SqlQueryResult::ShowEntities { entities } => SqlPerfOutcome {
             success: true,
@@ -1276,6 +1384,7 @@ fn outcome_from_sql_query_result(result: SqlQueryResult) -> SqlPerfOutcome {
             structural_read_metrics: None,
             projection_materialization_metrics: None,
             row_check_metrics: None,
+            grouped_count_fold_metrics: None,
         },
     }
 }
@@ -1295,6 +1404,7 @@ fn outcome_from_response(result: Response<Customer>) -> SqlPerfOutcome {
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1316,6 +1426,7 @@ fn outcome_from_paged_response(result: PagedResponse<Customer>) -> SqlPerfOutcom
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1337,6 +1448,7 @@ fn outcome_from_grouped_response(result: PagedGroupedResponse) -> SqlPerfOutcome
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1355,6 +1467,7 @@ fn outcome_from_value(result: Value) -> SqlPerfOutcome {
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1375,6 +1488,7 @@ fn outcome_from_write_response(result: WriteResponse<Customer>) -> SqlPerfOutcom
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1393,6 +1507,7 @@ fn outcome_from_write_batch_response(result: WriteBatchResponse<Customer>) -> Sq
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1411,6 +1526,7 @@ fn outcome_from_delete_count(row_count: u32) -> SqlPerfOutcome {
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }
 
@@ -1429,5 +1545,6 @@ fn outcome_from_error(err: Error) -> SqlPerfOutcome {
         structural_read_metrics: None,
         projection_materialization_metrics: None,
         row_check_metrics: None,
+        grouped_count_fold_metrics: None,
     }
 }

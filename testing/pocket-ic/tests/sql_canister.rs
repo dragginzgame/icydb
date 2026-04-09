@@ -8,7 +8,7 @@ use icydb_testing_integration::build_canister;
 use serde::Serialize;
 use std::{fs, sync::OnceLock};
 
-const INIT_CYCLES: u128 = 2_000_000_000_000;
+const INIT_CYCLES: u128 = 50_000_000_000_000;
 const ANY_PROJECTION_VALUE: &str = "<any>";
 const SQL_PERF_PROBE_SQL_ENV: &str = "ICYDB_SQL_PERF_PROBE_SQL";
 const SQL_PERF_PROBE_SURFACE_ENV: &str = "ICYDB_SQL_PERF_PROBE_SURFACE";
@@ -126,6 +126,12 @@ fn load_default_fixtures(pic: &Pic, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_load_default");
 }
 
+// Load the larger perf-audit fixture dataset and assert the update call
+// returned `Ok(())`.
+fn load_perf_audit_fixtures(pic: &Pic, canister_id: Principal) {
+    expect_unit_update_ok(pic, canister_id, "fixtures_load_perf_audit");
+}
+
 // Reset the default fixture dataset and assert the update call returned `Ok(())`.
 fn reset_fixtures(pic: &Pic, canister_id: Principal) {
     expect_unit_update_ok(pic, canister_id, "fixtures_reset");
@@ -192,6 +198,18 @@ fn run_with_loaded_fixture_canister(
 ) {
     run_with_fixture_canister(fixture_canister, |pic, canister_id| {
         load_default_fixtures(pic, canister_id);
+        test_body(pic, canister_id);
+    });
+}
+
+// Execute one integration test body against a fresh Pic with the larger
+// perf-audit fixture dataset loaded into the installed sql_parity canister.
+fn run_with_perf_fixture_canister(
+    fixture_canister: FixtureCanister,
+    test_body: impl FnOnce(&Pic, Principal),
+) {
+    run_with_fixture_canister(fixture_canister, |pic, canister_id| {
+        load_perf_audit_fixtures(pic, canister_id);
         test_body(pic, canister_id);
     });
 }
@@ -462,6 +480,7 @@ struct SqlPerfOutcome {
     structural_read_metrics: Option<SqlPerfStructuralReadMetrics>,
     projection_materialization_metrics: Option<SqlPerfProjectionMaterializationMetrics>,
     row_check_metrics: Option<SqlPerfRowCheckMetrics>,
+    grouped_count_fold_metrics: Option<SqlPerfGroupedCountFoldMetrics>,
 }
 
 #[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Serialize)]
@@ -499,6 +518,34 @@ struct SqlPerfRowCheckMetrics {
     row_presence_probe_borrowed_data_store_count: u64,
     row_presence_probe_store_handle_count: u64,
     row_presence_key_to_raw_encodes: u64,
+}
+
+#[derive(candid::CandidType, Clone, Debug, candid::Deserialize, Eq, PartialEq, Serialize)]
+struct SqlPerfGroupedCountFoldMetrics {
+    fold_stage_runs: u64,
+    rows_folded: u64,
+    borrowed_probe_rows: u64,
+    borrowed_hash_computations: u64,
+    owned_group_fallback_rows: u64,
+    owned_key_materializations: u64,
+    bucket_candidate_checks: u64,
+    existing_group_hits: u64,
+    new_group_inserts: u64,
+    finalize_stage_runs: u64,
+    finalized_group_count: u64,
+    window_rows_considered: u64,
+    having_rows_rejected: u64,
+    resume_boundary_rows_rejected: u64,
+    candidate_rows_qualified: u64,
+    bounded_selection_candidates_seen: u64,
+    bounded_selection_heap_replacements: u64,
+    bounded_selection_rows_sorted: u64,
+    unbounded_selection_rows_sorted: u64,
+    page_rows_skipped_for_offset: u64,
+    projection_rows_input: u64,
+    page_rows_emitted: u64,
+    cursor_construction_attempts: u64,
+    next_cursor_emitted: u64,
 }
 
 //
@@ -877,7 +924,7 @@ fn run_sql_perf_scenarios(pic: &Pic, scenarios: Vec<SqlPerfScenario>) -> Vec<Sql
             pic,
             perf_fixture_canister_for_sql(scenario.request.sql.as_str()),
         );
-        load_default_fixtures(pic, canister_id);
+        load_perf_audit_fixtures(pic, canister_id);
 
         let sample = sql_perf_sample(pic, canister_id, &scenario.request);
         assert_positive_perf_sample(scenario.scenario_key, &sample);
@@ -7614,6 +7661,61 @@ fn sql_canister_perf_harness_reports_positive_instruction_samples() {
                 },
             },
             SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_count",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_count.limit3.first_page",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 3"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_count.limit3.second_page",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomerSecondPage,
+                    sql:
+                        "SELECT name, COUNT(*) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 3"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_name_sum_age",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
+                scenario_key: "typed.execute_sql_grouped.user_age_count.filtered",
+                request: SqlPerfRequest {
+                    surface: SqlPerfSurface::TypedExecuteSqlGroupedCustomer,
+                    sql:
+                        "SELECT age, COUNT(*) FROM Customer WHERE age >= 36 GROUP BY age ORDER BY age ASC LIMIT 10"
+                            .to_string(),
+                    cursor_token: None,
+                    repeat_count: 5,
+                },
+            },
+            SqlPerfScenario {
                 scenario_key: "typed.execute_sql_aggregate.user_count",
                 request: SqlPerfRequest {
                     surface: SqlPerfSurface::TypedExecuteSqlAggregateCustomer,
@@ -9816,7 +9918,7 @@ fn sql_canister_perf_generated_dispatch_customer_order_strict_text_range_desc_re
 #[test]
 #[ignore = "manual perf probe for before/after measurement runs"]
 fn sql_canister_perf_probe_reports_sample_as_json() {
-    run_with_loaded_fixture_canister(sql_perf_probe_canister(), |pic, canister_id| {
+    run_with_perf_fixture_canister(sql_perf_probe_canister(), |pic, canister_id| {
         // Phase 1: resolve one repo-owned sample probe request from env so
         // before/after perf runs can reuse this checked-in harness instead of
         // ad hoc temp crates.
@@ -9867,7 +9969,7 @@ fn sql_canister_perf_operation_repeat_benchmarks_are_segregated() {
 #[test]
 #[ignore = "manual perf probe for before/after measurement runs"]
 fn sql_canister_perf_probe_reports_attribution_as_json() {
-    run_with_loaded_fixture_canister(sql_perf_probe_canister(), |pic, canister_id| {
+    run_with_perf_fixture_canister(sql_perf_probe_canister(), |pic, canister_id| {
         // Phase 1: resolve one repo-owned attribution probe request from env
         // so stage-by-stage before/after comparisons stay on the checked-in
         // checked-in canic-testkit-backed harness.

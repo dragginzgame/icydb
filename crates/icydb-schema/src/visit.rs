@@ -63,12 +63,16 @@ impl ValidateVisitor {
 
 impl ValidateVisitor {
     fn current_route(&self) -> String {
-        self.path
-            .iter()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(".")
+        let mut route = String::new();
+
+        for segment in self.path.iter().filter(|segment| !segment.is_empty()) {
+            if !route.is_empty() {
+                route.push('.');
+            }
+            route.push_str(segment);
+        }
+
+        route
     }
 }
 

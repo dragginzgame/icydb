@@ -52,13 +52,37 @@ impl GroupedCandidateSink {
         }
     }
 
+    // Enforce the grouped finalize invariant that candidate rows arrive in
+    // strictly increasing canonical grouped-key order.
+    fn ensure_canonical_append_order(
+        rows: &[(Value, Vec<Value>)],
+        group_key_value: &Value,
+    ) -> Result<(), InternalError> {
+        if let Some((last_group_key, _)) = rows.last() {
+            match canonical_value_compare(last_group_key, group_key_value) {
+                std::cmp::Ordering::Less => {}
+                std::cmp::Ordering::Equal => {
+                    return Err(Self::duplicate_canonical_group_key(group_key_value));
+                }
+                std::cmp::Ordering::Greater => {
+                    return Err(Self::out_of_order_canonical_group_key(
+                        last_group_key,
+                        group_key_value,
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     // Push one grouped candidate emitted in canonical grouped-key order.
     // Returns true when the bounded sink has filled its selection window and
     // the caller can stop consuming later finalized rows.
-    pub(super) fn push_candidate(
+    pub(super) fn push_candidate_from_slice(
         &mut self,
         group_key_value: Value,
-        aggregate_values: Vec<Value>,
+        aggregate_values: &[Value],
     ) -> Result<bool, InternalError> {
         match self {
             Self::Bounded {
@@ -68,24 +92,11 @@ impl GroupedCandidateSink {
                 // Finalized grouped rows already arrive in canonical order, so
                 // the bounded sink can append directly and stop once the page
                 // selection window is full.
-                if let Some((last_group_key, _)) = rows.last() {
-                    match canonical_value_compare(last_group_key, &group_key_value) {
-                        std::cmp::Ordering::Less => {}
-                        std::cmp::Ordering::Equal => {
-                            return Err(Self::duplicate_canonical_group_key(&group_key_value));
-                        }
-                        std::cmp::Ordering::Greater => {
-                            return Err(Self::out_of_order_canonical_group_key(
-                                last_group_key,
-                                &group_key_value,
-                            ));
-                        }
-                    }
-                }
+                Self::ensure_canonical_append_order(rows.as_slice(), &group_key_value)?;
                 if rows.len() >= *selection_bound {
                     return Ok(true);
                 }
-                rows.push((group_key_value, aggregate_values));
+                rows.push((group_key_value, aggregate_values.to_vec()));
                 debug_assert!(
                     rows.len() <= *selection_bound,
                     "bounded grouped candidate rows must stay <= selection_bound",
@@ -97,7 +108,8 @@ impl GroupedCandidateSink {
                 rows,
                 max_groups_bound,
             } => {
-                rows.push((group_key_value, aggregate_values));
+                Self::ensure_canonical_append_order(rows.as_slice(), &group_key_value)?;
+                rows.push((group_key_value, aggregate_values.to_vec()));
                 debug_assert!(
                     rows.len() <= *max_groups_bound,
                     "grouped candidate rows must stay bounded by max_groups",
@@ -106,6 +118,17 @@ impl GroupedCandidateSink {
                 Ok(false)
             }
         }
+    }
+
+    // Preserve the owned-Vec call shape for existing tests and callers that
+    // already hold owned aggregate payload buffers.
+    #[cfg(test)]
+    pub(super) fn push_candidate(
+        &mut self,
+        group_key_value: Value,
+        aggregate_values: Vec<Value>,
+    ) -> Result<bool, InternalError> {
+        self.push_candidate_from_slice(group_key_value, aggregate_values.as_slice())
     }
 
     pub(super) fn into_rows(self) -> Vec<(Value, Vec<Value>)> {
@@ -122,10 +145,9 @@ impl GroupedCandidateSink {
                 rows
             }
             Self::Unbounded {
-                mut rows,
+                rows,
                 max_groups_bound,
             } => {
-                rows.sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
                 debug_assert!(
                     rows.len() <= max_groups_bound,
                     "grouped candidate rows must remain bounded by max_groups",
@@ -189,6 +211,42 @@ mod tests {
             err.display_with_class()
                 .contains("out-of-order canonical group keys"),
             "bounded grouped candidate sink should fail with the sorted-input invariant message",
+        );
+    }
+
+    #[test]
+    fn unbounded_grouped_candidate_sink_preserves_canonical_append_order() {
+        let mut sink = GroupedCandidateSink::new(None, 8);
+        sink.push_candidate(Value::Uint(1), vec![Value::Uint(10)])
+            .expect("first unbounded grouped candidate should fit");
+        sink.push_candidate(Value::Uint(2), vec![Value::Uint(20)])
+            .expect("second unbounded grouped candidate should fit");
+
+        let rows = sink.into_rows();
+        assert_eq!(
+            rows,
+            vec![
+                (Value::Uint(1), vec![Value::Uint(10)]),
+                (Value::Uint(2), vec![Value::Uint(20)]),
+            ],
+            "unbounded grouped candidate sink should keep upstream canonical order without resorting",
+        );
+    }
+
+    #[test]
+    fn unbounded_grouped_candidate_sink_rejects_out_of_order_keys() {
+        let mut sink = GroupedCandidateSink::new(None, 8);
+        sink.push_candidate(Value::Uint(2), vec![Value::Uint(20)])
+            .expect("first unbounded grouped candidate should fit");
+
+        let err = sink
+            .push_candidate(Value::Uint(1), vec![Value::Uint(10)])
+            .expect_err("out-of-order unbounded grouped candidate rows must fail");
+
+        assert!(
+            err.display_with_class()
+                .contains("out-of-order canonical group keys"),
+            "unbounded grouped candidate sink should fail with the sorted-input invariant message",
         );
     }
 }

@@ -31,17 +31,6 @@ enum RankedFieldDirection {
     Ascending,
 }
 
-impl RankedFieldDirection {
-    // Determine whether the candidate value outranks the current value under
-    // the selected direction contract.
-    const fn candidate_precedes(self, candidate_vs_current: Ordering) -> bool {
-        match self {
-            Self::Descending => matches!(candidate_vs_current, Ordering::Greater),
-            Self::Ascending => matches!(candidate_vs_current, Ordering::Less),
-        }
-    }
-}
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -89,7 +78,8 @@ where
 // Memory contract:
 // - Ranking is applied to the materialized effective response window only.
 // - Memory growth is bounded by the effective execute() response size.
-// - No streaming heap optimization is used in 0.29 by design.
+// - Selection uses a bounded nth-style window so ranking terminals do not
+//   maintain one fully sorted vector during candidate ingestion.
 fn rank_k_rows_from_materialized_structural(
     model: &'static EntityModel,
     rows: &[DataRow],
@@ -100,10 +90,10 @@ fn rank_k_rows_from_materialized_structural(
 ) -> Result<Vec<(DataRow, Value)>, InternalError> {
     let row_layout = RowLayout::from_model(model);
     let row_decoder = RowDecoder::structural();
-    let mut ordered_rows: Vec<(DataRow, Value)> = Vec::new();
+    let mut ranked_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: decode structural rows and compute one comparable target value
-    // per candidate before ranking order is updated.
+    // per candidate before ranking order is applied.
     for (data_key, raw_row) in rows {
         let row = row_decoder.decode(&row_layout, (data_key.clone(), raw_row.clone()))?;
         let value = extract_orderable_field_value_with_slot_reader(
@@ -112,32 +102,202 @@ fn rank_k_rows_from_materialized_structural(
             &mut |index| row.slot(index),
         )
         .map_err(AggregateFieldValueError::into_internal_error)?;
-
-        // Phase 2: insert the candidate into deterministic `(value, pk)` order.
-        let mut insert_index = ordered_rows.len();
-        for (index, ((current_key, _), current_value)) in ordered_rows.iter().enumerate() {
-            let ordering = compare_orderable_field_values_with_slot(
-                target_field,
-                field_slot,
-                &value,
-                current_value,
-            )
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-            let outranks_current = direction.candidate_precedes(ordering);
-            let tie_breaks_by_pk = ordering == Ordering::Equal && data_key < current_key;
-            if outranks_current || tie_breaks_by_pk {
-                insert_index = index;
-                break;
-            }
-        }
-        ordered_rows.insert(insert_index, ((data_key.clone(), raw_row.clone()), value));
+        ranked_rows.push(((data_key.clone(), raw_row.clone()), value));
     }
 
-    // Phase 3: truncate to the requested top/bottom-k boundary.
+    // Phase 2: validate the comparable value domain once, then retain only the
+    // requested bounded ranking window before sorting that retained subset
+    // into final deterministic `(value, pk)` order.
+    apply_ranked_take_window(
+        target_field,
+        field_slot,
+        &mut ranked_rows,
+        take_count,
+        direction,
+    )
+    .map_err(AggregateFieldValueError::into_internal_error)?;
+
+    Ok(ranked_rows)
+}
+
+// Compare two ranked candidate keys and values under the deterministic
+// `(field_value_direction, primary_key_asc)` terminal contract.
+fn compare_ranked_keys_and_values<K>(
+    target_field: &str,
+    field_slot: FieldSlot,
+    left_key: &K,
+    left_value: &Value,
+    right_key: &K,
+    right_value: &Value,
+    direction: RankedFieldDirection,
+) -> Result<Ordering, AggregateFieldValueError>
+where
+    K: Ord,
+{
+    let value_ordering = compare_orderable_field_values_with_slot(
+        target_field,
+        field_slot,
+        left_value,
+        right_value,
+    )?;
+    let ranking_ordering = match direction {
+        RankedFieldDirection::Descending => value_ordering.reverse(),
+        RankedFieldDirection::Ascending => value_ordering,
+    };
+    if ranking_ordering != Ordering::Equal {
+        return Ok(ranking_ordering);
+    }
+
+    Ok(left_key.cmp(right_key))
+}
+
+// Compare two ranked row candidates after comparable-value validation has
+// already admitted the candidate set into one shared ordering domain.
+fn compare_ranked_rows_infallible<K, R>(
+    target_field: &str,
+    field_slot: FieldSlot,
+    left: &((K, R), Value),
+    right: &((K, R), Value),
+    direction: RankedFieldDirection,
+) -> Ordering
+where
+    K: Ord,
+{
+    compare_ranked_keys_and_values(
+        target_field,
+        field_slot,
+        &left.0.0,
+        &left.1,
+        &right.0.0,
+        &right.1,
+        direction,
+    )
+    .expect("ranked candidates must be prevalidated before bounded selection and sort")
+}
+
+// Validate that every ranked value belongs to one comparable domain before
+// the nth-style selection path enters infallible comparator APIs.
+fn validate_ranked_value_domain<K, R>(
+    target_field: &str,
+    field_slot: FieldSlot,
+    ranked_rows: &[((K, R), Value)],
+) -> Result<(), AggregateFieldValueError>
+where
+    K: Ord,
+{
+    let Some(((_, _), first_value)) = ranked_rows.first() else {
+        return Ok(());
+    };
+
+    for ((_, _), value) in ranked_rows.iter().skip(1) {
+        compare_orderable_field_values_with_slot(target_field, field_slot, first_value, value)?;
+    }
+
+    Ok(())
+}
+
+// Retain only the requested top/bottom-k ranked rows using bounded selection,
+// then sort the retained window into final deterministic order.
+fn apply_ranked_take_window<K, R>(
+    target_field: &str,
+    field_slot: FieldSlot,
+    ranked_rows: &mut Vec<((K, R), Value)>,
+    take_count: u32,
+    direction: RankedFieldDirection,
+) -> Result<(), AggregateFieldValueError>
+where
+    K: Ord,
+{
+    validate_ranked_value_domain(target_field, field_slot, ranked_rows.as_slice())?;
+
     let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
-    if ordered_rows.len() > take_len {
-        ordered_rows.truncate(take_len);
+    if ranked_rows.len() > take_len && take_len > 0 {
+        ranked_rows.select_nth_unstable_by(take_len - 1, |left, right| {
+            compare_ranked_rows_infallible(target_field, field_slot, left, right, direction)
+        });
+        ranked_rows.truncate(take_len);
+    }
+    if take_len == 0 {
+        ranked_rows.clear();
+        return Ok(());
     }
 
-    Ok(ordered_rows)
+    ranked_rows.sort_by(|left, right| {
+        compare_ranked_rows_infallible(target_field, field_slot, left, right, direction)
+    });
+
+    Ok(())
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{RankedFieldDirection, apply_ranked_take_window, compare_ranked_keys_and_values};
+    use crate::db::executor::aggregate::field::FieldSlot;
+    use crate::{model::field::FieldKind, value::Value};
+    use std::cmp::Ordering;
+
+    fn uint_field_slot() -> FieldSlot {
+        FieldSlot {
+            index: 0,
+            kind: FieldKind::Uint,
+        }
+    }
+
+    #[test]
+    fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
+        let ordering = compare_ranked_keys_and_values(
+            "score",
+            uint_field_slot(),
+            &2_u64,
+            &Value::Uint(9),
+            &1_u64,
+            &Value::Uint(7),
+            RankedFieldDirection::Descending,
+        )
+        .expect("comparison");
+        assert_eq!(ordering, Ordering::Less);
+
+        let tie_break_ordering = compare_ranked_keys_and_values(
+            "score",
+            uint_field_slot(),
+            &1_u64,
+            &Value::Uint(7),
+            &2_u64,
+            &Value::Uint(7),
+            RankedFieldDirection::Descending,
+        )
+        .expect("comparison");
+        assert_eq!(tie_break_ordering, Ordering::Less);
+    }
+
+    #[test]
+    fn apply_ranked_take_window_keeps_smallest_bottom_k_in_final_order() {
+        let mut ranked_rows = vec![
+            ((4_u64, ()), Value::Uint(40)),
+            ((2_u64, ()), Value::Uint(20)),
+            ((3_u64, ()), Value::Uint(30)),
+            ((1_u64, ()), Value::Uint(10)),
+        ];
+
+        apply_ranked_take_window(
+            "score",
+            uint_field_slot(),
+            &mut ranked_rows,
+            2,
+            RankedFieldDirection::Ascending,
+        )
+        .expect("bounded ranking");
+
+        assert_eq!(
+            ranked_rows,
+            vec![
+                ((1_u64, ()), Value::Uint(10)),
+                ((2_u64, ()), Value::Uint(20))
+            ],
+        );
+    }
 }

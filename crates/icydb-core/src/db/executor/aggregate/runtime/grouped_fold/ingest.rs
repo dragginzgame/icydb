@@ -12,29 +12,14 @@ use crate::{
         executor::{
             KeyStreamLoopControl,
             aggregate::{ExecutionContext, FoldControl, GroupError, GroupedAggregateEngine},
-            group::{GroupKey, KeyCanonicalError},
+            group::{GroupKey, StableHash},
             pipeline::contracts::{GroupedRouteStage, GroupedStreamStage, RowView},
         },
+        query::plan::FieldSlot,
     },
     error::InternalError,
     value::Value,
 };
-
-///
-/// GroupedFoldRowInput
-///
-/// GroupedFoldRowInput carries the one decoded grouped row payload that every
-/// grouped reducer needs during one hot ingest step.
-/// Keeping these row-scoped values together avoids argument-list churn while
-/// preserving the existing grouped fold ownership boundary.
-///
-
-struct GroupedFoldRowInput<'a> {
-    canonical_group_value: &'a Value,
-    data_key: &'a DataKey,
-    group_key: &'a GroupKey,
-    row_view: &'a RowView,
-}
 
 // Ingest grouped source rows into aggregate reducers while preserving budget contracts.
 pub(super) fn fold_group_rows_into_engines(
@@ -61,13 +46,21 @@ pub(super) fn fold_group_rows_into_engines(
             return Ok(KeyStreamLoopControl::Emit);
         }
         filtered_rows = filtered_rows.saturating_add(1);
-        let group_values = row_view.group_values(route.group_fields())?;
-        let group_key = GroupKey::from_group_values(group_values)
-            .map_err(KeyCanonicalError::into_internal_error)?;
+        let borrowed_group_hash =
+            if super::supports_borrowed_group_probe(&row_view, route.group_fields())? {
+                Some(super::stable_hash_group_values_from_row_view(
+                    &row_view,
+                    route.group_fields(),
+                )?)
+            } else {
+                None
+            };
+        let mut owned_group_key = None;
         let row_input = GroupedFoldRowInput {
-            canonical_group_value: group_key.canonical_value(),
             data_key: &data_key,
-            group_key: &group_key,
+            group_fields: route.group_fields(),
+            borrowed_group_hash,
+            owned_group_key: &mut owned_group_key,
             row_view: &row_view,
         };
         fold_group_input_with_engines(
@@ -89,6 +82,62 @@ pub(super) fn fold_group_rows_into_engines(
     Ok((scanned_rows, filtered_rows))
 }
 
+///
+/// GroupedFoldRowInput
+///
+/// GroupedFoldRowInput carries the one decoded grouped row payload that every
+/// grouped reducer needs during one hot ingest step.
+/// The row-scoped borrowed probe plus lazy owned key keep generic grouped
+/// ingest aligned with the dedicated grouped-count fast path.
+///
+
+struct GroupedFoldRowInput<'a> {
+    data_key: &'a DataKey,
+    group_fields: &'a [FieldSlot],
+    borrowed_group_hash: Option<StableHash>,
+    owned_group_key: &'a mut Option<GroupKey>,
+    row_view: &'a RowView,
+}
+
+// Return true when one short-circuit canonical group value matches this row
+// without forcing owned grouped-key materialization on borrowed fast-path rows.
+fn short_circuit_keys_contains_row(
+    done_group_keys: &[Value],
+    row_view: &RowView,
+    group_fields: &[FieldSlot],
+    borrowed_group_hash: Option<StableHash>,
+    owned_group_key: &mut Option<GroupKey>,
+) -> Result<bool, InternalError> {
+    if borrowed_group_hash.is_some() {
+        for done_group_key in done_group_keys {
+            if super::canonical_group_value_matches_row_view(
+                done_group_key,
+                row_view,
+                group_fields,
+            )? {
+                return Ok(true);
+            }
+        }
+
+        return Ok(false);
+    }
+
+    let group_key = match owned_group_key {
+        Some(group_key) => group_key,
+        None => owned_group_key.insert(super::materialize_group_key_from_row_view(
+            row_view,
+            group_fields,
+        )?),
+    };
+    for done_group_key in done_group_keys {
+        if canonical_value_compare(done_group_key, group_key.canonical_value()) == Ordering::Equal {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 // Shared per-row grouped-engine ingest control flow.
 // Typed wrappers inject aggregate-engine ingestion while this helper owns
 // short-circuit key rejection and bounded tracking invariants.
@@ -99,6 +148,14 @@ fn fold_group_input_with_engines(
     grouped_engines: &mut [Box<dyn GroupedAggregateEngine>],
     row_input: GroupedFoldRowInput<'_>,
 ) -> Result<(), InternalError> {
+    let GroupedFoldRowInput {
+        data_key,
+        group_fields,
+        borrowed_group_hash,
+        owned_group_key,
+        row_view,
+    } = row_input;
+
     // Phase 1: specialize the common single-aggregate grouped shape so the
     // hot row-ingest loop avoids sibling-engine iteration and repeated bounds
     // checks when only one reducer exists.
@@ -108,16 +165,26 @@ fn fold_group_input_with_engines(
             max_groups_bound,
             grouped_execution_context,
             &mut grouped_engines[0],
-            row_input,
+            GroupedFoldRowInput {
+                data_key,
+                group_fields,
+                borrowed_group_hash,
+                owned_group_key,
+                row_view,
+            },
         );
     }
 
     // Phase 2: retain the generic multi-engine ingest path for grouped shapes
     // that need sibling reducer coordination.
     for (index, done_group_keys) in short_circuit_keys.iter_mut().enumerate() {
-        if done_group_keys.iter().any(|done| {
-            canonical_value_compare(done, row_input.canonical_group_value) == Ordering::Equal
-        }) {
+        if short_circuit_keys_contains_row(
+            done_group_keys,
+            row_view,
+            group_fields,
+            borrowed_group_hash,
+            owned_group_key,
+        )? {
             continue;
         }
 
@@ -132,13 +199,22 @@ fn fold_group_input_with_engines(
         let fold_control = engine
             .ingest(
                 grouped_execution_context,
-                row_input.data_key,
-                row_input.group_key,
-                row_input.row_view,
+                data_key,
+                row_view,
+                group_fields,
+                borrowed_group_hash,
+                owned_group_key,
             )
             .map_err(GroupError::into_internal_error)?;
         if matches!(fold_control, FoldControl::Break) {
-            done_group_keys.push(row_input.canonical_group_value.clone());
+            let canonical_group_value = owned_group_key
+                .get_or_insert(super::materialize_group_key_from_row_view(
+                    row_view,
+                    group_fields,
+                )?)
+                .canonical_value()
+                .clone();
+            done_group_keys.push(canonical_group_value);
             debug_assert!(
                 done_group_keys.len() <= max_groups_bound,
                 "grouped short-circuit key tracking must stay bounded by max_groups",
@@ -158,22 +234,43 @@ fn fold_group_input_single_engine(
     grouped_engine: &mut Box<dyn GroupedAggregateEngine>,
     row_input: GroupedFoldRowInput<'_>,
 ) -> Result<(), InternalError> {
-    if done_group_keys.iter().any(|done| {
-        canonical_value_compare(done, row_input.canonical_group_value) == Ordering::Equal
-    }) {
+    let GroupedFoldRowInput {
+        data_key,
+        group_fields,
+        borrowed_group_hash,
+        owned_group_key,
+        row_view,
+    } = row_input;
+
+    if short_circuit_keys_contains_row(
+        done_group_keys,
+        row_view,
+        group_fields,
+        borrowed_group_hash,
+        owned_group_key,
+    )? {
         return Ok(());
     }
 
     let fold_control = grouped_engine
         .ingest(
             grouped_execution_context,
-            row_input.data_key,
-            row_input.group_key,
-            row_input.row_view,
+            data_key,
+            row_view,
+            group_fields,
+            borrowed_group_hash,
+            owned_group_key,
         )
         .map_err(GroupError::into_internal_error)?;
     if matches!(fold_control, FoldControl::Break) {
-        done_group_keys.push(row_input.canonical_group_value.clone());
+        let canonical_group_value = owned_group_key
+            .get_or_insert(super::materialize_group_key_from_row_view(
+                row_view,
+                group_fields,
+            )?)
+            .canonical_value()
+            .clone();
+        done_group_keys.push(canonical_group_value);
         debug_assert!(
             done_group_keys.len() <= max_groups_bound,
             "grouped short-circuit key tracking must stay bounded by max_groups",

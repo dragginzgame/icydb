@@ -55,7 +55,7 @@ impl HasSchemaPart for List {
 impl HasTraits for List {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
-        traits.extend(vec![
+        traits.extend([
             TraitKind::Collection,
             TraitKind::Deref,
             TraitKind::DerefMut,
