@@ -21,7 +21,7 @@ use crate::{
                 ingest::fold_group_rows_into_engines, page_finalize::finalize_grouped_page,
             },
             aggregate::{
-                AggregateKind, ExecutionContext, GroupError, GroupedAggregateEngine,
+                ExecutionContext, GroupError, GroupedAggregateEngine,
                 runtime::{
                     grouped_distinct::{
                         GlobalDistinctFieldExecutionSpec, execute_global_distinct_field_aggregate,
@@ -111,8 +111,6 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     );
     let aggregate_count = route.projection_layout().aggregate_positions().len();
     let grouped_projection_spec = route.plan().projection_spec(route.entity_model());
-    let (grouped_engines, short_circuit_keys) =
-        build_grouped_engines(route, &grouped_execution_context)?;
 
     // Phase 2: route global DISTINCT grouped aggregates through their
     // dedicated grouped execution path when strategy permits it.
@@ -126,8 +124,8 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     }
 
     // Phase 2B: route the common grouped `COUNT(*)` shape through a dedicated
-    // fold/finalize path instead of the generic boxed grouped-engine stack.
-    if route_is_single_grouped_count(route) {
+    // fold/finalize path selected from the planner-owned grouped aggregate family.
+    if route.grouped_plan_strategy().is_single_count_rows() {
         return execute_single_grouped_count_fold_stage(
             route,
             &mut stream,
@@ -136,7 +134,12 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
         );
     }
 
-    // Phase 3: retain the canonical generic grouped reducer path for every
+    // Phase 3: initialize grouped engines only for the remaining grouped
+    // aggregate families that still use the canonical grouped reducer path.
+    let (grouped_engines, short_circuit_keys) =
+        build_grouped_engines(route, &grouped_execution_context)?;
+
+    // Phase 4: retain the canonical generic grouped reducer path for every
     // grouped aggregate shape that is not covered by a dedicated fast path.
     execute_generic_grouped_fold_stage(
         route,
@@ -145,18 +148,6 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
         (grouped_engines, short_circuit_keys, aggregate_count),
         max_groups_bound,
         &grouped_projection_spec,
-    )
-}
-
-// Detect the common grouped `COUNT(*)` shape so grouped execution can bypass
-// the generic boxed grouped-engine stack without widening grouped semantics.
-fn route_is_single_grouped_count(route: &GroupedRouteStage) -> bool {
-    matches!(
-        route.grouped_aggregate_exprs(),
-        [aggregate_expr]
-            if aggregate_expr.kind() == AggregateKind::Count
-                && aggregate_expr.target_field().is_none()
-                && !aggregate_expr.is_distinct()
     )
 }
 

@@ -15,7 +15,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
-            GroupedExecutionConfig, PlannedProjectionLayout,
+            GroupedExecutionConfig, GroupedPlanStrategy, PlannedProjectionLayout,
         },
     },
     error::InternalError,
@@ -49,6 +49,16 @@ impl GroupedRouteStage {
     pub(in crate::db::executor) fn aggregate_terminal_required() -> InternalError {
         InternalError::query_executor_invariant(
             "grouped execution requires at least one aggregate terminal",
+        )
+    }
+
+    /// Construct one grouped route invariant for grouped `COUNT(*)` plans that
+    /// were not diverted onto their dedicated grouped fast path before generic
+    /// grouped engine initialization.
+    pub(in crate::db::executor) fn count_rows_family_requires_dedicated_fold_path() -> InternalError
+    {
+        InternalError::query_executor_invariant(
+            "grouped COUNT(*) family must bypass generic grouped engine initialization",
         )
     }
 
@@ -126,6 +136,11 @@ impl GroupedRouteStage {
     /// Return planner-projected grouped execution configuration.
     pub(in crate::db::executor) const fn grouped_execution(&self) -> GroupedExecutionConfig {
         self.planner_payload.grouped_execution
+    }
+
+    /// Borrow planner-owned grouped execution strategy selection.
+    pub(in crate::db::executor) const fn grouped_plan_strategy(&self) -> GroupedPlanStrategy {
+        self.planner_payload.grouped_plan_strategy
     }
 
     /// Borrow grouped projection layout.

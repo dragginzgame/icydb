@@ -5,7 +5,7 @@
 
 use crate::db::{
     access::AccessPlan,
-    query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec},
+    query::plan::{AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, OrderSpec},
 };
 
 // Keep the raw grouped family selector internal so downstream code consumes the
@@ -16,6 +16,36 @@ use crate::db::{
 enum GroupedPlanFamily {
     HashGroup,
     OrderedGroup,
+}
+
+///
+/// GroupedPlanAggregateFamily
+///
+/// Planner-owned grouped aggregate-family profile.
+/// This is intentionally coarse: it captures which grouped aggregate family the
+/// planner admitted so runtime can select grouped execution paths without
+/// rebuilding family policy from raw aggregate expressions again.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedPlanAggregateFamily {
+    CountRowsOnly,
+    FieldTargetRows,
+    StorageKeyTerminals,
+    Mixed,
+}
+
+impl GroupedPlanAggregateFamily {
+    /// Return the stable planner-owned aggregate-family code.
+    #[must_use]
+    pub(crate) const fn code(self) -> &'static str {
+        match self {
+            Self::CountRowsOnly => "count_rows_only",
+            Self::FieldTargetRows => "field_target_rows",
+            Self::StorageKeyTerminals => "storage_key_terminals",
+            Self::Mixed => "mixed",
+        }
+    }
 }
 
 ///
@@ -61,24 +91,46 @@ impl GroupedPlanFallbackReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct GroupedPlanStrategy {
     family: GroupedPlanFamily,
+    aggregate_family: GroupedPlanAggregateFamily,
     fallback_reason: Option<GroupedPlanFallbackReason>,
 }
 
 impl GroupedPlanStrategy {
     /// Construct one hash-group planner strategy artifact with one planner-authored fallback reason.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn hash_group(reason: GroupedPlanFallbackReason) -> Self {
+        Self::hash_group_with_aggregate_family(reason, GroupedPlanAggregateFamily::CountRowsOnly)
+    }
+
+    /// Construct one hash-group planner strategy artifact with one explicit grouped aggregate-family profile.
+    #[must_use]
+    pub(crate) const fn hash_group_with_aggregate_family(
+        reason: GroupedPlanFallbackReason,
+        aggregate_family: GroupedPlanAggregateFamily,
+    ) -> Self {
         Self {
             family: GroupedPlanFamily::HashGroup,
+            aggregate_family,
             fallback_reason: Some(reason),
         }
     }
 
     /// Construct one ordered-group planner strategy artifact.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn ordered_group() -> Self {
+        Self::ordered_group_with_aggregate_family(GroupedPlanAggregateFamily::CountRowsOnly)
+    }
+
+    /// Construct one ordered-group planner strategy artifact with one explicit grouped aggregate-family profile.
+    #[must_use]
+    pub(crate) const fn ordered_group_with_aggregate_family(
+        aggregate_family: GroupedPlanAggregateFamily,
+    ) -> Self {
         Self {
             family: GroupedPlanFamily::OrderedGroup,
+            aggregate_family,
             fallback_reason: None,
         }
     }
@@ -95,6 +147,21 @@ impl GroupedPlanStrategy {
         self.is_ordered_group()
     }
 
+    /// Return the planner-owned grouped aggregate-family profile.
+    #[must_use]
+    pub(crate) const fn aggregate_family(self) -> GroupedPlanAggregateFamily {
+        self.aggregate_family
+    }
+
+    /// Return whether the planner admitted the dedicated grouped `COUNT(*)` family.
+    #[must_use]
+    pub(crate) const fn is_single_count_rows(self) -> bool {
+        matches!(
+            self.aggregate_family,
+            GroupedPlanAggregateFamily::CountRowsOnly
+        )
+    }
+
     /// Return the stable planner-authored fallback reason when ordered grouped execution was not admitted.
     #[must_use]
     pub(crate) const fn fallback_reason(self) -> Option<GroupedPlanFallbackReason> {
@@ -109,26 +176,31 @@ pub(in crate::db) fn grouped_plan_strategy(
 ) -> Option<GroupedPlanStrategy> {
     // Phase 1: reject planner-level grouped shapes that cannot preserve ordered grouping semantics.
     let grouped = plan.grouped_plan()?;
+    let aggregate_family = grouped_plan_aggregate_family(grouped.group.aggregates.as_slice());
     if grouped.scalar.distinct {
-        return Some(GroupedPlanStrategy::hash_group(
+        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
             GroupedPlanFallbackReason::DistinctGroupingNotAdmitted,
+            aggregate_family,
         ));
     }
     if plan.has_residual_predicate() {
-        return Some(GroupedPlanStrategy::hash_group(
+        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
             GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder,
+            aggregate_family,
         ));
     }
     if !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice()) {
-        return Some(GroupedPlanStrategy::hash_group(
+        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
             GroupedPlanFallbackReason::AggregateStreamingNotSupported,
+            aggregate_family,
         ));
     }
     if !crate::db::query::plan::semantics::group_having::grouped_having_streaming_compatible(
         grouped.having.as_ref(),
     ) {
-        return Some(GroupedPlanStrategy::hash_group(
+        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
             GroupedPlanFallbackReason::HavingBlocksGroupedOrder,
+            aggregate_family,
         ));
     }
 
@@ -137,17 +209,60 @@ pub(in crate::db) fn grouped_plan_strategy(
         grouped.scalar.order.as_ref(),
         grouped.group.group_fields.as_slice(),
     ) {
-        return Some(GroupedPlanStrategy::hash_group(
+        return Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
             GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
+            aggregate_family,
         ));
     }
     if grouped_access_path_proves_group_order(grouped.group.group_fields.as_slice(), &plan.access) {
-        return Some(GroupedPlanStrategy::ordered_group());
+        return Some(GroupedPlanStrategy::ordered_group_with_aggregate_family(
+            aggregate_family,
+        ));
     }
 
-    Some(GroupedPlanStrategy::hash_group(
+    Some(GroupedPlanStrategy::hash_group_with_aggregate_family(
         GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
+        aggregate_family,
     ))
+}
+
+fn grouped_plan_aggregate_family(aggregates: &[GroupAggregateSpec]) -> GroupedPlanAggregateFamily {
+    if matches!(
+        aggregates,
+        [GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }]
+    ) {
+        return GroupedPlanAggregateFamily::CountRowsOnly;
+    }
+
+    if aggregates.iter().all(|aggregate| {
+        aggregate.target_field().is_some()
+            && matches!(
+                aggregate.kind(),
+                AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+            )
+    }) {
+        return GroupedPlanAggregateFamily::FieldTargetRows;
+    }
+
+    if aggregates.iter().all(|aggregate| {
+        aggregate.target_field().is_none()
+            && matches!(
+                aggregate.kind(),
+                AggregateKind::Exists
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::First
+                    | AggregateKind::Last
+            )
+    }) {
+        return GroupedPlanAggregateFamily::StorageKeyTerminals;
+    }
+
+    GroupedPlanAggregateFamily::Mixed
 }
 
 fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {

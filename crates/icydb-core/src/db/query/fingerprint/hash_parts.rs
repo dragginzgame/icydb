@@ -955,6 +955,8 @@ fn hash_grouped_plan_strategy(hasher: &mut Sha256, strategy: GroupedPlanStrategy
     } else {
         write_tag(hasher, GROUPING_STRATEGY_HASH_TAG);
     }
+
+    write_str(hasher, strategy.aggregate_family().code());
 }
 
 ///

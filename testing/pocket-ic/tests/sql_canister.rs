@@ -590,6 +590,58 @@ fn sql_perf_attribution_sample(
     response.expect("sql_perf_attribution should succeed for integration scenario")
 }
 
+// Lock grouped continuation behavior for one typed grouped SQL window across
+// the initial page, first paged window, and resumed second page.
+fn assert_grouped_window_attribution(
+    pic: &Pic,
+    canister_id: Principal,
+    sql_full_page: &str,
+    sql_windowed: &str,
+    context: &str,
+) {
+    let full_page = sql_perf_attribution_sample(
+        pic,
+        canister_id,
+        &SqlPerfAttributionRequest {
+            surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
+            sql: sql_full_page.to_string(),
+            cursor_token: None,
+        },
+    );
+    assert!(
+        full_page.outcome.success && full_page.outcome.has_cursor == Some(false),
+        "{context}: grouped full-page attribution must stay successful without emitting a cursor: {full_page:?}",
+    );
+
+    let first_page = sql_perf_attribution_sample(
+        pic,
+        canister_id,
+        &SqlPerfAttributionRequest {
+            surface: SqlPerfAttributionSurface::TypedGroupedCustomer,
+            sql: sql_windowed.to_string(),
+            cursor_token: None,
+        },
+    );
+    assert!(
+        first_page.outcome.success && first_page.outcome.has_cursor == Some(true),
+        "{context}: grouped first-page attribution must stay successful and emit a cursor: {first_page:?}",
+    );
+
+    let second_page = sql_perf_attribution_sample(
+        pic,
+        canister_id,
+        &SqlPerfAttributionRequest {
+            surface: SqlPerfAttributionSurface::TypedGroupedCustomerSecondPage,
+            sql: sql_windowed.to_string(),
+            cursor_token: None,
+        },
+    );
+    assert!(
+        second_page.outcome.success && second_page.outcome.has_cursor == Some(false),
+        "{context}: grouped second-page attribution must stay successful without emitting a cursor: {second_page:?}",
+    );
+}
+
 fn optional_non_empty_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
@@ -10709,6 +10761,32 @@ fn sql_canister_perf_grouped_window_phase_attribution_reports_positive_stages() 
                 "second_page": second_page,
             }))
             .expect("grouped paged attribution samples should serialize to JSON")
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_grouped_sum_field_window_attribution_preserves_cursor_contract() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        assert_grouped_window_attribution(
+            pic,
+            canister_id,
+            "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2",
+            "SUM(field) grouped window attribution",
+        );
+    });
+}
+
+#[test]
+fn sql_canister_perf_grouped_avg_field_window_attribution_preserves_cursor_contract() {
+    run_with_loaded_sql_parity_canister(|pic, canister_id| {
+        assert_grouped_window_attribution(
+            pic,
+            canister_id,
+            "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 10",
+            "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2",
+            "AVG(field) grouped window attribution",
         );
     });
 }

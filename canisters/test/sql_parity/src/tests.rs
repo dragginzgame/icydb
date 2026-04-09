@@ -8,7 +8,7 @@ mod tests {
     };
     use candid::encode_one;
     use icydb::{
-        db::PersistedRow,
+        db::{PersistedRow, response::PagedGroupedResponse},
         error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
         traits::EntityValue,
         types::Decimal,
@@ -119,10 +119,27 @@ mod tests {
     where
         E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
     {
+        grouped_page_rows(&typed_grouped_page_for_sql_as::<E>(sql, None))
+    }
+
+    // Execute one grouped SQL statement through the typed grouped lane with an
+    // optional continuation cursor so tests can lock grouped window behavior.
+    fn typed_grouped_page_for_sql_as<E>(
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> PagedGroupedResponse
+    where
+        E: PersistedRow<Canister = SqlParityCanister> + EntityValue,
+    {
         test_db()
-            .execute_sql_grouped::<E>(sql, None)
+            .execute_sql_grouped::<E>(sql, cursor_token)
             .expect("typed execute_sql_grouped should succeed")
-            .items()
+    }
+
+    // Project one grouped response page into one stable `(group_key, aggregate)`
+    // comparison shape.
+    fn grouped_page_rows(page: &PagedGroupedResponse) -> Vec<(Value, Value)> {
+        page.items()
             .iter()
             .map(|row| (row.group_key()[0].clone(), row.aggregate_values()[0].clone()))
             .collect::<Vec<_>>()
@@ -4077,6 +4094,90 @@ mod tests {
                 Value::Decimal(Decimal::from(31_u64)),
             )],
             "typed execute_sql_grouped should preserve grouped-key order for the admitted filtered Customer AVG(field) grouped cohort",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_sum_age_by_name_limit_window_emits_cursor_and_resumes_next_page(
+    ) {
+        reload_default_fixtures();
+
+        let sql = "SELECT name, SUM(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2";
+        let first_page = typed_grouped_page_for_sql_as::<Customer>(sql, None);
+        let first_cursor = first_page
+            .next_cursor()
+            .expect("first grouped SUM(field) page should emit continuation cursor")
+            .to_string();
+
+        assert_eq!(
+            grouped_page_rows(&first_page),
+            vec![
+                (
+                    Value::Text("alice".to_string()),
+                    Value::Decimal(Decimal::from(31_u64)),
+                ),
+                (
+                    Value::Text("bob".to_string()),
+                    Value::Decimal(Decimal::from(24_u64)),
+                ),
+            ],
+            "typed execute_sql_grouped should preserve ordered grouped SUM(field) rows on the first page",
+        );
+
+        let second_page = typed_grouped_page_for_sql_as::<Customer>(sql, Some(first_cursor.as_str()));
+        assert!(
+            second_page.next_cursor().is_none(),
+            "last grouped SUM(field) page should not emit continuation cursor",
+        );
+        assert_eq!(
+            grouped_page_rows(&second_page),
+            vec![(
+                Value::Text("charlie".to_string()),
+                Value::Decimal(Decimal::from(43_u64)),
+            )],
+            "typed execute_sql_grouped should resume grouped SUM(field) pagination from the continuation cursor",
+        );
+    }
+
+    #[test]
+    fn typed_execute_sql_grouped_customer_avg_age_by_name_limit_window_emits_cursor_and_resumes_next_page(
+    ) {
+        reload_default_fixtures();
+
+        let sql = "SELECT name, AVG(age) FROM Customer GROUP BY name ORDER BY name ASC LIMIT 2";
+        let first_page = typed_grouped_page_for_sql_as::<Customer>(sql, None);
+        let first_cursor = first_page
+            .next_cursor()
+            .expect("first grouped AVG(field) page should emit continuation cursor")
+            .to_string();
+
+        assert_eq!(
+            grouped_page_rows(&first_page),
+            vec![
+                (
+                    Value::Text("alice".to_string()),
+                    Value::Decimal(Decimal::from(31_u64)),
+                ),
+                (
+                    Value::Text("bob".to_string()),
+                    Value::Decimal(Decimal::from(24_u64)),
+                ),
+            ],
+            "typed execute_sql_grouped should preserve ordered grouped AVG(field) rows on the first page",
+        );
+
+        let second_page = typed_grouped_page_for_sql_as::<Customer>(sql, Some(first_cursor.as_str()));
+        assert!(
+            second_page.next_cursor().is_none(),
+            "last grouped AVG(field) page should not emit continuation cursor",
+        );
+        assert_eq!(
+            grouped_page_rows(&second_page),
+            vec![(
+                Value::Text("charlie".to_string()),
+                Value::Decimal(Decimal::from(43_u64)),
+            )],
+            "typed execute_sql_grouped should resume grouped AVG(field) pagination from the continuation cursor",
         );
     }
 

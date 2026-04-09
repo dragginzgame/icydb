@@ -45,6 +45,7 @@ where
             return Err(reason.into_grouped_route_internal_error());
         }
         let grouped_execution = grouped_handoff.execution();
+        let grouped_plan_strategy = grouped_handoff.grouped_plan_strategy();
         let group_fields = grouped_handoff.group_fields().to_vec();
         let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();
         let grouped_aggregate_execution_specs = grouped_aggregate_execution_specs_with_model(
@@ -62,7 +63,7 @@ where
         let grouped_route_plan = build_execution_route_plan_for_grouped_plan(
             authority.model(),
             grouped_handoff.base(),
-            grouped_handoff.grouped_plan_strategy(),
+            grouped_plan_strategy,
         );
         let grouped_route_observability =
             grouped_route_observability_for_runtime(&grouped_route_plan)?;
@@ -105,6 +106,7 @@ where
                 plan,
                 entity_model: authority.model(),
                 grouped_execution,
+                grouped_plan_strategy,
                 group_fields,
                 grouped_aggregate_execution_specs,
                 grouped_aggregate_exprs,

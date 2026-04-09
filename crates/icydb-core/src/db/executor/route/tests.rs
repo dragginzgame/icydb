@@ -40,8 +40,8 @@ use crate::{
             AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
             DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason,
             GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
-            GroupedExecutionConfig, GroupedPlanFallbackReason, GroupedPlanStrategy, OrderDirection,
-            OrderSpec, PageSpec, QueryMode,
+            GroupedExecutionConfig, GroupedPlanAggregateFamily, GroupedPlanFallbackReason,
+            GroupedPlanStrategy, OrderDirection, OrderSpec, PageSpec, QueryMode,
             expr::{FieldId, ProjectionSelection},
             grouped_executor_handoff, grouped_plan_strategy,
         },
@@ -2849,8 +2849,9 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
         assert_eq!(
             grouped_policy_snapshot(&grouped),
             (
-                GroupedPlanStrategy::hash_group(
+                GroupedPlanStrategy::hash_group_with_aggregate_family(
                     GroupedPlanFallbackReason::AggregateStreamingNotSupported,
+                    GroupedPlanAggregateFamily::FieldTargetRows,
                 ),
                 None,
                 GroupedExecutionStrategy::HashMaterialized,
@@ -3055,7 +3056,7 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
     let actual = grouped_aggregate_route_snapshot(&grouped);
     let expected = [
         "grouped=true".to_string(),
-        "planner_strategy=GroupedPlanStrategy { family: HashGroup, fallback_reason: Some(GroupKeyOrderUnavailable) }".to_string(),
+        "planner_strategy=GroupedPlanStrategy { family: HashGroup, aggregate_family: FieldTargetRows, fallback_reason: Some(GroupKeyOrderUnavailable) }".to_string(),
         "aggregate_contracts=[\"Avg:Some(\\\"rank\\\"):false\"]".to_string(),
         "route_strategy=AggregateGrouped".to_string(),
         "execution_mode=Materialized".to_string(),

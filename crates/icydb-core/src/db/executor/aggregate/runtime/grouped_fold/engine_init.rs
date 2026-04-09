@@ -4,13 +4,16 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::executor::{
-        aggregate::{
-            AggregateKind, ExecutionContext, GroupedAggregateEngine,
-            runtime::grouped_distinct::global_distinct_field_execution_spec,
+    db::{
+        executor::{
+            aggregate::{
+                AggregateKind, ExecutionContext, GroupedAggregateEngine,
+                runtime::grouped_distinct::global_distinct_field_execution_spec,
+            },
+            pipeline::contracts::GroupedRouteStage,
+            route::aggregate_materialized_fold_direction,
         },
-        pipeline::contracts::GroupedRouteStage,
-        route::aggregate_materialized_fold_direction,
+        query::plan::GroupedPlanAggregateFamily,
     },
     error::InternalError,
     value::Value,
@@ -24,6 +27,11 @@ pub(super) fn build_grouped_engines(
 ) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError> {
     if global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy()).is_some() {
         return Ok((Vec::new(), Vec::new()));
+    }
+
+    let grouped_plan_strategy = route.grouped_plan_strategy();
+    if grouped_plan_strategy.is_single_count_rows() {
+        return Err(GroupedRouteStage::count_rows_family_requires_dedicated_fold_path());
     }
 
     let grouped_engines = route
@@ -41,7 +49,16 @@ pub(super) fn build_grouped_engines(
                         aggregate_index,
                     )
                 })?;
-            if aggregate_spec.target_field().is_some()
+            let field_target_family_selected = matches!(
+                grouped_plan_strategy.aggregate_family(),
+                GroupedPlanAggregateFamily::FieldTargetRows
+            );
+            if aggregate_spec.target_field().is_some() && !field_target_family_selected {
+                return Err(GroupedRouteStage::field_target_aggregate_reached_executor(
+                    aggregate_spec.kind(),
+                ));
+            }
+            if field_target_family_selected
                 && !matches!(
                     aggregate_spec.kind(),
                     AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
